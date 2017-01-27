@@ -1,0 +1,9 @@
+[package]
+name = "landa"
+version = "0.1.0"
+authors = ["Fabian Schuiki <fschuiki@iis.ee.thz.ch>"]
+
+[dependencies]
+yaml-rust = "0.3.5"
+clap = "2.20.0"
+semver = "0.5.1"
