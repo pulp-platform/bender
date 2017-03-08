@@ -1,7 +1,5 @@
+// Copyright (c) 2017 ETH Zurich
 // Fabian Schuiki <fschuiki@iis.ee.ethz.ch>
-//
-// Copyright (C) 2017 ETH Zurich
-// All rights reserved.
 
 pub mod ipslist;
 pub mod srcfiles;
@@ -9,19 +7,21 @@ pub mod srcfiles;
 use yaml_rust::{Yaml, YamlLoader};
 use std::io::Read;
 use std::fs::File;
-use std::io::{Result, Error, ErrorKind};
 use std::path::Path;
+use errors::{Result, Error};
 
 
-fn yaml_from_file<P: AsRef<Path>>(path: P) -> Result<Yaml> {
+/// Read a YAML file.
+fn parse_yaml_file<P: AsRef<Path>>(path: P) -> Result<Vec<Yaml>> {
 	let mut content = String::new();
 	File::open(path)?.read_to_string(&mut content)?;
-	yaml_from_string(content)
+	parse_yaml_string(content).into()
 }
 
-fn yaml_from_string<S: AsRef<str>>(string: S) -> Result<Yaml> {
+/// Interpret a string as YAML input.
+fn parse_yaml_string<S: AsRef<str>>(string: S) -> Result<Vec<Yaml>> {
 	match YamlLoader::load_from_str(string.as_ref()) {
-		Ok(yaml) => Ok(yaml.into_iter().nth(0).unwrap()),
-		Err(e) => Err(Error::new(ErrorKind::Other, e)),
+		Ok(yamls) => Ok(yamls),
+		Err(e) => Err(Error::new(e).chain("YAML syntax error")),
 	}
 }

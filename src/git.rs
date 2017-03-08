@@ -1,7 +1,5 @@
+// Copyright (c) 2017 ETH Zurich
 // Fabian Schuiki <fschuiki@iis.ee.ethz.ch>
-//
-// Copyright (C) 2017 ETH Zurich
-// All rights reserved.
 
 //! This module provides an abstraction to work with Git repositories.
 

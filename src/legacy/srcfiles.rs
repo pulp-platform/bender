@@ -1,12 +1,11 @@
+// Copyright (c) 2017 ETH Zurich
 // Fabian Schuiki <fschuiki@iis.ee.ethz.ch>
-//
-// Copyright (C) 2017 ETH Zurich
-// All rights reserved.
 
 use yaml_rust::Yaml;
 use std::collections::{HashMap, HashSet};
-use std::io::{Result, Error, ErrorKind};
 use std::path::Path;
+use super::{parse_yaml_file, parse_yaml_string};
+use errors::{Result, Error};
 
 
 pub type SrcFiles = HashMap<String, SrcGroup>;
@@ -31,26 +30,28 @@ pub enum Flag {
 
 
 pub fn parse_file<P: AsRef<Path>>(path: P) -> Result<SrcFiles> {
-	parse_yaml(&super::yaml_from_file(path)?)
+	parse_yaml(parse_yaml_file(&path)?).map_err(|e| e.chain(format!("{}", path.as_ref().to_str().unwrap())))
 }
 
 
 pub fn parse_string<S: AsRef<str>>(string: S) -> Result<SrcFiles> {
-	parse_yaml(&super::yaml_from_string(string)?)
+	parse_yaml(parse_yaml_string(string)?)
 }
 
 
-pub fn parse_yaml(yaml: &Yaml) -> Result<SrcFiles> {
+pub fn parse_yaml(yamls: Vec<Yaml>) -> Result<SrcFiles> {
 	let mut groups = HashMap::new();
-	match *yaml {
-		Yaml::Hash(ref hash) => for (group_name, group) in hash {
-			let name = match group_name.as_str() {
-				Some(x) => x,
-				None => return Err(Error::new(ErrorKind::Other, format!("group name must be a string, got {:?} instead", group_name))),
-			};
-			groups.insert(name.into(), parse_src_files_group(group)?);
-		},
-		ref x => return Err(Error::new(ErrorKind::Other, format!("src_files.yml must be a dictionary, got {:?} instead", x)))
+	for yaml in yamls {
+		match yaml {
+			Yaml::Hash(ref hash) => for (group_name, group) in hash {
+				let name = match group_name.as_str() {
+					Some(x) => x,
+					None => return Err(format!("group name must be a string, got {:?} instead", group_name).into()),
+				};
+				groups.insert(name.into(), parse_src_files_group(group)?);
+			},
+			ref x => return Err("file is not a dictionary of key-value pairs".into())
+		}
 	}
 	Ok(groups)
 }

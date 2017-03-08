@@ -1,7 +1,5 @@
+// Copyright (c) 2017 ETH Zurich
 // Fabian Schuiki <fschuiki@iis.ee.ethz.ch>
-//
-// Copyright (C) 2017 ETH Zurich
-// All rights reserved.
 
 //! This module provides facilities for loading the package configuration of a
 //! directory from disk.
@@ -10,9 +8,10 @@ use semver::VersionReq;
 use legacy;
 use std::path::{Path, PathBuf};
 use git::Git;
-use std::io::{Read, Result, Error, ErrorKind};
+use std::io::Read;
 use std::fs::File;
 use std::collections::{HashMap, HashSet};
+use errors::{Result, Error};
 
 
 /// A single package and its configuration loaded from various files.
@@ -63,14 +62,19 @@ pub enum Tool {
 
 impl Package {
 	pub fn new<P: Into<PathBuf>, C: Into<Option<String>>>(path: P, commit: C) -> Result<Package> {
-		let mut any_content = false;
 		let path = path.into();
+		let commit = commit.into();
+		Self::new_inner(path.clone(), commit).map_err(|e| e.chain(path.to_str().unwrap()))
+	}
+
+	fn new_inner(path: PathBuf, commit: Option<String>) -> Result<Package> {
+		let mut any_content = false;
 		let mut deps = Vec::new();
 		let mut srcs = Vec::new();
 		let git = Git::new(&path);
 
 		// Parse the commit if one has been given.
-		let commit = match commit.into() {
+		let commit = match commit {
 			Some(rev) => Some(git.parse_rev(&rev)?),
 			None => None,
 		};
@@ -81,7 +85,8 @@ impl Package {
 		// targets.
 		if let Some(content) = read_file_if_exists(&git, "src_files.yml", commit.as_ref())? {
 			any_content = true;
-			let srcfiles = legacy::srcfiles::parse_string(content)?;
+			let srcfiles = legacy::srcfiles::parse_string(content)
+				.map_err(|e| e.chain(git.path().join("src_files.yml").to_str().unwrap()))?;
 			for (name, group) in srcfiles {
 				// Map the targets to inclusion criteria.
 				let mut include = HashSet::new();
@@ -126,14 +131,14 @@ impl Package {
 				});
 			}
 		}
-		println!("{:?}: {:?}", path, srcs);
 
 		// Load the legacy ips_list.yml file, which is intended to be placed in
 		// chip repositories. The file contains a list of dependencies, the
 		// commit to check out, as well as a domain specifier.
 		if let Some(content) = read_file_if_exists(&git, "ips_list.yml", commit.as_ref())? {
 			any_content = true;
-			let ipslist = legacy::ipslist::parse_string(content)?;
+			let ipslist = legacy::ipslist::parse_string(content)
+				.map_err(|e| e.chain(git.path().join("ips_list.yml").to_str().unwrap()))?;
 			for (name, ip) in ipslist {
 				let url = format!("git@iis-git.ee.ethz.ch:{}/{}.git", ip.group.unwrap_or("pulp-project".into()), ip.name);
 				deps.push(Dep {
@@ -146,7 +151,7 @@ impl Package {
 
 		// Emit an error if no configuration was found.
 		if !any_content {
-			Err(Error::new(ErrorKind::Other, "directory does not contain any configuration files"))
+			Err("directory does not contain any configuration files".into())
 		} else {
 			Ok(Package {
 				path: path,
@@ -195,18 +200,8 @@ fn read_file_if_exists<P: AsRef<str>, C: AsRef<str>>(git: &Git, path: P, commit:
 			// Assemble the file path.
 			let path = git.path().join(path.as_ref());
 			if path.exists() {
-				// Open the file.
-				let mut file = match File::open(path) {
-					Ok(x) => x,
-					Err(e) => return Err(e),
-				};
-
-				// Read the contents of the file into a string.
 				let mut content = String::new();
-				if let Err(e) = file.read_to_string(&mut content) {
-					return Err(e);
-				}
-
+				File::open(path)?.read_to_string(&mut content)?;
 				Ok(Some(content))
 			} else {
 				Ok(None)

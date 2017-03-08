@@ -1,7 +1,5 @@
+// Copyright (c) 2017 ETH Zurich
 // Fabian Schuiki <fschuiki@iis.ee.ethz.ch>
-//
-// Copyright (C) 2017 ETH Zurich
-// All rights reserved.
 
 #![allow(dead_code)]
 
@@ -10,20 +8,36 @@ extern crate yaml_rust;
 extern crate semver;
 
 #[macro_use]
-mod errors;
-mod legacy;
-mod package;
-mod resolve;
-mod git;
+pub mod errors;
+pub mod legacy;
+pub mod package;
+pub mod resolve;
+pub mod git;
+pub mod root;
 
 use clap::{Arg, App, SubCommand};
 use std::path::{Path, PathBuf};
-use package::*;
 use resolve::*;
+use root::Root;
+use errors::Result;
 
 
 
 fn main() {
+	match inner_main() {
+		Ok(()) => {
+			std::process::exit(0);
+		}
+		Err(e) => {
+			print_error!("{}", e);
+			std::process::exit(1);
+		}
+	}
+}
+
+
+fn inner_main() -> Result<()> {
+	// Parse the command line arguments.
 	let matches = App::new("landa")
 		.version("0.1.0")
 		.author("Fabian Schuiki <fschuiki@iis.ee.ethz.ch>")
@@ -39,9 +53,49 @@ fn main() {
 		)
 		.get_matches();
 
-	// Create the structure that represents the root repository where all the
-	// configuration files will be read from.
-	let root = Root::new(matches.value_of("dir").unwrap_or(""));
+
+	// Determine the root working directory, which has either been provided via
+	// the -d/--dir switch, or by searching upwards in the file system
+	// hierarchy.
+	let root_dir = match matches.value_of("dir") {
+		Some(d) => d.into(),
+		None => {
+			use std::os::unix::fs::MetadataExt;
+			let mut path = PathBuf::from("");
+			let limit_rdev = std::fs::metadata(path.join(".")).unwrap().dev();
+			loop {
+				let current = path.join(".");
+				let rdev = std::fs::metadata(&current).unwrap().dev();
+				if rdev != limit_rdev {
+					print_error!("unable to find package root; stopping at filesystem boundary {:?}", current.canonicalize().unwrap());
+					std::process::exit(1);
+				}
+
+				if current.canonicalize().unwrap() == Path::new("/") {
+					print_error!("unable to find package root; stopping at filesystem root \"/\"");
+					std::process::exit(1);
+				}
+
+				if path.join("ips_list.yml").exists() || path.join("src_files.yml").exists() || path.join("Landa.yml").exists() {
+					break;
+				} else {
+					path.push("..");
+				}
+			}
+			path
+		}
+	};
+
+
+	// Create an instance of the root structure which represents the root
+	// package within which the command was executed. This is where the top
+	// level configuration files will be read from.
+	let root = Root::new(root_dir)?;
+	println!("will investigate lock file {:?}", root.lock_file());
+	println!("root: {:#?}", root);
+
+	return Ok(());
+
 
 	// See which subcommand should be executed.
 	if let Some(matches) = matches.subcommand_matches("source-files") {
@@ -56,33 +110,6 @@ fn main() {
 	} else {
 		// Default action...
 	}
-}
 
-
-
-/// The root repository within which the tool was invoked. This is where the
-/// relevant configuration files (Landa.yml, ips_list.yml, src_files.yml) shall
-/// be searched.
-struct Root {
-	pkg: Package,
-}
-
-impl Root {
-	fn new<P: Into<PathBuf>>(path: P) -> Root {
-		Root {
-			pkg: Package::new(path, None).unwrap(),
-		}
-	}
-
-	fn path(&self) -> &Path {
-		self.pkg.path()
-	}
-
-	fn scratch_path(&self) -> PathBuf {
-		Path::new(self.path()).join(".landa")
-	}
-
-	fn package(&self) -> &Package {
-		&self.pkg
-	}
+	Ok(())
 }
