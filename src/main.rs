@@ -3,10 +3,16 @@
 
 #![allow(dead_code)]
 
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
+extern crate serde_yaml;
+
 extern crate clap;
 extern crate yaml_rust;
 extern crate semver;
 
+pub mod config;
 #[macro_use]
 pub mod errors;
 pub mod legacy;
@@ -85,6 +91,15 @@ fn inner_main() -> Result<()> {
 			path
 		}
 	};
+
+
+    // Parse the manifest file.
+    let manifest: config::Manifest = {
+        use std::fs::File;
+        let file = File::open(root_dir.join("Landa.yml"))?;
+        serde_yaml::from_reader(file)?
+    };
+    println!("Manifest: {:#?}", manifest);
 
 
 	// Create an instance of the root structure which represents the root
