@@ -12,6 +12,7 @@ extern crate clap;
 extern crate yaml_rust;
 extern crate semver;
 
+pub mod cli;
 pub mod config;
 #[macro_use]
 pub mod errors;
@@ -27,10 +28,8 @@ use resolve::*;
 use root::Root;
 use errors::Result;
 
-
-
 fn main() {
-	match inner_main() {
+	match cli::main() {
 		Ok(()) => {
 			std::process::exit(0);
 		}
