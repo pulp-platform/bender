@@ -34,7 +34,7 @@ macro_rules! debugln {
 /// Print debug information. Omitted in release builds.
 #[macro_export]
 #[cfg(not(debug_assertions))]
-macro_rules! print_debug {
+macro_rules! debugln {
     ($($arg:tt)*) => {}
 }
 

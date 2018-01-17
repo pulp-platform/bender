@@ -1,0 +1,12 @@
+test:
+  script:
+    - cargo test
+
+release:
+  script:
+    - cargo build --release
+
+doc:
+  script:
+    - cargo doc
+  allow_failure: true
