@@ -8,6 +8,7 @@ use clap::{App, Arg};
 use serde_yaml;
 use config::Manifest;
 use error::*;
+use sess::Session;
 
 /// Inner main function which can return an error.
 pub fn main() -> Result<()> {
@@ -37,7 +38,11 @@ pub fn main() -> Result<()> {
 
     // Parse the manifest file of the package.
     let manifest = read_manifest(&root_dir.join("Landa.yml"))?;
-    debugln!("main: manifest is {:#?}", manifest);
+    debugln!("main: {:#?}", manifest);
+
+    // Assemble the session.
+    let sess = Session::new(&root_dir, &manifest);
+    debugln!("main: {:#?}", sess);
 
     Ok(())
 }

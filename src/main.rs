@@ -16,6 +16,7 @@ pub mod error;
 pub mod util;
 pub mod cli;
 pub mod config;
+pub mod sess;
 
 fn main() {
 	match cli::main() {
