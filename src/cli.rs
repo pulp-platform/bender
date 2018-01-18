@@ -96,13 +96,18 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
 /// Read a package manifest from a file.
 fn read_manifest(path: &Path) -> Result<Manifest> {
     use std::fs::File;
+    use config::{PartialManifest, Validate};
     debugln!("read_manifest: {:?}", path);
     let file = File::open(path).map_err(|cause| Error::chain(
         format!("Cannot open manifest {:?}.", path),
         cause
     ))?;
-    serde_yaml::from_reader(file).map_err(|cause| Error::chain(
+    let partial: PartialManifest = serde_yaml::from_reader(file).map_err(|cause| Error::chain(
         format!("Syntax error in manifest {:?}.", path),
+        cause
+    ))?;
+    partial.validate().map_err(|cause| Error::chain(
+        format!("Error in manifest {:?}.", path),
         cause
     ))
 }
