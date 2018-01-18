@@ -13,6 +13,7 @@ extern crate semver;
 
 #[macro_use]
 pub mod error;
+pub mod util;
 pub mod cli;
 pub mod config;
 
