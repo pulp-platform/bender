@@ -5,8 +5,14 @@ test:
 release:
   script:
     - cargo build --release
+  artifacts:
+    paths:
+      - target/release/landa
 
 doc:
   script:
     - cargo doc
   allow_failure: true
+  artifacts:
+    paths:
+      - target/doc
