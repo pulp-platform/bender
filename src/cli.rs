@@ -3,10 +3,11 @@
 
 //! Main command line tool implementation.
 
+use std;
 use std::path::{Path, PathBuf};
 use clap::{App, Arg};
 use serde_yaml;
-use config::Manifest;
+use config::{Config, PartialConfig, Manifest, Merge, Validate};
 use error::*;
 use sess::Session;
 
@@ -40,8 +41,11 @@ pub fn main() -> Result<()> {
     let manifest = read_manifest(&root_dir.join("Landa.yml"))?;
     debugln!("main: {:#?}", manifest);
 
+    // Gather and parse the tool configuration.
+    let config = load_config(&root_dir)?;
+
     // Assemble the session.
-    let sess = Session::new(&root_dir, &manifest);
+    let sess = Session::new(&root_dir, &manifest, &config);
     debugln!("main: {:#?}", sess);
 
     Ok(())
@@ -101,7 +105,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
 /// Read a package manifest from a file.
 fn read_manifest(path: &Path) -> Result<Manifest> {
     use std::fs::File;
-    use config::{PartialManifest, Validate};
+    use config::PartialManifest;
     debugln!("read_manifest: {:?}", path);
     let file = File::open(path).map_err(|cause| Error::chain(
         format!("Cannot open manifest {:?}.", path),
@@ -115,4 +119,94 @@ fn read_manifest(path: &Path) -> Result<Manifest> {
         format!("Error in manifest {:?}.", path),
         cause
     ))
+}
+
+/// Load a configuration by traversing a directory hierarchy upwards.
+fn load_config(from: &Path) -> Result<Config> {
+    use std::fs::{canonicalize, metadata};
+    use std::os::unix::fs::MetadataExt;
+    let mut out = PartialConfig::new();
+
+    // Load the optional local configuration.
+    if let Some(cfg) = maybe_load_config(&from.join("Landa.local"))? {
+        out = out.merge(cfg);
+    }
+
+    // Canonicalize the path. This will resolve any intermediate links.
+    let mut path = canonicalize(from).map_err(|cause| Error::chain(
+        format!("Failed to canonicalize path {:?}.", from),
+        cause,
+    ))?;
+    debugln!("load_config: canonicalized to {:?}", path);
+
+    // Look up the device at the current path. This information will then be
+    // used to stop at filesystem boundaries.
+    let limit_rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
+    debugln!("load_config: limit rdev = {:?}", limit_rdev);
+
+    // Step upwards through the path hierarchy.
+    for _ in 0..100 {
+        debugln!("load_config: looking in {:?}", path);
+
+        if let Some(cfg) = maybe_load_config(&path.join(".landa.yml"))? {
+            out = out.merge(cfg);
+        }
+
+        // Abort if we have reached the filesystem root.
+        if !path.pop() {
+            break;
+        }
+
+        // Abort if we have crossed the filesystem boundary.
+        let rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
+        debugln!("load_config: rdev = {:?}", rdev);
+        if rdev != limit_rdev {
+            break;
+        }
+    }
+
+    // Load the user configuration.
+    if let Some(mut home) = std::env::home_dir() {
+        home.push(".config");
+        home.push("landa.yml");
+        if let Some(cfg) = maybe_load_config(&home)? {
+            out = out.merge(cfg);
+        }
+    }
+
+    // Load the global configuration.
+    if let Some(cfg) = maybe_load_config(Path::new("/etc/landa.yml"))? {
+        out = out.merge(cfg);
+    }
+
+    // Assemble and merge the default configuration.
+    let default_cfg = PartialConfig {
+        database: {
+            let mut db = std::env::home_dir().unwrap_or_else(|| from.into());
+            db.push(".landa");
+            Some(db)
+        },
+    };
+    out = out.merge(default_cfg);
+
+    // Validate the configuration.
+    out.validate().map_err(|cause| Error::chain("Invalid configuration:", cause))
+}
+
+/// Load a configuration file if it exists.
+fn maybe_load_config(path: &Path) -> Result<Option<PartialConfig>> {
+    use std::fs::File;
+    debugln!("maybe_load_config: {:?}", path);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let file = File::open(path).map_err(|cause| Error::chain(
+        format!("Cannot open config {:?}.", path),
+        cause
+    ))?;
+    let partial: PartialConfig = serde_yaml::from_reader(file).map_err(|cause| Error::chain(
+        format!("Syntax error in config {:?}.", path),
+        cause
+    ))?;
+    Ok(Some(partial))
 }

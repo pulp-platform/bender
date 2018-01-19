@@ -10,6 +10,7 @@
 
 use std;
 use std::str::FromStr;
+use std::path::PathBuf;
 use std::hash::Hash;
 use std::collections::HashMap;
 use semver::VersionReq;
@@ -98,7 +99,7 @@ pub struct PartialManifest {
     /// The package definition.
     pub package: Option<Package>,
     /// The dependencies.
-    pub dependencies: HashMap<String, StringOrStruct<PartialDependency>>,
+    pub dependencies: Option<HashMap<String, StringOrStruct<PartialDependency>>>,
 }
 
 impl Validate for PartialManifest {
@@ -109,10 +110,13 @@ impl Validate for PartialManifest {
             Some(p) => p,
             None => return Err(Error::new("Missing package information."))
         };
-        let deps = self.dependencies.validate().map_err(|(key,cause)| Error::chain(
-            format!("In dependency `{}` of package `{}`:", key, pkg.name),
-            cause
-        ))?;
+        let deps = match self.dependencies {
+            Some(d) => d.validate().map_err(|(key,cause)| Error::chain(
+                format!("In dependency `{}` of package `{}`:", key, pkg.name),
+                cause
+            ))?,
+            None => HashMap::new(),
+        };
         Ok(Manifest {
             package: pkg,
             dependencies: deps,
@@ -195,5 +199,58 @@ impl Validate for PartialDependency {
         } else {
             Err(Error::new("A dependency must specify `version`, `path`, or `git`."))
         }
+    }
+}
+
+/// Merges missing information from another struct.
+pub trait Merge {
+    /// Populate missing fields from `other`.
+    fn merge(self, other: Self) -> Self;
+}
+
+/// A configuration.
+///
+/// This struct encapsulates every setting of the tool that can be changed by
+/// the user by some means. It is constructed from a partial configuration.
+#[derive(Debug)]
+pub struct Config {
+    /// The path to the database directory.
+    pub database: PathBuf,
+}
+
+/// A partial configuration.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PartialConfig {
+    /// The path to the database directory.
+    pub database: Option<PathBuf>,
+}
+
+impl PartialConfig {
+    /// Create a new empty configuration.
+    pub fn new() -> PartialConfig {
+        PartialConfig {
+            database: None,
+        }
+    }
+}
+
+impl Merge for PartialConfig {
+    fn merge(self, other: PartialConfig) -> PartialConfig {
+        PartialConfig {
+            database: self.database.or(other.database)
+        }
+    }
+}
+
+impl Validate for PartialConfig {
+    type Output = Config;
+    type Error = Error;
+    fn validate(self) -> Result<Config> {
+        Ok(Config {
+            database: match self.database {
+                Some(db) => db,
+                None => return Err(Error::new("Database directory not configured")),
+            },
+        })
     }
 }

@@ -6,7 +6,7 @@
 #![deny(missing_docs)]
 
 use std::path::Path;
-use config::Manifest;
+use config::{Manifest, Config};
 
 /// A session on the command line.
 ///
@@ -18,14 +18,17 @@ pub struct Session<'ctx> {
     pub root: &'ctx Path,
     /// The manifest of the root package.
     pub manifest: &'ctx Manifest,
+    /// The tool configuration.
+    pub config: &'ctx Config,
 }
 
 impl<'ctx> Session<'ctx> {
     /// Create a new session.
-    pub fn new(root: &'ctx Path, manifest: &'ctx Manifest) -> Session<'ctx> {
+    pub fn new(root: &'ctx Path, manifest: &'ctx Manifest, config: &'ctx Config) -> Session<'ctx> {
         Session {
             root: root,
             manifest: manifest,
+            config: config,
         }
     }
 }
