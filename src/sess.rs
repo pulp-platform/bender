@@ -6,7 +6,8 @@
 #![deny(missing_docs)]
 
 use std::path::Path;
-use config::{Manifest, Config};
+use error::*;
+use config::{self, Manifest, Config};
 
 /// A session on the command line.
 ///
@@ -31,4 +32,22 @@ impl<'ctx> Session<'ctx> {
             config: config,
         }
     }
+
+    /// Load a dependency stated in a manifest for further inspection.
+    pub fn load_dependency(
+        &self,
+        name: &str,
+        cfg: &config::Dependency,
+        manifest: &config::Manifest
+    ) -> Result<DependencyRef> {
+        debugln!("sess: load dependency `{}` as {:?} for package `{}`", name, cfg, manifest.package.name);
+        Ok(DependencyRef(0))
+    }
 }
+
+/// A unique identifier for a dependency.
+///
+/// These are emitted by the session once a dependency is loaded and are used to
+/// uniquely identify dependencies.
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct DependencyRef(usize);

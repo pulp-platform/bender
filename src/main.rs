@@ -17,6 +17,7 @@ pub mod util;
 pub mod cli;
 pub mod config;
 pub mod sess;
+pub mod resolver;
 
 fn main() {
 	match cli::main() {

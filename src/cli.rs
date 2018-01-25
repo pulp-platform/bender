@@ -10,6 +10,7 @@ use serde_yaml;
 use config::{Config, PartialConfig, Manifest, Merge, Validate};
 use error::*;
 use sess::Session;
+use resolver::DependencyResolver;
 
 /// Inner main function which can return an error.
 pub fn main() -> Result<()> {
@@ -47,6 +48,10 @@ pub fn main() -> Result<()> {
     // Assemble the session.
     let sess = Session::new(&root_dir, &manifest, &config);
     debugln!("main: {:#?}", sess);
+
+    // Resolve the dependencies.
+    let res = DependencyResolver::new(&sess);
+    res.resolve()?;
 
     Ok(())
 }
