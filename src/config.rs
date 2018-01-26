@@ -51,7 +51,7 @@ pub enum Dependency {
     /// A local path dependency. The exact version of the dependency found at
     /// the given path will be used, regardless of any actual versioning
     /// constraints.
-    Path(String),
+    Path(PathBuf),
     /// A git dependency specified by a revision.
     GitRevision(String, String),
     /// A git dependency specified by a version requirement. Works similarly to
@@ -184,7 +184,7 @@ impl Validate for PartialDependency {
             ) {
                 Err(Error::new(format!("A `path` dependency cannot have a {} field.", list)))
             } else {
-                Ok(Dependency::Path(path))
+                Ok(Dependency::Path(path.into()))
             }
         } else if let Some(git) = self.git {
             if let Some(rev) = self.rev {

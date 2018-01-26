@@ -25,7 +25,8 @@ impl<'ctx> DependencyResolver<'ctx> {
     /// Resolve dependencies.
     pub fn resolve(self) -> Result<()> {
         for (name, dep) in &self.sess.manifest.dependencies {
-            self.sess.load_dependency(name, dep, self.sess.manifest)?;
+            let id = self.sess.load_dependency(name, dep, self.sess.manifest)?;
+            debugln!("resolver: {:?}", id);
         }
         Ok(())
     }

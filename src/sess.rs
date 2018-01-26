@@ -5,7 +5,9 @@
 
 #![deny(missing_docs)]
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, Arc};
 use error::*;
 use config::{self, Manifest, Config};
 
@@ -21,6 +23,8 @@ pub struct Session<'ctx> {
     pub manifest: &'ctx Manifest,
     /// The tool configuration.
     pub config: &'ctx Config,
+    /// The dependency table.
+    deps: Mutex<DependencyTable>,
 }
 
 impl<'ctx> Session<'ctx> {
@@ -30,10 +34,15 @@ impl<'ctx> Session<'ctx> {
             root: root,
             manifest: manifest,
             config: config,
+            deps: Mutex::new(DependencyTable::new()),
         }
     }
 
     /// Load a dependency stated in a manifest for further inspection.
+    ///
+    /// This internalizes the dependency and returns a lightweight reference to
+    /// it. This reference may then be used to further inspect the dependency
+    /// and perform resolution.
     pub fn load_dependency(
         &self,
         name: &str,
@@ -41,7 +50,25 @@ impl<'ctx> Session<'ctx> {
         manifest: &config::Manifest
     ) -> Result<DependencyRef> {
         debugln!("sess: load dependency `{}` as {:?} for package `{}`", name, cfg, manifest.package.name);
-        Ok(DependencyRef(0))
+        let src = match *cfg {
+            config::Dependency::Version(_) => DependencySource::Registry,
+            config::Dependency::Path(ref p) => DependencySource::Path(p.clone()),
+            config::Dependency::GitRevision(ref g, _) |
+            config::Dependency::GitVersion(ref g, _) => DependencySource::Git(g.clone()),
+        };
+        let entry = Arc::new(DependencyEntry {
+            name: name.into(),
+            source: src,
+        });
+        let mut deps = self.deps.lock().unwrap();
+        if let Some(&id) = deps.ids.get(&entry) {
+            Ok(id)
+        } else {
+            let id = DependencyRef(deps.list.len());
+            deps.list.push(entry.clone());
+            deps.ids.insert(entry, id);
+            Ok(id)
+        }
     }
 }
 
@@ -51,3 +78,37 @@ impl<'ctx> Session<'ctx> {
 /// uniquely identify dependencies.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct DependencyRef(usize);
+
+/// An entry in the session's dependency table.
+#[derive(PartialEq, Eq, Hash, Debug)]
+struct DependencyEntry {
+    /// The name of this dependency.
+    name: String,
+    /// Where this dependency may be obtained from.
+    source: DependencySource,
+}
+
+/// Where a dependency may be obtained from.
+#[derive(PartialEq, Eq, Hash, Debug)]
+enum DependencySource {
+    Registry,
+    Path(PathBuf),
+    Git(String),
+}
+
+/// A table of internalized dependencies.
+#[derive(Debug)]
+struct DependencyTable {
+    list: Vec<Arc<DependencyEntry>>,
+    ids: HashMap<Arc<DependencyEntry>, DependencyRef>,
+}
+
+impl DependencyTable {
+    /// Create a new dependency table.
+    pub fn new() -> DependencyTable {
+        DependencyTable {
+            list: Vec::new(),
+            ids: HashMap::new(),
+        }
+    }
+}
