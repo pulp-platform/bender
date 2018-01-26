@@ -5,6 +5,7 @@
 
 use std;
 use std::fmt;
+use std::sync::Arc;
 
 /// Print an error.
 #[macro_export]
@@ -41,8 +42,7 @@ macro_rules! debugln {
 /// Emit a diagnostic message.
 macro_rules! diagnostic {
     ($severity:expr; $($arg:tt)*) => {
-        eprint!("{} ", $severity);
-        eprintln!($($arg)*);
+        eprintln!("{} {}", $severity, format!($($arg)*));
     }
 }
 
@@ -75,7 +75,7 @@ pub struct Error {
     /// A formatted error message.
     pub msg: String,
     /// An optional underlying cause.
-    pub cause: Option<Box<std::error::Error>>,
+    pub cause: Option<Arc<std::error::Error + Send + Sync>>,
 }
 
 impl Error {
@@ -89,11 +89,11 @@ impl Error {
 
     /// Create a new error with cause.
     pub fn chain<S,E>(msg: S, cause: E) -> Error
-        where S: Into<String>, E: Into<Box<std::error::Error>>
+        where S: Into<String>, E: std::error::Error + Send + Sync + 'static
     {
         Error {
             msg: msg.into(),
-            cause: Some(cause.into()),
+            cause: Some(Arc::new(cause)),
         }
     }
 }

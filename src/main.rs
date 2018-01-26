@@ -11,6 +11,10 @@ extern crate serde_yaml;
 extern crate clap;
 extern crate semver;
 
+extern crate futures;
+extern crate futures_cpupool;
+
+
 #[macro_use]
 pub mod error;
 pub mod util;

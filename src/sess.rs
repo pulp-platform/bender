@@ -8,6 +8,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, Arc};
+
+use futures::Future;
+use futures_cpupool::CpuPool;
+
 use error::*;
 use config::{self, Manifest, Config};
 
@@ -23,6 +27,8 @@ pub struct Session<'ctx> {
     pub manifest: &'ctx Manifest,
     /// The tool configuration.
     pub config: &'ctx Config,
+    /// The thread pool which will execute tasks.
+    pool: CpuPool,
     /// The dependency table.
     deps: Mutex<DependencyTable>,
 }
@@ -34,6 +40,7 @@ impl<'ctx> Session<'ctx> {
             root: root,
             manifest: manifest,
             config: config,
+            pool: CpuPool::new_num_cpus(),
             deps: Mutex::new(DependencyTable::new()),
         }
     }
@@ -48,7 +55,7 @@ impl<'ctx> Session<'ctx> {
         name: &str,
         cfg: &config::Dependency,
         manifest: &config::Manifest
-    ) -> Result<DependencyRef> {
+    ) -> DependencyRef {
         debugln!("sess: load dependency `{}` as {:?} for package `{}`", name, cfg, manifest.package.name);
         let src = match *cfg {
             config::Dependency::Version(_) => DependencySource::Registry,
@@ -62,13 +69,23 @@ impl<'ctx> Session<'ctx> {
         });
         let mut deps = self.deps.lock().unwrap();
         if let Some(&id) = deps.ids.get(&entry) {
-            Ok(id)
+            debugln!("sess: reusing {:?}", id);
+            id
         } else {
             let id = DependencyRef(deps.list.len());
+            debugln!("sess: adding {:?} as {:?}", entry, id);
             deps.list.push(entry.clone());
             deps.ids.insert(entry, id);
-            Ok(id)
+            id
         }
+    }
+
+    /// Determine the available versions for a dependency.
+    pub fn dependency_versions(&self, dep: DependencyRef) -> Box<Future<Item=Vec<()>, Error=Error>> {
+        Box::new(self.pool.spawn_fn(move ||{
+            debugln!("sess: determining versions of {:?}", dep);
+            Ok(Vec::new())
+        }))
     }
 }
 

@@ -4,6 +4,7 @@
 //! A dependency resolver.
 
 use std::collections::{HashMap, HashSet};
+use futures::Future;
 use sess::Session;
 use error::*;
 
@@ -24,9 +25,15 @@ impl<'ctx> DependencyResolver<'ctx> {
 
     /// Resolve dependencies.
     pub fn resolve(self) -> Result<()> {
+        let mut v = Vec::new();
         for (name, dep) in &self.sess.manifest.dependencies {
-            let id = self.sess.load_dependency(name, dep, self.sess.manifest)?;
-            debugln!("resolver: {:?}", id);
+            let dep_id = self.sess.load_dependency(name, dep, self.sess.manifest);
+            let versions = self.sess.dependency_versions(dep_id);
+            v.push(versions);
+        }
+        debugln!("resolve: root dependencies internalized");
+        for a in v {
+            debugln!("resolve: versions {:?}", a.wait());
         }
         Ok(())
     }
