@@ -8,14 +8,15 @@ extern crate serde_derive;
 extern crate serde;
 extern crate serde_yaml;
 
-extern crate clap;
-extern crate semver;
-
 extern crate futures;
 extern crate futures_cpupool;
+extern crate tokio_core;
 extern crate tokio_process;
 
+extern crate clap;
+extern crate semver;
 extern crate blake2;
+extern crate typed_arena;
 
 #[macro_use]
 pub mod error;

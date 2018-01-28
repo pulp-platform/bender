@@ -162,7 +162,9 @@ dependencies = [
  "serde 1.0.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_yaml 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tokio-core 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-process 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "typed-arena 1.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -517,6 +519,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "typed-arena"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
 name = "typenum"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -649,6 +656,7 @@ dependencies = [
 "checksum tokio-io 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "514aae203178929dbf03318ad7c683126672d4d96eccb77b29603d33c9e25743"
 "checksum tokio-process 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "2e76e0cd21a4ae5362697e85f98aa5d26c88f09ce9fc367b57c0643ba0b022c2"
 "checksum tokio-signal 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "57c4031b97651d28c87a0a071e1c2809d70609d3120ce285b302eb7d52c96906"
+"checksum typed-arena 1.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "5934776c3ac1bea4a9d56620d6bf2d483b20d394e49581db40f187e1118ff667"
 "checksum typenum 1.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "13a99dc6780ef33c78780b826cf9d2a78840b72cae9474de4bcaf9051e60ebbd"
 "checksum unicode-width 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "bf3a113775714a22dcb774d8ea3655c53a32debae63a063acc00a91cc586245f"
 "checksum unicode-xid 0.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "8c1f860d7d29cf02cb2f3f359fd35991af3d30bac52c57d265a3c461074cb4dc"

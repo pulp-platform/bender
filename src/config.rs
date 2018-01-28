@@ -216,6 +216,8 @@ pub trait Merge {
 pub struct Config {
     /// The path to the database directory.
     pub database: PathBuf,
+    /// The git command or path to the binary.
+    pub git: String,
 }
 
 /// A partial configuration.
@@ -223,6 +225,8 @@ pub struct Config {
 pub struct PartialConfig {
     /// The path to the database directory.
     pub database: Option<PathBuf>,
+    /// The git command or path to the binary.
+    pub git: Option<String>,
 }
 
 impl PartialConfig {
@@ -230,6 +234,7 @@ impl PartialConfig {
     pub fn new() -> PartialConfig {
         PartialConfig {
             database: None,
+            git: None,
         }
     }
 }
@@ -237,7 +242,8 @@ impl PartialConfig {
 impl Merge for PartialConfig {
     fn merge(self, other: PartialConfig) -> PartialConfig {
         PartialConfig {
-            database: self.database.or(other.database)
+            database: self.database.or(other.database),
+            git: self.git.or(other.git),
         }
     }
 }
@@ -250,6 +256,10 @@ impl Validate for PartialConfig {
             database: match self.database {
                 Some(db) => db,
                 None => return Err(Error::new("Database directory not configured")),
+            },
+            git: match self.git {
+                Some(git) => git,
+                None => return Err(Error::new("Git command or path to binary not configured")),
             },
         })
     }

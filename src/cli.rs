@@ -9,7 +9,7 @@ use clap::{App, Arg};
 use serde_yaml;
 use config::{Config, PartialConfig, Manifest, Merge, Validate};
 use error::*;
-use sess::Session;
+use sess::{Session, SessionArenas};
 use resolver::DependencyResolver;
 
 /// Inner main function which can return an error.
@@ -46,7 +46,8 @@ pub fn main() -> Result<()> {
     let config = load_config(&root_dir)?;
 
     // Assemble the session.
-    let sess = Session::new(&root_dir, &manifest, &config);
+    let sess_arenas = SessionArenas::new();
+    let sess = Session::new(&root_dir, &manifest, &config, &sess_arenas);
     debugln!("main: {:#?}", sess);
 
     // Resolve the dependencies.
@@ -191,6 +192,7 @@ fn load_config(from: &Path) -> Result<Config> {
             db.push(".landa");
             Some(db)
         },
+        git: Some("git".into()),
     };
     out = out.merge(default_cfg);
 
