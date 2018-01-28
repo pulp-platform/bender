@@ -14,7 +14,7 @@ use semver;
 use futures::Future;
 use futures::future;
 use futures_cpupool::CpuPool;
-use tokio_core::reactor::Core;
+use tokio_core::reactor::{Core, Handle};
 use typed_arena::Arena;
 
 use error::*;
@@ -108,12 +108,56 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         self.deps.lock().unwrap().list[dep.0].source.clone()
     }
 
+    /// Internalize a path.
+    pub fn intern_path(&self, buf: PathBuf) -> &'ctx Path {
+        let mut paths = self.paths.lock().unwrap();
+        if let Some(&p) = paths.get(&buf) {
+            p
+        } else {
+            let p = self.arenas.path.alloc(buf);
+            paths.insert(p);
+            p
+        }
+    }
+}
+
+/// An event loop to perform IO within a session.
+///
+/// This struct wraps a `Session` and keeps an additional event loop. Using the
+/// various functions provided, IO can be scheduled on this event loop. The
+/// futures may then be driven to completion using the `run()` function.
+pub struct SessionIo<'sess, 'ctx: 'sess> {
+    /// The underlying session.
+    pub sess: &'sess Session<'ctx>,
+    /// The event loop where IO will be run.
+    pub handle: Handle,
+}
+
+impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
+    /// Create a new session wrapper.
+    pub fn new(sess: &'sess Session<'ctx>, handle: Handle) -> SessionIo<'sess, 'ctx> {
+        SessionIo {
+            sess: sess,
+            handle: handle,
+        }
+    }
+
+    // /// Run a `Future` returned by any of the functions to completion.
+    // pub fn run<F>(&mut self, f: F) -> Result<F::Item> where F: Future<Error=Error> {
+    //     self.core.run(f)
+    // }
+
+    // /// Finalize the event loop and return it.
+    // pub fn finish(self) -> Core {
+    //     self.core
+    // }
+
     /// Determine the available versions for a dependency.
     pub fn dependency_versions(
-        &'sess self,
+        &'io self,
         dep_id: DependencyRef
-    ) -> Box<Future<Item=Vec<DependencyVersion>, Error=Error> + 'sess> {
-        let dep = self.dependency(dep_id);
+    ) -> Box<Future<Item=Vec<DependencyVersion>, Error=Error> + 'io> {
+        let dep = self.sess.dependency(dep_id);
         match dep.source {
             DependencySource::Registry => {
                 unimplemented!("determine available versions of registry dependency");
@@ -134,10 +178,10 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
     /// If the database does not exist, it is created. If the database has not
     /// been updated recently, the remote is fetched.
     fn git_database(
-        &'sess self,
+        &'io self,
         name: &str,
         url: &str
-    ) -> Box<Future<Item=&'ctx Path, Error=Error> + 'sess> {
+    ) -> Box<Future<Item=&'ctx Path, Error=Error> + 'io> {
         use std;
 
         // TODO: Make the assembled future shared and keep it in a lookup table.
@@ -153,8 +197,8 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
 
         // Determine the location of the git database and create it if its does
         // not yet exist.
-        let db_dir = self.config.database.join("git").join("db").join(db_name);
-        let db_dir = self.intern_path(db_dir);
+        let db_dir = self.sess.config.database.join("git").join("db").join(db_name);
+        let db_dir = self.sess.intern_path(db_dir);
         match std::fs::create_dir_all(db_dir) {
             Ok(_) => (),
             Err(cause) => return Box::new(future::err(Error::chain(
@@ -168,121 +212,26 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         // Either initialize the repository or update it if needed.
         if !db_dir.join("config").exists() {
             // Initialize.
-            Box::new(git.spawn_with(|c| c
-                .arg("init")
-                .arg("--bare")
-            ).map_err(move |cause| Error::chain(
-                format!("Failed to initialize bare git repository in {:?}.", db_dir),
-                cause
-            )).and_then(move |_| git.spawn_with(|c| c
-                .arg("remote")
-                .arg("add")
-                .arg("origin")
-                .arg(url)
-            ).map_err(move |cause| Error::chain(
-                format!("Failed to add remote to git repository in {:?}.", db_dir),
-                cause
-            ))).and_then(move |_|
-                git.fetch("origin")
-            ).map_err(move |cause| Error::chain(
-                format!("Failed to initialize git database in {:?}.", db_dir),
-                cause
-            )).map(move |_|
-                db_dir
-            ))
-
-            // Box::new(future::err(Error::new("gitdb init not implemented")))
-        } else if true {
+            Box::new(
+                git.spawn_with(|c| c
+                    .arg("init")
+                    .arg("--bare"))
+                .and_then(move |_| git.spawn_with(|c| c
+                    .arg("remote")
+                    .arg("add")
+                    .arg("origin")
+                    .arg(url)))
+                .and_then(move |_| git.fetch("origin"))
+                .map_err(move |cause| Error::chain(
+                    format!("Failed to initialize git database in {:?}.", db_dir),
+                    cause))
+                .map(move |_| db_dir)
+            )
+        } else {
             // Update.
-            Box::new(future::err(Error::new("gitdb update not implemented")))
-        } else {
-            // Pass.
-            // Box::new(future::ok(db_dir))
-            Box::new(future::err(Error::new("gitdb pass not implemented")))
-        }
-
-        // Perform the actual setup asynchronously.
-        // let url = String::from(url);
-        // Box::new(self.pool.spawn_fn(move || -> Result<PathBuf> {
-        //     use std::process::Command;
-
-        //     // Initialize it as a bare git repository if it is not one yet.
-        //     if !db_dir.join("config").exists() {
-        //         debugln!("sess-gitdb: init bare repo {:?}", db_dir);
-        //         let status = Command::new("git")
-        //             .arg("init")
-        //             .arg("--bare")
-        //             .current_dir(&db_dir)
-        //             .status()
-        //             .map_err(|cause| Error::chain(
-        //                 "Failed to spawn git subprocess.",
-        //                 cause
-        //             ))?;
-        //         if !status.success() {
-        //             return Err(Error::new(format!("Failed to initialize bare git repository in {:?}.", db_dir)));
-        //         }
-
-        //         // Add the remote.
-        //         let status = Command::new("git")
-        //             .arg("remote")
-        //             .arg("add")
-        //             .arg("origin")
-        //             .arg(&url)
-        //             .current_dir(&db_dir)
-        //             .status()
-        //             .map_err(|cause| Error::chain(
-        //                 "Failed to spawn git subprocess.",
-        //                 cause
-        //             ))?;
-        //         if !status.success() {
-        //             return Err(Error::new(format!("Failed to add remote to git repository in {:?}.", db_dir)));
-        //         }
-        //     }
-
-        //     // Fetch any recent changes if necessary.
-        //     debugln!("sess-gitdb: fetch `{}`", url);
-        //     let status = Command::new("git")
-        //         .arg("fetch")
-        //         .arg("--prune")
-        //         .arg("origin")
-        //         .current_dir(&db_dir)
-        //         .status()
-        //         .map_err(|cause| Error::chain(
-        //             "Failed to spawn git subprocess.",
-        //             cause
-        //         ))?;
-        //     if !status.success() {
-        //         return Err(Error::new(format!("Failed to fetch repository `{}`", url)));
-        //     }
-
-        //     let status = Command::new("git")
-        //         .arg("fetch")
-        //         .arg("--tags")
-        //         .arg("--prune")
-        //         .arg("origin")
-        //         .current_dir(&db_dir)
-        //         .status()
-        //         .map_err(|cause| Error::chain(
-        //             "Failed to spawn git subprocess.",
-        //             cause
-        //         ))?;
-        //     if !status.success() {
-        //         return Err(Error::new(format!("Failed to fetch repository `{}`", url)));
-        //     }
-
-        //     Ok(db_dir)
-        // }))
-    }
-
-    /// Internalize a path.
-    pub fn intern_path(&self, buf: PathBuf) -> &'ctx Path {
-        let mut paths = self.paths.lock().unwrap();
-        if let Some(&p) = paths.get(&buf) {
-            p
-        } else {
-            let p = self.arenas.path.alloc(buf);
-            paths.insert(p);
-            p
+            // TODO: Don't always do this, but rather, check if the manifest has
+            //       been modified since the last fetch, and only then proceed.
+            Box::new(git.fetch("origin").map(move |_| db_dir))
         }
     }
 }

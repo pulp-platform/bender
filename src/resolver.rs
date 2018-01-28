@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use futures::Future;
 use futures::future::join_all;
 use tokio_core::reactor::Core;
-use sess::Session;
+use sess::{Session, SessionIo};
 use error::*;
 
 pub struct DependencyResolver<'ctx> {
@@ -28,19 +28,19 @@ impl<'ctx> DependencyResolver<'ctx> {
     /// Resolve dependencies.
     pub fn resolve(self) -> Result<()> {
         let mut core = Core::new().unwrap();
-        let handle = core.handle();
-        // let sio = SessionIo::new(handle);
+        let io = SessionIo::new(self.sess, core.handle());
 
         let mut dep_vers = Vec::new();
         for (name, dep) in &self.sess.manifest.dependencies {
             let dep_id = self.sess.load_dependency(name, dep, self.sess.manifest);
-            let dep_ver = self.sess.dependency_versions(dep_id);
+            let dep_ver = io.dependency_versions(dep_id);
             dep_vers.push(dep_ver.map(move |v| (dep_id, v)));
         }
         debugln!("resolve: root dependencies internalized");
         let dep_vers = join_all(dep_vers);
         debugln!("resolve: waiting for versions");
-        debugln!("resolve: versions {:#?}", core.run(dep_vers));
+
+        debugln!("resolve: versions {:#?}", core.run(dep_vers)?);
         // for a in v {
         //     debugln!("resolve: versions {:?}", a.wait());
         // }
