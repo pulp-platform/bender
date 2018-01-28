@@ -9,6 +9,7 @@ use std::path::Path;
 use std::process::Command;
 
 use futures::Future;
+use futures::future;
 use tokio_process::CommandExt;
 
 use error::*;
@@ -120,15 +121,24 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     pub fn list_refs(self) -> GitFuture<'io, Vec<(String, String)>> {
         Box::new(self.spawn_with(|c|
             c.arg("show-ref")
-        ).map(move |raw| {
-            raw.lines().map(|line|{
+        ).and_then(move |raw| {
+            future::join_all(raw.lines().map(|line|{
+                // Parse the line.
                 let mut fields = line.split_whitespace().map(String::from);
                 // TODO: Handle the case where the line might not contain enough
                 // information or is missing some fields.
                 let rev = fields.next().unwrap();
-                let reff = fields.next().unwrap();
-                (rev, reff)
-            }).collect()
+                let mut rf = fields.next().unwrap();
+                rf.push_str("^{commit}");
+
+                // Parse the ref. This is needed since the ref for an annotated
+                // tag points to the hash of the tag itself, rather than the
+                // underlying commit. By callign `git rev-parse` with the ref
+                // augmented with `^{commit}`, we can ensure that we always end
+                // up with a commit hash.
+                self.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(rf))
+                    .map(|rf| (rev, rf))
+            }).collect::<Vec<_>>())
         }))
     }
 

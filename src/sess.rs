@@ -146,26 +146,20 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     pub fn dependency_versions(
         &'io self,
         dep_id: DependencyRef
-    ) -> Box<Future<Item=Vec<DependencyVersion>, Error=Error> + 'io> {
+    ) -> Box<Future<Item=DependencyVersions, Error=Error> + 'io> {
         let dep = self.sess.dependency(dep_id);
         match dep.source {
             DependencySource::Registry => {
                 unimplemented!("determine available versions of registry dependency");
             }
             DependencySource::Path(_) => {
-                Box::new(future::ok(vec![DependencyVersion::Unit]))
+                Box::new(future::ok(DependencyVersions::Path))
             }
             DependencySource::Git(ref url) => {
-                Box::new(self.git_database(&dep.name, url).and_then(move |db|{
-                    debugln!("sess: determine available versions of git repo {:?}", db);
-                    let git = Git::new(db, self);
-                    let dep_refs = git.list_refs()
-                        .inspect(move |v| debugln!("sess: refs in {:?} are {:#?}", db, v));
-                    let dep_revs = git.list_revs()
-                        .inspect(move |v| debugln!("sess: revs in {:?} are {:#?}", db, v));
-                    dep_refs.join(dep_revs)
-                    .and_then(|_|future::err(Error::new("not implemented: determine available versions of git dependency")))
-                }))
+                Box::new(self
+                    .git_database(&dep.name, url)
+                    .and_then(move |db| self.git_versions(db))
+                    .map(DependencyVersions::Git))
             }
         }
     }
@@ -178,7 +172,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         &'io self,
         name: &str,
         url: &str
-    ) -> Box<Future<Item=&'ctx Path, Error=Error> + 'io> {
+    ) -> Box<Future<Item=Git<'io, 'sess, 'ctx>, Error=Error> + 'io> {
         use std;
 
         // TODO: Make the assembled future shared and keep it in a lookup table.
@@ -222,14 +216,80 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .map_err(move |cause| Error::chain(
                     format!("Failed to initialize git database in {:?}.", db_dir),
                     cause))
-                .map(move |_| db_dir)
+                .map(move |_| git)
             )
         } else {
             // Update.
             // TODO: Don't always do this, but rather, check if the manifest has
             //       been modified since the last fetch, and only then proceed.
-            Box::new(git.fetch("origin").map(move |_| db_dir))
+            Box::new(git.fetch("origin").map(move |_| git))
         }
+    }
+
+    /// Determine the list of versions available for a git dependency.
+    fn git_versions(
+        &'io self,
+        git: Git<'io, 'sess, 'ctx>,
+    ) -> Box<Future<Item=GitVersions, Error=Error> + 'io> {
+        let dep_refs = git.list_refs();
+        let dep_revs = git.list_revs();
+        let out = dep_refs.join(dep_revs).and_then(move |(refs, revs)|{
+            let (tags, branches) = {
+                // Create a lookup table for the revisions. This will
+                // map revision hashes to an index in the `revs` vector.
+                let rev_ids: HashMap<&str, usize> = revs
+                    .iter()
+                    .enumerate()
+                    .map(|(a,b)| (b.as_ref(), a))
+                    .collect();
+
+                // Split the refs into tags and branches, discard
+                // everything else.
+                let mut tags = HashMap::<String, usize>::new();
+                let mut branches = HashMap::<String, usize>::new();
+                let tag_pfx = "refs/tags/";
+                let branch_pfx = "refs/remotes/origin/";
+                for (hash, rf) in refs {
+                    let idx = match rev_ids.get(hash.as_str()) {
+                        Some(&idx) => idx,
+                        None => continue,
+                    };
+                    if rf.starts_with(tag_pfx) {
+                        tags.insert(rf[tag_pfx.len()..].into(), idx);
+                    } else if rf.starts_with(branch_pfx) {
+                        branches.insert(rf[branch_pfx.len()..].into(), idx);
+                    }
+                }
+                (tags, branches)
+            };
+
+            // Extract the tags that look like semantic versions.
+            let mut versions: Vec<(semver::Version, usize)> = tags
+                .iter()
+                .filter_map(|(tag, &idx)|{
+                    if tag.starts_with("v") {
+                        match semver::Version::parse(&tag[1..]) {
+                            Ok(v) => Some((v, idx)),
+                            Err(_) => None,
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            versions.sort_by(|a,b| b.cmp(a));
+
+            // Merge tags and branches.
+            let mut refs = branches;
+            refs.extend(tags.into_iter());
+
+            Ok(GitVersions {
+                versions: versions,
+                refs: refs,
+                revs: revs,
+            })
+        });
+        Box::new(out)
     }
 }
 
@@ -315,4 +375,34 @@ pub enum DependencyVersion {
     /// A git revision and semantic version. These are useful for git
     /// dependencies that do use semantic version tagging.
     VersionHash(semver::Version, String),
+}
+
+/// All available versions of a dependency.
+#[derive(Clone, Debug)]
+pub enum DependencyVersions {
+    /// Path dependencies have no versions, but are exactly as present on disk.
+    Path,
+    /// Registry dependency versions.
+    Registry(RegistryVersions),
+    /// Git dependency versions.
+    Git(GitVersions),
+}
+
+/// All available versions of a registry dependency.
+#[derive(Clone, Debug)]
+pub struct RegistryVersions;
+
+/// All available versions a git dependency has.
+#[derive(Clone, Debug)]
+pub struct GitVersions {
+    /// The versions available for this dependency. This is basically a sorted
+    /// list of tags of the form `v<semver>`. The `usize` is an index into the
+    /// `revs` vector.
+    pub versions: Vec<(semver::Version, usize)>,
+    /// The named references available for this dependency. This is a mixture of
+    /// branch names and tags, where the tags take precedence. The `usize` is an
+    /// index into the `revs` vector.
+    pub refs: HashMap<String, usize>,
+    /// The revisions available for this dependency.
+    pub revs: Vec<String>,
 }
