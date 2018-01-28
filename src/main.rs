@@ -13,7 +13,9 @@ extern crate semver;
 
 extern crate futures;
 extern crate futures_cpupool;
+extern crate tokio_process;
 
+extern crate blake2;
 
 #[macro_use]
 pub mod error;
@@ -22,6 +24,7 @@ pub mod cli;
 pub mod config;
 pub mod sess;
 pub mod resolver;
+pub mod git;
 
 fn main() {
 	match cli::main() {

@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 use futures::Future;
+use futures::future::join_all;
 use sess::Session;
 use error::*;
 
@@ -25,16 +26,19 @@ impl<'ctx> DependencyResolver<'ctx> {
 
     /// Resolve dependencies.
     pub fn resolve(self) -> Result<()> {
-        let mut v = Vec::new();
+        let mut dep_vers = Vec::new();
         for (name, dep) in &self.sess.manifest.dependencies {
             let dep_id = self.sess.load_dependency(name, dep, self.sess.manifest);
-            let versions = self.sess.dependency_versions(dep_id);
-            v.push(versions);
+            let dep_ver = self.sess.dependency_versions(dep_id);
+            dep_vers.push(dep_ver.map(move |v| (dep_id, v)));
         }
         debugln!("resolve: root dependencies internalized");
-        for a in v {
-            debugln!("resolve: versions {:?}", a.wait());
-        }
+        let dep_vers = join_all(dep_vers);
+        debugln!("resolve: waiting for versions");
+        debugln!("resolve: versions {:#?}", dep_vers.wait()?);
+        // for a in v {
+        //     debugln!("resolve: versions {:?}", a.wait());
+        // }
         Ok(())
     }
 }
