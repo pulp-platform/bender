@@ -234,6 +234,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         let dep_refs = git.list_refs();
         let dep_revs = git.list_revs();
         let out = dep_refs.join(dep_revs).and_then(move |(refs, revs)|{
+            debugln!("sess: gitdb: refs {:?}", refs);
             let (tags, branches) = {
                 // Create a lookup table for the revisions. This will
                 // map revision hashes to an index in the `revs` vector.

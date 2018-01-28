@@ -127,17 +127,17 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
                 let mut fields = line.split_whitespace().map(String::from);
                 // TODO: Handle the case where the line might not contain enough
                 // information or is missing some fields.
-                let rev = fields.next().unwrap();
-                let mut rf = fields.next().unwrap();
-                rf.push_str("^{commit}");
+                let mut rev = fields.next().unwrap();
+                let rf = fields.next().unwrap();
+                rev.push_str("^{commit}");
 
                 // Parse the ref. This is needed since the ref for an annotated
                 // tag points to the hash of the tag itself, rather than the
                 // underlying commit. By callign `git rev-parse` with the ref
                 // augmented with `^{commit}`, we can ensure that we always end
                 // up with a commit hash.
-                self.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(rf))
-                    .map(|rf| (rev, rf))
+                self.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(rev))
+                    .map(|rev| (rev.trim().into(), rf))
             }).collect::<Vec<_>>())
         }))
     }
