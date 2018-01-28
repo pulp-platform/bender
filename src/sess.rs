@@ -142,16 +142,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         }
     }
 
-    // /// Run a `Future` returned by any of the functions to completion.
-    // pub fn run<F>(&mut self, f: F) -> Result<F::Item> where F: Future<Error=Error> {
-    //     self.core.run(f)
-    // }
-
-    // /// Finalize the event loop and return it.
-    // pub fn finish(self) -> Core {
-    //     self.core
-    // }
-
     /// Determine the available versions for a dependency.
     pub fn dependency_versions(
         &'io self,
@@ -166,9 +156,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 Box::new(future::ok(vec![DependencyVersion::Unit]))
             }
             DependencySource::Git(ref url) => {
-                debugln!("sess: available versions of git repo {:?}", url);
-                let db = self.git_database(&dep.name, url);
-                Box::new(db.and_then(|_| future::err(Error::new("not implemented: determine available versions of git dependency"))))
+                Box::new(self.git_database(&dep.name, url).and_then(move |db|{
+                    debugln!("sess: determine available versions of git repo {:?}", db);
+                    let git = Git::new(db, self);
+                    let dep_refs = git.list_refs()
+                        .inspect(move |v| debugln!("sess: refs in {:?} are {:#?}", db, v));
+                    let dep_revs = git.list_revs()
+                        .inspect(move |v| debugln!("sess: revs in {:?} are {:#?}", db, v));
+                    dep_refs.join(dep_revs)
+                    .and_then(|_|future::err(Error::new("not implemented: determine available versions of git dependency")))
+                }))
             }
         }
     }

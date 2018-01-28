@@ -53,7 +53,7 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     /// arguments to the command are emitted together with the captured output.
     /// The command is spawned asynchronously on the session's reactor core.
     /// Returns a future that will resolve to the command's stdout.
-    pub fn spawn(self, mut cmd: Command) -> GitFuture<'io, Vec<u8>> {
+    pub fn spawn(self, mut cmd: Command) -> GitFuture<'io, String> {
         let output = cmd
             .output_async(&self.sess.handle)
             .map_err(|cause| Error::chain(
@@ -63,7 +63,10 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
         let result = output.and_then(move |output|{
             debugln!("git: {:?} in {:?}", cmd, self.path);
             if output.status.success() {
-                Ok(output.stdout)
+                String::from_utf8(output.stdout).map_err(|cause| Error::chain(
+                    format!("Output of git command ({:?}) is not valid UTF-8.", cmd),
+                    cause
+                ))
             } else {
                 let mut msg = format!("Git command ({:?})", cmd);
                 match output.status.code() {
@@ -88,7 +91,7 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     /// This is a convenience function that creates a command, passses it to the
     /// closure `f` for configuration, then passes it to the `spawn` function
     /// and returns the future.
-    pub fn spawn_with<F>(self, f: F) -> GitFuture<'io, Vec<u8>>
+    pub fn spawn_with<F>(self, f: F) -> GitFuture<'io, String>
         where F: FnOnce(&mut Command) -> &mut Command
     {
         let mut cmd = Command::new(&self.sess.sess.config.git);
@@ -111,6 +114,30 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
             .arg("--prune")
             .arg(r2)
         )).map(|_| ()))
+    }
+
+    /// List all refs and their hashes.
+    pub fn list_refs(self) -> GitFuture<'io, Vec<(String, String)>> {
+        Box::new(self.spawn_with(|c|
+            c.arg("show-ref")
+        ).map(move |raw| {
+            raw.lines().map(|line|{
+                let mut fields = line.split_whitespace().map(String::from);
+                // TODO: Handle the case where the line might not contain enough
+                // information or is missing some fields.
+                let rev = fields.next().unwrap();
+                let reff = fields.next().unwrap();
+                (rev, reff)
+            }).collect()
+        }))
+    }
+
+    /// List all revisions.
+    pub fn list_revs(self) -> GitFuture<'io, Vec<String>> {
+        Box::new(
+            self.spawn_with(|c| c.arg("rev-list").arg("--all"))
+            .map(|raw| raw.lines().map(String::from).collect())
+        )
     }
 }
 
