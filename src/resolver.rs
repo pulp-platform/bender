@@ -5,6 +5,7 @@
 
 #![deny(missing_docs)]
 
+use std::fmt;
 use std::collections::{HashMap, HashSet};
 use futures::Future;
 use futures::future::join_all;
@@ -61,6 +62,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         for (name, id) in names {
             self.register_dependency(name, id, versions[&id].clone());
         }
+        debugln!("resolve: table {:#?}", TableDumper(&self.table));
         Ok(())
     }
 
@@ -70,7 +72,6 @@ impl<'ctx> DependencyResolver<'ctx> {
         dep: DependencyRef,
         versions: DependencyVersions
     ) {
-        use std::collections::hash_map::Entry;
         let entry = self.table
             .entry(name)
             .or_insert_with(|| Dependency::new(name));
@@ -148,4 +149,28 @@ enum State {
     Locked(usize),
     /// The dependency may assume any of the listed versions.
     Constrained(HashSet<usize>),
+}
+
+struct TableDumper<'a>(&'a HashMap<&'a str, Dependency<'a>>);
+
+impl<'a> fmt::Debug for TableDumper<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut names: Vec<_> = self.0.keys().collect();
+        names.sort();
+        write!(f, "{{")?;
+        for name in names {
+            let dep = self.0.get(name).unwrap();
+            write!(f, "\n    \"{}\":", name)?;
+            for (&id, src) in &dep.sources {
+                write!(f, "\n        [{}]:", id)?;
+                match src.state {
+                    State::Open => write!(f, " open")?,
+                    State::Locked(idx) => write!(f, " locked {}", idx)?,
+                    State::Constrained(ref idcs) => write!(f, " {} possible", idcs.len())?,
+                }
+            }
+        }
+        write!(f, "\n}}")?;
+        Ok(())
+    }
 }

@@ -316,6 +316,12 @@ impl fmt::Debug for SessionArenas {
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct DependencyRef(usize);
 
+impl fmt::Display for DependencyRef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
 /// An entry in the session's dependency table.
 #[derive(PartialEq, Eq, Hash, Debug)]
 pub struct DependencyEntry {
