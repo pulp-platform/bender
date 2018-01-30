@@ -126,3 +126,16 @@ impl From<Error> for String {
         format!("{}", err)
     }
 }
+
+/// Format and print stage progress.
+#[macro_export]
+macro_rules! stageln {
+    ($stage:expr, $($arg:tt)*) => {
+        $crate::error::println_stage($stage, &format!($($arg)*))
+    }
+}
+
+/// Print stage progress.
+pub fn println_stage(stage: &str, message: &str) {
+    eprintln!("{}{:>12}{} {}", "\x1B[32;1m", stage, "\x1B[0m", message);
+}

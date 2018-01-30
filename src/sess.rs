@@ -13,8 +13,7 @@ use std::sync::{Mutex, Arc};
 use semver;
 use futures::Future;
 use futures::future;
-use futures_cpupool::CpuPool;
-use tokio_core::reactor::{Core, Handle};
+use tokio_core::reactor::Handle;
 use typed_arena::Arena;
 
 use error::*;
@@ -36,10 +35,6 @@ pub struct Session<'ctx> {
     /// The arenas into which we allocate various things that need to live as
     /// long as the session.
     arenas: &'ctx SessionArenas,
-    /// The thread pool which will execute tasks.
-    pub pool: CpuPool,
-    /// The event loop which will handle IO.
-    pub core: Core,
     /// The dependency table.
     deps: Mutex<DependencyTable>,
     /// The internalized paths.
@@ -54,8 +49,6 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             manifest: manifest,
             config: config,
             arenas: arenas,
-            pool: CpuPool::new_num_cpus(),
-            core: Core::new().unwrap(),
             deps: Mutex::new(DependencyTable::new()),
             paths: Mutex::new(HashSet::new()),
         }
@@ -203,6 +196,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // Either initialize the repository or update it if needed.
         if !db_dir.join("config").exists() {
             // Initialize.
+            stageln!("Cloning", "{}", url);
             Box::new(
                 git.spawn_with(|c| c
                     .arg("init")
