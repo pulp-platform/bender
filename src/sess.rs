@@ -311,9 +311,43 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         Box::new(out)
     }
 
-    // pub fn checkout(&'io self, dep: DependencyRef) -> Result<PathBuf> {
+    /// Ensure that a dependency is checked out and obtain its path.
+    pub fn checkout(
+        &'io self,
+        dep_id: DependencyRef
+    )  -> Box<Future<Item=&'ctx Path, Error=Error> + 'io> {
+        // Find the exact source of the dependency.
+        let dep = self.sess.dependency(dep_id);
 
-    // }
+        // Determine the name of the checkout as the given name and the first
+        // 8 bytes (16 hex characters) of a BLAKE2 hash of the source and the
+        // path to the root package. This ensures that for every dependency and
+        // root package we have at most one checkout.
+        let hash = {
+            use blake2::{Blake2b, Digest};
+            let mut hasher = Blake2b::new();
+            match dep.source {
+                DependencySource::Registry => unimplemented!(),
+                DependencySource::Git(ref url) => hasher.input(url.as_bytes()),
+                DependencySource::Path(ref path) => hasher.input(format!("{:?}", path).as_bytes()),
+            }
+            hasher.input(format!("{:?}", self.sess.root).as_bytes());
+            &format!("{:016x}", hasher.result())[..16]
+        };
+        let checkout_name = format!("{}-{}", dep.name, hash);
+
+        // Determine the location of the git database and create it if its does
+        // not yet exist.
+        let checkout_dir = self.sess.config.database
+            .join("git")
+            .join("checkouts")
+            .join(checkout_name);
+        let checkout_dir = self.sess.intern_path(checkout_dir);
+        debugln!("checkout: `{}` would be at {:?}", dep.name, checkout_dir);
+
+        // Box::new(out)
+        Box::new(future::err(Error::new("Checkout not implemented")))
+    }
 }
 
 /// An arena container where all incremental, temporary things are allocated.

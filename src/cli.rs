@@ -7,9 +7,11 @@ use std;
 use std::path::{Path, PathBuf};
 use clap::{App, Arg, SubCommand};
 use serde_yaml;
+use tokio_core::reactor::Core;
+use futures::{future, Future};
 use config::{Config, PartialConfig, Manifest, Merge, Validate, Locked};
 use error::*;
-use sess::{Session, SessionArenas};
+use sess::{Session, SessionArenas, SessionIo};
 use resolver::DependencyResolver;
 
 /// Inner main function which can return an error.
@@ -74,11 +76,21 @@ pub fn main() -> Result<()> {
 
     // Dispatch the different subcommands.
     if let Some(matches) = matches.subcommand_matches("package") {
+        let mut core = Core::new().unwrap();
+        let io = SessionIo::new(&sess, core.handle());
+
         let ids = matches
             .values_of("name")
             .unwrap()
-            .map(|n| sess.dependency_with_name(n))
+            .map(|n| Ok((n, sess.dependency_with_name(n)?)))
             .collect::<Result<Vec<_>>>()?;
+        debugln!("main: obtain checkouts {:#?}", ids);
+        let checkouts = core.run(future::join_all(ids
+            .iter()
+            .map(|&(_, id)| io.checkout(id))
+            .collect::<Vec<_>>()
+        ))?;
+        debugln!("main: checkouts {:#?}", checkouts);
     }
 
     Ok(())
