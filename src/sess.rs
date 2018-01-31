@@ -230,41 +230,36 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         let out = dep_refs.join(dep_revs).and_then(move |(refs, revs)|{
             debugln!("sess: gitdb: refs {:?}", refs);
             let (tags, branches) = {
-                // Create a lookup table for the revisions. This will
-                // map revision hashes to an index in the `revs` vector.
-                let rev_ids: HashMap<&str, usize> = revs
-                    .iter()
-                    .enumerate()
-                    .map(|(a,b)| (b.as_ref(), a))
-                    .collect();
+                // Create a lookup table for the revisions. This will be used to
+                // only accept refs that point to actual revisions.
+                let rev_ids: HashSet<&str> = revs.iter().map(String::as_str).collect();
 
                 // Split the refs into tags and branches, discard
                 // everything else.
-                let mut tags = HashMap::<String, usize>::new();
-                let mut branches = HashMap::<String, usize>::new();
+                let mut tags = HashMap::<String, String>::new();
+                let mut branches = HashMap::<String, String>::new();
                 let tag_pfx = "refs/tags/";
                 let branch_pfx = "refs/remotes/origin/";
                 for (hash, rf) in refs {
-                    let idx = match rev_ids.get(hash.as_str()) {
-                        Some(&idx) => idx,
-                        None => continue,
-                    };
+                    if !rev_ids.contains(hash.as_str()) {
+                        continue;
+                    }
                     if rf.starts_with(tag_pfx) {
-                        tags.insert(rf[tag_pfx.len()..].into(), idx);
+                        tags.insert(rf[tag_pfx.len()..].into(), hash);
                     } else if rf.starts_with(branch_pfx) {
-                        branches.insert(rf[branch_pfx.len()..].into(), idx);
+                        branches.insert(rf[branch_pfx.len()..].into(), hash);
                     }
                 }
                 (tags, branches)
             };
 
             // Extract the tags that look like semantic versions.
-            let mut versions: Vec<(semver::Version, usize)> = tags
+            let mut versions: Vec<(semver::Version, String)> = tags
                 .iter()
-                .filter_map(|(tag, &idx)|{
+                .filter_map(|(tag, hash)|{
                     if tag.starts_with("v") {
                         match semver::Version::parse(&tag[1..]) {
-                            Ok(v) => Some((v, idx)),
+                            Ok(v) => Some((v, hash.clone())),
                             Err(_) => None,
                         }
                     } else {
@@ -275,8 +270,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             versions.sort_by(|a,b| b.cmp(a));
 
             // Merge tags and branches.
-            let mut refs = branches;
-            refs.extend(tags.into_iter());
+            let refs = branches.into_iter().chain(tags.into_iter()).collect();
 
             Ok(GitVersions {
                 versions: versions,
@@ -360,24 +354,6 @@ impl DependencyTable {
     }
 }
 
-/// A version of a dependency.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub enum DependencyVersion {
-    /// A unit version. Path dependencies have exactly one `Unit` version and
-    /// are incompatible with any kind of version specification.
-    Unit,
-    /// A semantic version. These are useful for dependencies distributed as
-    /// tarballs via a registry, where no more git information is available.
-    Version(semver::Version),
-    /// A git revision. These are useful for git repositories that do not use
-    /// any form of semantic version tagging. A git dependency will always have
-    /// tons of these versions, one for every `git rev-list --all` line.
-    Hash(String),
-    /// A git revision and semantic version. These are useful for git
-    /// dependencies that do use semantic version tagging.
-    VersionHash(semver::Version, String),
-}
-
 /// All available versions of a dependency.
 #[derive(Clone, Debug)]
 pub enum DependencyVersions {
@@ -397,13 +373,51 @@ pub struct RegistryVersions;
 #[derive(Clone, Debug)]
 pub struct GitVersions {
     /// The versions available for this dependency. This is basically a sorted
-    /// list of tags of the form `v<semver>`. The `usize` is an index into the
-    /// `revs` vector.
-    pub versions: Vec<(semver::Version, usize)>,
+    /// list of tags of the form `v<semver>`.
+    pub versions: Vec<(semver::Version, String)>,
     /// The named references available for this dependency. This is a mixture of
-    /// branch names and tags, where the tags take precedence. The `usize` is an
-    /// index into the `revs` vector.
-    pub refs: HashMap<String, usize>,
-    /// The revisions available for this dependency.
+    /// branch names and tags, where the tags take precedence.
+    pub refs: HashMap<String, String>,
+    /// The revisions available for this dependency, newest one first. We obtain
+    /// these via `git rev-list --all --date-order`.
     pub revs: Vec<String>,
+}
+
+/// A constraint on a dependency.
+#[derive(Clone, Debug)]
+pub enum DependencyConstraint {
+    /// A path constraint. If a package has a path dependency, it imposes a path
+    /// constraint on it.
+    Path,
+    /// A version constraint. These may occur for registry or git dependencies.
+    Version(semver::VersionReq),
+    /// A revision constraint. These occur for git dependencies.
+    Revision(String),
+}
+
+impl<'a> From<&'a config::Dependency> for DependencyConstraint {
+    fn from(cfg: &'a config::Dependency) -> DependencyConstraint {
+        match *cfg {
+            config::Dependency::Path(..) => {
+                DependencyConstraint::Path
+            }
+            config::Dependency::Version(ref v) |
+            config::Dependency::GitVersion(_, ref v) => {
+                DependencyConstraint::Version(v.clone())
+            }
+            config::Dependency::GitRevision(_, ref r) => {
+                DependencyConstraint::Revision(r.clone())
+            }
+        }
+    }
+}
+
+impl fmt::Display for DependencyConstraint {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            DependencyConstraint::Path => write!(f, "path"),
+            DependencyConstraint::Version(ref v) => write!(f, "{}", v),
+            DependencyConstraint::Revision(ref r) => write!(f, "{}", r),
+        }
+    }
 }

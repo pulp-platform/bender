@@ -145,7 +145,7 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     /// List all revisions.
     pub fn list_revs(self) -> GitFuture<'io, Vec<String>> {
         Box::new(
-            self.spawn_with(|c| c.arg("rev-list").arg("--all"))
+            self.spawn_with(|c| c.arg("rev-list").arg("--all").arg("--date-order"))
             .map(|raw| raw.lines().map(String::from).collect())
         )
     }
