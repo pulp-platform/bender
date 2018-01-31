@@ -368,6 +368,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         }
     }
 
+    /// Ensure that a proper git checkout exists.
+    ///
+    /// If the directory is not a proper git repository, it is deleted and
+    /// re-created from scratch.
     fn checkout_git(
         &'io self,
         path: &'ctx Path,
