@@ -148,8 +148,105 @@ impl<'ctx> DependencyResolver<'ctx> {
         for (name, cons) in cons_map {
             for con in cons {
                 debugln!("resolve: impose `{}` on `{}`", con, name);
+                for src in self.table.get_mut(name).unwrap().sources.values_mut() {
+                    Self::impose(name, &con, src)?;
+                }
             }
         }
+
+        Ok(())
+    }
+
+    /// Impose a constraint on a dependency.
+    fn impose(
+        name: &str,
+        con: &DependencyConstraint,
+        src: &mut DependencySource
+    ) -> Result<()> {
+
+        use self::DependencyConstraint as DepCon;
+        use self::DependencyVersions as DepVer;
+        let indices = match (con, &src.versions) {
+            (&DepCon::Path, &DepVer::Path) => return Ok(()),
+            (&DepCon::Version(ref con), &DepVer::Git(ref gv)) => {
+                // TODO: Move this outside somewhere. Very inefficient!
+                let hash_ids: HashMap<&str, usize> = gv.revs
+                    .iter()
+                    .enumerate()
+                    .map(|(id, hash)| (hash.as_str(), id))
+                    .collect();
+                let revs: HashSet<usize> = gv.versions
+                    .iter()
+                    .filter_map(|&(ref v, ref h)| if con.matches(v) {
+                        Some(hash_ids[h.as_str()])
+                    } else {
+                        None
+                    })
+                    .collect();
+                debugln!("resolve: `{}` matches version requirement `{}` for revs {:?}", name, con, revs);
+                revs
+            }
+            (&DepCon::Revision(ref con), &DepVer::Git(ref gv)) => {
+                // TODO: Move this outside somewhere. Very inefficient!
+                let hash_ids: HashMap<&str, usize> = gv.revs
+                    .iter()
+                    .enumerate()
+                    .map(|(id, hash)| (hash.as_str(), id))
+                    .collect();
+                let revs: HashSet<usize> = gv.refs
+                    .get(con)
+                    .map(|rf| gv.revs
+                        .iter()
+                        .position(|rev| rev == rf)
+                        .into_iter()
+                        .collect())
+                    .unwrap_or_else(|| gv.revs
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, rev)| if rev.starts_with(con) {
+                            Some(i)
+                        } else {
+                            None
+                        })
+                        .collect()
+                    );
+                debugln!("resolve: `{}` matches revision `{}` for revs {:?}", name, con, revs);
+                revs
+            }
+            (&DepCon::Version(ref con), &DepVer::Registry(ref rv)) => {
+                return Err(Error::new(format!("Constraints on registry dependency `{}` not implemented", name)));
+            }
+
+            // Handle the error cases.
+            // TODO: These need to improve a lot!
+            (con, &DepVer::Git(..)) => {
+                return Err(Error::new(format!("Requirement `{}` cannot be applied to git dependency `{}`", con, name)));
+            }
+            (con, &DepVer::Registry(..)) => {
+                return Err(Error::new(format!("Requirement `{}` cannot be applied to registry dependency `{}`", con, name)));
+            }
+            (con, &DepVer::Path) => {
+                return Err(Error::new(format!("`{}` is not declared as a path dependency everywhere.", name)));
+            }
+        };
+        debugln!("resolve: restricting `{}` to versions {:?}", name, indices);
+
+        if indices.is_empty() {
+            return Err(Error::new(format!("Dependency `{}` cannot satisfy requirement `{}`", name, con)));
+        }
+
+        // Mark all other versions of the dependency as invalid.
+        match src.state {
+            State::Open => unreachable!(),
+            State::Locked(_) => unreachable!(), // TODO: This needs to do something.
+            State::Constrained(ref mut ids) |
+            State::Picked(_, ref mut ids) => {
+                *ids = (*ids).intersection(&indices).map(|i| *i).collect();
+                if ids.is_empty() {
+                    return Err(Error::new(format!("Requirement `{}` conflicts with other requirements on dependency `{}`", con, name)));
+                }
+            }
+        };
 
         Ok(())
     }
