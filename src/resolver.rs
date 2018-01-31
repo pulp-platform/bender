@@ -73,6 +73,14 @@ impl<'ctx> DependencyResolver<'ctx> {
         self.mark()?;
         debugln!("resolve: table {:#?}", TableDumper(&self.table));
 
+        // Pick a version for each dependency.
+        self.pick()?;
+        debugln!("resolve: table {:#?}", TableDumper(&self.table));
+
+        // Close the dependency set.
+        self.close()?;
+        debugln!("resolve: table {:#?}", TableDumper(&self.table));
+
         Ok(())
     }
 
@@ -133,7 +141,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Gather the constraints from locked and picked dependencies.
         for dep in self.table.values_mut() {
             for src in dep.sources.values_mut() {
-                let pick = match src.state.pick() {
+                let _pick = match src.state.pick() {
                     Some(i) => i,
                     None => continue,
                 };
@@ -188,11 +196,6 @@ impl<'ctx> DependencyResolver<'ctx> {
             }
             (&DepCon::Revision(ref con), &DepVer::Git(ref gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
-                let hash_ids: HashMap<&str, usize> = gv.revs
-                    .iter()
-                    .enumerate()
-                    .map(|(id, hash)| (hash.as_str(), id))
-                    .collect();
                 let revs: HashSet<usize> = gv.refs
                     .get(con)
                     .map(|rf| gv.revs
@@ -213,7 +216,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 debugln!("resolve: `{}` matches revision `{}` for revs {:?}", name, con, revs);
                 revs
             }
-            (&DepCon::Version(ref con), &DepVer::Registry(ref rv)) => {
+            (&DepCon::Version(ref _con), &DepVer::Registry(ref _rv)) => {
                 return Err(Error::new(format!("Constraints on registry dependency `{}` not implemented", name)));
             }
 
@@ -225,7 +228,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             (con, &DepVer::Registry(..)) => {
                 return Err(Error::new(format!("Requirement `{}` cannot be applied to registry dependency `{}`", con, name)));
             }
-            (con, &DepVer::Path) => {
+            (_, &DepVer::Path) => {
                 return Err(Error::new(format!("`{}` is not declared as a path dependency everywhere.", name)));
             }
         };
@@ -248,6 +251,49 @@ impl<'ctx> DependencyResolver<'ctx> {
             }
         };
 
+        Ok(())
+    }
+
+    /// Pick a version for each dependency.
+    fn pick(&mut self) -> Result<()> {
+        for dep in self.table.values_mut() {
+            for src in dep.sources.values_mut() {
+                debugln!("resolve: picking version for `{}[{}]`", dep.name, src.id);
+                src.state = match src.state {
+                    State::Open => unreachable!(),
+                    State::Locked(id) => State::Locked(id),
+                    State::Constrained(ref ids) => {
+                        match src.versions {
+                            DependencyVersions::Path => unreachable!(),
+                            DependencyVersions::Git(..) => {
+                                State::Picked(
+                                    ids.iter().map(|i| *i).min().unwrap(),
+                                    ids.clone()
+                                )
+                            }
+                            DependencyVersions::Registry(..) => {
+                                return Err(Error::new(format!("Version picking for registry dependency `{}` not yet imlemented", dep.name)));
+                            }
+                        }
+                    }
+                    State::Picked(id, ref ids) => {
+                        if !ids.contains(&id) {
+                            debugln!("resolve: picked version for `{}[{}]` no longer valid, opening", dep.name, src.id);
+                            // TODO: Recursively open up all dependencies.
+                            State::Open
+                        } else {
+                            State::Picked(id, ids.clone())
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Close the set of dependencies.
+    fn close(&mut self) -> Result<()> {
+        debugln!("resolve: would now compute closure over dependencies");
         Ok(())
     }
 }
@@ -361,7 +407,7 @@ impl<'a> fmt::Debug for TableDumper<'a> {
                     State::Open => write!(f, " open")?,
                     State::Locked(idx) => write!(f, " locked {}", idx)?,
                     State::Constrained(ref idcs) => write!(f, " {} possible", idcs.len())?,
-                    State::Picked(idx, ref idcs) => write!(f, "picked #{} out of {} possible", idx, idcs.len())?,
+                    State::Picked(idx, ref idcs) => write!(f, " picked #{} out of {} possible", idx, idcs.len())?,
                 }
             }
         }
