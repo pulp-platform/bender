@@ -5,7 +5,7 @@
 
 use std;
 use std::path::{Path, PathBuf};
-use clap::{App, Arg};
+use clap::{App, Arg, SubCommand};
 use serde_yaml;
 use config::{Config, PartialConfig, Manifest, Merge, Validate, Locked};
 use error::*;
@@ -23,6 +23,14 @@ pub fn main() -> Result<()> {
             .long("dir")
             .takes_value(true)
             .help("Sets a custom root working directory")
+        )
+        .subcommand(SubCommand::with_name("package")
+            .about("Get the path to a dependency")
+            .arg(Arg::with_name("name")
+                .multiple(true)
+                .required(true)
+                .help("Package names to get the path for")
+            )
         );
     let matches = app.get_matches();
 
@@ -62,6 +70,16 @@ pub fn main() -> Result<()> {
     let locked = res.resolve()?;
     debugln!("main: resolved {:#?}", locked);
     write_lockfile(&locked, &root_dir.join("Landa.lock"))?;
+    sess.load_locked(&locked);
+
+    // Dispatch the different subcommands.
+    if let Some(matches) = matches.subcommand_matches("package") {
+        let ids = matches
+            .values_of("name")
+            .unwrap()
+            .map(|n| sess.dependency_with_name(n))
+            .collect::<Result<Vec<_>>>()?;
+    }
 
     Ok(())
 }

@@ -39,6 +39,8 @@ pub struct Session<'ctx> {
     deps: Mutex<DependencyTable>,
     /// The internalized paths.
     paths: Mutex<HashSet<&'ctx PathBuf>>,
+    /// The package name table.
+    names: Mutex<HashMap<String, DependencyRef>>,
 }
 
 impl<'sess, 'ctx: 'sess> Session<'ctx> {
@@ -51,6 +53,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             arenas: arenas,
             deps: Mutex::new(DependencyTable::new()),
             paths: Mutex::new(HashSet::new()),
+            names: Mutex::new(HashMap::new()),
         }
     }
 
@@ -72,21 +75,37 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             config::Dependency::GitRevision(ref g, _) |
             config::Dependency::GitVersion(ref g, _) => DependencySource::Git(g.clone()),
         };
-        let entry = Arc::new(DependencyEntry {
+        self.deps.lock().unwrap().add(DependencyEntry {
             name: name.into(),
             source: src,
-        });
+        })
+    }
+
+    /// Load a lock file.
+    ///
+    /// This internalizes the dependency sources, i.e. assigns `DependencyRef`
+    /// objects to them, and generates a nametable.
+    pub fn load_locked(
+        &self,
+        locked: &config::Locked,
+    ) {
+        debugln!("sess: load locked");
         let mut deps = self.deps.lock().unwrap();
-        if let Some(&id) = deps.ids.get(&entry) {
-            debugln!("sess: reusing {:?}", id);
-            id
-        } else {
-            let id = DependencyRef(deps.list.len());
-            debugln!("sess: adding {:?} as {:?}", entry, id);
-            deps.list.push(entry.clone());
-            deps.ids.insert(entry, id);
-            id
+        let mut names = HashMap::new();
+        for (name, pkg) in &locked.packages {
+            let src = match pkg.source {
+                config::LockedSource::Path(ref path) => DependencySource::Path(path.clone()),
+                config::LockedSource::Git(ref url) => DependencySource::Git(url.clone()),
+                config::LockedSource::Registry(ref _ver) => DependencySource::Registry,
+            };
+            let id = deps.add(DependencyEntry {
+                name: name.clone(),
+                source: src,
+            });
+            names.insert(name.clone(), id);
         }
+        drop(deps);
+        *self.names.lock().unwrap() = names;
     }
 
     /// Obtain information on a dependency.
@@ -99,6 +118,17 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
     pub fn dependency_source(&self, dep: DependencyRef) -> DependencySource {
         // TODO: Don't make any clones! Use an arena instead.
         self.deps.lock().unwrap().list[dep.0].source.clone()
+    }
+
+    /// Resolve a dependency name to a reference.
+    ///
+    /// Returns an error if the dependency does not exist.
+    pub fn dependency_with_name(&self, name: &str) -> Result<DependencyRef> {
+        let result = self.names.lock().unwrap().get(name).map(|id| *id);
+        match result {
+            Some(id) => Ok(id),
+            None => Err(Error::new(format!("Dependency `{}` does not exist. Did you forget to add it to the manifest?", name))),
+        }
     }
 
     /// Internalize a path.
@@ -280,6 +310,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         });
         Box::new(out)
     }
+
+    // pub fn checkout(&'io self, dep: DependencyRef) -> Result<PathBuf> {
+
+    // }
 }
 
 /// An arena container where all incremental, temporary things are allocated.
@@ -350,6 +384,24 @@ impl DependencyTable {
         DependencyTable {
             list: Vec::new(),
             ids: HashMap::new(),
+        }
+    }
+
+    /// Add a dependency entry to the table.
+    ///
+    /// The reference with which the information can later be retrieved is
+    /// returned.
+    pub fn add(&mut self, entry: DependencyEntry) -> DependencyRef {
+        let entry = Arc::new(entry);
+        if let Some(&id) = self.ids.get(&entry) {
+            debugln!("sess: reusing {:?}", id);
+            id
+        } else {
+            let id = DependencyRef(self.list.len());
+            debugln!("sess: adding {:?} as {:?}", entry, id);
+            self.list.push(entry.clone());
+            self.ids.insert(entry, id);
+            id
         }
     }
 }
