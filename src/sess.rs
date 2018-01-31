@@ -78,6 +78,8 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         self.deps.lock().unwrap().add(DependencyEntry {
             name: name.into(),
             source: src,
+            revision: None,
+            version: None,
         })
     }
 
@@ -101,6 +103,8 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             let id = deps.add(DependencyEntry {
                 name: name.clone(),
                 source: src,
+                revision: pkg.revision.clone(),
+                version: pkg.version.as_ref().map(|s| semver::Version::parse(&s).unwrap()),
             });
             names.insert(name.clone(), id);
         }
@@ -315,7 +319,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     pub fn checkout(
         &'io self,
         dep_id: DependencyRef
-    )  -> Box<Future<Item=&'ctx Path, Error=Error> + 'io> {
+    ) -> Box<Future<Item=&'ctx Path, Error=Error> + 'io> {
+        use std;
+
         // Find the exact source of the dependency.
         let dep = self.sess.dependency(dep_id);
 
@@ -329,7 +335,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             match dep.source {
                 DependencySource::Registry => unimplemented!(),
                 DependencySource::Git(ref url) => hasher.input(url.as_bytes()),
-                DependencySource::Path(ref path) => hasher.input(format!("{:?}", path).as_bytes()),
+                DependencySource::Path(ref path) => return Box::new(
+                    future::ok(self.sess.intern_path(path.clone()))
+                ),
             }
             hasher.input(format!("{:?}", self.sess.root).as_bytes());
             &format!("{:016x}", hasher.result())[..16]
@@ -343,10 +351,31 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .join("checkouts")
             .join(checkout_name);
         let checkout_dir = self.sess.intern_path(checkout_dir);
-        debugln!("checkout: `{}` would be at {:?}", dep.name, checkout_dir);
+        match std::fs::create_dir_all(checkout_dir) {
+            Ok(_) => (),
+            Err(cause) => return Box::new(future::err(Error::chain(
+                format!("Failed to create git checkout directory {:?}.", checkout_dir),
+                cause
+            )))
+        };
 
-        // Box::new(out)
-        Box::new(future::err(Error::new("Checkout not implemented")))
+        match dep.source {
+            DependencySource::Path(..) => unreachable!(),
+            DependencySource::Registry => unimplemented!(),
+            DependencySource::Git(ref url) => {
+                self.checkout_git(checkout_dir, url, dep.revision.as_ref().unwrap())
+            }
+        }
+    }
+
+    fn checkout_git(
+        &'io self,
+        path: &'ctx Path,
+        url: &str,
+        revision: &str,
+    ) -> Box<Future<Item=&'ctx Path, Error=Error> + 'io> {
+        debugln!("checkout_git: url `{}` revision `{}` at {:?}", url, revision, path);
+        Box::new(future::err(Error::new("Checkout of git dependency not implemented")))
     }
 }
 
@@ -391,6 +420,10 @@ pub struct DependencyEntry {
     name: String,
     /// Where this dependency may be obtained from.
     source: DependencySource,
+    /// The picked revision.
+    revision: Option<String>,
+    /// The picked version.
+    version: Option<semver::Version>,
 }
 
 /// Where a dependency may be obtained from.

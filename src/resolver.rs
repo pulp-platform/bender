@@ -315,7 +315,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     State::Locked(id) => State::Locked(id),
                     State::Constrained(ref ids) => {
                         match src.versions {
-                            DependencyVersions::Path => unreachable!(),
+                            DependencyVersions::Path => State::Picked(0, HashSet::new()),
                             DependencyVersions::Git(..) => {
                                 State::Picked(
                                     ids.iter().map(|i| *i).min().unwrap(),
