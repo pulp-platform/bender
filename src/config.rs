@@ -13,7 +13,7 @@ use std::str::FromStr;
 use std::path::PathBuf;
 use std::hash::Hash;
 use std::collections::HashMap;
-use semver::VersionReq;
+use semver;
 use error::*;
 use util::*;
 
@@ -47,7 +47,7 @@ pub struct Package {
 #[derive(Debug)]
 pub enum Dependency {
     /// A dependency that can be found in one of the package repositories.
-    Version(VersionReq),
+    Version(semver::VersionReq),
     /// A local path dependency. The exact version of the dependency found at
     /// the given path will be used, regardless of any actual versioning
     /// constraints.
@@ -57,7 +57,7 @@ pub enum Dependency {
     /// A git dependency specified by a version requirement. Works similarly to
     /// the `GitRevision`, but extracts all tags of the form `v.*` from the
     /// repository and matches the version against that.
-    GitVersion(String, VersionReq),
+    GitVersion(String, semver::VersionReq),
 }
 
 /// Converts partial configuration into a validated full configuration.
@@ -166,7 +166,7 @@ impl Validate for PartialDependency {
     type Error = Error;
     fn validate(self) -> Result<Dependency> {
         let version = match self.version {
-            Some(v) => Some(VersionReq::parse(&v).map_err(|cause| Error::chain(
+            Some(v) => Some(semver::VersionReq::parse(&v).map_err(|cause| Error::chain(
                 format!("\"{}\" is not a valid semantic version requirement.", v),
                 cause
             ))?),
@@ -263,4 +263,38 @@ impl Validate for PartialConfig {
             },
         })
     }
+}
+
+/// A lock file.
+///
+/// This struct encapsulates the result of dependency resolution. For every
+/// dependency in the package it lists the exact source and version.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Locked {
+    /// The locked package versions.
+    pub packages: HashMap<String, LockedPackage>,
+}
+
+/// A locked dependency.
+///
+/// Encapsualtes the exact source and version of a dependency.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LockedPackage {
+    /// The revision hash of the dependency.
+    pub revision: Option<String>,
+    /// The version of the dependency.
+    pub version: Option<String>,
+    /// The source of the dependency.
+    pub source: LockedSource,
+}
+
+/// A source description for a locked dependency.
+#[derive(Serialize, Deserialize, Debug)]
+pub enum LockedSource {
+    /// A path on the system.
+    Path(PathBuf),
+    /// A git URL.
+    Git(String),
+    /// A registry.
+    Registry(String),
 }

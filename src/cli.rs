@@ -7,7 +7,7 @@ use std;
 use std::path::{Path, PathBuf};
 use clap::{App, Arg};
 use serde_yaml;
-use config::{Config, PartialConfig, Manifest, Merge, Validate};
+use config::{Config, PartialConfig, Manifest, Merge, Validate, Locked};
 use error::*;
 use sess::{Session, SessionArenas};
 use resolver::DependencyResolver;
@@ -51,8 +51,17 @@ pub fn main() -> Result<()> {
     debugln!("main: {:#?}", sess);
 
     // Resolve the dependencies.
+    let lock_path = root_dir.join("Landa.lock");
+    let locked = if lock_path.exists() {
+        Some(read_lockfile(&lock_path)?)
+    } else {
+        None
+    };
+    debugln!("main: loaded {:#?}", locked);
     let res = DependencyResolver::new(&sess);
-    res.resolve()?;
+    let locked = res.resolve()?;
+    debugln!("main: resolved {:#?}", locked);
+    write_lockfile(&locked, &root_dir.join("Landa.lock"))?;
 
     Ok(())
 }
@@ -216,4 +225,33 @@ fn maybe_load_config(path: &Path) -> Result<Option<PartialConfig>> {
         cause
     ))?;
     Ok(Some(partial))
+}
+
+/// Read a lock file.
+fn read_lockfile(path: &Path) -> Result<Locked> {
+    debugln!("read_lockfile: {:?}", path);
+    use std::fs::File;
+    let file = File::open(path).map_err(|cause| Error::chain(
+        format!("Cannot open lockfile {:?}.", path),
+        cause
+    ))?;
+    serde_yaml::from_reader(file).map_err(|cause| Error::chain(
+        format!("Syntax error in lockfile {:?}.", path),
+        cause
+    ))
+}
+
+/// Write a lock file.
+fn write_lockfile(locked: &Locked, path: &Path) -> Result<()> {
+    debugln!("write_lockfile: {:?}", path);
+    use std::fs::File;
+    let file = File::create(path).map_err(|cause| Error::chain(
+        format!("Cannot create lockfile {:?}.", path),
+        cause
+    ))?;
+    serde_yaml::to_writer(file, locked).map_err(|cause| Error::chain(
+        format!("Cannot write lockfile {:?}.", path),
+        cause
+    ))?;
+    Ok(())
 }

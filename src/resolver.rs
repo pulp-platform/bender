@@ -10,8 +10,9 @@ use std::collections::{HashMap, HashSet};
 use futures::Future;
 use futures::future::join_all;
 use tokio_core::reactor::Core;
-use sess::{Session, SessionIo, DependencyVersions, DependencyRef, DependencyConstraint};
+use sess::{self, Session, SessionIo, DependencyVersions, DependencyRef, DependencyConstraint};
 use error::*;
+use config;
 
 /// A dependency resolver.
 pub struct DependencyResolver<'ctx> {
@@ -32,7 +33,7 @@ impl<'ctx> DependencyResolver<'ctx> {
     }
 
     /// Resolve dependencies.
-    pub fn resolve(mut self) -> Result<()> {
+    pub fn resolve(mut self) -> Result<config::Locked> {
         let mut core = Core::new().unwrap();
         let io = SessionIo::new(self.sess, core.handle());
 
@@ -81,7 +82,57 @@ impl<'ctx> DependencyResolver<'ctx> {
         self.close()?;
         debugln!("resolve: table {:#?}", TableDumper(&self.table));
 
-        Ok(())
+        // Convert the resolved dependencies into a lockfile.
+        let sess = self.sess;
+        let packages = self.table
+            .into_iter()
+            .map(|(name, mut dep)|{
+                if dep.sources.len() > 1 {
+                    return Err(Error::new(format!("Dependencies with multiple sources, such as `{}`, are not yet supported.", name)));
+                }
+                let (id, src) = dep.sources.drain().next().unwrap();
+                let pick = src.state.pick().unwrap();
+                let sess_src = sess.dependency_source(id);
+                let pkg = match src.versions {
+                    DependencyVersions::Path => {
+                        let path = match sess_src {
+                            sess::DependencySource::Path(p) => p,
+                            _ => unreachable!(),
+                        };
+                        config::LockedPackage {
+                            revision: None,
+                            version: None,
+                            source: config::LockedSource::Path(path),
+                        }
+                    }
+                    DependencyVersions::Registry(ref _rv) => {
+                        return Err(Error::new(format!("Registry dependencies such as `{}` not yet supported.", name)));
+                    }
+                    DependencyVersions::Git(ref gv) => {
+                        let url = match sess_src {
+                            sess::DependencySource::Git(u) => u,
+                            _ => unreachable!(),
+                        };
+                        let rev = gv.revs[pick].clone();
+                        let version = gv.versions
+                            .iter()
+                            .filter(|&&(_, ref r)| *r == rev)
+                            .map(|&(ref v, _)| v)
+                            .max()
+                            .map(|v| v.to_string());
+                        config::LockedPackage {
+                            revision: Some(rev),
+                            version: version,
+                            source: config::LockedSource::Git(url),
+                        }
+                    }
+                };
+                Ok((name.to_string(), pkg))
+            })
+            .collect::<Result<_>>()?;
+        Ok(config::Locked {
+            packages: packages
+        })
     }
 
     fn register_dependency(
