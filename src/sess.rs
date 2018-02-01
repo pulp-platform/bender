@@ -5,6 +5,7 @@
 
 #![deny(missing_docs)]
 
+use std;
 use std::fmt;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -229,8 +230,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         name: &str,
         url: &str
     ) -> Box<Future<Item=Git<'io, 'sess, 'ctx>, Error=Error> + 'io> {
-        use std;
-
         // TODO: Make the assembled future shared and keep it in a lookup table.
         //       Then use that table to return the future if it already exists.
         //       This ensures that the gitdb is setup only once, and makes the
@@ -349,8 +348,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         &'io self,
         dep_id: DependencyRef
     ) -> Box<Future<Item=&'ctx Path, Error=Error> + 'io> {
-        use std;
-
         // Find the exact source of the dependency.
         let dep = self.sess.dependency(dep_id);
 
@@ -373,26 +370,18 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         };
         let checkout_name = format!("{}-{}", dep.name, hash);
 
-        // Determine the location of the git database and create it if its does
-        // not yet exist.
-        let checkout_dir = self.sess.config.database
+        // Determine the location of the git checkout.
+        let checkout_dir = self.sess.intern_path(self.sess.config.database
             .join("git")
             .join("checkouts")
-            .join(checkout_name);
-        let checkout_dir = self.sess.intern_path(checkout_dir);
-        match std::fs::create_dir_all(checkout_dir) {
-            Ok(_) => (),
-            Err(cause) => return Box::new(future::err(Error::chain(
-                format!("Failed to create git checkout directory {:?}.", checkout_dir),
-                cause
-            )))
-        };
+            .join(checkout_name));
 
         match dep.source {
             DependencySource::Path(..) => unreachable!(),
             DependencySource::Registry => unimplemented!(),
             DependencySource::Git(ref url) => {
                 self.checkout_git(
+                    self.sess.intern_string(dep.name.as_ref()),
                     checkout_dir,
                     self.sess.intern_string(url.as_ref()),
                     self.sess.intern_string(dep.revision.as_ref().unwrap().as_ref())
@@ -407,12 +396,80 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     /// re-created from scratch.
     fn checkout_git(
         &'io self,
+        name: &'ctx str,
         path: &'ctx Path,
         url: &'ctx str,
         revision: &'ctx str,
     ) -> Box<Future<Item=&'ctx Path, Error=Error> + 'io> {
-        debugln!("checkout_git: url `{}` revision `{}` at {:?}", url, revision, path);
-        Box::new(future::err(Error::new("Checkout of git dependency not implemented")))
+        // First check if we have a valid git repository. If not, delete the
+        // entire checkout and start from scratch.
+        let scrapped = future::lazy(move ||{
+            if path.exists() && !path.join(".git").exists() {
+                debugln!("checkout_git: clear non-git checkout {:?}", path);
+                std::fs::remove_dir_all(path).map_err(|cause| Error::chain(
+                    format!("Failed to remove checkout directory {:?}", path),
+                    cause
+                ))?;
+            }
+            Ok(())
+        });
+
+        // Now we're sure that either there is no directory, or it is a valid
+        // git repository. If there is no directory, create it and initialize
+        // a git repository for further use. The future returns a `Git` object.
+        let git = scrapped.and_then(move |_|{
+            if !path.exists() {
+                debugln!("checkout_git: create directory {:?}", path);
+                std::fs::create_dir_all(path).map_err(|cause| Error::chain(
+                    format!("Failed to create git checkout directory {:?}", path),
+                    cause
+                ))?;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }).and_then(move |created| -> Box<Future<Item=Git, Error=Error>> {
+            let git = Git::new(path, self);
+            if created {
+                Box::new(git.spawn_with(|c| c.arg("init")).map(move |_| git))
+            } else {
+                Box::new(future::ok(git))
+            }
+        });
+
+        // Check whether we're already at the right revision.
+        let checked = git
+            .and_then(|git| git.current_checkout().map(move |h| (git, h)))
+            .and_then(move |(git, hash)| match hash.as_ref() {
+                Some(hash) if hash == revision => Ok((git, false)),
+                _ => Ok((git, true)),
+            });
+
+        // Update if necessary.
+        let updated = checked.and_then(
+            move |(git, update)| -> Box<Future<Item=(), Error=Error>> {
+                if update {
+                    let f = self
+                        .git_database(name, url)
+                        .map(|git| git.path)
+                        .and_then(move |db| git.spawn_with(|c| c
+                            .arg("fetch")
+                            .arg(db)
+                            .arg(format!("{}:LAST_CHECKOUT", revision))
+                        ))
+                        .and_then(move |_| git.spawn_with(|c| c
+                            .arg("checkout")
+                            .arg("--force")
+                            .arg(revision)))
+                        .map(|_| ());
+                    Box::new(f)
+                } else {
+                    Box::new(future::ok(()))
+                }
+            }
+        );
+
+        Box::new(updated.map(move |_| path))
     }
 }
 

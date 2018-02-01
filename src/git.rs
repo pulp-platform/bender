@@ -71,8 +71,8 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
             } else {
                 let mut msg = format!("Git command ({:?})", cmd);
                 match output.status.code() {
-                    Some(code) => msg.push_str(&format!("failed with exit code {}", code)),
-                    None => msg.push_str("failed"),
+                    Some(code) => msg.push_str(&format!(" failed with exit code {}", code)),
+                    None => msg.push_str(" failed"),
                 };
                 match String::from_utf8(output.stderr) {
                     Ok(txt) => {
@@ -147,6 +147,17 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
         Box::new(
             self.spawn_with(|c| c.arg("rev-list").arg("--all").arg("--date-order"))
             .map(|raw| raw.lines().map(String::from).collect())
+        )
+    }
+
+    /// Determine the currently checked out revision.
+    pub fn current_checkout(self) -> GitFuture<'io, Option<String>> {
+        Box::new(
+            self.spawn_with(|c| c
+                .arg("rev-parse")
+                .arg("--revs-only")
+                .arg("HEAD^{commit}"))
+            .map(|raw| raw.lines().take(1).map(String::from).next())
         )
     }
 }

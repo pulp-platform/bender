@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use clap::{App, Arg, SubCommand};
 use serde_yaml;
 use tokio_core::reactor::Core;
-use futures::{future, Future};
+use futures::future;
 use config::{Config, PartialConfig, Manifest, Merge, Validate, Locked};
 use error::*;
 use sess::{Session, SessionArenas, SessionIo};
@@ -91,6 +91,11 @@ pub fn main() -> Result<()> {
             .collect::<Vec<_>>()
         ))?;
         debugln!("main: checkouts {:#?}", checkouts);
+        for c in checkouts {
+            if let Some(s) = c.to_str() {
+                println!("{}", s);
+            }
+        }
     }
 
     Ok(())
