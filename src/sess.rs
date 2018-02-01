@@ -38,7 +38,9 @@ pub struct Session<'ctx> {
     /// The dependency table.
     deps: Mutex<DependencyTable>,
     /// The internalized paths.
-    paths: Mutex<HashSet<&'ctx PathBuf>>,
+    paths: Mutex<HashSet<&'ctx Path>>,
+    /// The internalized strings.
+    strings: Mutex<HashSet<&'ctx str>>,
     /// The package name table.
     names: Mutex<HashMap<String, DependencyRef>>,
 }
@@ -53,6 +55,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             arenas: arenas,
             deps: Mutex::new(DependencyTable::new()),
             paths: Mutex::new(HashSet::new()),
+            strings: Mutex::new(HashSet::new()),
             names: Mutex::new(HashMap::new()),
         }
     }
@@ -91,7 +94,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         &self,
         locked: &config::Locked,
     ) {
-        debugln!("sess: load locked");
+        debugln!("sess: load locked {:#?}", locked);
         let mut deps = self.deps.lock().unwrap();
         let mut names = HashMap::new();
         for (name, pkg) in &locked.packages {
@@ -136,14 +139,40 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
     }
 
     /// Internalize a path.
-    pub fn intern_path(&self, buf: PathBuf) -> &'ctx Path {
+    ///
+    /// This allocates the path in the arena and returns a reference to it whose
+    /// lifetime is bound to the arena rather than this `Session`. Useful to
+    /// obtain a lightweight pointer to a path that is guaranteed to outlive the
+    /// `Session`.
+    pub fn intern_path<T>(&self, path: T) -> &'ctx Path
+        where T: Into<PathBuf> + AsRef<Path>
+    {
         let mut paths = self.paths.lock().unwrap();
-        if let Some(&p) = paths.get(&buf) {
+        if let Some(&p) = paths.get(path.as_ref()) {
             p
         } else {
-            let p = self.arenas.path.alloc(buf);
+            let p = self.arenas.path.alloc(path.into());
             paths.insert(p);
             p
+        }
+    }
+
+    /// Internalize a string.
+    ///
+    /// This allocates the string in the arena and returns a reference to it
+    /// whose lifetime is bound to the arena rather than this `Session`. Useful
+    /// to obtain a lightweight pointer to a string that is guaranteed to
+    /// outlive the `Session`.
+    pub fn intern_string<T>(&self, string: T) -> &'ctx str
+        where T: Into<String> + AsRef<str>
+    {
+        let mut strings = self.strings.lock().unwrap();
+        if let Some(&s) = strings.get(string.as_ref()) {
+            s
+        } else {
+            let s = self.arenas.string.alloc(string.into());
+            strings.insert(s);
+            s
         }
     }
 }
@@ -363,7 +392,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             DependencySource::Path(..) => unreachable!(),
             DependencySource::Registry => unimplemented!(),
             DependencySource::Git(ref url) => {
-                self.checkout_git(checkout_dir, url, dep.revision.as_ref().unwrap())
+                self.checkout_git(
+                    checkout_dir,
+                    self.sess.intern_string(url.as_ref()),
+                    self.sess.intern_string(dep.revision.as_ref().unwrap().as_ref())
+                )
             }
         }
     }
@@ -375,8 +408,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     fn checkout_git(
         &'io self,
         path: &'ctx Path,
-        url: &str,
-        revision: &str,
+        url: &'ctx str,
+        revision: &'ctx str,
     ) -> Box<Future<Item=&'ctx Path, Error=Error> + 'io> {
         debugln!("checkout_git: url `{}` revision `{}` at {:?}", url, revision, path);
         Box::new(future::err(Error::new("Checkout of git dependency not implemented")))
@@ -387,6 +420,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 pub struct SessionArenas {
     /// An arena to allocate paths in.
     pub path: Arena<PathBuf>,
+    /// An arena to allocate strings in.
+    pub string: Arena<String>,
 }
 
 impl SessionArenas {
@@ -394,6 +429,7 @@ impl SessionArenas {
     pub fn new() -> SessionArenas {
         SessionArenas {
             path: Arena::new(),
+            string: Arena::new(),
         }
     }
 }
