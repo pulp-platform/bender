@@ -362,7 +362,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 DependencySource::Registry => unimplemented!(),
                 DependencySource::Git(ref url) => hasher.input(url.as_bytes()),
                 DependencySource::Path(ref path) => return Box::new(
-                    future::ok(self.sess.intern_path(path.clone()))
+                    future::ok(self.sess.intern_path(self.sess.root.join(path)))
                 ),
             }
             hasher.input(format!("{:?}", self.sess.root).as_bytes());

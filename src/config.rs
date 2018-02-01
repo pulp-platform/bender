@@ -19,7 +19,7 @@ use util::*;
 
 /// A package manifest.
 ///
-/// This is usually called `Landa.yml` in the root directory of the package.
+/// This is usually called `Bender.yml` in the root directory of the package.
 #[derive(Debug)]
 pub struct Manifest {
     /// The package definition.

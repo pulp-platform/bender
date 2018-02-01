@@ -12,7 +12,7 @@ release:
     - cargo build --release
   artifacts:
     paths:
-      - target/release/landa
+      - target/release/bender
 
 doc:
   script:

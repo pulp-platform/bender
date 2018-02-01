@@ -16,7 +16,7 @@ use resolver::DependencyResolver;
 
 /// Inner main function which can return an error.
 pub fn main() -> Result<()> {
-    let app = App::new("landa")
+    let app = App::new("bender")
         .version("0.1.0")
         .author("Fabian Schuiki <fschuiki@iis.ee.ethz.ch>")
         .about("A dependency management tool for hardware projects.\n\nAttendez la crème.")
@@ -26,7 +26,7 @@ pub fn main() -> Result<()> {
             .takes_value(true)
             .help("Sets a custom root working directory")
         )
-        .subcommand(SubCommand::with_name("package")
+        .subcommand(SubCommand::with_name("path")
             .about("Get the path to a dependency")
             .arg(Arg::with_name("name")
                 .multiple(true)
@@ -49,7 +49,7 @@ pub fn main() -> Result<()> {
     debugln!("main: root dir {:?}", root_dir);
 
     // Parse the manifest file of the package.
-    let manifest = read_manifest(&root_dir.join("Landa.yml"))?;
+    let manifest = read_manifest(&root_dir.join("Bender.yml"))?;
     debugln!("main: {:#?}", manifest);
 
     // Gather and parse the tool configuration.
@@ -61,7 +61,7 @@ pub fn main() -> Result<()> {
     debugln!("main: {:#?}", sess);
 
     // Resolve the dependencies.
-    let lock_path = root_dir.join("Landa.lock");
+    let lock_path = root_dir.join("Bender.lock");
     let locked = if lock_path.exists() {
         Some(read_lockfile(&lock_path)?)
     } else {
@@ -71,11 +71,11 @@ pub fn main() -> Result<()> {
     let res = DependencyResolver::new(&sess);
     let locked = res.resolve()?;
     debugln!("main: resolved {:#?}", locked);
-    write_lockfile(&locked, &root_dir.join("Landa.lock"))?;
+    write_lockfile(&locked, &root_dir.join("Bender.lock"))?;
     sess.load_locked(&locked);
 
     // Dispatch the different subcommands.
-    if let Some(matches) = matches.subcommand_matches("package") {
+    if let Some(matches) = matches.subcommand_matches("path") {
         let mut core = Core::new().unwrap();
         let io = SessionIo::new(&sess, core.handle());
 
@@ -103,7 +103,7 @@ pub fn main() -> Result<()> {
 
 /// Find the root directory of a package.
 ///
-/// Traverses the directory hierarchy upwards until a `Landa.yml` file is found.
+/// Traverses the directory hierarchy upwards until a `Bender.yml` file is found.
 fn find_package_root(from: &Path) -> Result<PathBuf> {
     use std::fs::{canonicalize, metadata};
     use std::os::unix::fs::MetadataExt;
@@ -125,7 +125,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
         debugln!("find_package_root: looking in {:?}", path);
 
         // Check if we can find a package manifest here.
-        if path.join("Landa.yml").exists() {
+        if path.join("Bender.yml").exists() {
             return Ok(path);
         }
 
@@ -178,7 +178,7 @@ fn load_config(from: &Path) -> Result<Config> {
     let mut out = PartialConfig::new();
 
     // Load the optional local configuration.
-    if let Some(cfg) = maybe_load_config(&from.join("Landa.local"))? {
+    if let Some(cfg) = maybe_load_config(&from.join("Bender.local"))? {
         out = out.merge(cfg);
     }
 
@@ -198,7 +198,7 @@ fn load_config(from: &Path) -> Result<Config> {
     for _ in 0..100 {
         debugln!("load_config: looking in {:?}", path);
 
-        if let Some(cfg) = maybe_load_config(&path.join(".landa.yml"))? {
+        if let Some(cfg) = maybe_load_config(&path.join(".bender.yml"))? {
             out = out.merge(cfg);
         }
 
@@ -218,14 +218,14 @@ fn load_config(from: &Path) -> Result<Config> {
     // Load the user configuration.
     if let Some(mut home) = std::env::home_dir() {
         home.push(".config");
-        home.push("landa.yml");
+        home.push("bender.yml");
         if let Some(cfg) = maybe_load_config(&home)? {
             out = out.merge(cfg);
         }
     }
 
     // Load the global configuration.
-    if let Some(cfg) = maybe_load_config(Path::new("/etc/landa.yml"))? {
+    if let Some(cfg) = maybe_load_config(Path::new("/etc/bender.yml"))? {
         out = out.merge(cfg);
     }
 
@@ -233,7 +233,7 @@ fn load_config(from: &Path) -> Result<Config> {
     let default_cfg = PartialConfig {
         database: {
             let mut db = std::env::home_dir().unwrap_or_else(|| from.into());
-            db.push(".landa");
+            db.push(".bender");
             Some(db)
         },
         git: Some("git".into()),

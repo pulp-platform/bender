@@ -356,11 +356,11 @@ impl<'ctx> DependencyResolver<'ctx> {
 /// dependency name, but two different sources:
 ///
 /// ```ignore
-/// # a/Landa.yml
+/// # a/Bender.yml
 /// dependencies:
 ///   foo: { git: "alpha@example.com:foo", version: "1.0.0" }
 ///
-/// # b/Landa.yml
+/// # b/Bender.yml
 /// dependencies:
 ///   foo: { git: "beta@example.com:foo", version: "1.0.0" }
 /// ```
