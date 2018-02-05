@@ -22,4 +22,14 @@ package:
 dependencies:
   foo: { git: \"file://$DIR/foo\", rev: master }
 " > Bender.yml
-$BENDER path foo # this fails according to issue #5
+if $BENDER path foo &> log; then # this fails according to issue #2
+	cat log
+	echo "should fail" >&2
+	exit 1
+fi
+
+if ! grep 'Dependency `foo` cannot satisfy requirement `master`' log; then
+	cat log
+	echo "should fail differently" >&2
+	exit 2
+fi

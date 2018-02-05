@@ -289,7 +289,15 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     ) -> Box<Future<Item=GitVersions, Error=Error> + 'io> {
         let dep_refs = git.list_refs();
         let dep_revs = git.list_revs();
-        let out = dep_refs.join(dep_revs).and_then(move |(refs, revs)|{
+        let dep_refs_and_revs = dep_refs
+            .and_then(|refs| -> Box<Future<Item=_, Error=Error>> {
+                if refs.is_empty() {
+                    Box::new(future::ok((refs, vec![])))
+                } else {
+                    Box::new(dep_revs.map(move |revs| (refs, revs)))
+                }
+            });
+        let out = dep_refs_and_revs.and_then(move |(refs, revs)|{
             debugln!("sess: gitdb: refs {:?}", refs);
             let (tags, branches) = {
                 // Create a lookup table for the revisions. This will be used to

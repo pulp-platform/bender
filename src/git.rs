@@ -54,7 +54,10 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     /// arguments to the command are emitted together with the captured output.
     /// The command is spawned asynchronously on the session's reactor core.
     /// Returns a future that will resolve to the command's stdout.
-    pub fn spawn(self, mut cmd: Command) -> GitFuture<'io, String> {
+    ///
+    /// If `check` is false, the stdout will be returned regardless of the
+    /// command's exit code.
+    pub fn spawn(self, mut cmd: Command, check: bool) -> GitFuture<'io, String> {
         let output = cmd
             .output_async(&self.sess.handle)
             .map_err(|cause| Error::chain(
@@ -63,7 +66,7 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
             ));
         let result = output.and_then(move |output|{
             debugln!("git: {:?} in {:?}", cmd, self.path);
-            if output.status.success() {
+            if output.status.success() || !check {
                 String::from_utf8(output.stdout).map_err(|cause| Error::chain(
                     format!("Output of git command ({:?}) is not valid UTF-8.", cmd),
                     cause
@@ -98,7 +101,20 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
         let mut cmd = Command::new(&self.sess.sess.config.git);
         cmd.current_dir(&self.path);
         f(&mut cmd);
-        self.spawn(cmd)
+        self.spawn(cmd, true)
+    }
+
+    /// Assemble a command and schedule it for execution.
+    ///
+    /// This is the same as `spawn_with()`, but returns the stdout regardless of
+    /// whether the command failed or not.
+    pub fn spawn_unchecked_with<F>(self, f: F) -> GitFuture<'io, String>
+        where F: FnOnce(&mut Command) -> &mut Command
+    {
+        let mut cmd = Command::new(&self.sess.sess.config.git);
+        cmd.current_dir(&self.path);
+        f(&mut cmd);
+        self.spawn(cmd, false)
     }
 
     /// Fetch the tags and refs of a remote.
@@ -119,7 +135,7 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
 
     /// List all refs and their hashes.
     pub fn list_refs(self) -> GitFuture<'io, Vec<(String, String)>> {
-        Box::new(self.spawn_with(|c|
+        Box::new(self.spawn_unchecked_with(|c|
             c.arg("show-ref")
         ).and_then(move |raw| {
             future::join_all(raw.lines().map(|line|{
