@@ -6,6 +6,8 @@ before_script:
 test:
   script:
     - cargo test
+    - cargo build
+    - tests/run_all.sh
 
 release:
   script:

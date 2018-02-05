@@ -1,3 +1,4 @@
 .*
 !.git*
 /target
+/tests/tmp
