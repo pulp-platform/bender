@@ -68,11 +68,11 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
             debugln!("git: {:?} in {:?}", cmd, self.path);
             if output.status.success() || !check {
                 String::from_utf8(output.stdout).map_err(|cause| Error::chain(
-                    format!("Output of git command ({:?}) is not valid UTF-8.", cmd),
+                    format!("Output of git command ({:?}) in directory {:?} is not valid UTF-8.", cmd, self.path),
                     cause
                 ))
             } else {
-                let mut msg = format!("Git command ({:?})", cmd);
+                let mut msg = format!("Git command ({:?}) in directory {:?}", cmd, self.path);
                 match output.status.code() {
                     Some(code) => msg.push_str(&format!(" failed with exit code {}", code)),
                     None => msg.push_str(" failed"),

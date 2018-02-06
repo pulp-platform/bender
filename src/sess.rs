@@ -439,7 +439,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         }).and_then(move |created| -> Box<Future<Item=Git, Error=Error>> {
             let git = Git::new(path, self);
             if created {
-                Box::new(git.spawn_with(|c| c.arg("init")).map(move |_| git))
+                let f = self
+                    .git_database(name, url)
+                    .map(|git| git.path)
+                    .and_then(move |db| git.spawn_with(|c| c
+                        .arg("init")
+                        .arg("--separate-git-dir")
+                        .arg(db)
+                    ))
+                    .map(move |_| git);
+                Box::new(f)
             } else {
                 Box::new(future::ok(git))
             }
@@ -460,11 +469,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     let f = self
                         .git_database(name, url)
                         .map(|git| git.path)
-                        .and_then(move |db| git.spawn_with(|c| c
-                            .arg("fetch")
-                            .arg(db)
-                            .arg(format!("{}:LAST_CHECKOUT", revision))
-                        ))
                         .and_then(move |_| git.spawn_with(|c| c
                             .arg("checkout")
                             .arg("--force")
