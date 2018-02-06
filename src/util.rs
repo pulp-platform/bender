@@ -9,6 +9,9 @@ use std;
 use std::fmt;
 use std::str::FromStr;
 use std::marker::PhantomData;
+use std::path::Path;
+use std::fs::File;
+use std::io::prelude::*;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
@@ -95,4 +98,19 @@ impl<'de, T> Deserialize<'de> for StringOrStruct<T>
 
         deserializer.deserialize_any(Visitor::<T>(PhantomData)).map(|v| StringOrStruct(v))
     }
+}
+
+/// Read an entire file into a string.
+pub fn read_file(path: &Path) -> std::io::Result<String> {
+    let mut file = File::open(path)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    Ok(contents)
+}
+
+/// Write an entire string to a file.
+pub fn write_file(path: &Path, contents: &str) -> std::io::Result<()> {
+    let mut file = File::create(path)?;
+    file.write_all(contents.as_bytes())?;
+    Ok(())
 }

@@ -10,16 +10,19 @@ use std::fmt;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, Arc};
+use std::process::Command;
 
 use semver;
 use futures::Future;
 use futures::future;
 use tokio_core::reactor::Handle;
+use tokio_process::CommandExt;
 use typed_arena::Arena;
 
 use error::*;
 use config::{self, Manifest, Config};
 use git::Git;
+use util::{read_file, write_file};
 
 /// A session on the command line.
 ///
@@ -409,77 +412,113 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         url: &'ctx str,
         revision: &'ctx str,
     ) -> Box<Future<Item=&'ctx Path, Error=Error> + 'io> {
-        // First check if we have a valid git repository. If not, delete the
-        // entire checkout and start from scratch.
+        // Determine the path and contents of the tag file.
+        let tagpath = self.sess.intern_path(path.join(".bender-tag"));
+        let tagname = self.sess.intern_string(format!("git {}", revision));
+        let archive_path = self.sess.intern_path(path.join(".bender-archive.tar"));
+
+        // First check if we have to get rid of the current checkout. This is
+        // the case if either it or the tag does not exist, or the content of
+        // the tag does not match what we expect.
         let scrapped = future::lazy(move ||{
-            if path.exists() && !path.join(".git").exists() {
-                debugln!("checkout_git: clear non-git checkout {:?}", path);
+            let clear = if tagpath.exists() {
+                let current_tagname = read_file(tagpath).map_err(|cause| Error::chain(
+                    format!("Failed to read tagfile {:?}.", tagpath),
+                    cause
+                ))?;
+                let current_tagname = current_tagname.trim();
+                debugln!("checkout_git: currently `{}` (want `{}`) at {:?}", current_tagname, tagname, tagpath);
+                // Scrap checkouts with the wrong tag.
+                current_tagname != tagname
+            } else if path.exists() {
+                // Scrap checkouts without a tag.
+                true
+            } else {
+                // Don't do anything if there is no checkout.
+                false
+            };
+            if clear {
+                debugln!("checkout_git: clear checkout {:?}", path);
                 std::fs::remove_dir_all(path).map_err(|cause| Error::chain(
-                    format!("Failed to remove checkout directory {:?}", path),
+                    format!("Failed to remove checkout directory {:?}.", path),
                     cause
                 ))?;
             }
             Ok(())
         });
 
-        // Now we're sure that either there is no directory, or it is a valid
-        // git repository. If there is no directory, create it and initialize
-        // a git repository for further use. The future returns a `Git` object.
-        let git = scrapped.and_then(move |_|{
+        // Create the checkout directory if it does not exist yet.
+        let created = scrapped.and_then(move |_|{
             if !path.exists() {
                 debugln!("checkout_git: create directory {:?}", path);
                 std::fs::create_dir_all(path).map_err(|cause| Error::chain(
-                    format!("Failed to create git checkout directory {:?}", path),
+                    format!("Failed to create git checkout directory {:?}.", path),
                     cause
                 ))?;
                 Ok(true)
             } else {
                 Ok(false)
             }
-        }).and_then(move |created| -> Box<Future<Item=Git, Error=Error>> {
-            let git = Git::new(path, self);
-            if created {
-                let f = self
-                    .git_database(name, url)
-                    .map(|git| git.path)
-                    .and_then(move |db| git.spawn_with(|c| c
-                        .arg("init")
-                        .arg("--separate-git-dir")
-                        .arg(db)
-                    ))
-                    .map(move |_| git);
-                Box::new(f)
-            } else {
-                Box::new(future::ok(git))
-            }
         });
 
-        // Check whether we're already at the right revision.
-        let checked = git
-            .and_then(|git| git.current_checkout().map(move |h| (git, h)))
-            .and_then(move |(git, hash)| match hash.as_ref() {
-                Some(hash) if hash == revision => Ok((git, false)),
-                _ => Ok((git, true)),
-            });
+        // Perform the checkout if necessary.
+        let updated = created.and_then(move |need_checkout| -> Box<Future<Item=_, Error=Error>> {
+            if need_checkout {
+                // In the database repository, generate a TAR archive from the
+                // revision.
+                debugln!("checkout_git: create archive {:?}", archive_path);
+                let f = self
+                    .git_database(name, url)
+                    .and_then(move |git| git.spawn_with(|c| c
+                        .arg("archive")
+                        .arg("--format")
+                        .arg("tar")
+                        .arg("--output")
+                        .arg(archive_path)
+                        .arg(revision)
+                    ))
+                    .map(|_| ());
 
-        // Update if necessary.
-        let updated = checked.and_then(
-            move |(git, update)| -> Box<Future<Item=(), Error=Error>> {
-                if update {
-                    let f = self
-                        .git_database(name, url)
-                        .map(|git| git.path)
-                        .and_then(move |_| git.spawn_with(|c| c
-                            .arg("checkout")
-                            .arg("--force")
-                            .arg(revision)))
-                        .map(|_| ());
-                    Box::new(f)
-                } else {
-                    Box::new(future::ok(()))
-                }
+                // Unpack the archive.
+                let f = f.and_then(move |_|{
+                    debugln!("checkout_git: unpack archive {:?}", archive_path);
+                    let mut cmd = Command::new("tar");
+                    cmd.arg("xf").arg(archive_path)
+                        .current_dir(path)
+                        .output_async(&self.handle)
+                        .map_err(|cause| Error::chain(
+                            "Failed to spawn child process.",
+                            cause
+                        ))
+                        .and_then(move |output|{
+                            if output.status.success() {
+                                Ok(())
+                            } else {
+                                Err(Error::new(format!("Failed to unpack archive. Command ({:?}) in directory {:?} failed.", cmd, path)))
+                            }
+                        })
+                });
+
+                // Create the tagfile in the checkout such that we know what we've
+                // checked out the next time around.
+                let f = f.and_then(move |_|{
+                    debugln!("checkout_git: remove archive {:?}", archive_path);
+                    std::fs::remove_file(archive_path).map_err(|cause| Error::chain(
+                        format!("Failed to remove archive {:?}.", path),
+                        cause
+                    ))?;
+                    debugln!("checkout_git: write tag `{}` to {:?}", tagname, tagpath);
+                    write_file(tagpath, tagname).map_err(|cause| Error::chain(
+                        format!("Failed to write tagfile {:?}.", tagpath),
+                        cause
+                    ))?;
+                    Ok(())
+                });
+                Box::new(f.map(|_| ()))
+            } else {
+                Box::new(future::ok(()))
             }
-        );
+        });
 
         Box::new(updated.map(move |_| path))
     }
