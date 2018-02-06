@@ -16,10 +16,10 @@ use resolver::DependencyResolver;
 
 /// Inner main function which can return an error.
 pub fn main() -> Result<()> {
-    let app = App::new("bender")
-        .version("0.1.0")
-        .author("Fabian Schuiki <fschuiki@iis.ee.ethz.ch>")
-        .about("A dependency management tool for hardware projects.\n\nAttendez la crème.")
+    let app = App::new(env!("CARGO_PKG_NAME"))
+        .version(env!("CARGO_PKG_VERSION"))
+        .author(env!("CARGO_PKG_AUTHORS"))
+        .about("A dependency management tool for hardware projects.")
         .arg(Arg::with_name("dir")
             .short("d")
             .long("dir")
