@@ -18,11 +18,13 @@ use futures::future;
 use tokio_core::reactor::Handle;
 use tokio_process::CommandExt;
 use typed_arena::Arena;
+use serde_yaml;
 
 use error::*;
 use config::{self, Manifest, Config};
 use git::Git;
 use util::{read_file, write_file};
+use config::Validate;
 
 /// A session on the command line.
 ///
@@ -178,6 +180,18 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             strings.insert(s);
             s
         }
+    }
+
+    /// Internalize a manifest.
+    ///
+    /// This allocates the manifest in the arena and returns a reference to it
+    /// whose lifetime is bound to the arena rather than this `Session`. Useful
+    /// to obtain a lightweight pointer to a manifest that is guaranteed to
+    /// outlive the `Session`.
+    pub fn intern_manifest<T>(&self, manifest: T) -> &'ctx Manifest
+        where T: Into<Manifest>
+    {
+        self.arenas.manifest.alloc(manifest.into())
     }
 }
 
@@ -522,6 +536,77 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         Box::new(updated.map(move |_| path))
     }
+
+    /// Load the manifest for a dependency.
+    ///
+    /// Loads and returns the manifest for a dependency at a specific version.
+    /// Returns `None` if the dependency has no manifest.
+    pub fn dependency_manifest(
+        &'io self,
+        dep_id: DependencyRef,
+        version: &DependencyVersion,
+    ) -> Box<Future<Item=Option<&'ctx Manifest>, Error=Error> + 'io> {
+        let dep = self.sess.dependency(dep_id);
+        use self::DependencySource as DepSrc;
+        use self::DependencyVersion as DepVer;
+        match (&dep.source, version) {
+            (&DepSrc::Path(ref _path), &DepVer::Path) => {
+                unimplemented!();
+            }
+            (&DepSrc::Registry, &DepVer::Registry(ref _hash)) => {
+                unimplemented!("load manifest of registry dependency");
+            }
+            (&DepSrc::Git(ref url), &DepVer::Git(ref rev)) => {
+                let dep_name = self.sess.intern_string(dep.name.as_str());
+                let rev = self.sess.intern_string(rev.as_str());
+                Box::new(self
+                    .git_database(&dep.name, url)
+                    .and_then(move |db| db
+                        .list_files(rev, Some("Bender.yml"))
+                        .and_then(move |entries| -> Box<Future<Item=_, Error=_>> {
+                            match entries.into_iter().next() {
+                                None => Box::new(future::ok(None)),
+                                Some(entry) => Box::new(db
+                                    .cat_file(entry.hash)
+                                    .map(|f| Some(f))
+                                ),
+                            }
+                        })
+                    )
+                    .and_then(move |data| match data {
+                        Some(data) => {
+                            let partial: config::PartialManifest =
+                                serde_yaml::from_str(&data).map_err(|cause| Error::chain(
+                                    format!("Syntax error in manifest of dependency `{}` at revisison `{}`.", dep_name, rev),
+                                    cause
+                                ))?;
+                            let full = partial.validate()
+                                .map_err(|cause| Error::chain(
+                                    format!("Error in manifest of dependency `{}` at revisison `{}`.", dep_name, rev),
+                                    cause
+                                ))?;
+                            Ok(Some(self.sess.intern_manifest(full)))
+                        }
+                        None => Ok(None)
+                    })
+                )
+            }
+            _ => panic!("incompatible source {:?} and version {:?}", dep.source, version)
+        }
+        // match dep.source {
+        //     DependencySource::Path(_) => {
+        //         Box::new(future::ok(DependencyVersions::Path))
+        //     }
+        //     DependencySource::Registry => {
+        //     }
+        //     DependencySource::Git(ref url) => {
+        //         Box::new(self
+        //             .git_database(&dep.name, url)
+        //             .and_then(move |db| self.git_versions(db))
+        //             .map(DependencyVersions::Git))
+        //     }
+        // }
+    }
 }
 
 /// An arena container where all incremental, temporary things are allocated.
@@ -530,6 +615,8 @@ pub struct SessionArenas {
     pub path: Arena<PathBuf>,
     /// An arena to allocate strings in.
     pub string: Arena<String>,
+    /// An arena to allocate manifests in.
+    pub manifest: Arena<Manifest>,
 }
 
 impl SessionArenas {
@@ -538,6 +625,7 @@ impl SessionArenas {
         SessionArenas {
             path: Arena::new(),
             string: Arena::new(),
+            manifest: Arena::new(),
         }
     }
 }
@@ -648,6 +736,27 @@ pub struct GitVersions {
     /// The revisions available for this dependency, newest one first. We obtain
     /// these via `git rev-list --all --date-order`.
     pub revs: Vec<String>,
+}
+
+/// A single version of a dependency.
+#[derive(Clone, Debug)]
+pub enum DependencyVersion {
+    /// A path dependency has no version.
+    Path,
+    /// The exact hash of a registry dependency.
+    Registry(String),
+    /// The exact revision of a git dependency.
+    Git(String),
+}
+
+impl fmt::Display for DependencyVersion {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            DependencyVersion::Path => write!(f, "path"),
+            DependencyVersion::Registry(ref v) => write!(f, "{}", v),
+            DependencyVersion::Git(ref r) => write!(f, "{}", r),
+        }
+    }
 }
 
 /// A constraint on a dependency.

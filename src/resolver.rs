@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use futures::Future;
 use futures::future::join_all;
 use tokio_core::reactor::Core;
-use sess::{self, Session, SessionIo, DependencyVersions, DependencyRef, DependencyConstraint};
+use sess::{self, Session, SessionIo, DependencyVersions, DependencyVersion, DependencyRef, DependencyConstraint};
 use error::*;
 use config;
 
@@ -32,55 +32,43 @@ impl<'ctx> DependencyResolver<'ctx> {
         }
     }
 
+    fn any_open(&self) -> bool {
+        self.table.values().any(|dep|
+            dep.sources.values().any(|src| match src.state {
+                State::Open => true,
+                _ => false,
+            })
+        )
+    }
+
     /// Resolve dependencies.
     pub fn resolve(mut self) -> Result<config::Locked> {
-        let mut core = Core::new().unwrap();
-        let io = SessionIo::new(self.sess, core.handle());
+        // Load the dependencies in the root manifest.
+        self.register_dependencies_in_manifest(self.sess.manifest)?;
+        debugln!("resolve: table {:#?}", TableDumper(&self.table));
 
-        // Map the dependencies to unique IDs.
-        let names: HashMap<&str, DependencyRef> = self.sess.manifest.dependencies
-            .iter()
-            .map(|(name, dep)|{
-                (name.as_str(), self.sess.load_dependency(name, dep, self.sess.manifest))
-            })
-            .collect();
-        let ids: HashSet<DependencyRef> = names.iter().map(|(_, &id)| id).collect();
-        debugln!("resolve: dep names {:?}", names);
-        debugln!("resolve: dep ids {:?}", ids);
+        let mut iteration = 0;
+        while self.any_open() {
+            debugln!("resolve: iteration {}", iteration);
+            iteration += 1;
 
-        // Determine the available versions for the dependencies.
-        let versions: Vec<_> = ids.iter().map(|&id| io
-            .dependency_versions(id)
-            .map(move |v| (id, v))
-        ).collect();
-        let versions: HashMap<_,_> = core
-            .run(join_all(versions))?
-            .into_iter()
-            .collect();
-        debugln!("resolve: versions {:#?}", versions);
+            // Fill in dependencies with state `Open`.
+            self.init()?;
+            debugln!("resolve: table {:#?}", TableDumper(&self.table));
 
-        // Register the versions.
-        for (name, id) in names {
-            self.register_dependency(name, id, versions[&id].clone());
+            // Go through each dependency's versions and apply the constraints
+            // imposed by the others.
+            self.mark()?;
+            debugln!("resolve: table {:#?}", TableDumper(&self.table));
+
+            // Pick a version for each dependency.
+            self.pick()?;
+            debugln!("resolve: table {:#?}", TableDumper(&self.table));
+
+            // Close the dependency set.
+            self.close()?;
+            debugln!("resolve: table {:#?}", TableDumper(&self.table));
         }
-        debugln!("resolve: table {:#?}", TableDumper(&self.table));
-
-        // Fill in dependencies with state `Open`.
-        self.init()?;
-        debugln!("resolve: table {:#?}", TableDumper(&self.table));
-
-        // Go through each dependency's versions and apply the constraints
-        // imposed by the others.
-        self.mark()?;
-        debugln!("resolve: table {:#?}", TableDumper(&self.table));
-
-        // Pick a version for each dependency.
-        self.pick()?;
-        debugln!("resolve: table {:#?}", TableDumper(&self.table));
-
-        // Close the dependency set.
-        self.close()?;
-        debugln!("resolve: table {:#?}", TableDumper(&self.table));
 
         // Convert the resolved dependencies into a lockfile.
         let sess = self.sess;
@@ -149,6 +137,42 @@ impl<'ctx> DependencyResolver<'ctx> {
             .or_insert_with(|| DependencySource::new(dep, versions));
     }
 
+    fn register_dependencies_in_manifest(
+        &mut self,
+        manifest: &'ctx config::Manifest
+    ) -> Result<()> {
+        let mut core = Core::new().unwrap();
+        let io = SessionIo::new(self.sess, core.handle());
+
+        // Map the dependencies to unique IDs.
+        let names: HashMap<&str, DependencyRef> = manifest.dependencies
+            .iter()
+            .map(|(name, dep)|{
+                (name.as_str(), self.sess.load_dependency(name, dep, manifest))
+            })
+            .collect();
+        let ids: HashSet<DependencyRef> = names.iter().map(|(_, &id)| id).collect();
+        // debugln!("resolve: dep names {:?}", names);
+        // debugln!("resolve: dep ids {:?}", ids);
+
+        // Determine the available versions for the dependencies.
+        let versions: Vec<_> = ids.iter().map(|&id| io
+            .dependency_versions(id)
+            .map(move |v| (id, v))
+        ).collect();
+        let versions: HashMap<_,_> = core
+            .run(join_all(versions))?
+            .into_iter()
+            .collect();
+        // debugln!("resolve: versions {:#?}", versions);
+
+        // Register the versions.
+        for (name, id) in names {
+            self.register_dependency(name, id, versions[&id].clone());
+        }
+        Ok(())
+    }
+
     /// Initialize dependencies with state `Open`.
     ///
     /// This populates the dependency's set of possible versions with all
@@ -179,28 +203,31 @@ impl<'ctx> DependencyResolver<'ctx> {
 
     /// Apply constraints to each dependency's versions.
     fn mark(&mut self) -> Result<()> {
-        // Gather the constraints from the root package.
+        use std::iter::once;
+
+        // Gather the constraints from the available manifests.
         let cons_map: HashMap<&str, Vec<DependencyConstraint>> =
-            self.sess.manifest.dependencies
-            .iter()
+            once(self.sess.manifest)
+            .chain(self.table.values().filter_map(|dep| dep.manifest))
+            .flat_map(|m| m.dependencies.iter())
             .map(|(name, dep)| (
                 name.as_str(),
                 vec![DependencyConstraint::from(dep)],
             ))
             .collect();
 
-        // Gather the constraints from locked and picked dependencies.
-        for dep in self.table.values_mut() {
-            for src in dep.sources.values_mut() {
-                let _pick = match src.state.pick() {
-                    Some(i) => i,
-                    None => continue,
-                };
-                // TODO: Ask session for manifest at the picked version.
-                // TODO: Map dependencies in manifest to constraints.
-                // TODO: Add to `cons_map` map.
-            }
-        }
+        // // Gather the constraints from locked and picked dependencies.
+        // for dep in self.table.values_mut() {
+        //     for src in dep.sources.values_mut() {
+        //         let _pick = match src.state.pick() {
+        //             Some(i) => i,
+        //             None => continue,
+        //         };
+        //         // TODO: Ask session for manifest at the picked version.
+        //         // TODO: Map dependencies in manifest to constraints.
+        //         // TODO: Add to `cons_map` map.
+        //     }
+        // }
         debugln!("resolve: gathered constraints {:#?}", ConstraintsDumper(&cons_map));
 
         // Impose the constraints on the dependencies.
@@ -331,7 +358,8 @@ impl<'ctx> DependencyResolver<'ctx> {
                         if !ids.contains(&id) {
                             debugln!("resolve: picked version for `{}[{}]` no longer valid, opening", dep.name, src.id);
                             // TODO: Recursively open up all dependencies.
-                            State::Open
+                            unimplemented!();
+                            // State::Open
                         } else {
                             State::Picked(id, ids.clone())
                         }
@@ -344,7 +372,26 @@ impl<'ctx> DependencyResolver<'ctx> {
 
     /// Close the set of dependencies.
     fn close(&mut self) -> Result<()> {
-        debugln!("resolve: would now compute closure over dependencies");
+        let mut core = Core::new().unwrap();
+        let io = SessionIo::new(self.sess, core.handle());
+        let manifests = {
+            debugln!("resolve: computing closure over dependencies");
+            let mut sub_deps = Vec::new();
+            for dep in self.table.values() {
+                let src = dep.source();
+                let version = src.pick().unwrap();
+                debugln!("resolve: for `{}` use version `{}`", dep.name, version);
+                let manifest = io.dependency_manifest(src.id, &version);
+                sub_deps.push(manifest.map(move |m| (dep.name, m)));
+            }
+            core.run(join_all(sub_deps))?
+        };
+        for (name, manifest) in manifests {
+            if let Some(m) = manifest {
+                self.register_dependencies_in_manifest(m)?;
+            }
+            self.table.get_mut(name).unwrap().manifest = manifest;
+        }
         Ok(())
     }
 }
@@ -373,6 +420,8 @@ struct Dependency<'ctx> {
     name: &'ctx str,
     /// The set of sources for this dependency.
     sources: HashMap<DependencyRef, DependencySource>,
+    /// The picked manifest for this dependency.
+    manifest: Option<&'ctx config::Manifest>,
 }
 
 impl<'ctx> Dependency<'ctx> {
@@ -381,7 +430,17 @@ impl<'ctx> Dependency<'ctx> {
         Dependency {
             name: name,
             sources: HashMap::new(),
+            manifest: None,
         }
+    }
+
+    /// Return the main source for this dependency.
+    ///
+    /// This is currently defined as the very first source found for this
+    /// dependency.
+    fn source(&self) -> &DependencySource {
+        let min = self.sources.keys().min().unwrap();
+        &self.sources[min]
     }
 }
 
@@ -394,6 +453,10 @@ struct DependencySource {
     id: DependencyRef,
     /// The available versions of the dependency.
     versions: DependencyVersions,
+    /// The currently picked version.
+    pick: Option<usize>,
+    /// The available version options. These are indices into `versions`.
+    options: Option<HashSet<usize>>,
     /// The current resolution state.
     state: State,
 }
@@ -404,7 +467,30 @@ impl DependencySource {
         DependencySource {
             id: id,
             versions: versions,
+            pick: None,
+            options: None,
             state: State::Open,
+        }
+    }
+
+    /// Return the picked version, if any.
+    ///
+    /// In case the state is `Locked` or `Picked`, returns the version that was
+    /// picked. Otherwise returns `None`.
+    fn pick(&self) -> Option<DependencyVersion> {
+        match self.state {
+            State::Open | State::Constrained(..) => None,
+            State::Locked(id) | State::Picked(id, _) => match self.versions {
+                DependencyVersions::Path => {
+                    Some(DependencyVersion::Path)
+                }
+                DependencyVersions::Registry(ref _rv) => {
+                    None
+                }
+                DependencyVersions::Git(ref gv) => {
+                    Some(DependencyVersion::Git(gv.revs[id].clone()))
+                }
+            }
         }
     }
 }
@@ -430,7 +516,7 @@ impl State {
         }
     }
 
-    /// Return the picked version, if any.
+    /// Return the index of the picked version, if any.
     ///
     /// In case the state is `Locked` or `Picked`, returns the version that was
     /// picked. Otherwise returns `None`.

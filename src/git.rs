@@ -7,6 +7,7 @@
 
 use std::path::Path;
 use std::process::Command;
+use std::ffi::OsStr;
 
 use futures::Future;
 use futures::future;
@@ -176,7 +177,68 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
             .map(|raw| raw.lines().take(1).map(String::from).next())
         )
     }
+
+    /// List files in the directory.
+    ///
+    /// Calls `git ls-tree` under the hood.
+    pub fn list_files<R: AsRef<OsStr>, P: AsRef<OsStr>>(
+        self,
+        rev: R,
+        path: Option<P>
+    ) -> GitFuture<'io, Vec<TreeEntry>> {
+        Box::new(
+            self.spawn_with(|c| {
+                c.arg("ls-tree").arg(rev);
+                if let Some(p) = path {
+                    c.arg(p);
+                }
+                c
+            }).map(|raw| raw.lines().map(TreeEntry::parse).collect())
+        )
+    }
+
+    /// Read the content of a file.
+    pub fn cat_file<O: AsRef<OsStr>>(self, hash: O) -> GitFuture<'io, String> {
+        Box::new(
+            self.spawn_with(|c| c
+                .arg("cat-file")
+                .arg("blob")
+                .arg(hash))
+        )
+    }
 }
 
 /// A future returned from any of the git functions.
 pub type GitFuture<'io, T> = Box<Future<Item=T, Error=Error> + 'io>;
+
+/// A single entry in a git tree.
+///
+/// The `list_files` command returns a vector of these.
+pub struct TreeEntry {
+    /// The name of the file.
+    pub name: String,
+    /// The hash of the entry.
+    pub hash: String,
+    /// The kind of the entry. Usually `blob` or `tree`.
+    pub kind: String,
+    /// The mode of the entry, i.e. its permissions.
+    pub mode: String,
+}
+
+impl TreeEntry {
+    /// Parse a single line of output of `git ls-tree`.
+    pub fn parse(input: &str) -> TreeEntry {
+        let tab = input.find('\t').unwrap();
+        let (metadata, name) = input.split_at(tab);
+        let mut iter = metadata.split(' ');
+        let mode = iter.next().unwrap();
+        let kind = iter.next().unwrap();
+        let hash = iter.next().unwrap();
+        TreeEntry {
+            name: name.into(),
+            hash: hash.into(),
+            kind: kind.into(),
+            mode: mode.into(),
+        }
+    }
+}
