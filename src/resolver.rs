@@ -65,6 +65,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             // Close the dependency set.
             self.close()?;
         }
+        debugln!("resolve: resolved after {} iterations", iteration);
 
         // Convert the resolved dependencies into a lockfile.
         let sess = self.sess;

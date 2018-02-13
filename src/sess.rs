@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, Arc};
 use std::process::Command;
+use std::mem::swap;
 
 use semver;
 use futures::Future;
@@ -49,6 +50,10 @@ pub struct Session<'ctx> {
     strings: Mutex<HashSet<&'ctx str>>,
     /// The package name table.
     names: Mutex<HashMap<String, DependencyRef>>,
+    /// The dependency graph.
+    graph: Mutex<Arc<HashMap<DependencyRef, HashSet<DependencyRef>>>>,
+    /// The topologically sorted list of packages.
+    pkgs: Mutex<Arc<Vec<HashSet<DependencyRef>>>>,
 }
 
 impl<'sess, 'ctx: 'sess> Session<'ctx> {
@@ -63,6 +68,8 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             paths: Mutex::new(HashSet::new()),
             strings: Mutex::new(HashSet::new()),
             names: Mutex::new(HashMap::new()),
+            graph: Mutex::new(Arc::new(HashMap::new())),
+            pkgs: Mutex::new(Arc::new(Vec::new())),
         }
     }
 
@@ -100,9 +107,9 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         &self,
         locked: &config::Locked,
     ) {
-        debugln!("sess: load locked {:#?}", locked);
         let mut deps = self.deps.lock().unwrap();
         let mut names = HashMap::new();
+        let mut graph_names = HashMap::new();
         for (name, pkg) in &locked.packages {
             let src = match pkg.source {
                 config::LockedSource::Path(ref path) => DependencySource::Path(path.clone()),
@@ -115,16 +122,77 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
                 revision: pkg.revision.clone(),
                 version: pkg.version.as_ref().map(|s| semver::Version::parse(&s).unwrap()),
             });
+            graph_names.insert(id, &pkg.dependencies);
             names.insert(name.clone(), id);
         }
         drop(deps);
+
+        // Translate the name-based graph into an ID-based graph.
+        let graph: HashMap<DependencyRef, HashSet<DependencyRef>> = graph_names
+            .into_iter()
+            .map(|(k,v)| (
+                k,
+                v.iter().map(|name| names[name]).collect(),
+            ))
+            .collect();
+
+        // Determine the topological ordering of the packages.
+        let pkgs = {
+            // Assign a rank to each package. A package's rank will be strictly
+            // smaller than the rank of all its dependencies. This yields a
+            // topological ordering.
+            let mut ranks: HashMap<DependencyRef, usize> = graph
+                .keys()
+                .map(|&id| (id, 0))
+                .collect();
+            let mut pending = HashSet::new();
+            pending.extend(self.manifest.dependencies.keys().map(|name| names[name]));
+            while !pending.is_empty() {
+                let mut current_pending = HashSet::new();
+                swap(&mut pending, &mut current_pending);
+                for id in current_pending {
+                    let min_dep_rank = ranks[&id] + 1;
+                    for &dep_id in &graph[&id] {
+                        if ranks[&dep_id] <= min_dep_rank {
+                            ranks.insert(dep_id, min_dep_rank);
+                            pending.insert(dep_id);
+                        }
+                    }
+                }
+            }
+            debugln!("sess: topological ranks {:#?}", ranks);
+
+            // Group together packages with the same rank, to build the final
+            // ordering.
+            let num_ranks = ranks.values().map(|v| v+1).max().unwrap_or(0);
+            let pkgs: Vec<HashSet<DependencyRef>> = (0..num_ranks).rev().map(|rank|
+                ranks.iter().filter_map(|(&k,&v)| if v == rank {
+                    Some(k)
+                } else {
+                    None
+                }).collect()
+            ).collect();
+            pkgs
+        };
+
+        debugln!("sess: names {:?}", names);
+        debugln!("sess: graph {:?}", graph);
+        debugln!("sess: pkgs {:?}", pkgs);
+
         *self.names.lock().unwrap() = names;
+        *self.graph.lock().unwrap() = Arc::new(graph);
+        *self.pkgs.lock().unwrap() = Arc::new(pkgs);
     }
 
     /// Obtain information on a dependency.
     pub fn dependency(&self, dep: DependencyRef) -> Arc<DependencyEntry> {
         // TODO: Don't make any clones! Use an arena instead.
         self.deps.lock().unwrap().list[dep.0].clone()
+    }
+
+    /// Determine the name of a dependency.
+    pub fn dependency_name(&self, dep: DependencyRef) -> &'ctx str {
+        self.intern_string(self.deps.lock().unwrap().list[dep.0].name.as_str())
     }
 
     /// Determine the source of a dependency.
@@ -192,6 +260,16 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         where T: Into<Manifest>
     {
         self.arenas.manifest.alloc(manifest.into())
+    }
+
+    /// Access the package dependency graph.
+    pub fn graph(&self) -> Arc<HashMap<DependencyRef, HashSet<DependencyRef>>> {
+        self.graph.lock().unwrap().clone()
+    }
+
+    /// Access the topological sorting of the packages.
+    pub fn packages(&self) -> Arc<Vec<HashSet<DependencyRef>>> {
+        self.pkgs.lock().unwrap().clone()
     }
 }
 
@@ -640,12 +718,18 @@ impl fmt::Debug for SessionArenas {
 ///
 /// These are emitted by the session once a dependency is loaded and are used to
 /// uniquely identify dependencies.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DependencyRef(usize);
 
 impl fmt::Display for DependencyRef {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl fmt::Debug for DependencyRef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&self.0, f)
     }
 }
 
