@@ -12,7 +12,7 @@ use std;
 use std::str::FromStr;
 use std::path::PathBuf;
 use std::hash::Hash;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use semver;
 use error::*;
 use util::*;
@@ -286,6 +286,8 @@ pub struct LockedPackage {
     pub version: Option<String>,
     /// The source of the dependency.
     pub source: LockedSource,
+    /// Other packages this package depends on.
+    pub dependencies: HashSet<String>,
 }
 
 /// A source description for a locked dependency.

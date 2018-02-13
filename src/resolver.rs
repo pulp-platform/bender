@@ -70,13 +70,13 @@ impl<'ctx> DependencyResolver<'ctx> {
         let sess = self.sess;
         let packages = self.table
             .into_iter()
-            .map(|(name, mut dep)|{
-                if dep.sources.len() > 1 {
-                    return Err(Error::new(format!("Dependencies with multiple sources, such as `{}`, are not yet supported.", name)));
-                }
-                let (id, src) = dep.sources.drain().next().unwrap();
-                let pick = src.state.pick().unwrap();
-                let sess_src = sess.dependency_source(id);
+            .map(|(name, dep)|{
+                let deps = dep.manifest.unwrap().dependencies
+                    .keys()
+                    .cloned()
+                    .collect();
+                let src = dep.source();
+                let sess_src = sess.dependency_source(src.id);
                 let pkg = match src.versions {
                     DependencyVersions::Path => {
                         let path = match sess_src {
@@ -87,6 +87,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                             revision: None,
                             version: None,
                             source: config::LockedSource::Path(path),
+                            dependencies: deps,
                         }
                     }
                     DependencyVersions::Registry(ref _rv) => {
@@ -97,6 +98,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                             sess::DependencySource::Git(u) => u,
                             _ => unreachable!(),
                         };
+                        let pick = src.state.pick().unwrap();
                         let rev = gv.revs[pick].clone();
                         let version = gv.versions
                             .iter()
@@ -108,6 +110,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                             revision: Some(rev),
                             version: version,
                             source: config::LockedSource::Git(url),
+                            dependencies: deps,
                         }
                     }
                 };
