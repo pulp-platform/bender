@@ -45,29 +45,25 @@ impl<'ctx> DependencyResolver<'ctx> {
     pub fn resolve(mut self) -> Result<config::Locked> {
         // Load the dependencies in the root manifest.
         self.register_dependencies_in_manifest(self.sess.manifest)?;
-        debugln!("resolve: table {:#?}", TableDumper(&self.table));
 
         let mut iteration = 0;
-        while self.any_open() {
-            debugln!("resolve: iteration {}", iteration);
+        let mut any_changes = true;
+        while any_changes {
+            debugln!("resolve: iteration {} table {:#?}", iteration, TableDumper(&self.table));
             iteration += 1;
 
             // Fill in dependencies with state `Open`.
             self.init()?;
-            debugln!("resolve: table {:#?}", TableDumper(&self.table));
 
             // Go through each dependency's versions and apply the constraints
             // imposed by the others.
             self.mark()?;
-            debugln!("resolve: table {:#?}", TableDumper(&self.table));
 
             // Pick a version for each dependency.
-            self.pick()?;
-            debugln!("resolve: table {:#?}", TableDumper(&self.table));
+            any_changes = self.pick()?;
 
             // Close the dependency set.
             self.close()?;
-            debugln!("resolve: table {:#?}", TableDumper(&self.table));
         }
 
         // Convert the resolved dependencies into a lockfile.
@@ -205,16 +201,20 @@ impl<'ctx> DependencyResolver<'ctx> {
     fn mark(&mut self) -> Result<()> {
         use std::iter::once;
 
-        // Gather the constraints from the available manifests.
-        let cons_map: HashMap<&str, Vec<DependencyConstraint>> =
-            once(self.sess.manifest)
-            .chain(self.table.values().filter_map(|dep| dep.manifest))
-            .flat_map(|m| m.dependencies.iter())
-            .map(|(name, dep)| (
-                name.as_str(),
-                vec![DependencyConstraint::from(dep)],
-            ))
-            .collect();
+        // Gather the constraints from the available manifests. Group them by
+        // constraint.
+        let cons_map = {
+            let mut map = HashMap::<&str, Vec<DependencyConstraint>>::new();
+            let dep_iter =
+                once(self.sess.manifest)
+                .chain(self.table.values().filter_map(|dep| dep.manifest))
+                .flat_map(|m| m.dependencies.iter());
+            for (name, dep) in dep_iter {
+                let v = map.entry(name.as_str()).or_insert_with(|| Vec::new());
+                v.push(DependencyConstraint::from(dep));
+            }
+            map
+        };
 
         // // Gather the constraints from locked and picked dependencies.
         // for dep in self.table.values_mut() {
@@ -269,7 +269,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                         None
                     })
                     .collect();
-                debugln!("resolve: `{}` matches version requirement `{}` for revs {:?}", name, con, revs);
+                // debugln!("resolve: `{}` matches version requirement `{}` for revs {:?}", name, con, revs);
                 revs
             }
             (&DepCon::Revision(ref con), &DepVer::Git(ref gv)) => {
@@ -291,7 +291,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                         })
                         .collect()
                     );
-                debugln!("resolve: `{}` matches revision `{}` for revs {:?}", name, con, revs);
+                // debugln!("resolve: `{}` matches revision `{}` for revs {:?}", name, con, revs);
                 revs
             }
             (&DepCon::Version(ref _con), &DepVer::Registry(ref _rv)) => {
@@ -310,7 +310,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 return Err(Error::new(format!("`{}` is not declared as a path dependency everywhere.", name)));
             }
         };
-        debugln!("resolve: restricting `{}` to versions {:?}", name, indices);
+        // debugln!("resolve: restricting `{}` to versions {:?}", name, indices);
 
         if indices.is_empty() {
             return Err(Error::new(format!("Dependency `{}` cannot satisfy requirement `{}`", name, con)));
@@ -333,10 +333,11 @@ impl<'ctx> DependencyResolver<'ctx> {
     }
 
     /// Pick a version for each dependency.
-    fn pick(&mut self) -> Result<()> {
+    fn pick(&mut self) -> Result<bool> {
+        let mut any_changes = false;
+        let mut open_pending = HashSet::<&'ctx str>::new();
         for dep in self.table.values_mut() {
             for src in dep.sources.values_mut() {
-                debugln!("resolve: picking version for `{}[{}]`", dep.name, src.id);
                 src.state = match src.state {
                     State::Open => unreachable!(),
                     State::Locked(id) => State::Locked(id),
@@ -344,6 +345,8 @@ impl<'ctx> DependencyResolver<'ctx> {
                         match src.versions {
                             DependencyVersions::Path => State::Picked(0, HashSet::new()),
                             DependencyVersions::Git(..) => {
+                                debugln!("resolve: picking version for `{}[{}]`", dep.name, src.id);
+                                any_changes = true;
                                 State::Picked(
                                     ids.iter().map(|i| *i).min().unwrap(),
                                     ids.clone()
@@ -356,10 +359,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                     }
                     State::Picked(id, ref ids) => {
                         if !ids.contains(&id) {
-                            debugln!("resolve: picked version for `{}[{}]` no longer valid, opening", dep.name, src.id);
-                            // TODO: Recursively open up all dependencies.
-                            unimplemented!();
-                            // State::Open
+                            debugln!("resolve: picked version for `{}[{}]` no longer valid, resetting", dep.name, src.id);
+                            open_pending.extend(dep.manifest.unwrap().dependencies.keys().map(String::as_str));
+                            any_changes = true;
+                            State::Open
                         } else {
                             State::Picked(id, ids.clone())
                         }
@@ -367,20 +370,41 @@ impl<'ctx> DependencyResolver<'ctx> {
                 }
             }
         }
-        Ok(())
+
+        // Recursively open up dependencies.
+        while !open_pending.is_empty() {
+            use std::mem::swap;
+            let mut open = HashSet::new();
+            swap(&mut open_pending, &mut open);
+            for dep_name in open {
+                debugln!("resolve: resetting `{}`", dep_name);
+                let dep = self.table.get_mut(dep_name).unwrap();
+                for src in dep.sources.values_mut() {
+                    if !src.state.is_open() {
+                        any_changes = true;
+                        open_pending.extend(dep.manifest.unwrap().dependencies.keys().map(String::as_str));
+                        src.state = State::Open;
+                    }
+                }
+            }
+        }
+
+        Ok(any_changes)
     }
 
     /// Close the set of dependencies.
     fn close(&mut self) -> Result<()> {
+        debugln!("resolve: computing closure over dependencies");
         let mut core = Core::new().unwrap();
         let io = SessionIo::new(self.sess, core.handle());
         let manifests = {
-            debugln!("resolve: computing closure over dependencies");
             let mut sub_deps = Vec::new();
             for dep in self.table.values() {
                 let src = dep.source();
-                let version = src.pick().unwrap();
-                debugln!("resolve: for `{}` use version `{}`", dep.name, version);
+                let version = match src.pick() {
+                    Some(v) => v,
+                    None => continue,
+                };
                 let manifest = io.dependency_manifest(src.id, &version);
                 sub_deps.push(manifest.map(move |m| (dep.name, m)));
             }
@@ -388,9 +412,11 @@ impl<'ctx> DependencyResolver<'ctx> {
         };
         for (name, manifest) in manifests {
             if let Some(m) = manifest {
+                debugln!("resolve: for `{}` loaded manifest {:#?}", name, m);
                 self.register_dependencies_in_manifest(m)?;
             }
-            self.table.get_mut(name).unwrap().manifest = manifest;
+            let ref mut existing = self.table.get_mut(name).unwrap().manifest;
+            *existing = manifest;
         }
         Ok(())
     }
@@ -564,7 +590,7 @@ impl<'a> fmt::Debug for ConstraintsDumper<'a> {
             let cons = self.0.get(name).unwrap();
             write!(f, "\n    \"{}\":", name)?;
             for con in cons {
-                write!(f, " {}", con)?;
+                write!(f, " {};", con)?;
             }
         }
         write!(f, "\n}}")?;
