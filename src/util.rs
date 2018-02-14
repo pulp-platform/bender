@@ -12,6 +12,8 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::fs::File;
 use std::io::prelude::*;
+use std::time::SystemTime;
+
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
@@ -113,4 +115,17 @@ pub fn write_file(path: &Path, contents: &str) -> std::io::Result<()> {
     let mut file = File::create(path)?;
     file.write_all(contents.as_bytes())?;
     Ok(())
+}
+
+/// Try to get the metadata for a file.
+///
+/// In case the current OS does not support the operation, or any kind of file
+/// error occurs, `None` is returned.
+pub fn try_modification_time<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
+    use std::fs::metadata;
+    let md = match metadata(path) {
+        Ok(md) => md,
+        Err(_) => return None,
+    };
+    md.modified().ok()
 }

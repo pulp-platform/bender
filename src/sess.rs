@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, Arc};
 use std::process::Command;
 use std::mem::swap;
+use std::sync::atomic::AtomicUsize;
+use std::time::SystemTime;
 
 use semver;
 use futures::Future;
@@ -24,7 +26,7 @@ use serde_yaml;
 use error::*;
 use config::{self, Manifest, Config};
 use git::Git;
-use util::{read_file, write_file};
+use util::{read_file, write_file, try_modification_time};
 use config::Validate;
 
 /// A session on the command line.
@@ -42,6 +44,10 @@ pub struct Session<'ctx> {
     /// The arenas into which we allocate various things that need to live as
     /// long as the session.
     arenas: &'ctx SessionArenas,
+    /// The manifest modification time.
+    manifest_mtime: Option<SystemTime>,
+    /// Some statistics about the session.
+    stats: SessionStatistics,
     /// The dependency table.
     deps: Mutex<DependencyTable>,
     /// The internalized paths.
@@ -54,22 +60,32 @@ pub struct Session<'ctx> {
     graph: Mutex<Arc<HashMap<DependencyRef, HashSet<DependencyRef>>>>,
     /// The topologically sorted list of packages.
     pkgs: Mutex<Arc<Vec<HashSet<DependencyRef>>>>,
+    /// The session cache.
+    pub cache: SessionCache<'ctx>,
 }
 
 impl<'sess, 'ctx: 'sess> Session<'ctx> {
     /// Create a new session.
-    pub fn new(root: &'ctx Path, manifest: &'ctx Manifest, config: &'ctx Config, arenas: &'ctx SessionArenas) -> Session<'ctx> {
+    pub fn new(
+        root: &'ctx Path,
+        manifest: &'ctx Manifest,
+        config: &'ctx Config,
+        arenas: &'ctx SessionArenas
+    ) -> Session<'ctx> {
         Session {
             root: root,
             manifest: manifest,
             config: config,
             arenas: arenas,
+            manifest_mtime: try_modification_time(root.join("Bender.yml")),
+            stats: Default::default(),
             deps: Mutex::new(DependencyTable::new()),
             paths: Mutex::new(HashSet::new()),
             strings: Mutex::new(HashSet::new()),
             names: Mutex::new(HashMap::new()),
             graph: Mutex::new(Arc::new(HashMap::new())),
             pkgs: Mutex::new(Arc::new(Vec::new())),
+            cache: Default::default(),
         }
     }
 
@@ -298,7 +314,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     pub fn dependency_versions(
         &'io self,
         dep_id: DependencyRef
-    ) -> Box<Future<Item=DependencyVersions, Error=Error> + 'io> {
+    ) -> Box<Future<Item=DependencyVersions<'ctx>, Error=Error> + 'io> {
+        self.sess.stats.num_calls_dependency_versions.increment();
         let dep = self.sess.dependency(dep_id);
         match dep.source {
             DependencySource::Registry => {
@@ -329,6 +346,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         //       Then use that table to return the future if it already exists.
         //       This ensures that the gitdb is setup only once, and makes the
         //       whole process faster for later calls.
+        self.sess.stats.num_calls_git_database.increment();
 
         // Determine the name of the database as the given name and the first
         // 8 bytes (16 hex characters) of the URL's BLAKE2 hash.
@@ -354,6 +372,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         if !db_dir.join("config").exists() {
             // Initialize.
             stageln!("Cloning", "{}", url);
+            self.sess.stats.num_database_init.increment();
             Box::new(
                 git.spawn_with(|c| c
                     .arg("init")
@@ -370,10 +389,18 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .map(move |_| git)
             )
         } else {
-            // Update.
-            // TODO: Don't always do this, but rather, check if the manifest has
-            //       been modified since the last fetch, and only then proceed.
-            Box::new(git.fetch("origin").map(move |_| git))
+            // Update if the manifest has been modified since the last fetch.
+            let db_mtime = try_modification_time(db_dir.join("FETCH_HEAD"));
+            if self.sess.manifest_mtime < db_mtime {
+                debugln!("sess: skipping update of {:?}", db_dir);
+                return Box::new(future::ok(git));
+            }
+            self.sess.stats.num_database_fetch.increment();
+            Box::new(git.fetch("origin")
+                .map_err(move |cause| Error::chain(
+                    format!("Failed to update git database in {:?}.", db_dir),
+                    cause))
+                .map(move |_| git))
         }
     }
 
@@ -381,7 +408,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     fn git_versions(
         &'io self,
         git: Git<'io, 'sess, 'ctx>,
-    ) -> Box<Future<Item=GitVersions, Error=Error> + 'io> {
+    ) -> Box<Future<Item=GitVersions<'ctx>, Error=Error> + 'io> {
         let dep_refs = git.list_refs();
         let dep_revs = git.list_revs();
         let dep_refs_and_revs = dep_refs
@@ -393,20 +420,22 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 }
             });
         let out = dep_refs_and_revs.and_then(move |(refs, revs)|{
-            debugln!("sess: gitdb: refs {:?}", refs);
+            let refs: Vec<_> = refs.into_iter().map(|(a,b)| (self.sess.intern_string(a), self.sess.intern_string(b))).collect();
+            let revs: Vec<_> = revs.into_iter().map(|s| self.sess.intern_string(s)).collect();
+            debugln!("sess: refs {:?}", refs);
             let (tags, branches) = {
                 // Create a lookup table for the revisions. This will be used to
                 // only accept refs that point to actual revisions.
-                let rev_ids: HashSet<&str> = revs.iter().map(String::as_str).collect();
+                let rev_ids: HashSet<&str> = revs.iter().map(|s| *s).collect();
 
                 // Split the refs into tags and branches, discard
                 // everything else.
-                let mut tags = HashMap::<String, String>::new();
-                let mut branches = HashMap::<String, String>::new();
+                let mut tags = HashMap::<&'ctx str, &'ctx str>::new();
+                let mut branches = HashMap::<&'ctx str, &'ctx str>::new();
                 let tag_pfx = "refs/tags/";
                 let branch_pfx = "refs/remotes/origin/";
                 for (hash, rf) in refs {
-                    if !rev_ids.contains(hash.as_str()) {
+                    if !rev_ids.contains(hash) {
                         continue;
                     }
                     if rf.starts_with(tag_pfx) {
@@ -419,12 +448,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             };
 
             // Extract the tags that look like semantic versions.
-            let mut versions: Vec<(semver::Version, String)> = tags
+            let mut versions: Vec<(semver::Version, &'ctx str)> = tags
                 .iter()
-                .filter_map(|(tag, hash)|{
+                .filter_map(|(tag, &hash)|{
                     if tag.starts_with("v") {
                         match semver::Version::parse(&tag[1..]) {
-                            Ok(v) => Some((v, hash.clone())),
+                            Ok(v) => Some((v, hash)),
                             Err(_) => None,
                         }
                     } else {
@@ -451,7 +480,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         &'io self,
         dep_id: DependencyRef
     ) -> Box<Future<Item=&'ctx Path, Error=Error> + 'io> {
-        // Find the exact source of the dependency.
+        // Check if the checkout is already in the cache.
+        if let Some(&cached) = self.sess.cache.checkout.lock().unwrap().get(&dep_id) {
+            return Box::new(future::ok(cached));
+        }
+
+        self.sess.stats.num_calls_checkout.increment();
         let dep = self.sess.dependency(dep_id);
 
         // Determine the name of the checkout as the given name and the first
@@ -483,12 +517,15 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             DependencySource::Path(..) => unreachable!(),
             DependencySource::Registry => unimplemented!(),
             DependencySource::Git(ref url) => {
-                self.checkout_git(
+                Box::new(self.checkout_git(
                     self.sess.intern_string(dep.name.as_ref()),
                     checkout_dir,
                     self.sess.intern_string(url.as_ref()),
                     self.sess.intern_string(dep.revision.as_ref().unwrap().as_ref())
-                )
+                ).and_then(move |path|{
+                    self.sess.cache.checkout.lock().unwrap().insert(dep_id, path);
+                    Ok(path)
+                }))
             }
         }
     }
@@ -622,21 +659,27 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     pub fn dependency_manifest(
         &'io self,
         dep_id: DependencyRef,
-        version: &DependencyVersion,
+        version: DependencyVersion<'ctx>,
     ) -> Box<Future<Item=Option<&'ctx Manifest>, Error=Error> + 'io> {
+        // Check if the manifest is already in the cache.
+        let cache_key = (dep_id, version.clone());
+        if let Some(&cached) = self.sess.cache.dependency_manifest.lock().unwrap().get(&cache_key) {
+            return Box::new(future::ok(cached));
+        }
+
+        self.sess.stats.num_calls_dependency_manifest.increment();
         let dep = self.sess.dependency(dep_id);
         use self::DependencySource as DepSrc;
         use self::DependencyVersion as DepVer;
         match (&dep.source, version) {
-            (&DepSrc::Path(ref _path), &DepVer::Path) => {
+            (&DepSrc::Path(ref _path), DepVer::Path) => {
                 unimplemented!();
             }
-            (&DepSrc::Registry, &DepVer::Registry(ref _hash)) => {
+            (&DepSrc::Registry, DepVer::Registry(_hash)) => {
                 unimplemented!("load manifest of registry dependency");
             }
-            (&DepSrc::Git(ref url), &DepVer::Git(ref rev)) => {
+            (&DepSrc::Git(ref url), DepVer::Git(rev)) => {
                 let dep_name = self.sess.intern_string(dep.name.as_str());
-                let rev = self.sess.intern_string(rev.as_str());
                 Box::new(self
                     .git_database(&dep.name, url)
                     .and_then(move |db| db
@@ -667,23 +710,15 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         }
                         None => Ok(None)
                     })
+                    .and_then(move |manifest|{
+                        self.sess.cache.dependency_manifest.lock().unwrap()
+                            .insert(cache_key, manifest);
+                        Ok(manifest)
+                    })
                 )
             }
             _ => panic!("incompatible source {:?} and version {:?}", dep.source, version)
         }
-        // match dep.source {
-        //     DependencySource::Path(_) => {
-        //         Box::new(future::ok(DependencyVersions::Path))
-        //     }
-        //     DependencySource::Registry => {
-        //     }
-        //     DependencySource::Git(ref url) => {
-        //         Box::new(self
-        //             .git_database(&dep.name, url)
-        //             .and_then(move |db| self.git_versions(db))
-        //             .map(DependencyVersions::Git))
-        //     }
-        // }
     }
 }
 
@@ -795,13 +830,13 @@ impl DependencyTable {
 
 /// All available versions of a dependency.
 #[derive(Clone, Debug)]
-pub enum DependencyVersions {
+pub enum DependencyVersions<'ctx> {
     /// Path dependencies have no versions, but are exactly as present on disk.
     Path,
     /// Registry dependency versions.
     Registry(RegistryVersions),
     /// Git dependency versions.
-    Git(GitVersions),
+    Git(GitVersions<'ctx>),
 }
 
 /// All available versions of a registry dependency.
@@ -810,30 +845,30 @@ pub struct RegistryVersions;
 
 /// All available versions a git dependency has.
 #[derive(Clone, Debug)]
-pub struct GitVersions {
+pub struct GitVersions<'ctx> {
     /// The versions available for this dependency. This is basically a sorted
     /// list of tags of the form `v<semver>`.
-    pub versions: Vec<(semver::Version, String)>,
+    pub versions: Vec<(semver::Version, &'ctx str)>,
     /// The named references available for this dependency. This is a mixture of
     /// branch names and tags, where the tags take precedence.
-    pub refs: HashMap<String, String>,
+    pub refs: HashMap<&'ctx str, &'ctx str>,
     /// The revisions available for this dependency, newest one first. We obtain
     /// these via `git rev-list --all --date-order`.
-    pub revs: Vec<String>,
+    pub revs: Vec<&'ctx str>,
 }
 
 /// A single version of a dependency.
-#[derive(Clone, Debug)]
-pub enum DependencyVersion {
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum DependencyVersion<'ctx> {
     /// A path dependency has no version.
     Path,
     /// The exact hash of a registry dependency.
-    Registry(String),
+    Registry(&'ctx str),
     /// The exact revision of a git dependency.
-    Git(String),
+    Git(&'ctx str),
 }
 
-impl fmt::Display for DependencyVersion {
+impl<'ctx> fmt::Display for DependencyVersion<'ctx> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             DependencyVersion::Path => write!(f, "path"),
@@ -879,5 +914,57 @@ impl fmt::Display for DependencyConstraint {
             DependencyConstraint::Version(ref v) => write!(f, "{}", v),
             DependencyConstraint::Revision(ref r) => write!(f, "{}", r),
         }
+    }
+}
+
+/// Statistics about a session.
+///
+/// This struct contains statistics about commands executed in a session. It is
+/// automatically printed upon deconstruction.
+#[derive(Debug, Default)]
+pub struct SessionStatistics {
+    num_calls_dependency_versions: StatisticCounter,
+    num_calls_git_database: StatisticCounter,
+    num_calls_checkout: StatisticCounter,
+    num_calls_dependency_manifest: StatisticCounter,
+    num_database_init: StatisticCounter,
+    num_database_fetch: StatisticCounter,
+}
+
+impl<'ctx> Drop for SessionStatistics {
+    fn drop(&mut self) {
+        debugln!("{:#?}", self);
+    }
+}
+
+#[derive(Default)]
+struct StatisticCounter(AtomicUsize);
+
+impl StatisticCounter {
+    fn increment(&self) {
+        use std::sync::atomic::Ordering;
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl fmt::Debug for StatisticCounter {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use std::sync::atomic::Ordering;
+        write!(f, "{}", self.0.load(Ordering::SeqCst))
+    }
+}
+
+/// A cache for the session.
+#[derive(Default)]
+pub struct SessionCache<'ctx> {
+    dependency_manifest: Mutex<HashMap<
+        (DependencyRef, DependencyVersion<'ctx>),
+        Option<&'ctx config::Manifest> >>,
+    checkout: Mutex<HashMap<DependencyRef, &'ctx Path>>,
+}
+
+impl<'ctx> fmt::Debug for SessionCache<'ctx> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "SessionCache")
     }
 }

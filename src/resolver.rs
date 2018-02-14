@@ -111,7 +111,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                             .max()
                             .map(|v| v.to_string());
                         config::LockedPackage {
-                            revision: Some(rev),
+                            revision: Some(String::from(rev)),
                             version: version,
                             source: config::LockedSource::Git(url),
                             dependencies: deps,
@@ -130,7 +130,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         &mut self,
         name: &'ctx str,
         dep: DependencyRef,
-        versions: DependencyVersions
+        versions: DependencyVersions<'ctx>,
     ) {
         let entry = self.table
             .entry(name)
@@ -254,7 +254,7 @@ impl<'ctx> DependencyResolver<'ctx> {
     fn impose(
         name: &str,
         con: &DependencyConstraint,
-        src: &mut DependencySource
+        src: &mut DependencySource<'ctx>
     ) -> Result<()> {
 
         use self::DependencyConstraint as DepCon;
@@ -266,12 +266,12 @@ impl<'ctx> DependencyResolver<'ctx> {
                 let hash_ids: HashMap<&str, usize> = gv.revs
                     .iter()
                     .enumerate()
-                    .map(|(id, hash)| (hash.as_str(), id))
+                    .map(|(id, &hash)| (hash, id))
                     .collect();
                 let revs: HashSet<usize> = gv.versions
                     .iter()
-                    .filter_map(|&(ref v, ref h)| if con.matches(v) {
-                        Some(hash_ids[h.as_str()])
+                    .filter_map(|&(ref v, h)| if con.matches(v) {
+                        Some(hash_ids[h])
                     } else {
                         None
                     })
@@ -282,7 +282,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             (&DepCon::Revision(ref con), &DepVer::Git(ref gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
                 let revs: HashSet<usize> = gv.refs
-                    .get(con)
+                    .get(con.as_str())
                     .map(|rf| gv.revs
                         .iter()
                         .position(|rev| rev == rf)
@@ -416,7 +416,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     Some(v) => v,
                     None => continue,
                 };
-                let manifest = io.dependency_manifest(src.id, &version);
+                let manifest = io.dependency_manifest(src.id, version);
                 sub_deps.push(manifest.map(move |m| (dep.name, m)));
             }
             core.run(join_all(sub_deps))?
@@ -456,7 +456,7 @@ struct Dependency<'ctx> {
     /// The name of the dependency.
     name: &'ctx str,
     /// The set of sources for this dependency.
-    sources: HashMap<DependencyRef, DependencySource>,
+    sources: HashMap<DependencyRef, DependencySource<'ctx>>,
     /// The picked manifest for this dependency.
     manifest: Option<&'ctx config::Manifest>,
 }
@@ -475,7 +475,7 @@ impl<'ctx> Dependency<'ctx> {
     ///
     /// This is currently defined as the very first source found for this
     /// dependency.
-    fn source(&self) -> &DependencySource {
+    fn source(&self) -> &DependencySource<'ctx> {
         let min = self.sources.keys().min().unwrap();
         &self.sources[min]
     }
@@ -485,11 +485,11 @@ impl<'ctx> Dependency<'ctx> {
 ///
 /// A dependency may have multiple sources. See `Dependency`.
 #[derive(Debug)]
-struct DependencySource {
+struct DependencySource<'ctx> {
     /// The ID of this dependency.
     id: DependencyRef,
     /// The available versions of the dependency.
-    versions: DependencyVersions,
+    versions: DependencyVersions<'ctx>,
     /// The currently picked version.
     pick: Option<usize>,
     /// The available version options. These are indices into `versions`.
@@ -498,9 +498,9 @@ struct DependencySource {
     state: State,
 }
 
-impl DependencySource {
+impl<'ctx> DependencySource<'ctx> {
     /// Create a new dependency source.
-    fn new(id: DependencyRef, versions: DependencyVersions) -> DependencySource {
+    fn new(id: DependencyRef, versions: DependencyVersions<'ctx>) -> DependencySource<'ctx> {
         DependencySource {
             id: id,
             versions: versions,
@@ -514,7 +514,7 @@ impl DependencySource {
     ///
     /// In case the state is `Locked` or `Picked`, returns the version that was
     /// picked. Otherwise returns `None`.
-    fn pick(&self) -> Option<DependencyVersion> {
+    fn pick(&self) -> Option<DependencyVersion<'ctx>> {
         match self.state {
             State::Open | State::Constrained(..) => None,
             State::Locked(id) | State::Picked(id, _) => match self.versions {
@@ -525,7 +525,7 @@ impl DependencySource {
                     None
                 }
                 DependencyVersions::Git(ref gv) => {
-                    Some(DependencyVersion::Git(gv.revs[id].clone()))
+                    Some(DependencyVersion::Git(gv.revs[id]))
                 }
             }
         }
