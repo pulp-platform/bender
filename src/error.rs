@@ -10,33 +10,36 @@ use std::sync::Arc;
 /// Print an error.
 #[macro_export]
 macro_rules! errorln {
-    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Error; $($arg)*) }
+    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Error; $($arg)*); }
 }
 
 /// Print a warning.
 #[macro_export]
 macro_rules! warnln {
-    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Warning; $($arg)*) }
+    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Warning; $($arg)*); }
 }
 
 /// Print an informational note.
 #[macro_export]
 macro_rules! noteln {
-    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Note; $($arg)*) }
+    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Note; $($arg)*); }
 }
 
 /// Print debug information. Omitted in release builds.
 #[macro_export]
 #[cfg(debug_assertions)]
 macro_rules! debugln {
-    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Debug; $($arg)*) }
+    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Debug; $($arg)*); }
 }
 
 /// Print debug information. Omitted in release builds.
 #[macro_export]
 #[cfg(not(debug_assertions))]
 macro_rules! debugln {
-    ($($arg:tt)*) => {}
+    ($($arg:tt)*) => { format!($($arg)*); }
+    // format! is used and discarded here such that the compiler does not
+    // complain about the arguments to debugln! not being used in release
+    // builds.
 }
 
 /// Emit a diagnostic message.

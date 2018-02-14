@@ -72,10 +72,13 @@ impl<'ctx> DependencyResolver<'ctx> {
         let packages = self.table
             .into_iter()
             .map(|(name, dep)|{
-                let deps = dep.manifest.unwrap().dependencies
-                    .keys()
-                    .cloned()
-                    .collect();
+                let deps = match dep.manifest {
+                    Some(ref manifest) => manifest.dependencies
+                        .keys()
+                        .cloned()
+                        .collect(),
+                    None => HashSet::new(),
+                };
                 let src = dep.source();
                 let sess_src = sess.dependency_source(src.id);
                 let pkg = match src.versions {
@@ -364,7 +367,9 @@ impl<'ctx> DependencyResolver<'ctx> {
                     State::Picked(id, ref ids) => {
                         if !ids.contains(&id) {
                             debugln!("resolve: picked version for `{}[{}]` no longer valid, resetting", dep.name, src.id);
-                            open_pending.extend(dep.manifest.unwrap().dependencies.keys().map(String::as_str));
+                            if let Some(ref manifest) = dep.manifest {
+                                open_pending.extend(manifest.dependencies.keys().map(String::as_str));
+                            }
                             any_changes = true;
                             State::Open
                         } else {
@@ -386,7 +391,9 @@ impl<'ctx> DependencyResolver<'ctx> {
                 for src in dep.sources.values_mut() {
                     if !src.state.is_open() {
                         any_changes = true;
-                        open_pending.extend(dep.manifest.unwrap().dependencies.keys().map(String::as_str));
+                        if let Some(ref manifest) = dep.manifest {
+                            open_pending.extend(manifest.dependencies.keys().map(String::as_str));
+                        }
                         src.state = State::Open;
                     }
                 }
