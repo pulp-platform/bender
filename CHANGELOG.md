@@ -7,9 +7,13 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## [Unreleased]
 ### Added
 - Add `sources` section to manifest.
+- Add `bender sources` command to access the source file manifest of the root package and its dependencies.
 
 ### Changed
 - Dependency resolution only runs if lock file is older than manifest.
+
+### Fixed
+- Manifests of path dependencies are now read properly.
 
 ## [0.3.2] - 2018-02-14
 ### Changed

@@ -365,7 +365,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                         }
                     }
                     State::Picked(id, ref ids) => {
-                        if !ids.contains(&id) {
+                        if !src.is_path() && !ids.contains(&id) {
                             debugln!("resolve: picked version for `{}[{}]` no longer valid, resetting", dep.name, src.id);
                             if let Some(ref manifest) = dep.manifest {
                                 open_pending.extend(manifest.dependencies.keys().map(String::as_str));
@@ -416,7 +416,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     Some(v) => v,
                     None => continue,
                 };
-                let manifest = io.dependency_manifest(src.id, version);
+                let manifest = io.dependency_manifest_version(src.id, version);
                 sub_deps.push(manifest.map(move |m| (dep.name, m)));
             }
             core.run(join_all(sub_deps))?
@@ -528,6 +528,14 @@ impl<'ctx> DependencySource<'ctx> {
                     Some(DependencyVersion::Git(gv.revs[id]))
                 }
             }
+        }
+    }
+
+    /// Check whether this is a path dependency.
+    fn is_path(&self) -> bool {
+        match self.versions {
+            DependencyVersions::Path => true,
+            _ => false,
         }
     }
 }

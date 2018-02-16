@@ -11,7 +11,7 @@
 use std;
 use std::fmt;
 use std::str::FromStr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::hash::Hash;
 use std::collections::{HashMap, HashSet};
 
@@ -33,6 +33,16 @@ pub struct Manifest {
     pub dependencies: HashMap<String, Dependency>,
     /// The source files.
     pub sources: Option<Sources>,
+}
+
+impl PrefixPaths for Manifest {
+    fn prefix_paths(self, prefix: &Path) -> Self {
+        Manifest {
+            package: self.package,
+            dependencies: self.dependencies.prefix_paths(prefix),
+            sources: self.sources.map(|src| src.prefix_paths(prefix)),
+        }
+    }
 }
 
 /// A package definition.
@@ -67,11 +77,28 @@ pub enum Dependency {
     GitVersion(String, semver::VersionReq),
 }
 
+impl PrefixPaths for Dependency {
+    fn prefix_paths(self, prefix: &Path) -> Self {
+        match self {
+            Dependency::Path(p) => Dependency::Path(p.prefix_paths(prefix)),
+            v => v,
+        }
+    }
+}
+
 /// A group of source files.
 #[derive(Debug)]
 pub struct Sources {
     /// The source files.
     pub files: Vec<SourceFile>,
+}
+
+impl PrefixPaths for Sources {
+    fn prefix_paths(self, prefix: &Path) -> Self {
+        Sources {
+            files: self.files.prefix_paths(prefix),
+        }
+    }
 }
 
 /// A source file.
@@ -87,6 +114,15 @@ impl fmt::Debug for SourceFile {
         match *self {
             SourceFile::File(ref path)  => fmt::Debug::fmt(path, f),
             SourceFile::Group(ref srcs) => fmt::Debug::fmt(srcs, f),
+        }
+    }
+}
+
+impl PrefixPaths for SourceFile {
+    fn prefix_paths(self, prefix: &Path) -> Self {
+        match self {
+            SourceFile::File(path) => SourceFile::File(path.prefix_paths(prefix)),
+            SourceFile::Group(group) => SourceFile::Group(Box::new(group.prefix_paths(prefix))),
         }
     }
 }
@@ -355,6 +391,38 @@ impl Validate for PartialSourceFile {
 pub trait Merge {
     /// Populate missing fields from `other`.
     fn merge(self, other: Self) -> Self;
+}
+
+/// Prefixes relative paths.
+pub trait PrefixPaths {
+    /// Prefixes all paths with `prefix`. Does not touch absolute paths.
+    fn prefix_paths(self, prefix: &Path) -> Self;
+}
+
+impl PrefixPaths for PathBuf {
+    fn prefix_paths(self, prefix: &Path) -> Self {
+        prefix.join(self)
+    }
+}
+
+impl PrefixPaths for Option<PathBuf> {
+    fn prefix_paths(self, prefix: &Path) -> Self {
+        self.map(|path| prefix.join(path))
+    }
+}
+
+// Implement `PrefixPaths` for hash maps of prefixable values.
+impl<K,V> PrefixPaths for HashMap<K,V> where K: Hash + Eq, V: PrefixPaths {
+    fn prefix_paths(self, prefix: &Path) -> Self {
+        self.into_iter().map(|(k, v)| (k, v.prefix_paths(prefix))).collect()
+    }
+}
+
+// Implement `PrefixPaths` for vectors of prefixable values.
+impl<V> PrefixPaths for Vec<V> where V: PrefixPaths {
+    fn prefix_paths(self, prefix: &Path) -> Self {
+        self.into_iter().map(|v| v.prefix_paths(prefix)).collect()
+    }
 }
 
 /// A configuration.

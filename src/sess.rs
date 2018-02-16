@@ -14,6 +14,7 @@ use std::process::Command;
 use std::mem::swap;
 use std::sync::atomic::AtomicUsize;
 use std::time::SystemTime;
+use std::fs::canonicalize;
 
 use semver;
 use futures::Future;
@@ -309,7 +310,6 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             }
         }).collect();
         SourceGroup {
-            path: Path::new(""),
             independent: false,
             files: files,
         }
@@ -525,9 +525,17 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             match dep.source {
                 DependencySource::Registry => unimplemented!(),
                 DependencySource::Git(ref url) => hasher.input(url.as_bytes()),
-                DependencySource::Path(ref path) => return Box::new(
-                    future::ok(self.sess.intern_path(self.sess.root.join(path)))
-                ),
+                DependencySource::Path(ref path) => {
+                    // Determine and canonicalize the dependency path, and
+                    // immediately return it.
+                    let path = self.sess.root.join(path);
+                    let path = match canonicalize(&path) {
+                        Ok(p) => p,
+                        Err(_) => path,
+                    };
+                    let path = self.sess.intern_path(path);
+                    return Box::new(future::ok(path));
+                }
             }
             hasher.input(format!("{:?}", self.sess.root).as_bytes());
             &format!("{:016x}", hasher.result())[..16]
@@ -679,22 +687,22 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         Box::new(updated.map(move |_| path))
     }
 
-    /// Load the manifest for a dependency.
+    /// Load the manifest for a specific version of a dependency.
     ///
     /// Loads and returns the manifest for a dependency at a specific version.
     /// Returns `None` if the dependency has no manifest.
-    pub fn dependency_manifest(
+    pub fn dependency_manifest_version(
         &'io self,
         dep_id: DependencyRef,
         version: DependencyVersion<'ctx>,
     ) -> Box<Future<Item=Option<&'ctx Manifest>, Error=Error> + 'io> {
         // Check if the manifest is already in the cache.
         let cache_key = (dep_id, version.clone());
-        if let Some(&cached) = self.sess.cache.dependency_manifest.lock().unwrap().get(&cache_key) {
+        if let Some(&cached) = self.sess.cache.dependency_manifest_version.lock().unwrap().get(&cache_key) {
             return Box::new(future::ok(cached));
         }
 
-        self.sess.stats.num_calls_dependency_manifest.increment();
+        self.sess.stats.num_calls_dependency_manifest_version.increment();
         let dep = self.sess.dependency(dep_id);
         use self::DependencySource as DepSrc;
         use self::DependencyVersion as DepVer;
@@ -748,7 +756,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         None => Ok(None)
                     })
                     .and_then(move |manifest|{
-                        self.sess.cache.dependency_manifest.lock().unwrap()
+                        self.sess.cache.dependency_manifest_version.lock().unwrap()
                             .insert(cache_key, manifest);
                         Ok(manifest)
                     })
@@ -756,6 +764,42 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             _ => panic!("incompatible source {:?} and version {:?}", dep.source, version)
         }
+    }
+
+    /// Load the manifest for a dependency.
+    ///
+    /// Loads and returns the manifest for a dependency at the resolved version.
+    pub fn dependency_manifest(
+        &'io self,
+        dep_id: DependencyRef,
+    ) -> Box<Future<Item=Option<&'ctx Manifest>, Error=Error> + 'io> {
+        // Check if the manifest is already in the cache.
+        if let Some(&cached) = self.sess.cache.dependency_manifest.lock().unwrap().get(&dep_id) {
+            return Box::new(future::ok(cached));
+        }
+
+        // Otherwise ensure that there is a checkout of the dependency and read
+        // the manifest there.
+        self.sess.stats.num_calls_dependency_manifest.increment();
+        Box::new(self
+            .checkout(dep_id)
+            .and_then(move |path|{
+                let manifest_path = path.join("Bender.yml");
+                if manifest_path.exists() {
+                    match read_manifest(&manifest_path) {
+                        Ok(m) => Ok(Some(self.sess.intern_manifest(m))),
+                        Err(e) => Err(e),
+                    }
+                } else {
+                    Ok(None)
+                }
+            })
+            .and_then(move |manifest|{
+                self.sess.cache.dependency_manifest.lock().unwrap()
+                    .insert(dep_id, manifest);
+                Ok(manifest)
+            })
+        )
     }
 
     /// Load the source file manifest.
@@ -773,10 +817,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .iter()
             .map(move |pkgs| join_all(pkgs
                 .iter()
-                .map(move |&pkg|{
-                    let version = self.sess.dependency(pkg).version();
-                    self.dependency_manifest(pkg, version)
-                })
+                .map(move |&pkg| self.dependency_manifest(pkg))
                 .collect::<Vec<_>>()
             ))
             .collect::<Vec<_>>()
@@ -784,32 +825,36 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         // Extract the sources of each package and concatenate them into a long
         // manifest.
-        Box::new(manifests.and_then(move |ranks|{
-            use std::iter::once;
-            let files = ranks
-                .into_iter()
-                .chain(once(vec![Some(self.sess.manifest)]))
-                .map(|manifests|{
-                    let files = manifests
-                        .into_iter()
-                        .filter_map(|m| m)
-                        .filter_map(|m| m.sources.as_ref().map(|s|
-                            self.sess.load_sources(s).into()
-                        ))
-                        .collect();
-                    SourceGroup {
-                        path: Path::new(""),
-                        independent: true,
-                        files: files,
-                    }.into()
-                })
-                .collect();
-            Ok(SourceGroup {
-                path: self.sess.root,
-                independent: false,
-                files: files,
+        Box::new(manifests
+            .and_then(move |ranks|{
+                use std::iter::once;
+                let files = ranks
+                    .into_iter()
+                    .chain(once(vec![Some(self.sess.manifest)]))
+                    .map(|manifests|{
+                        let files = manifests
+                            .into_iter()
+                            .filter_map(|m| m)
+                            .filter_map(|m| m.sources.as_ref().map(|s|
+                                self.sess.load_sources(s).into()
+                            ))
+                            .collect();
+                        SourceGroup {
+                            independent: true,
+                            files: files,
+                        }.into()
+                    })
+                    .collect();
+                Ok(SourceGroup {
+                    independent: false,
+                    files: files,
+                }.simplify())
             })
-        }))
+            .and_then(move |sources|{
+                *self.sess.sources.lock().unwrap() = Some(sources.clone());
+                Ok(sources)
+            })
+        )
     }
 }
 
@@ -1030,6 +1075,7 @@ pub struct SessionStatistics {
     num_calls_dependency_versions: StatisticCounter,
     num_calls_git_database: StatisticCounter,
     num_calls_checkout: StatisticCounter,
+    num_calls_dependency_manifest_version: StatisticCounter,
     num_calls_dependency_manifest: StatisticCounter,
     num_database_init: StatisticCounter,
     num_database_fetch: StatisticCounter,
@@ -1061,9 +1107,14 @@ impl fmt::Debug for StatisticCounter {
 /// A cache for the session.
 #[derive(Default)]
 pub struct SessionCache<'ctx> {
-    dependency_manifest: Mutex<HashMap<
+    dependency_manifest_version: Mutex<HashMap<
         (DependencyRef, DependencyVersion<'ctx>),
-        Option<&'ctx config::Manifest> >>,
+        Option<&'ctx config::Manifest>
+    >>,
+    dependency_manifest: Mutex<HashMap<
+        DependencyRef,
+        Option<&'ctx config::Manifest>
+    >>,
     checkout: Mutex<HashMap<DependencyRef, &'ctx Path>>,
 }
 

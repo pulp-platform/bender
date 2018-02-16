@@ -10,7 +10,7 @@ use clap::{App, Arg};
 use serde_yaml;
 
 use cmd;
-use config::{Config, PartialConfig, Manifest, Merge, Validate, Locked};
+use config::{Config, PartialConfig, Manifest, Merge, Validate, Locked, PrefixPaths};
 use error::*;
 use sess::{Session, SessionArenas};
 use resolver::DependencyResolver;
@@ -160,10 +160,11 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
         format!("Syntax error in manifest {:?}.", path),
         cause
     ))?;
-    partial.validate().map_err(|cause| Error::chain(
+    let manifest = partial.validate().map_err(|cause| Error::chain(
         format!("Error in manifest {:?}.", path),
         cause
-    ))
+    ))?;
+    Ok(manifest.prefix_paths(path.parent().unwrap()))
 }
 
 /// Load a configuration by traversing a directory hierarchy upwards.

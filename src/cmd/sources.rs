@@ -3,8 +3,11 @@
 
 //! The `sources` subcommand.
 
+use std;
+
 use clap::{App, SubCommand, ArgMatches};
 use tokio_core::reactor::Core;
+use serde_yaml;
 
 use error::*;
 use sess::{Session, SessionIo};
@@ -19,10 +22,14 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
 pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
     let mut core = Core::new().unwrap();
     let io = SessionIo::new(&sess, core.handle());
-
-    // Obtain the sources from the session.
     let srcs = core.run(io.sources())?;
-    debugln!("sources: {:#?}", srcs);
-
-    Ok(())
+    let result = {
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        serde_yaml::to_writer(handle, &srcs)
+    };
+    result.map_err(|cause| Error::chain(
+        "Failed to serialize source file manifest.",
+        cause
+    ))
 }
