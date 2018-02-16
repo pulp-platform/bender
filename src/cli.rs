@@ -5,14 +5,17 @@
 
 use std;
 use std::path::{Path, PathBuf};
+
 use clap::{App, Arg, SubCommand};
 use serde_yaml;
 use tokio_core::reactor::Core;
 use futures::future;
+
 use config::{Config, PartialConfig, Manifest, Merge, Validate, Locked};
 use error::*;
 use sess::{Session, SessionArenas, SessionIo};
 use resolver::DependencyResolver;
+use util::try_modification_time;
 
 /// Inner main function which can return an error.
 pub fn main() -> Result<()> {
@@ -72,20 +75,32 @@ pub fn main() -> Result<()> {
     // Assemble the session.
     let sess_arenas = SessionArenas::new();
     let sess = Session::new(&root_dir, &manifest, &config, &sess_arenas);
-    debugln!("main: {:#?}", sess);
 
-    // Resolve the dependencies.
+    // Read the existing lockfile.
     let lock_path = root_dir.join("Bender.lock");
-    let locked = if lock_path.exists() {
+    let locked_outdated = {
+        let lockfile_mtime = try_modification_time(&lock_path);
+        sess.manifest_mtime.is_none() ||
+            lockfile_mtime.is_none() ||
+            sess.manifest_mtime > lockfile_mtime
+    };
+    let locked_existing = if lock_path.exists() {
         Some(read_lockfile(&lock_path)?)
     } else {
         None
     };
-    debugln!("main: loaded {:#?}", locked);
-    let res = DependencyResolver::new(&sess);
-    let locked = res.resolve()?;
-    debugln!("main: resolved {:#?}", locked);
-    write_lockfile(&locked, &root_dir.join("Bender.lock"))?;
+
+    // Resolve the dependencies if the lockfile does not exist or is outdated.
+    let locked = if locked_outdated {
+        debugln!("main: lockfile {:?} outdated", lock_path);
+        let res = DependencyResolver::new(&sess);
+        let locked_new = res.resolve()?;
+        write_lockfile(&locked_new, &root_dir.join("Bender.lock"))?;
+        locked_new
+    } else {
+        debugln!("main: lockfile {:?} up-to-date", lock_path);
+        locked_existing.unwrap()
+    };
     sess.load_locked(&locked);
 
     // Dispatch the different subcommands.

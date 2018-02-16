@@ -45,7 +45,7 @@ pub struct Session<'ctx> {
     /// long as the session.
     arenas: &'ctx SessionArenas,
     /// The manifest modification time.
-    manifest_mtime: Option<SystemTime>,
+    pub manifest_mtime: Option<SystemTime>,
     /// Some statistics about the session.
     stats: SessionStatistics,
     /// The dependency table.
