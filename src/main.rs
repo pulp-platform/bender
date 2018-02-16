@@ -27,6 +27,7 @@ pub mod sess;
 pub mod resolver;
 pub mod git;
 pub mod cmd;
+pub mod src;
 
 fn main() {
 	match cli::main() {

@@ -30,7 +30,8 @@ pub fn main() -> Result<()> {
             .help("Sets a custom root working directory")
         )
         .subcommand(cmd::path::new())
-        .subcommand(cmd::packages::new());
+        .subcommand(cmd::packages::new())
+        .subcommand(cmd::sources::new());
     let matches = app.get_matches();
 
     // Determine the root working directory, which has either been provided via
@@ -85,14 +86,14 @@ pub fn main() -> Result<()> {
 
     // Dispatch the different subcommands.
     if let Some(matches) = matches.subcommand_matches("path") {
-        cmd::path::run(&sess, matches)?;
+        cmd::path::run(&sess, matches)
+    } else if let Some(matches) = matches.subcommand_matches("packages") {
+        cmd::packages::run(&sess, matches)
+    } else if let Some(matches) = matches.subcommand_matches("sources") {
+        cmd::sources::run(&sess, matches)
+    } else {
+        Ok(())
     }
-
-    if let Some(matches) = matches.subcommand_matches("packages") {
-        cmd::packages::run(&sess, matches)?;
-    }
-
-    Ok(())
 }
 
 /// Find the root directory of a package.
@@ -147,7 +148,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
 }
 
 /// Read a package manifest from a file.
-fn read_manifest(path: &Path) -> Result<Manifest> {
+pub fn read_manifest(path: &Path) -> Result<Manifest> {
     use std::fs::File;
     use config::PartialManifest;
     debugln!("read_manifest: {:?}", path);

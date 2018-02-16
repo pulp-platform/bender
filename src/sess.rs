@@ -17,17 +17,19 @@ use std::time::SystemTime;
 
 use semver;
 use futures::Future;
-use futures::future;
+use futures::future::{self, join_all};
 use tokio_core::reactor::Handle;
 use tokio_process::CommandExt;
 use typed_arena::Arena;
 use serde_yaml;
 
+use cli::read_manifest;
 use error::*;
 use config::{self, Manifest, Config};
 use git::Git;
 use util::{read_file, write_file, try_modification_time};
 use config::Validate;
+use src::SourceGroup;
 
 /// A session on the command line.
 ///
@@ -49,7 +51,7 @@ pub struct Session<'ctx> {
     /// Some statistics about the session.
     stats: SessionStatistics,
     /// The dependency table.
-    deps: Mutex<DependencyTable>,
+    deps: Mutex<DependencyTable<'ctx>>,
     /// The internalized paths.
     paths: Mutex<HashSet<&'ctx Path>>,
     /// The internalized strings.
@@ -60,6 +62,8 @@ pub struct Session<'ctx> {
     graph: Mutex<Arc<HashMap<DependencyRef, HashSet<DependencyRef>>>>,
     /// The topologically sorted list of packages.
     pkgs: Mutex<Arc<Vec<HashSet<DependencyRef>>>>,
+    /// The source file manifest.
+    sources: Mutex<Option<SourceGroup<'ctx>>>,
     /// The session cache.
     pub cache: SessionCache<'ctx>,
 }
@@ -85,6 +89,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             names: Mutex::new(HashMap::new()),
             graph: Mutex::new(Arc::new(HashMap::new())),
             pkgs: Mutex::new(Arc::new(Vec::new())),
+            sources: Mutex::new(None),
             cache: Default::default(),
         }
     }
@@ -107,12 +112,12 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             config::Dependency::GitRevision(ref g, _) |
             config::Dependency::GitVersion(ref g, _) => DependencySource::Git(g.clone()),
         };
-        self.deps.lock().unwrap().add(DependencyEntry {
+        self.deps.lock().unwrap().add(self.intern_dependency_entry(DependencyEntry {
             name: name.into(),
             source: src,
             revision: None,
             version: None,
-        })
+        }))
     }
 
     /// Load a lock file.
@@ -132,12 +137,12 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
                 config::LockedSource::Git(ref url) => DependencySource::Git(url.clone()),
                 config::LockedSource::Registry(ref _ver) => DependencySource::Registry,
             };
-            let id = deps.add(DependencyEntry {
+            let id = deps.add(self.intern_dependency_entry(DependencyEntry {
                 name: name.clone(),
                 source: src,
                 revision: pkg.revision.clone(),
                 version: pkg.version.as_ref().map(|s| semver::Version::parse(&s).unwrap()),
-            });
+            }));
             graph_names.insert(id, &pkg.dependencies);
             names.insert(name.clone(), id);
         }
@@ -201,9 +206,9 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
     }
 
     /// Obtain information on a dependency.
-    pub fn dependency(&self, dep: DependencyRef) -> Arc<DependencyEntry> {
+    pub fn dependency(&self, dep: DependencyRef) -> &'ctx DependencyEntry {
         // TODO: Don't make any clones! Use an arena instead.
-        self.deps.lock().unwrap().list[dep.0].clone()
+        self.deps.lock().unwrap().list[dep.0]
     }
 
     /// Determine the name of a dependency.
@@ -278,6 +283,11 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         self.arenas.manifest.alloc(manifest.into())
     }
 
+    /// Internalize a dependency entry.
+    pub fn intern_dependency_entry(&self, entry: DependencyEntry) -> &'ctx DependencyEntry {
+        self.arenas.dependency_entry.alloc(entry)
+    }
+
     /// Access the package dependency graph.
     pub fn graph(&self) -> Arc<HashMap<DependencyRef, HashSet<DependencyRef>>> {
         self.graph.lock().unwrap().clone()
@@ -286,6 +296,23 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
     /// Access the topological sorting of the packages.
     pub fn packages(&self) -> Arc<Vec<HashSet<DependencyRef>>> {
         self.pkgs.lock().unwrap().clone()
+    }
+
+    /// Load the sources in a manifest into a source group.
+    pub fn load_sources(&self, sources: &'ctx config::Sources) -> SourceGroup<'ctx> {
+        let files = sources.files.iter().map(|file| match *file {
+            config::SourceFile::File(ref path) => {
+                (path as &Path).into()
+            }
+            config::SourceFile::Group(ref group) => {
+                self.load_sources(group.as_ref()).into()
+            }
+        }).collect();
+        SourceGroup {
+            path: Path::new(""),
+            independent: false,
+            files: files,
+        }
     }
 }
 
@@ -672,8 +699,18 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         use self::DependencySource as DepSrc;
         use self::DependencyVersion as DepVer;
         match (&dep.source, version) {
-            (&DepSrc::Path(ref _path), DepVer::Path) => {
-                unimplemented!();
+            (&DepSrc::Path(ref path), DepVer::Path) => {
+                let manifest_path = path.join("Bender.yml");
+                if manifest_path.exists() {
+                    match read_manifest(&manifest_path) {
+                        Ok(m) => Box::new(future::ok(
+                            Some(self.sess.intern_manifest(m))
+                        )),
+                        Err(e) => Box::new(future::err(e)),
+                    }
+                } else {
+                    Box::new(future::ok(None))
+                }
             }
             (&DepSrc::Registry, DepVer::Registry(_hash)) => {
                 unimplemented!("load manifest of registry dependency");
@@ -720,6 +757,60 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             _ => panic!("incompatible source {:?} and version {:?}", dep.source, version)
         }
     }
+
+    /// Load the source file manifest.
+    ///
+    /// Loads and returns the source file manifest for the root package and all
+    /// its dependencies..
+    pub fn sources(&'io self) -> Box<Future<Item=SourceGroup<'ctx>, Error=Error> + 'io> {
+        // Check if we already have the source manifest.
+        if let Some(ref cached) = *self.sess.sources.lock().unwrap() {
+            return Box::new(future::ok((*cached).clone()));
+        }
+
+        // Load the manifests of all packages.
+        let manifests = join_all(self.sess.packages()
+            .iter()
+            .map(move |pkgs| join_all(pkgs
+                .iter()
+                .map(move |&pkg|{
+                    let version = self.sess.dependency(pkg).version();
+                    self.dependency_manifest(pkg, version)
+                })
+                .collect::<Vec<_>>()
+            ))
+            .collect::<Vec<_>>()
+        );
+
+        // Extract the sources of each package and concatenate them into a long
+        // manifest.
+        Box::new(manifests.and_then(move |ranks|{
+            use std::iter::once;
+            let files = ranks
+                .into_iter()
+                .chain(once(vec![Some(self.sess.manifest)]))
+                .map(|manifests|{
+                    let files = manifests
+                        .into_iter()
+                        .filter_map(|m| m)
+                        .filter_map(|m| m.sources.as_ref().map(|s|
+                            self.sess.load_sources(s).into()
+                        ))
+                        .collect();
+                    SourceGroup {
+                        path: Path::new(""),
+                        independent: true,
+                        files: files,
+                    }.into()
+                })
+                .collect();
+            Ok(SourceGroup {
+                path: self.sess.root,
+                independent: false,
+                files: files,
+            })
+        }))
+    }
 }
 
 /// An arena container where all incremental, temporary things are allocated.
@@ -730,6 +821,8 @@ pub struct SessionArenas {
     pub string: Arena<String>,
     /// An arena to allocate manifests in.
     pub manifest: Arena<Manifest>,
+    /// An arena to allocate dependency entries in.
+    pub dependency_entry: Arena<DependencyEntry>,
 }
 
 impl SessionArenas {
@@ -739,6 +832,7 @@ impl SessionArenas {
             path: Arena::new(),
             string: Arena::new(),
             manifest: Arena::new(),
+            dependency_entry: Arena::new(),
         }
     }
 }
@@ -781,6 +875,17 @@ pub struct DependencyEntry {
     version: Option<semver::Version>,
 }
 
+impl DependencyEntry {
+    /// Obtain the dependency version for this entry.
+    pub fn version<'a>(&'a self) -> DependencyVersion<'a> {
+        match self.source {
+            DependencySource::Registry => unimplemented!(),
+            DependencySource::Path(_) => DependencyVersion::Path,
+            DependencySource::Git(_) => DependencyVersion::Git(self.revision.as_ref().unwrap()),
+        }
+    }
+}
+
 /// Where a dependency may be obtained from.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum DependencySource {
@@ -795,14 +900,14 @@ pub enum DependencySource {
 
 /// A table of internalized dependencies.
 #[derive(Debug)]
-struct DependencyTable {
-    list: Vec<Arc<DependencyEntry>>,
-    ids: HashMap<Arc<DependencyEntry>, DependencyRef>,
+struct DependencyTable<'ctx> {
+    list: Vec<&'ctx DependencyEntry>,
+    ids: HashMap<&'ctx DependencyEntry, DependencyRef>,
 }
 
-impl DependencyTable {
+impl<'ctx> DependencyTable<'ctx> {
     /// Create a new dependency table.
-    pub fn new() -> DependencyTable {
+    pub fn new() -> DependencyTable<'ctx> {
         DependencyTable {
             list: Vec::new(),
             ids: HashMap::new(),
@@ -813,15 +918,14 @@ impl DependencyTable {
     ///
     /// The reference with which the information can later be retrieved is
     /// returned.
-    pub fn add(&mut self, entry: DependencyEntry) -> DependencyRef {
-        let entry = Arc::new(entry);
+    pub fn add(&mut self, entry: &'ctx DependencyEntry) -> DependencyRef {
         if let Some(&id) = self.ids.get(&entry) {
             debugln!("sess: reusing {:?}", id);
             id
         } else {
             let id = DependencyRef(self.list.len());
             debugln!("sess: adding {:?} as {:?}", entry, id);
-            self.list.push(entry.clone());
+            self.list.push(entry);
             self.ids.insert(entry, id);
             id
         }
