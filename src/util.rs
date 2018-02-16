@@ -102,6 +102,61 @@ impl<'de, T> Deserialize<'de> for StringOrStruct<T>
     }
 }
 
+/// A magic wrapper for deserializable types that also implement `From<Vec<F>>`.
+///
+/// Allows `T` to be deserialized from an array by calling `T::from`. Falls back
+/// to the regular deserialization if anything else is encountered. Serializes
+/// the same way `T` serializes.
+#[derive(Debug)]
+pub struct SeqOrStruct<T,F>(pub T, PhantomData<F>);
+
+impl<T,F> Serialize for SeqOrStruct<T,F> where T: Serialize {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de, T, F> Deserialize<'de> for SeqOrStruct<T,F>
+    where T: Deserialize<'de> + From<Vec<F>>, F: Deserialize<'de>
+{
+    fn deserialize<D>(deserializer: D) -> std::result::Result<SeqOrStruct<T,F>, D::Error>
+        where D: Deserializer<'de>
+    {
+        use serde::de;
+        struct Visitor<T,F>(PhantomData<T>, PhantomData<F>);
+
+        impl<'de, T, F> de::Visitor<'de> for Visitor<T,F>
+            where T: Deserialize<'de> + From<Vec<F>>, F: Deserialize<'de>
+        {
+            type Value = T;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("sequence or map")
+            }
+
+            fn visit_seq<A>(self, visitor: A) -> std::result::Result<T, A::Error>
+                where A: de::SeqAccess<'de>
+            {
+                let v: Vec<F> = Vec::deserialize(
+                    de::value::SeqAccessDeserializer::new(visitor))?;
+                Ok(T::from(v))
+            }
+
+            fn visit_map<M>(self, visitor: M) -> std::result::Result<T, M::Error>
+                where M: de::MapAccess<'de>
+            {
+                T::deserialize(de::value::MapAccessDeserializer::new(visitor))
+            }
+        }
+
+        deserializer
+            .deserialize_any(Visitor::<T,F>(PhantomData, PhantomData))
+            .map(|v| SeqOrStruct(v, PhantomData))
+    }
+}
+
 /// Read an entire file into a string.
 pub fn read_file(path: &Path) -> std::io::Result<String> {
     let mut file = File::open(path)?;

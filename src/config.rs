@@ -9,11 +9,16 @@
 #![deny(missing_docs)]
 
 use std;
+use std::fmt;
 use std::str::FromStr;
 use std::path::PathBuf;
 use std::hash::Hash;
 use std::collections::{HashMap, HashSet};
+
 use semver;
+use serde::de::{Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer};
+
 use error::*;
 use util::*;
 
@@ -26,6 +31,8 @@ pub struct Manifest {
     pub package: Package,
     /// The dependencies.
     pub dependencies: HashMap<String, Dependency>,
+    /// The source files.
+    pub sources: Option<Sources>,
 }
 
 /// A package definition.
@@ -60,6 +67,30 @@ pub enum Dependency {
     GitVersion(String, semver::VersionReq),
 }
 
+/// A group of source files.
+#[derive(Debug)]
+pub struct Sources {
+    /// The source files.
+    pub files: Vec<SourceFile>,
+}
+
+/// A source file.
+pub enum SourceFile {
+    /// A file.
+    File(PathBuf),
+    /// A subgroup.
+    Group(Box<Sources>),
+}
+
+impl fmt::Debug for SourceFile {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SourceFile::File(ref path)  => fmt::Debug::fmt(path, f),
+            SourceFile::Group(ref srcs) => fmt::Debug::fmt(srcs, f),
+        }
+    }
+}
+
 /// Converts partial configuration into a validated full configuration.
 pub trait Validate {
     /// The output type produced by validation.
@@ -91,6 +122,15 @@ impl<T> Validate for StringOrStruct<T> where T: Validate {
     }
 }
 
+// Implement `Validate` for `SeqOrStruct` wrapped validatable values.
+impl<T,F> Validate for SeqOrStruct<T,F> where T: Validate {
+    type Output = T::Output;
+    type Error = T::Error;
+    fn validate(self) -> std::result::Result<T::Output, T::Error> {
+        self.0.validate()
+    }
+}
+
 /// A partial manifest.
 ///
 /// Validation turns this into a `Manifest`.
@@ -100,6 +140,8 @@ pub struct PartialManifest {
     pub package: Option<Package>,
     /// The dependencies.
     pub dependencies: Option<HashMap<String, StringOrStruct<PartialDependency>>>,
+    /// The source files.
+    pub sources: Option<SeqOrStruct<PartialSources, PartialSourceFile>>,
 }
 
 impl Validate for PartialManifest {
@@ -117,9 +159,17 @@ impl Validate for PartialManifest {
             ))?,
             None => HashMap::new(),
         };
+        let srcs = match self.sources {
+            Some(s) => Some(s.validate().map_err(|cause| Error::chain(
+                format!("In source list of package `{}`:", pkg.name),
+                cause
+            ))?),
+            None => None
+        };
         Ok(Manifest {
             package: pkg,
             dependencies: deps,
+            sources: srcs,
         })
     }
 }
@@ -198,6 +248,105 @@ impl Validate for PartialDependency {
             Ok(Dependency::Version(version))
         } else {
             Err(Error::new("A dependency must specify `version`, `path`, or `git`."))
+        }
+    }
+}
+
+/// A partial group of source files.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PartialSources {
+    /// The source file paths.
+    pub files: Vec<PartialSourceFile>,
+}
+
+impl From<Vec<PartialSourceFile>> for PartialSources {
+    fn from(v: Vec<PartialSourceFile>) -> Self {
+        PartialSources {
+            files: v,
+        }
+    }
+}
+
+impl Validate for PartialSources {
+    type Output = Sources;
+    type Error = Error;
+    fn validate(self) -> Result<Sources> {
+        let files: Result<Vec<_>> = self.files.into_iter().map(|f| f.validate()).collect();
+        Ok(Sources {
+            files: files?,
+        })
+    }
+}
+
+/// A partial source file.
+#[derive(Debug)]
+pub enum PartialSourceFile {
+    /// A single file.
+    File(String),
+    /// A subgroup of sources.
+    Group(Box<PartialSources>),
+}
+
+// Custom serialization for partial source files.
+impl Serialize for PartialSourceFile {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        match *self {
+            PartialSourceFile::File(ref path) => path.serialize(serializer),
+            PartialSourceFile::Group(ref srcs) => srcs.serialize(serializer),
+        }
+    }
+}
+
+// Custom deserialization for partial source files.
+impl<'de> Deserialize<'de> for PartialSourceFile {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<PartialSourceFile, D::Error>
+        where D: Deserializer<'de>
+    {
+        use serde::de;
+        use std::fmt;
+        use std::result::Result;
+        struct Visitor;
+
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = PartialSourceFile;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("string or map")
+            }
+
+            // Parse a single source file.
+            fn visit_str<E>(self, value: &str) -> Result<PartialSourceFile, E>
+                where E: de::Error
+            {
+                Ok(PartialSourceFile::File(value.into()))
+            }
+
+            // Parse an entire source file group.
+            fn visit_map<M>(self, visitor: M) -> Result<PartialSourceFile, M::Error>
+                where M: de::MapAccess<'de>
+            {
+                let srcs = PartialSources::deserialize(de::value::MapAccessDeserializer::new(visitor))?;
+                Ok(PartialSourceFile::Group(Box::new(srcs)))
+            }
+        }
+
+        deserializer.deserialize_any(Visitor)
+    }
+}
+
+impl Validate for PartialSourceFile {
+    type Output = SourceFile;
+    type Error = Error;
+    fn validate(self) -> Result<SourceFile> {
+        match self {
+            PartialSourceFile::File(path) => Ok(SourceFile::File(
+                path.into()
+            )),
+            PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(
+                Box::new(srcs.validate()?)
+            )),
         }
     }
 }
