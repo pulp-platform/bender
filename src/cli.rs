@@ -6,14 +6,13 @@
 use std;
 use std::path::{Path, PathBuf};
 
-use clap::{App, Arg, SubCommand};
+use clap::{App, Arg};
 use serde_yaml;
-use tokio_core::reactor::Core;
-use futures::future;
 
+use cmd;
 use config::{Config, PartialConfig, Manifest, Merge, Validate, Locked};
 use error::*;
-use sess::{Session, SessionArenas, SessionIo};
+use sess::{Session, SessionArenas};
 use resolver::DependencyResolver;
 use util::try_modification_time;
 
@@ -30,27 +29,8 @@ pub fn main() -> Result<()> {
             .global(true)
             .help("Sets a custom root working directory")
         )
-        .subcommand(SubCommand::with_name("path")
-            .about("Get the path to a dependency")
-            .arg(Arg::with_name("name")
-                .multiple(true)
-                .required(true)
-                .help("Package names to get the path for")
-            )
-        )
-        .subcommand(SubCommand::with_name("packages")
-            .about("Information about the dependency graph")
-            .arg(Arg::with_name("graph")
-                .short("g")
-                .long("graph")
-                .help("Print the dependencies for each package")
-            )
-            .arg(Arg::with_name("flat")
-                .short("f")
-                .long("flat")
-                .help("Do not group packages by topological rank. If the `--graph` option is specified, print multiple lines per package, one for each dependency.")
-            )
-        );
+        .subcommand(cmd::path::new())
+        .subcommand(cmd::packages::new());
     let matches = app.get_matches();
 
     // Determine the root working directory, which has either been provided via
@@ -105,74 +85,11 @@ pub fn main() -> Result<()> {
 
     // Dispatch the different subcommands.
     if let Some(matches) = matches.subcommand_matches("path") {
-        let mut core = Core::new().unwrap();
-        let io = SessionIo::new(&sess, core.handle());
-
-        let ids = matches
-            .values_of("name")
-            .unwrap()
-            .map(|n| Ok((n, sess.dependency_with_name(n)?)))
-            .collect::<Result<Vec<_>>>()?;
-        debugln!("main: obtain checkouts {:#?}", ids);
-        let checkouts = core.run(future::join_all(ids
-            .iter()
-            .map(|&(_, id)| io.checkout(id))
-            .collect::<Vec<_>>()
-        ))?;
-        debugln!("main: checkouts {:#?}", checkouts);
-        for c in checkouts {
-            if let Some(s) = c.to_str() {
-                println!("{}", s);
-            }
-        }
+        cmd::path::run(&sess, matches)?;
     }
 
     if let Some(matches) = matches.subcommand_matches("packages") {
-        let graph = matches.is_present("graph");
-        let flat  = matches.is_present("flat");
-        if graph {
-            for (&pkg, deps) in sess.graph().iter() {
-                let pkg_name = sess.dependency_name(pkg);
-                let dep_names = deps.iter().map(|&id| sess.dependency_name(id));
-                if flat {
-                    // Print one line per dependency.
-                    for dep_name in dep_names {
-                        println!("{}\t{}", pkg_name, dep_name);
-                    }
-                } else {
-                    // Print all dependencies on one line.
-                    print!("{}\t", pkg_name);
-                    for (i, dep_name) in dep_names.enumerate() {
-                        if i > 0 {
-                            print!(" {}", dep_name);
-                        } else {
-                            print!("{}", dep_name);
-                        }
-                    }
-                    println!();
-                }
-            }
-        } else {
-            for pkgs in sess.packages().iter() {
-                let pkg_names = pkgs.iter().map(|&id| sess.dependency_name(id));
-                if flat {
-                    // Print one line per package.
-                    for pkg_name in pkg_names {
-                        println!("{}", pkg_name);
-                    }
-                } else {
-                    // Print all packages per rank on one line.
-                    for (i, pkg_name) in pkg_names.enumerate() {
-                        if i > 0 {
-                            print!(" {}", pkg_name);
-                        } else {
-                            print!("{}", pkg_name);
-                        }
-                    }
-                    println!();
-                }
-            }
-        }
+        cmd::packages::run(&sess, matches)?;
     }
 
     Ok(())
