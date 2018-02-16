@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ### Fixed
 - Manifests of path dependencies are now read properly.
+- Relative paths in config files are now treated as relative to the config file, not the current working directory.
 
 ## [0.3.2] - 2018-02-14
 ### Changed

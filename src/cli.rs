@@ -255,7 +255,7 @@ fn maybe_load_config(path: &Path) -> Result<Option<PartialConfig>> {
         format!("Syntax error in config {:?}.", path),
         cause
     ))?;
-    Ok(Some(partial))
+    Ok(Some(partial.prefix_paths(path.parent().unwrap())))
 }
 
 /// Read a lock file.

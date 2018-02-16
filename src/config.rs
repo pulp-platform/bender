@@ -224,7 +224,7 @@ impl Validate for PartialManifest {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PartialDependency {
     /// The path to the package.
-    path: Option<String>,
+    path: Option<PathBuf>,
     /// The git URL to the package.
     git: Option<String>,
     /// The git revision of the package to use. Can be a commit hash, branch,
@@ -270,7 +270,7 @@ impl Validate for PartialDependency {
             ) {
                 Err(Error::new(format!("A `path` dependency cannot have a {} field.", list)))
             } else {
-                Ok(Dependency::Path(path.into()))
+                Ok(Dependency::Path(path))
             }
         } else if let Some(git) = self.git {
             if let Some(rev) = self.rev {
@@ -318,7 +318,7 @@ impl Validate for PartialSources {
 #[derive(Debug)]
 pub enum PartialSourceFile {
     /// A single file.
-    File(String),
+    File(PathBuf),
     /// A subgroup of sources.
     Group(Box<PartialSources>),
 }
@@ -377,9 +377,7 @@ impl Validate for PartialSourceFile {
     type Error = Error;
     fn validate(self) -> Result<SourceFile> {
         match self {
-            PartialSourceFile::File(path) => Ok(SourceFile::File(
-                path.into()
-            )),
+            PartialSourceFile::File(path) => Ok(SourceFile::File(path)),
             PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(
                 Box::new(srcs.validate()?)
             )),
@@ -452,6 +450,15 @@ impl PartialConfig {
         PartialConfig {
             database: None,
             git: None,
+        }
+    }
+}
+
+impl PrefixPaths for PartialConfig {
+    fn prefix_paths(self, prefix: &Path) -> Self {
+        PartialConfig {
+            database: self.database.prefix_paths(prefix),
+            ..self
         }
     }
 }
