@@ -92,6 +92,10 @@ impl PrefixPaths for Dependency {
 /// A group of source files.
 #[derive(Debug)]
 pub struct Sources {
+    /// The directories to search for include files.
+    pub include_dirs: Vec<PathBuf>,
+    /// The preprocessor definitions.
+    pub defines: HashMap<String, Option<String>>,
     /// The source files.
     pub files: Vec<SourceFile>,
 }
@@ -99,6 +103,8 @@ pub struct Sources {
 impl PrefixPaths for Sources {
     fn prefix_paths(self, prefix: &Path) -> Self {
         Sources {
+            include_dirs: self.include_dirs.prefix_paths(prefix),
+            defines: self.defines,
             files: self.files.prefix_paths(prefix),
         }
     }
@@ -301,6 +307,10 @@ impl Validate for PartialDependency {
 /// A partial group of source files.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PartialSources {
+    /// The directories to search for include files.
+    pub include_dirs: Option<Vec<PathBuf>>,
+    /// The preprocessor definitions.
+    pub defines: Option<HashMap<String, Option<String>>>,
     /// The source file paths.
     pub files: Vec<PartialSourceFile>,
 }
@@ -308,6 +318,8 @@ pub struct PartialSources {
 impl From<Vec<PartialSourceFile>> for PartialSources {
     fn from(v: Vec<PartialSourceFile>) -> Self {
         PartialSources {
+            include_dirs: None,
+            defines: None,
             files: v,
         }
     }
@@ -317,8 +329,12 @@ impl Validate for PartialSources {
     type Output = Sources;
     type Error = Error;
     fn validate(self) -> Result<Sources> {
+        let include_dirs = self.include_dirs.unwrap_or(Vec::new());
+        let defines = self.defines.unwrap_or(HashMap::new());
         let files: Result<Vec<_>> = self.files.into_iter().map(|f| f.validate()).collect();
         Ok(Sources {
+            include_dirs: include_dirs,
+            defines: defines,
             files: files?,
         })
     }

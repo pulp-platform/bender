@@ -7,7 +7,7 @@ use std;
 
 use clap::{App, SubCommand, ArgMatches};
 use tokio_core::reactor::Core;
-use serde_yaml;
+use serde_json;
 
 use error::*;
 use sess::{Session, SessionIo};
@@ -26,7 +26,7 @@ pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
     let result = {
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
-        serde_yaml::to_writer(handle, &srcs)
+        serde_json::to_writer(handle, &srcs)
     };
     result.map_err(|cause| Error::chain(
         "Failed to serialize source file manifest.",

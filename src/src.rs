@@ -9,6 +9,7 @@
 
 use std::fmt;
 use std::path::Path;
+use std::collections::HashMap;
 
 use serde::ser::{Serialize, Serializer};
 
@@ -17,6 +18,10 @@ use serde::ser::{Serialize, Serializer};
 pub struct SourceGroup<'ctx> {
     /// Whether the source files in this group can be treated in parallel.
     pub independent: bool,
+    /// The directories to search for include files.
+    pub include_dirs: Vec<&'ctx Path>,
+    /// The preprocessor definitions.
+    pub defines: HashMap<&'ctx str, Option<&'ctx str>>,
     /// The files in this group.
     pub files: Vec<SourceFile<'ctx>>,
 }
@@ -35,7 +40,7 @@ impl<'ctx> SourceGroup<'ctx> {
                 }
 
                 // Drop groups with only one file.
-                if group.files.len() == 1 {
+                if group.files.len() == 1 && group.include_dirs.is_empty() && group.defines.is_empty() {
                     return Some(group.files.into_iter().next().unwrap());
                 }
 

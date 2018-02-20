@@ -304,6 +304,17 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
 
     /// Load the sources in a manifest into a source group.
     pub fn load_sources(&self, sources: &'ctx config::Sources) -> SourceGroup<'ctx> {
+        let include_dirs = sources.include_dirs
+            .iter()
+            .map(|d| self.intern_path(d))
+            .collect();
+        let defines = sources.defines
+            .iter()
+            .map(|(k,v)|(
+                self.intern_string(k.as_ref()),
+                v.as_ref().map(|v| self.intern_string(v.as_ref())),
+            ))
+            .collect();
         let files = sources.files.iter().map(|file| match *file {
             config::SourceFile::File(ref path) => {
                 (path as &Path).into()
@@ -314,6 +325,8 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         }).collect();
         SourceGroup {
             independent: false,
+            include_dirs: include_dirs,
+            defines: defines,
             files: files,
         }
     }
@@ -844,12 +857,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             .collect();
                         SourceGroup {
                             independent: true,
+                            include_dirs: Vec::new(),
+                            defines: HashMap::new(),
                             files: files,
                         }.into()
                     })
                     .collect();
                 Ok(SourceGroup {
                     independent: false,
+                    include_dirs: Vec::new(),
+                    defines: HashMap::new(),
                     files: files,
                 }.simplify())
             })
