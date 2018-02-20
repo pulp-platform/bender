@@ -33,6 +33,8 @@ pub struct Manifest {
     pub dependencies: HashMap<String, Dependency>,
     /// The source files.
     pub sources: Option<Sources>,
+    /// The plugin binaries.
+    pub plugins: HashMap<String, PathBuf>,
 }
 
 impl PrefixPaths for Manifest {
@@ -41,6 +43,7 @@ impl PrefixPaths for Manifest {
             package: self.package,
             dependencies: self.dependencies.prefix_paths(prefix),
             sources: self.sources.map(|src| src.prefix_paths(prefix)),
+            plugins: self.plugins.prefix_paths(prefix),
         }
     }
 }
@@ -178,6 +181,8 @@ pub struct PartialManifest {
     pub dependencies: Option<HashMap<String, StringOrStruct<PartialDependency>>>,
     /// The source files.
     pub sources: Option<SeqOrStruct<PartialSources, PartialSourceFile>>,
+    /// The plugin binaries.
+    pub plugins: Option<HashMap<String, PathBuf>>,
 }
 
 impl Validate for PartialManifest {
@@ -202,10 +207,15 @@ impl Validate for PartialManifest {
             ))?),
             None => None
         };
+        let plugins = match self.plugins {
+            Some(s) => s,
+            None => HashMap::new(),
+        };
         Ok(Manifest {
             package: pkg,
             dependencies: deps,
             sources: srcs,
+            plugins: plugins,
         })
     }
 }

@@ -65,6 +65,8 @@ pub struct Session<'ctx> {
     pkgs: Mutex<Arc<Vec<HashSet<DependencyRef>>>>,
     /// The source file manifest.
     sources: Mutex<Option<SourceGroup<'ctx>>>,
+    /// The plugins declared by packages.
+    plugins: Mutex<Option<&'ctx Plugins>>,
     /// The session cache.
     pub cache: SessionCache<'ctx>,
 }
@@ -91,6 +93,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             graph: Mutex::new(Arc::new(HashMap::new())),
             pkgs: Mutex::new(Arc::new(Vec::new())),
             sources: Mutex::new(None),
+            plugins: Mutex::new(None),
             cache: Default::default(),
         }
     }
@@ -856,6 +859,60 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             })
         )
     }
+
+    /// Load the plugins declared by any of the dependencies.
+    pub fn plugins(&'io self) -> Box<Future<Item=&'ctx Plugins, Error=Error> + 'io> {
+        // Check if we already have the list of plugins.
+        if let Some(cached) = *self.sess.plugins.lock().unwrap() {
+            return Box::new(future::ok(cached));
+        }
+
+        // Load the manifests of all packages.
+        let manifests = join_all(self.sess.packages()
+            .iter()
+            .map(move |pkgs| join_all(pkgs
+                .iter()
+                .map(move |&pkg| self.dependency_manifest(pkg).map(move |m| (pkg, m)))
+                .collect::<Vec<_>>()
+            ))
+            .collect::<Vec<_>>()
+        ).map(|ranks| ranks
+            .into_iter()
+            .flat_map(|manifests| manifests.into_iter().filter_map(|(pkg, m)| m.map(|m| (pkg, m))))
+            .collect::<Vec<_>>()
+        );
+
+        // Extract the plugins from the manifests.
+        Box::new(manifests
+            .and_then(move |manifests|{
+                let mut plugins = HashMap::new();
+                for (package, manifest) in manifests {
+                    for (name, plugin) in &manifest.plugins {
+                        debugln!("sess: plugin `{}` declared by package `{}`", name, manifest.package.name);
+                        let existing = plugins.insert(name.clone(), Plugin {
+                            name: name.clone(),
+                            package: package,
+                            path: plugin.clone(),
+                        });
+                        if let Some(existing) = existing {
+                            return Err(Error::new(format!(
+                                "Plugin `{}` declared by multiple packages (`{}` and `{}`).",
+                                name,
+                                self.sess.dependency_name(existing.package),
+                                self.sess.dependency_name(package),
+                            )));
+                        }
+                    }
+                }
+                Ok(plugins)
+            })
+            .and_then(move |plugins|{
+                let allocd = self.sess.arenas.plugins.alloc(plugins) as &_;
+                *self.sess.plugins.lock().unwrap() = Some(allocd);
+                Ok(allocd)
+            })
+        )
+    }
 }
 
 /// An arena container where all incremental, temporary things are allocated.
@@ -868,6 +925,8 @@ pub struct SessionArenas {
     pub manifest: Arena<Manifest>,
     /// An arena to allocate dependency entries in.
     pub dependency_entry: Arena<DependencyEntry>,
+    /// An arena to allocate a table of plugins in.
+    pub plugins: Arena<Plugins>,
 }
 
 impl SessionArenas {
@@ -878,6 +937,7 @@ impl SessionArenas {
             string: Arena::new(),
             manifest: Arena::new(),
             dependency_entry: Arena::new(),
+            plugins: Arena::new(),
         }
     }
 }
@@ -1122,4 +1182,18 @@ impl<'ctx> fmt::Debug for SessionCache<'ctx> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "SessionCache")
     }
+}
+
+/// A list of plugins.
+pub type Plugins = HashMap<String, Plugin>;
+
+/// A plugin declared by a package.
+#[derive(Debug)]
+pub struct Plugin {
+    /// The name of the plugin.
+    pub name: String,
+    /// Which package declared the plugin.
+    pub package: DependencyRef,
+    /// What binary implements the plugin.
+    pub path: PathBuf,
 }

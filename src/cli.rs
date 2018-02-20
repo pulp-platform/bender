@@ -5,20 +5,24 @@
 
 use std;
 use std::path::{Path, PathBuf};
+use std::fs::{canonicalize, metadata};
+use std::process::Command;
 
-use clap::{App, Arg};
+use clap::{App, AppSettings, Arg, OsValues};
 use serde_yaml;
 
 use cmd;
 use config::{Config, PartialConfig, Manifest, Merge, Validate, Locked, PrefixPaths};
 use error::*;
-use sess::{Session, SessionArenas};
+use sess::{Session, SessionIo, SessionArenas};
 use resolver::DependencyResolver;
 use util::try_modification_time;
+use tokio_core::reactor::Core;
 
 /// Inner main function which can return an error.
 pub fn main() -> Result<()> {
     let app = App::new(env!("CARGO_PKG_NAME"))
+        .setting(AppSettings::AllowExternalSubcommands)
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .about("A dependency management tool for hardware projects.")
@@ -38,7 +42,10 @@ pub fn main() -> Result<()> {
     // the -d/--dir switch, or by searching upwards in the file system
     // hierarchy.
     let root_dir: PathBuf = match matches.value_of("dir") {
-        Some(d) => d.into(),
+        Some(d) => canonicalize(d).map_err(|cause| Error::chain(
+                format!("Failed to canonicalize path {:?}.", d),
+                cause,
+        ))?,
         None => find_package_root(Path::new(".")).map_err(|cause| Error::chain(
             "Cannot find root directory of package.",
             cause,
@@ -85,14 +92,12 @@ pub fn main() -> Result<()> {
     sess.load_locked(&locked);
 
     // Dispatch the different subcommands.
-    if let Some(matches) = matches.subcommand_matches("path") {
-        cmd::path::run(&sess, matches)
-    } else if let Some(matches) = matches.subcommand_matches("packages") {
-        cmd::packages::run(&sess, matches)
-    } else if let Some(matches) = matches.subcommand_matches("sources") {
-        cmd::sources::run(&sess, matches)
-    } else {
-        Ok(())
+    match matches.subcommand() {
+        ("path", Some(matches)) => cmd::path::run(&sess, matches),
+        ("packages", Some(matches)) => cmd::packages::run(&sess, matches),
+        ("sources", Some(matches)) => cmd::sources::run(&sess, matches),
+        (plugin, Some(matches)) => execute_plugin(&sess, plugin, matches.values_of_os("")),
+        _ => Ok(())
     }
 }
 
@@ -100,7 +105,6 @@ pub fn main() -> Result<()> {
 ///
 /// Traverses the directory hierarchy upwards until a `Bender.yml` file is found.
 fn find_package_root(from: &Path) -> Result<PathBuf> {
-    use std::fs::{canonicalize, metadata};
     use std::os::unix::fs::MetadataExt;
 
     // Canonicalize the path. This will resolve any intermediate links.
@@ -285,4 +289,46 @@ fn write_lockfile(locked: &Locked, path: &Path) -> Result<()> {
         cause
     ))?;
     Ok(())
+}
+
+/// Execute a plugin.
+fn execute_plugin(sess: &Session, plugin: &str, matches: Option<OsValues>) -> Result<()> {
+    debugln!("main: execute plugin `{}`", plugin);
+
+    // Obtain a list of declared plugins.
+    let mut core = Core::new().unwrap();
+    let io = SessionIo::new(sess, core.handle());
+    let plugins = core.run(io.plugins())?;
+
+    // Lookup the requested plugin and complain if it does not exist.
+    let plugin = match plugins.get(plugin) {
+        Some(p) => p,
+        None => return Err(Error::new(format!("Unknown command `{}`.", plugin))),
+    };
+    debugln!("main: found plugin {:#?}", plugin);
+
+    // Assemble a command that executes the plugin with the appropriate
+    // environment and forwards command line arguments.
+    let mut cmd = Command::new(&plugin.path);
+    cmd.env("BENDER", std::env::current_exe().map_err(|cause| Error::chain(
+        "Failed to determine current executable.",
+        cause
+    ))?);
+    cmd.env("BENDER_CALL_DIR", std::env::current_dir().map_err(|cause| Error::chain(
+        "Failed to determine current directory.",
+        cause
+    ))?);
+    cmd.env("BENDER_MANIFEST_DIR", sess.root);
+    cmd.current_dir(&sess.root);
+    if let Some(args) = matches {
+        cmd.args(args);
+    }
+    debugln!("main: executing plugin {:#?}", cmd);
+    let stat = cmd.status().map_err(|cause| Error::chain(
+        format!("Unable to spawn process for plugin `{}`. Command was {:#?}.", plugin.name, cmd),
+        cause
+    ))?;
+
+    // Don't bother to do anything after the plugin was run.
+    std::process::exit(stat.code().unwrap_or(1));
 }
