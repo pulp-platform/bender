@@ -29,6 +29,7 @@ pub mod resolver;
 pub mod git;
 pub mod cmd;
 pub mod src;
+pub mod target;
 
 fn main() {
 	match cli::main() {
