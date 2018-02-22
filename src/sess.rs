@@ -31,6 +31,7 @@ use git::Git;
 use util::{read_file, write_file, try_modification_time};
 use config::Validate;
 use src::SourceGroup;
+use target::TargetSpec;
 
 /// A session on the command line.
 ///
@@ -325,6 +326,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         }).collect();
         SourceGroup {
             independent: false,
+            target: sources.target.clone(),
             include_dirs: include_dirs,
             defines: defines,
             files: files,
@@ -857,6 +859,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             .collect();
                         SourceGroup {
                             independent: true,
+                            target: TargetSpec::Wildcard,
                             include_dirs: Vec::new(),
                             defines: HashMap::new(),
                             files: files,
@@ -865,6 +868,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     .collect();
                 Ok(SourceGroup {
                     independent: false,
+                    target: TargetSpec::Wildcard,
                     include_dirs: Vec::new(),
                     defines: HashMap::new(),
                     files: files,

@@ -13,11 +13,15 @@ use std::collections::HashMap;
 
 use serde::ser::{Serialize, Serializer};
 
+use target::{TargetSpec, TargetSet};
+
 /// A source file group.
 #[derive(Serialize, Clone, Debug)]
 pub struct SourceGroup<'ctx> {
     /// Whether the source files in this group can be treated in parallel.
     pub independent: bool,
+    /// The targets for which the sources should be considered.
+    pub target: TargetSpec,
     /// The directories to search for include files.
     pub include_dirs: Vec<&'ctx Path>,
     /// The preprocessor definitions.
@@ -40,7 +44,7 @@ impl<'ctx> SourceGroup<'ctx> {
                 }
 
                 // Drop groups with only one file.
-                if group.files.len() == 1 && group.include_dirs.is_empty() && group.defines.is_empty() {
+                if group.files.len() == 1 && group.include_dirs.is_empty() && group.defines.is_empty() && group.target.is_wildcard() {
                     return Some(group.files.into_iter().next().unwrap());
                 }
 
@@ -53,6 +57,28 @@ impl<'ctx> SourceGroup<'ctx> {
             files: files,
             ..self
         }
+    }
+
+    /// Filter the sources, keeping only the ones that apply to a target.
+    pub fn filter_targets(&self, targets: &TargetSet) -> Option<SourceGroup<'ctx>> {
+        if !self.target.matches(targets) {
+            return None;
+        }
+        let files = self.files.iter().filter_map(|file|{
+            match *file {
+                SourceFile::Group(ref group) => group
+                    .filter_targets(targets)
+                    .map(|g| SourceFile::Group(Box::new(g))),
+                ref other => Some(other.clone()),
+            }
+        }).collect();
+        Some(SourceGroup {
+            independent: self.independent,
+            target: self.target.clone(),
+            include_dirs: self.include_dirs.clone(),
+            defines: self.defines.clone(),
+            files: files,
+        }.simplify())
     }
 }
 

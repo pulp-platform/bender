@@ -11,7 +11,7 @@
 use std;
 use std::fmt;
 use std::str::FromStr;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -19,7 +19,7 @@ use serde::ser::{Serialize, Serializer};
 use error::*;
 
 /// A target specification.
-#[derive(Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub enum TargetSpec {
 	/// Matches all targets.
 	Wildcard,
@@ -91,6 +91,27 @@ impl<'de> Deserialize<'de> for TargetSpec {
         use serde::de;
     	let s = String::deserialize(deserializer)?;
         TargetSpec::from_str(&s).map_err(de::Error::custom)
+    }
+}
+
+impl TargetSpec {
+    /// Checks whether this specification matches a set of targets.
+    pub fn matches(&self, targets: &TargetSet) -> bool {
+        match *self {
+            TargetSpec::Wildcard => true,
+            TargetSpec::Name(ref name) => targets.0.contains(name),
+            TargetSpec::All(ref specs) => specs.iter().all(|s| s.matches(targets)),
+            TargetSpec::Any(ref specs) => specs.iter().any(|s| s.matches(targets)),
+            TargetSpec::Not(ref spec) => !spec.matches(targets),
+        }
+    }
+
+    /// Check whether this specification is just a wildcard.
+    pub fn is_wildcard(&self) -> bool {
+        match *self {
+            TargetSpec::Wildcard => true,
+            _ => false,
+        }
     }
 }
 
@@ -220,4 +241,26 @@ fn parse_wrong<R>(wrong: Option<Result<TargetToken>>) -> Result<R> {
 		Some(Err(e)) => Err(e),
 		None => Err(Error::new("Unexpected end of string.")),
 	}
+}
+
+/// A set of targets.
+///
+/// Target specifications can be matched against a target set. A target set is
+/// basically just a collection of strings.
+pub struct TargetSet(HashSet<String>);
+
+impl TargetSet {
+    /// Create a target set.
+    ///
+    /// `targets` can be anything that may be turned into an iterator over
+    /// something that can be turned into a `&str`.
+    pub fn new<I,T>(targets: I) -> TargetSet
+        where I: IntoIterator<Item=T>, T: AsRef<str>
+    {
+        let targets: HashSet<String> = targets
+            .into_iter()
+            .map(|t| t.as_ref().to_lowercase())
+            .collect();
+        TargetSet(targets)
+    }
 }
