@@ -151,7 +151,9 @@ impl<'ctx> DependencyResolver<'ctx> {
         let names: HashMap<&str, DependencyRef> = manifest.dependencies
             .iter()
             .map(|(name, dep)|{
-                (name.as_str(), self.sess.load_dependency(name, dep, manifest))
+                let name = name.as_str();
+                let dep = self.sess.config.overrides.get(name).unwrap_or(dep);
+                (name, self.sess.load_dependency(name, dep, manifest))
             })
             .collect();
         let ids: HashSet<DependencyRef> = names.iter().map(|(_, &id)| id).collect();
@@ -215,7 +217,10 @@ impl<'ctx> DependencyResolver<'ctx> {
             let dep_iter =
                 once(self.sess.manifest)
                 .chain(self.table.values().filter_map(|dep| dep.manifest))
-                .flat_map(|m| m.dependencies.iter());
+                .flat_map(|m| m.dependencies.iter())
+                .map(|(name, dep)|{
+                    (name, self.sess.config.overrides.get(name).unwrap_or(dep))
+                });
             for (name, dep) in dep_iter {
                 let v = map.entry(name.as_str()).or_insert_with(|| Vec::new());
                 v.push(DependencyConstraint::from(dep));

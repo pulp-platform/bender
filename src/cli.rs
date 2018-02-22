@@ -59,6 +59,7 @@ pub fn main() -> Result<()> {
 
     // Gather and parse the tool configuration.
     let config = load_config(&root_dir)?;
+    debugln!("main: {:#?}", config);
 
     // Assemble the session.
     let sess_arenas = SessionArenas::new();
@@ -237,6 +238,7 @@ fn load_config(from: &Path) -> Result<Config> {
             Some(db)
         },
         git: Some("git".into()),
+        overrides: None,
     };
     out = out.merge(default_cfg);
 

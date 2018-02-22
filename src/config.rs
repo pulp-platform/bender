@@ -267,6 +267,15 @@ impl FromStr for PartialDependency {
     }
 }
 
+impl PrefixPaths for PartialDependency {
+    fn prefix_paths(self, prefix: &Path) -> Self {
+        PartialDependency {
+           path: self.path.prefix_paths(prefix),
+            ..self
+        }
+    }
+}
+
 impl Validate for PartialDependency {
     type Output = Dependency;
     type Error = Error;
@@ -437,9 +446,9 @@ impl PrefixPaths for PathBuf {
     }
 }
 
-impl PrefixPaths for Option<PathBuf> {
+impl<T> PrefixPaths for Option<T> where T: PrefixPaths {
     fn prefix_paths(self, prefix: &Path) -> Self {
-        self.map(|path| prefix.join(path))
+        self.map(|inner| inner.prefix_paths(prefix))
     }
 }
 
@@ -467,6 +476,8 @@ pub struct Config {
     pub database: PathBuf,
     /// The git command or path to the binary.
     pub git: String,
+    /// The dependency overrides.
+    pub overrides: HashMap<String, Dependency>,
 }
 
 /// A partial configuration.
@@ -476,6 +487,8 @@ pub struct PartialConfig {
     pub database: Option<PathBuf>,
     /// The git command or path to the binary.
     pub git: Option<String>,
+    /// The dependency overrides.
+    pub overrides: Option<HashMap<String, PartialDependency>>,
 }
 
 impl PartialConfig {
@@ -484,6 +497,7 @@ impl PartialConfig {
         PartialConfig {
             database: None,
             git: None,
+            overrides: None,
         }
     }
 }
@@ -492,6 +506,7 @@ impl PrefixPaths for PartialConfig {
     fn prefix_paths(self, prefix: &Path) -> Self {
         PartialConfig {
             database: self.database.prefix_paths(prefix),
+            overrides: self.overrides.prefix_paths(prefix),
             ..self
         }
     }
@@ -502,6 +517,14 @@ impl Merge for PartialConfig {
         PartialConfig {
             database: self.database.or(other.database),
             git: self.git.or(other.git),
+            overrides: match (self.overrides, other.overrides) {
+                (Some(o), None) | (None, Some(o)) => Some(o),
+                (Some(mut o1), Some(o2)) => {
+                    o1.extend(o2);
+                    Some(o1)
+                }
+                (None, None) => None,
+            },
         }
     }
 }
@@ -518,6 +541,13 @@ impl Validate for PartialConfig {
             git: match self.git {
                 Some(git) => git,
                 None => return Err(Error::new("Git command or path to binary not configured")),
+            },
+            overrides: match self.overrides {
+                Some(d) => d.validate().map_err(|(key,cause)| Error::chain(
+                    format!("In override `{}`:", key),
+                    cause
+                ))?,
+                None => HashMap::new(),
             },
         })
     }

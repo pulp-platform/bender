@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Added
 - Add plugin support. The manifest may now have a `plugins` section.
 - Add include directories and preprocessor defines support. These can now be specified for source groups.
+- Add `overrides` section to config.
 
 ### Changed
 - Output of `bender sources` is now JSON formatted.
