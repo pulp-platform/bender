@@ -13,7 +13,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::path::{Path, PathBuf};
 use std::hash::Hash;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, BTreeMap, BTreeSet};
 
 use semver;
 use serde::de::{Deserialize, Deserializer};
@@ -560,7 +560,7 @@ impl Validate for PartialConfig {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Locked {
     /// The locked package versions.
-    pub packages: HashMap<String, LockedPackage>,
+    pub packages: BTreeMap<String, LockedPackage>,
 }
 
 /// A locked dependency.
@@ -575,7 +575,7 @@ pub struct LockedPackage {
     /// The source of the dependency.
     pub source: LockedSource,
     /// Other packages this package depends on.
-    pub dependencies: HashSet<String>,
+    pub dependencies: BTreeSet<String>,
 }
 
 /// A source description for a locked dependency.

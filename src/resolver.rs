@@ -77,7 +77,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                         .keys()
                         .cloned()
                         .collect(),
-                    None => HashSet::new(),
+                    None => Default::default(),
                 };
                 let src = dep.source();
                 let sess_src = sess.dependency_source(src.id);
