@@ -18,6 +18,8 @@ use target::{TargetSpec, TargetSet};
 /// A source file group.
 #[derive(Serialize, Clone, Debug)]
 pub struct SourceGroup<'ctx> {
+    /// The package which this source group represents.
+    pub package: Option<&'ctx str>,
     /// Whether the source files in this group can be treated in parallel.
     pub independent: bool,
     /// The targets for which the sources should be considered.
@@ -44,7 +46,7 @@ impl<'ctx> SourceGroup<'ctx> {
                 }
 
                 // Drop groups with only one file.
-                if group.files.len() == 1 && group.include_dirs.is_empty() && group.defines.is_empty() && group.target.is_wildcard() {
+                if group.files.len() == 1 && group.include_dirs.is_empty() && group.defines.is_empty() && group.target.is_wildcard() && group.package.is_none() {
                     return Some(group.files.into_iter().next().unwrap());
                 }
 
@@ -73,6 +75,7 @@ impl<'ctx> SourceGroup<'ctx> {
             }
         }).collect();
         Some(SourceGroup {
+            package: self.package,
             independent: self.independent,
             target: self.target.clone(),
             include_dirs: self.include_dirs.clone(),

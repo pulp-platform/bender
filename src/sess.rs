@@ -304,7 +304,11 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
     }
 
     /// Load the sources in a manifest into a source group.
-    pub fn load_sources(&self, sources: &'ctx config::Sources) -> SourceGroup<'ctx> {
+    pub fn load_sources(
+        &self,
+        sources: &'ctx config::Sources,
+        package: Option<&'ctx str>,
+    ) -> SourceGroup<'ctx> {
         let include_dirs = sources.include_dirs
             .iter()
             .map(|d| self.intern_path(d))
@@ -321,10 +325,11 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
                 (path as &Path).into()
             }
             config::SourceFile::Group(ref group) => {
-                self.load_sources(group.as_ref()).into()
+                self.load_sources(group.as_ref(), None).into()
             }
         }).collect();
         SourceGroup {
+            package: package,
             independent: false,
             target: sources.target.clone(),
             include_dirs: include_dirs,
@@ -854,10 +859,14 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             .into_iter()
                             .filter_map(|m| m)
                             .filter_map(|m| m.sources.as_ref().map(|s|
-                                self.sess.load_sources(s).into()
+                                self.sess.load_sources(
+                                    s,
+                                    Some(m.package.name.as_str())
+                                ).into()
                             ))
                             .collect();
                         SourceGroup {
+                            package: None,
                             independent: true,
                             target: TargetSpec::Wildcard,
                             include_dirs: Vec::new(),
@@ -867,6 +876,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     })
                     .collect();
                 Ok(SourceGroup {
+                    package: None,
                     independent: false,
                     target: TargetSpec::Wildcard,
                     include_dirs: Vec::new(),

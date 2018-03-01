@@ -35,7 +35,8 @@ pub fn main() -> Result<()> {
         )
         .subcommand(cmd::path::new())
         .subcommand(cmd::packages::new())
-        .subcommand(cmd::sources::new());
+        .subcommand(cmd::sources::new())
+        .subcommand(cmd::config::new());
     let matches = app.get_matches();
 
     // Determine the root working directory, which has either been provided via
@@ -97,6 +98,7 @@ pub fn main() -> Result<()> {
         ("path", Some(matches)) => cmd::path::run(&sess, matches),
         ("packages", Some(matches)) => cmd::packages::run(&sess, matches),
         ("sources", Some(matches)) => cmd::sources::run(&sess, matches),
+        ("config", Some(matches)) => cmd::config::run(&sess, matches),
         (plugin, Some(matches)) => execute_plugin(&sess, plugin, matches.values_of_os("")),
         _ => Ok(())
     }
@@ -239,6 +241,7 @@ fn load_config(from: &Path) -> Result<Config> {
         },
         git: Some("git".into()),
         overrides: None,
+        plugins: None,
     };
     out = out.merge(default_cfg);
 

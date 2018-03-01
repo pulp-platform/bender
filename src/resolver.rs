@@ -43,8 +43,17 @@ impl<'ctx> DependencyResolver<'ctx> {
 
     /// Resolve dependencies.
     pub fn resolve(mut self) -> Result<config::Locked> {
+        // Load the plugin dependencies.
+        self.register_dependencies_in_manifest(
+            &self.sess.config.plugins,
+            self.sess.manifest,
+        )?;
+
         // Load the dependencies in the root manifest.
-        self.register_dependencies_in_manifest(self.sess.manifest)?;
+        self.register_dependencies_in_manifest(
+            &self.sess.manifest.dependencies,
+            self.sess.manifest,
+        )?;
 
         let mut iteration = 0;
         let mut any_changes = true;
@@ -142,13 +151,14 @@ impl<'ctx> DependencyResolver<'ctx> {
 
     fn register_dependencies_in_manifest(
         &mut self,
+        deps: &'ctx HashMap<String, config::Dependency>,
         manifest: &'ctx config::Manifest
     ) -> Result<()> {
         let mut core = Core::new().unwrap();
         let io = SessionIo::new(self.sess, core.handle());
 
         // Map the dependencies to unique IDs.
-        let names: HashMap<&str, DependencyRef> = manifest.dependencies
+        let names: HashMap<&str, DependencyRef> = deps
             .iter()
             .map(|(name, dep)|{
                 let name = name.as_str();
@@ -429,7 +439,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         for (name, manifest) in manifests {
             if let Some(m) = manifest {
                 debugln!("resolve: for `{}` loaded manifest {:#?}", name, m);
-                self.register_dependencies_in_manifest(m)?;
+                self.register_dependencies_in_manifest(&m.dependencies, m)?;
             }
             let ref mut existing = self.table.get_mut(name).unwrap().manifest;
             *existing = manifest;

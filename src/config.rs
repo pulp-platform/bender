@@ -90,6 +90,32 @@ impl PrefixPaths for Dependency {
     }
 }
 
+impl<'ctx> Serialize for Dependency {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        use serde::ser::SerializeMap;
+        match *self {
+            Dependency::Version(ref version) =>
+                format!("{}", version).serialize(serializer),
+            Dependency::Path(ref path) =>
+                path.serialize(serializer),
+            Dependency::GitRevision(ref url, ref rev) => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("git", url)?;
+                map.serialize_entry("rev", rev)?;
+                map.end()
+            }
+            Dependency::GitVersion(ref url, ref version) => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("git", url)?;
+                map.serialize_entry("version", &format!("{}", version))?;
+                map.end()
+            }
+        }
+    }
+}
+
 /// A group of source files.
 #[derive(Debug)]
 pub struct Sources {
@@ -470,7 +496,7 @@ impl<V> PrefixPaths for Vec<V> where V: PrefixPaths {
 ///
 /// This struct encapsulates every setting of the tool that can be changed by
 /// the user by some means. It is constructed from a partial configuration.
-#[derive(Debug)]
+#[derive(Serialize, Debug)]
 pub struct Config {
     /// The path to the database directory.
     pub database: PathBuf,
@@ -478,6 +504,8 @@ pub struct Config {
     pub git: String,
     /// The dependency overrides.
     pub overrides: HashMap<String, Dependency>,
+    /// The auxiliary plugin dependencies.
+    pub plugins: HashMap<String, Dependency>,
 }
 
 /// A partial configuration.
@@ -489,6 +517,8 @@ pub struct PartialConfig {
     pub git: Option<String>,
     /// The dependency overrides.
     pub overrides: Option<HashMap<String, PartialDependency>>,
+    /// The auxiliary plugin dependencies.
+    pub plugins: Option<HashMap<String, PartialDependency>>,
 }
 
 impl PartialConfig {
@@ -498,6 +528,7 @@ impl PartialConfig {
             database: None,
             git: None,
             overrides: None,
+            plugins: None,
         }
     }
 }
@@ -507,6 +538,7 @@ impl PrefixPaths for PartialConfig {
         PartialConfig {
             database: self.database.prefix_paths(prefix),
             overrides: self.overrides.prefix_paths(prefix),
+            plugins: self.plugins.prefix_paths(prefix),
             ..self
         }
     }
@@ -518,6 +550,14 @@ impl Merge for PartialConfig {
             database: self.database.or(other.database),
             git: self.git.or(other.git),
             overrides: match (self.overrides, other.overrides) {
+                (Some(o), None) | (None, Some(o)) => Some(o),
+                (Some(mut o1), Some(o2)) => {
+                    o1.extend(o2);
+                    Some(o1)
+                }
+                (None, None) => None,
+            },
+            plugins: match (self.plugins, other.plugins) {
                 (Some(o), None) | (None, Some(o)) => Some(o),
                 (Some(mut o1), Some(o2)) => {
                     o1.extend(o2);
@@ -545,6 +585,13 @@ impl Validate for PartialConfig {
             overrides: match self.overrides {
                 Some(d) => d.validate().map_err(|(key,cause)| Error::chain(
                     format!("In override `{}`:", key),
+                    cause
+                ))?,
+                None => HashMap::new(),
+            },
+            plugins: match self.plugins {
+                Some(d) => d.validate().map_err(|(key,cause)| Error::chain(
+                    format!("In plugin `{}`:", key),
                     cause
                 ))?,
                 None => HashMap::new(),
