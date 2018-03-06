@@ -27,3 +27,39 @@ Bender looks for the following three files in a package:
 - `Bender.local`:
 
   This file contains local configuration overrides. It should be ignored in version control, i.e. added to `.gitignore`. This file can be used to override dependencies with local variants. It is also used when the user asks for a local working copy of a dependency.
+
+
+## Targets
+
+Targets are flags that can be used to filter source files and dependencies. They are used to differentiate the step in the ASIC/FPGA design flow, the EDA tool, technology target, etc. The following table lists the targets that should be adhered to:
+
+- `test`: Set this target when verifying your design through unit tests or testbenches. Use the target to enable source files that contain testbenches, UVM models, etc.
+
+- **Tool**: You should set exactly one of the following to indicate with which tool you are working.
+
+  - `vsim`: Set this target when working with Siemens vsim. Automatically set by the *bender-vsim* plugin.
+
+  - `synopsys`: Set this target when working with Synopsys Design Compiler. Automatically set by the *bender-synopsys* plugin.
+
+  - `vivado`: Set this target when working with Xilinx Vivado. Automatically set by the *bender-vivado* plugin.
+
+- **Abstraction**: You should set exactly one of the following to indicate at which abstraction level you are working on.
+
+  - `rtl`: Set this target when working with the Register Transfer Level description of a design. If this target is set, only behavioural and no technology-specific modules should be used.
+
+  - `gate`: Set this target when working with gate-level netlists, for example after synthesis or layout.
+
+- **Stage**: You should set exactly one of the following to indicate what you are using the design for.
+
+  - `simulation`: Set this target if you simulate the design. This target should be used to include protocol checkers and other verification modules.
+
+  - `synthesis`: Set this target if you synthesize the design. The target can be used to disable various parts of the source files which are not synthesizable.
+
+- **Technology**: You should set exactly one of the following pairs of targets to indicate what FPGA or ASIC technology you target.
+
+  - `fpga xilinx`
+  - `fpga altera`
+  - `asic umc65`
+  - `asic gf28`
+  - `asic gf22`
+  - `asic stm28fdsoi`
