@@ -1002,13 +1002,13 @@ impl fmt::Debug for DependencyRef {
 #[derive(PartialEq, Eq, Hash, Debug)]
 pub struct DependencyEntry {
     /// The name of this dependency.
-    name: String,
+    pub name: String,
     /// Where this dependency may be obtained from.
-    source: DependencySource,
+    pub source: DependencySource,
     /// The picked revision.
-    revision: Option<String>,
+    pub revision: Option<String>,
     /// The picked version.
-    version: Option<semver::Version>,
+    pub version: Option<semver::Version>,
 }
 
 impl DependencyEntry {
@@ -1032,6 +1032,16 @@ pub enum DependencySource {
     Path(PathBuf),
     /// The dependency is available at a git url.
     Git(String),
+}
+
+impl fmt::Display for DependencySource {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            DependencySource::Registry => write!(f, "registry"),
+            DependencySource::Path(ref path) => write!(f, "{:?}", path),
+            DependencySource::Git(ref url) => write!(f, "`{}`", url),
+        }
+    }
 }
 
 /// A table of internalized dependencies.

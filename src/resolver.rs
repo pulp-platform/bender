@@ -6,10 +6,13 @@
 #![deny(missing_docs)]
 
 use std::fmt;
+use std::mem;
 use std::collections::{HashMap, HashSet};
+
 use futures::Future;
 use futures::future::join_all;
 use tokio_core::reactor::Core;
+
 use sess::{self, Session, SessionIo, DependencyVersions, DependencyVersion, DependencyRef, DependencyConstraint};
 use error::*;
 use config;
@@ -223,17 +226,20 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Gather the constraints from the available manifests. Group them by
         // constraint.
         let cons_map = {
-            let mut map = HashMap::<&str, Vec<DependencyConstraint>>::new();
+            let mut map = HashMap::<&str, Vec<(&str, DependencyConstraint)>>::new();
             let dep_iter =
                 once(self.sess.manifest)
                 .chain(self.table.values().filter_map(|dep| dep.manifest))
-                .flat_map(|m| m.dependencies.iter())
-                .map(|(name, dep)|{
-                    (name, self.sess.config.overrides.get(name).unwrap_or(dep))
+                .flat_map(|m|{
+                    let pkg_name = self.sess.intern_string(m.package.name.clone());
+                    m.dependencies.iter().map(move |(n,d)| (n, (pkg_name, d)))
+                })
+                .map(|(name, (pkg_name, dep))|{
+                    (name, pkg_name, self.sess.config.overrides.get(name).unwrap_or(dep))
                 });
-            for (name, dep) in dep_iter {
+            for (name, pkg_name, dep) in dep_iter {
                 let v = map.entry(name.as_str()).or_insert_with(|| Vec::new());
-                v.push(DependencyConstraint::from(dep));
+                v.push((pkg_name, DependencyConstraint::from(dep)));
             }
             map
         };
@@ -253,23 +259,27 @@ impl<'ctx> DependencyResolver<'ctx> {
         debugln!("resolve: gathered constraints {:#?}", ConstraintsDumper(&cons_map));
 
         // Impose the constraints on the dependencies.
+        let mut table = mem::replace(&mut self.table, HashMap::new());
         for (name, cons) in cons_map {
-            for con in cons {
+            for &(_, ref con) in &cons {
                 debugln!("resolve: impose `{}` on `{}`", con, name);
-                for src in self.table.get_mut(name).unwrap().sources.values_mut() {
-                    Self::impose(name, &con, src)?;
+                for src in table.get_mut(name).unwrap().sources.values_mut() {
+                    self.impose(name, &con, src, &cons)?;
                 }
             }
         }
+        self.table = table;
 
         Ok(())
     }
 
     /// Impose a constraint on a dependency.
     fn impose(
+        &self,
         name: &str,
         con: &DependencyConstraint,
-        src: &mut DependencySource<'ctx>
+        src: &mut DependencySource<'ctx>,
+        all_cons: &[(&str, DependencyConstraint)],
     ) -> Result<()> {
 
         use self::DependencyConstraint as DepCon;
@@ -335,7 +345,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         // debugln!("resolve: restricting `{}` to versions {:?}", name, indices);
 
         if indices.is_empty() {
-            return Err(Error::new(format!("Dependency `{}` cannot satisfy requirement `{}`", name, con)));
+            return Err(Error::new(format!("Dependency `{}` from {} cannot satisfy requirement `{}`", name, self.sess.dependency(src.id).source, con)));
         }
 
         // Mark all other versions of the dependency as invalid.
@@ -346,7 +356,11 @@ impl<'ctx> DependencyResolver<'ctx> {
             State::Picked(_, ref mut ids) => {
                 *ids = (*ids).intersection(&indices).map(|i| *i).collect();
                 if ids.is_empty() {
-                    return Err(Error::new(format!("Requirement `{}` conflicts with other requirements on dependency `{}`", con, name)));
+                    let mut msg = format!("Requirement `{}` conflicts with other requirements on dependency `{}`.\n", con, name);
+                    for &(pkg_name, ref con) in all_cons {
+                        msg.push_str(&format!("\n- package `{}` requires `{}`", pkg_name, con));
+                    }
+                    return Err(Error::new(msg));
                 }
             }
         };
@@ -613,7 +627,7 @@ impl<'a> fmt::Debug for TableDumper<'a> {
     }
 }
 
-struct ConstraintsDumper<'a>(&'a HashMap<&'a str, Vec<DependencyConstraint>>);
+struct ConstraintsDumper<'a>(&'a HashMap<&'a str, Vec<(&'a str, DependencyConstraint)>>);
 
 impl<'a> fmt::Debug for ConstraintsDumper<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -623,8 +637,8 @@ impl<'a> fmt::Debug for ConstraintsDumper<'a> {
         for name in names {
             let cons = self.0.get(name).unwrap();
             write!(f, "\n    \"{}\":", name)?;
-            for con in cons {
-                write!(f, " {};", con)?;
+            for &(pkg_name, ref con) in cons {
+                write!(f, " {} ({});", con, pkg_name)?;
             }
         }
         write!(f, "\n}}")?;
