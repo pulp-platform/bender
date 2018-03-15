@@ -421,7 +421,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // Either initialize the repository or update it if needed.
         if !db_dir.join("config").exists() {
             // Initialize.
-            stageln!("Cloning", "{}", url);
+            stageln!("Cloning", "{} ({})", name, url);
             self.sess.stats.num_database_init.increment();
             Box::new(
                 git.spawn_with(|c| c
@@ -608,6 +608,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // the case if either it or the tag does not exist, or the content of
         // the tag does not match what we expect.
         let scrapped = future::lazy(move ||{
+            stageln!("Checkout", "{} ({})", name, url);
             let clear = if tagpath.exists() {
                 let current_tagname = read_file(tagpath).map_err(|cause| Error::chain(
                     format!("Failed to read tagfile {:?}.", tagpath),
