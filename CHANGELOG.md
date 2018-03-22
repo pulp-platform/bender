@@ -4,20 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## Unreleased
 ### Added
 - Show message when checking out a repository.
+- Show message when fetching from a git remote.
 
 ### Changed
 - Improved error messages when constraints cannot be met.
 
-## [0.6.0] - 2018-03-01
+### Fixed
+- Limit the number of concurrent git network activity to 8.
+
+## 0.6.0 - 2018-03-01
 ### Added
 - Plugin packages can now be declared in the `plugins` section of the config.
 - Add the `package` field to source groups.
 - Add the `bender config` command to dump the tool configuration.
 
-## [0.5.0] - 2018-02-22
+## 0.5.0 - 2018-02-22
 ### Added
 - Add plugin support. The manifest may now have a `plugins` section.
 - Add include directories and preprocessor defines support. These can now be specified for source groups.
@@ -28,7 +32,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Output of `bender sources` is now JSON formatted.
 - Items in lock files have deterministic order.
 
-## [0.4.0] - 2018-02-16
+## 0.4.0 - 2018-02-16
 ### Added
 - Add `sources` section to manifest.
 - Add `bender sources` command to access the source file manifest of the root package and its dependencies.
@@ -40,17 +44,17 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Manifests of path dependencies are now read properly.
 - Relative paths in config files are now treated as relative to the config file, not the current working directory.
 
-## [0.3.2] - 2018-02-14
+## 0.3.2 - 2018-02-14
 ### Changed
 - Only update git databases when manifest file changes.
 - Only load manifests once per session.
 - Only update checkouts once per session.
 
-## [0.3.1] - 2018-02-14
+## 0.3.1 - 2018-02-14
 ### Fixed
 - Fix crash when dependencies have no manifest.
 
-## [0.3.0] - 2018-02-13
+## 0.3.0 - 2018-02-13
 ### Added
 - Initial implementation of recursive dependency resolution.
 - The `bender packages` command to access the package dependency graph.
@@ -58,11 +62,11 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Changed
 - Lockfile now contains the dependency names for each package.
 
-## [0.2.1] - 2018-02-06
+## 0.2.1 - 2018-02-06
 ### Fixed
 - Help page now shows proper program name, version, and authors.
 
-## [0.2.0] - 2018-02-06
+## 0.2.0 - 2018-02-06
 ### Changed
 - Use `git archive | tar xf -` to create checkouts.
 
@@ -70,7 +74,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Fix creating a checkout of a branch.
 - Fail gracefully if a dependency repository is empty.
 
-## [0.1.0] - 2018-02-01
+## 0.1.0 - 2018-02-01
 ### Added
 - Initial support for checkouts.
 - Resolution of the root package's dependencies.

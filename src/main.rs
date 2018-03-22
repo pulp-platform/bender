@@ -30,6 +30,7 @@ pub mod git;
 pub mod cmd;
 pub mod src;
 pub mod target;
+pub mod future_throttle;
 
 fn main() {
 	match cli::main() {

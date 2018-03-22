@@ -32,12 +32,12 @@ use util::{read_file, write_file, try_modification_time};
 use config::Validate;
 use src::SourceGroup;
 use target::TargetSpec;
+use future_throttle::FutureThrottle;
 
 /// A session on the command line.
 ///
 /// Contains all the information that is iteratively being gathered and
 /// generated as a command on the command line is executed.
-#[derive(Debug)]
 pub struct Session<'ctx> {
     /// The path of the package within which the tool was executed.
     pub root: &'ctx Path,
@@ -70,6 +70,8 @@ pub struct Session<'ctx> {
     plugins: Mutex<Option<&'ctx Plugins>>,
     /// The session cache.
     pub cache: SessionCache<'ctx>,
+    /// A throttle for futures performing git network operations.
+    git_throttle: FutureThrottle,
 }
 
 impl<'sess, 'ctx: 'sess> Session<'ctx> {
@@ -96,6 +98,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             sources: Mutex::new(None),
             plugins: Mutex::new(None),
             cache: Default::default(),
+            git_throttle: FutureThrottle::new(8),
         }
     }
 
@@ -416,17 +419,22 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             )))
         };
         let git = Git::new(db_dir, self);
+        let name2 = String::from(name);
         let url = String::from(url);
+        let url2 = url.clone();
 
         // Either initialize the repository or update it if needed.
         if !db_dir.join("config").exists() {
             // Initialize.
-            stageln!("Cloning", "{} ({})", name, url);
             self.sess.stats.num_database_init.increment();
-            Box::new(
-                git.spawn_with(|c| c
+            Box::new(self.sess.git_throttle.spawn(
+                future::lazy(move ||{
+                    stageln!("Cloning", "{} ({})", name2, url2);
+                    Ok(())
+                })
+                .and_then(move |_| git.spawn_with(|c| c
                     .arg("init")
-                    .arg("--bare"))
+                    .arg("--bare")))
                 .and_then(move |_| git.spawn_with(|c| c
                     .arg("remote")
                     .arg("add")
@@ -437,7 +445,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     format!("Failed to initialize git database in {:?}.", db_dir),
                     cause))
                 .map(move |_| git)
-            )
+            ))
         } else {
             // Update if the manifest has been modified since the last fetch.
             let db_mtime = try_modification_time(db_dir.join("FETCH_HEAD"));
@@ -446,11 +454,17 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 return Box::new(future::ok(git));
             }
             self.sess.stats.num_database_fetch.increment();
-            Box::new(git.fetch("origin")
+            Box::new(self.sess.git_throttle.spawn(
+                future::lazy(move ||{
+                    stageln!("Fetching", "{} ({})", name2, url2);
+                    Ok(())
+                })
+                .and_then(move |_| git.fetch("origin"))
                 .map_err(move |cause| Error::chain(
                     format!("Failed to update git database in {:?}.", db_dir),
                     cause))
-                .map(move |_| git))
+                .map(move |_| git)
+            ))
         }
     }
 

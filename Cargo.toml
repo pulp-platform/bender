@@ -13,6 +13,7 @@ futures = "0.1"
 futures-cpupool = "0.1"
 tokio-core = "0.1.12"
 tokio-process = "0.1.5"
+tokio-timer = "0.1"
 
 clap = "2.20.0"
 semver = "0.5.1"

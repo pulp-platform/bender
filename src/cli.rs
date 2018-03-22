@@ -33,11 +33,19 @@ pub fn main() -> Result<()> {
             .global(true)
             .help("Sets a custom root working directory")
         )
+        .arg(Arg::with_name("debug")
+            .long("debug")
+            .global(true)
+            .help("Print additional debug information"))
         .subcommand(cmd::path::new())
         .subcommand(cmd::packages::new())
         .subcommand(cmd::sources::new())
         .subcommand(cmd::config::new());
     let matches = app.get_matches();
+
+    if matches.is_present("debug") {
+        ENABLE_DEBUG.store(true, Ordering::Relaxed);
+    }
 
     // Determine the root working directory, which has either been provided via
     // the -d/--dir switch, or by searching upwards in the file system

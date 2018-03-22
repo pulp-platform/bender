@@ -6,6 +6,10 @@
 use std;
 use std::fmt;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, ATOMIC_BOOL_INIT};
+
+pub use std::sync::atomic::Ordering;
+pub static ENABLE_DEBUG: AtomicBool = ATOMIC_BOOL_INIT;
 
 /// Print an error.
 #[macro_export]
@@ -29,7 +33,11 @@ macro_rules! noteln {
 #[macro_export]
 #[cfg(debug_assertions)]
 macro_rules! debugln {
-    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Debug; $($arg)*); }
+    ($($arg:tt)*) => {
+        if $crate::error::ENABLE_DEBUG.load($crate::error::Ordering::Relaxed) {
+            diagnostic!($crate::error::Severity::Debug; $($arg)*);
+        }
+    }
 }
 
 /// Print debug information. Omitted in release builds.
@@ -50,6 +58,7 @@ macro_rules! diagnostic {
 }
 
 /// The severity of a diagnostic message.
+#[derive(PartialEq, Eq)]
 pub enum Severity {
     Debug,
     Note,
