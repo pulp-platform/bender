@@ -13,6 +13,8 @@ mkdir bar
 
 cd "$DIR"/foo
 git init
+git config --local user.name 'Nobody'
+git config --local user.email 'nobody@localhost'
 touch README
 git add .
 git commit -m "Hello"
