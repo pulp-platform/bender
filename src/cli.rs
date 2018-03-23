@@ -33,16 +33,25 @@ pub fn main() -> Result<()> {
             .global(true)
             .help("Sets a custom root working directory")
         )
-        .arg(Arg::with_name("debug")
-            .long("debug")
-            .global(true)
-            .help("Print additional debug information"))
         .subcommand(cmd::path::new())
         .subcommand(cmd::packages::new())
         .subcommand(cmd::sources::new())
         .subcommand(cmd::config::new());
+
+    // Add the `--debug` option in debug builds.
+    let app = if cfg!(debug_assertions) {
+        app.arg(Arg::with_name("debug")
+            .long("debug")
+            .global(true)
+            .help("Print additional debug information"))
+    } else {
+        app
+    };
+
+    // Parse the arguments.
     let matches = app.get_matches();
 
+    // Enable debug outputs if needed.
     if matches.is_present("debug") {
         ENABLE_DEBUG.store(true, Ordering::Relaxed);
     }

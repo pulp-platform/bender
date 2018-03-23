@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Fixed
 - Show checkout message only when actually checking out.
+- Don't show the `--debug` option in release builds.
 
 ## 0.6.1 - 2018-03-22
 ### Added
