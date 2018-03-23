@@ -251,11 +251,7 @@ fn load_config(from: &Path) -> Result<Config> {
 
     // Assemble and merge the default configuration.
     let default_cfg = PartialConfig {
-        database: {
-            let mut db = std::env::home_dir().unwrap_or_else(|| from.into());
-            db.push(".bender");
-            Some(db)
-        },
+        database: Some(from.join(".bender")),
         git: Some("git".into()),
         overrides: None,
         plugins: None,
