@@ -622,7 +622,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // the case if either it or the tag does not exist, or the content of
         // the tag does not match what we expect.
         let scrapped = future::lazy(move ||{
-            stageln!("Checkout", "{} ({})", name, url);
             let clear = if tagpath.exists() {
                 let current_tagname = read_file(tagpath).map_err(|cause| Error::chain(
                     format!("Failed to read tagfile {:?}.", tagpath),
@@ -666,6 +665,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // Perform the checkout if necessary.
         let updated = created.and_then(move |need_checkout| -> Box<Future<Item=_, Error=Error>> {
             if need_checkout {
+                stageln!("Checkout", "{} ({})", name, url);
+
                 // In the database repository, generate a TAR archive from the
                 // revision.
                 debugln!("checkout_git: create archive {:?}", archive_path);
