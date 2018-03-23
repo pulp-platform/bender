@@ -23,7 +23,7 @@ dependencies = [
 
 [[package]]
 name = "bender"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "blake2 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.29.2 (registry+https://github.com/rust-lang/crates.io-index)",

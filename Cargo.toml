@@ -1,6 +1,6 @@
 [package]
 name = "bender"
-version = "0.6.1"
+version = "0.6.2"
 authors = ["Fabian Schuiki <fschuiki@iis.ee.ethz.ch>"]
 
 [dependencies]
