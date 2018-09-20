@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Added
 - Submodules are now checked out as well.
+- Locally symlinked packages via the `package-links` list in the manifest.
 
 ### Changed
 - By default, the `.bender` working directory is now a subdirectory of the root working directory.

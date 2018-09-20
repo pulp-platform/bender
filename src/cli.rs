@@ -4,20 +4,20 @@
 //! Main command line tool implementation.
 
 use std;
-use std::path::{Path, PathBuf};
 use std::fs::{canonicalize, metadata};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use clap::{App, AppSettings, Arg, OsValues};
 use serde_yaml;
 
 use cmd;
-use config::{Config, PartialConfig, Manifest, Merge, Validate, Locked, PrefixPaths};
+use config::{Config, Locked, Manifest, Merge, PartialConfig, PrefixPaths, Validate};
 use error::*;
-use sess::{Session, SessionIo, SessionArenas};
 use resolver::DependencyResolver;
-use util::try_modification_time;
+use sess::{Session, SessionArenas, SessionIo};
 use tokio_core::reactor::Core;
+use util::try_modification_time;
 
 /// Inner main function which can return an error.
 pub fn main() -> Result<()> {
@@ -26,12 +26,13 @@ pub fn main() -> Result<()> {
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .about("A dependency management tool for hardware projects.")
-        .arg(Arg::with_name("dir")
-            .short("d")
-            .long("dir")
-            .takes_value(true)
-            .global(true)
-            .help("Sets a custom root working directory")
+        .arg(
+            Arg::with_name("dir")
+                .short("d")
+                .long("dir")
+                .takes_value(true)
+                .global(true)
+                .help("Sets a custom root working directory"),
         )
         .subcommand(cmd::path::new())
         .subcommand(cmd::packages::new())
@@ -40,10 +41,12 @@ pub fn main() -> Result<()> {
 
     // Add the `--debug` option in debug builds.
     let app = if cfg!(debug_assertions) {
-        app.arg(Arg::with_name("debug")
-            .long("debug")
-            .global(true)
-            .help("Print additional debug information"))
+        app.arg(
+            Arg::with_name("debug")
+                .long("debug")
+                .global(true)
+                .help("Print additional debug information"),
+        )
     } else {
         app
     };
@@ -60,14 +63,10 @@ pub fn main() -> Result<()> {
     // the -d/--dir switch, or by searching upwards in the file system
     // hierarchy.
     let root_dir: PathBuf = match matches.value_of("dir") {
-        Some(d) => canonicalize(d).map_err(|cause| Error::chain(
-                format!("Failed to canonicalize path {:?}.", d),
-                cause,
-        ))?,
-        None => find_package_root(Path::new(".")).map_err(|cause| Error::chain(
-            "Cannot find root directory of package.",
-            cause,
-        ))?,
+        Some(d) => canonicalize(d)
+            .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", d), cause))?,
+        None => find_package_root(Path::new("."))
+            .map_err(|cause| Error::chain("Cannot find root directory of package.", cause))?,
     };
     debugln!("main: root dir {:?}", root_dir);
 
@@ -87,9 +86,9 @@ pub fn main() -> Result<()> {
     let lock_path = root_dir.join("Bender.lock");
     let locked_outdated = {
         let lockfile_mtime = try_modification_time(&lock_path);
-        sess.manifest_mtime.is_none() ||
-            lockfile_mtime.is_none() ||
-            sess.manifest_mtime > lockfile_mtime
+        sess.manifest_mtime.is_none()
+            || lockfile_mtime.is_none()
+            || sess.manifest_mtime > lockfile_mtime
     };
     let locked_existing = if lock_path.exists() {
         Some(read_lockfile(&lock_path)?)
@@ -110,6 +109,65 @@ pub fn main() -> Result<()> {
     };
     sess.load_locked(&locked);
 
+    // Ensure the locally linked packages are up-to-date.
+    {
+        let mut core = Core::new().unwrap();
+        let io = SessionIo::new(&sess, core.handle());
+        for (path, pkg_name) in &sess.manifest.package_links {
+            debugln!("main: maintaining link to {} at {:?}", pkg_name, path);
+
+            // Determine the checkout path for this package.
+            let pkg_path = core.run(io.checkout(sess.dependency_with_name(pkg_name)?))?;
+
+            // Check if there is something at the destination path that needs to be
+            // removed.
+            if path.exists() {
+                let meta = path.symlink_metadata().map_err(|cause| {
+                    Error::chain(
+                        format!("Failed to read metadata of path {:?}.", path),
+                        cause,
+                    )
+                })?;
+                if !meta.file_type().is_symlink() {
+                    warnln!(
+                        "Skipping link to package {} at {:?} since there is something there",
+                        pkg_name,
+                        path
+                    );
+                    continue;
+                }
+                if path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
+                    debugln!("main: removing existing link {:?}", path);
+                    std::fs::remove_file(path).map_err(|cause| {
+                        Error::chain(
+                            format!("Failed to remove symlink at path {:?}.", path),
+                            cause,
+                        )
+                    })?;
+                }
+            }
+
+            // Create the symlink if there is nothing at the destination.
+            if !path.exists() {
+                stageln!("Linking", "{} ({:?})", pkg_name, path);
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent).map_err(|cause| {
+                        Error::chain(format!("Failed to create directory {:?}.", parent), cause)
+                    })?;
+                }
+                std::os::unix::fs::symlink(pkg_path, path).map_err(|cause| {
+                    Error::chain(
+                        format!(
+                            "Failed to create symlink to {:?} at path {:?}.",
+                            pkg_path, path
+                        ),
+                        cause,
+                    )
+                })?
+            }
+        }
+    }
+
     // Dispatch the different subcommands.
     match matches.subcommand() {
         ("path", Some(matches)) => cmd::path::run(&sess, matches),
@@ -117,7 +175,7 @@ pub fn main() -> Result<()> {
         ("sources", Some(matches)) => cmd::sources::run(&sess, matches),
         ("config", Some(matches)) => cmd::config::run(&sess, matches),
         (plugin, Some(matches)) => execute_plugin(&sess, plugin, matches.values_of_os("")),
-        _ => Ok(())
+        _ => Ok(()),
     }
 }
 
@@ -128,10 +186,8 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
     use std::os::unix::fs::MetadataExt;
 
     // Canonicalize the path. This will resolve any intermediate links.
-    let mut path = canonicalize(from).map_err(|cause| Error::chain(
-        format!("Failed to canonicalize path {:?}.", from),
-        cause,
-    ))?;
+    let mut path = canonicalize(from)
+        .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", from), cause))?;
     debugln!("find_package_root: canonicalized to {:?}", path);
 
     // Look up the device at the current path. This information will then be
@@ -173,21 +229,16 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
 
 /// Read a package manifest from a file.
 pub fn read_manifest(path: &Path) -> Result<Manifest> {
-    use std::fs::File;
     use config::PartialManifest;
+    use std::fs::File;
     debugln!("read_manifest: {:?}", path);
-    let file = File::open(path).map_err(|cause| Error::chain(
-        format!("Cannot open manifest {:?}.", path),
-        cause
-    ))?;
-    let partial: PartialManifest = serde_yaml::from_reader(file).map_err(|cause| Error::chain(
-        format!("Syntax error in manifest {:?}.", path),
-        cause
-    ))?;
-    let manifest = partial.validate().map_err(|cause| Error::chain(
-        format!("Error in manifest {:?}.", path),
-        cause
-    ))?;
+    let file = File::open(path)
+        .map_err(|cause| Error::chain(format!("Cannot open manifest {:?}.", path), cause))?;
+    let partial: PartialManifest = serde_yaml::from_reader(file)
+        .map_err(|cause| Error::chain(format!("Syntax error in manifest {:?}.", path), cause))?;
+    let manifest = partial
+        .validate()
+        .map_err(|cause| Error::chain(format!("Error in manifest {:?}.", path), cause))?;
     Ok(manifest.prefix_paths(path.parent().unwrap()))
 }
 
@@ -203,10 +254,8 @@ fn load_config(from: &Path) -> Result<Config> {
     }
 
     // Canonicalize the path. This will resolve any intermediate links.
-    let mut path = canonicalize(from).map_err(|cause| Error::chain(
-        format!("Failed to canonicalize path {:?}.", from),
-        cause,
-    ))?;
+    let mut path = canonicalize(from)
+        .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", from), cause))?;
     debugln!("load_config: canonicalized to {:?}", path);
 
     // Look up the device at the current path. This information will then be
@@ -259,7 +308,8 @@ fn load_config(from: &Path) -> Result<Config> {
     out = out.merge(default_cfg);
 
     // Validate the configuration.
-    out.validate().map_err(|cause| Error::chain("Invalid configuration:", cause))
+    out.validate()
+        .map_err(|cause| Error::chain("Invalid configuration:", cause))
 }
 
 /// Load a configuration file if it exists.
@@ -269,14 +319,10 @@ fn maybe_load_config(path: &Path) -> Result<Option<PartialConfig>> {
     if !path.exists() {
         return Ok(None);
     }
-    let file = File::open(path).map_err(|cause| Error::chain(
-        format!("Cannot open config {:?}.", path),
-        cause
-    ))?;
-    let partial: PartialConfig = serde_yaml::from_reader(file).map_err(|cause| Error::chain(
-        format!("Syntax error in config {:?}.", path),
-        cause
-    ))?;
+    let file = File::open(path)
+        .map_err(|cause| Error::chain(format!("Cannot open config {:?}.", path), cause))?;
+    let partial: PartialConfig = serde_yaml::from_reader(file)
+        .map_err(|cause| Error::chain(format!("Syntax error in config {:?}.", path), cause))?;
     Ok(Some(partial.prefix_paths(path.parent().unwrap())))
 }
 
@@ -284,28 +330,20 @@ fn maybe_load_config(path: &Path) -> Result<Option<PartialConfig>> {
 fn read_lockfile(path: &Path) -> Result<Locked> {
     debugln!("read_lockfile: {:?}", path);
     use std::fs::File;
-    let file = File::open(path).map_err(|cause| Error::chain(
-        format!("Cannot open lockfile {:?}.", path),
-        cause
-    ))?;
-    serde_yaml::from_reader(file).map_err(|cause| Error::chain(
-        format!("Syntax error in lockfile {:?}.", path),
-        cause
-    ))
+    let file = File::open(path)
+        .map_err(|cause| Error::chain(format!("Cannot open lockfile {:?}.", path), cause))?;
+    serde_yaml::from_reader(file)
+        .map_err(|cause| Error::chain(format!("Syntax error in lockfile {:?}.", path), cause))
 }
 
 /// Write a lock file.
 fn write_lockfile(locked: &Locked, path: &Path) -> Result<()> {
     debugln!("write_lockfile: {:?}", path);
     use std::fs::File;
-    let file = File::create(path).map_err(|cause| Error::chain(
-        format!("Cannot create lockfile {:?}.", path),
-        cause
-    ))?;
-    serde_yaml::to_writer(file, locked).map_err(|cause| Error::chain(
-        format!("Cannot write lockfile {:?}.", path),
-        cause
-    ))?;
+    let file = File::create(path)
+        .map_err(|cause| Error::chain(format!("Cannot create lockfile {:?}.", path), cause))?;
+    serde_yaml::to_writer(file, locked)
+        .map_err(|cause| Error::chain(format!("Cannot write lockfile {:?}.", path), cause))?;
     Ok(())
 }
 
@@ -328,24 +366,31 @@ fn execute_plugin(sess: &Session, plugin: &str, matches: Option<OsValues>) -> Re
     // Assemble a command that executes the plugin with the appropriate
     // environment and forwards command line arguments.
     let mut cmd = Command::new(&plugin.path);
-    cmd.env("BENDER", std::env::current_exe().map_err(|cause| Error::chain(
-        "Failed to determine current executable.",
-        cause
-    ))?);
-    cmd.env("BENDER_CALL_DIR", std::env::current_dir().map_err(|cause| Error::chain(
-        "Failed to determine current directory.",
-        cause
-    ))?);
+    cmd.env(
+        "BENDER",
+        std::env::current_exe()
+            .map_err(|cause| Error::chain("Failed to determine current executable.", cause))?,
+    );
+    cmd.env(
+        "BENDER_CALL_DIR",
+        std::env::current_dir()
+            .map_err(|cause| Error::chain("Failed to determine current directory.", cause))?,
+    );
     cmd.env("BENDER_MANIFEST_DIR", sess.root);
     cmd.current_dir(&sess.root);
     if let Some(args) = matches {
         cmd.args(args);
     }
     debugln!("main: executing plugin {:#?}", cmd);
-    let stat = cmd.status().map_err(|cause| Error::chain(
-        format!("Unable to spawn process for plugin `{}`. Command was {:#?}.", plugin.name, cmd),
-        cause
-    ))?;
+    let stat = cmd.status().map_err(|cause| {
+        Error::chain(
+            format!(
+                "Unable to spawn process for plugin `{}`. Command was {:#?}.",
+                plugin.name, cmd
+            ),
+            cause,
+        )
+    })?;
 
     // Don't bother to do anything after the plugin was run.
     std::process::exit(stat.code().unwrap_or(1));

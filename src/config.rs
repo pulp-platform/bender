@@ -9,19 +9,19 @@
 #![deny(missing_docs)]
 
 use std;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
-use std::str::FromStr;
-use std::path::{Path, PathBuf};
 use std::hash::Hash;
-use std::collections::{HashMap, BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use semver;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
 use error::*;
-use util::*;
 use target::TargetSpec;
+use util::*;
 
 /// A package manifest.
 ///
@@ -32,6 +32,8 @@ pub struct Manifest {
     pub package: Package,
     /// The dependencies.
     pub dependencies: HashMap<String, Dependency>,
+    /// The locally linked packages.
+    pub package_links: HashMap<PathBuf, String>,
     /// The source files.
     pub sources: Option<Sources>,
     /// The plugin binaries.
@@ -43,6 +45,11 @@ impl PrefixPaths for Manifest {
         Manifest {
             package: self.package,
             dependencies: self.dependencies.prefix_paths(prefix),
+            package_links: self
+                .package_links
+                .into_iter()
+                .map(|(k, v)| (k.prefix_paths(prefix), v))
+                .collect(),
             sources: self.sources.map(|src| src.prefix_paths(prefix)),
             plugins: self.plugins.prefix_paths(prefix),
         }
@@ -92,14 +99,13 @@ impl PrefixPaths for Dependency {
 
 impl<'ctx> Serialize for Dependency {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         use serde::ser::SerializeMap;
         match *self {
-            Dependency::Version(ref version) =>
-                format!("{}", version).serialize(serializer),
-            Dependency::Path(ref path) =>
-                path.serialize(serializer),
+            Dependency::Version(ref version) => format!("{}", version).serialize(serializer),
+            Dependency::Path(ref path) => path.serialize(serializer),
             Dependency::GitRevision(ref url, ref rev) => {
                 let mut map = serializer.serialize_map(Some(2))?;
                 map.serialize_entry("git", url)?;
@@ -151,7 +157,7 @@ pub enum SourceFile {
 impl fmt::Debug for SourceFile {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SourceFile::File(ref path)  => fmt::Debug::fmt(path, f),
+            SourceFile::File(ref path) => fmt::Debug::fmt(path, f),
             SourceFile::Group(ref srcs) => fmt::Debug::fmt(srcs, f),
         }
     }
@@ -177,19 +183,28 @@ pub trait Validate {
 }
 
 // Implement `Validate` for hash maps of validatable values.
-impl<K,V> Validate for HashMap<K,V> where K: Hash + Eq, V: Validate<Error=Error> {
+impl<K, V> Validate for HashMap<K, V>
+where
+    K: Hash + Eq,
+    V: Validate<Error = Error>,
+{
     type Output = HashMap<K, V::Output>;
-    type Error = (K,Error);
+    type Error = (K, Error);
     fn validate(self) -> std::result::Result<Self::Output, Self::Error> {
-        self.into_iter().map(|(k,v)| match v.validate() {
-            Ok(v) => Ok((k,v)),
-            Err(e) => Err((k,e)),
-        }).collect()
+        self.into_iter()
+            .map(|(k, v)| match v.validate() {
+                Ok(v) => Ok((k, v)),
+                Err(e) => Err((k, e)),
+            })
+            .collect()
     }
 }
 
 // Implement `Validate` for `StringOrStruct` wrapped validatable values.
-impl<T> Validate for StringOrStruct<T> where T: Validate {
+impl<T> Validate for StringOrStruct<T>
+where
+    T: Validate,
+{
     type Output = T::Output;
     type Error = T::Error;
     fn validate(self) -> std::result::Result<T::Output, T::Error> {
@@ -198,7 +213,10 @@ impl<T> Validate for StringOrStruct<T> where T: Validate {
 }
 
 // Implement `Validate` for `SeqOrStruct` wrapped validatable values.
-impl<T,F> Validate for SeqOrStruct<T,F> where T: Validate {
+impl<T, F> Validate for SeqOrStruct<T, F>
+where
+    T: Validate,
+{
     type Output = T::Output;
     type Error = T::Error;
     fn validate(self) -> std::result::Result<T::Output, T::Error> {
@@ -215,6 +233,9 @@ pub struct PartialManifest {
     pub package: Option<Package>,
     /// The dependencies.
     pub dependencies: Option<HashMap<String, StringOrStruct<PartialDependency>>>,
+    /// The locally linked packages.
+    #[serde(rename = "package-links")]
+    pub package_links: Option<HashMap<PathBuf, String>>,
     /// The source files.
     pub sources: Option<SeqOrStruct<PartialSources, PartialSourceFile>>,
     /// The plugin binaries.
@@ -227,21 +248,26 @@ impl Validate for PartialManifest {
     fn validate(self) -> Result<Manifest> {
         let pkg = match self.package {
             Some(p) => p,
-            None => return Err(Error::new("Missing package information."))
+            None => return Err(Error::new("Missing package information.")),
         };
         let deps = match self.dependencies {
-            Some(d) => d.validate().map_err(|(key,cause)| Error::chain(
-                format!("In dependency `{}` of package `{}`:", key, pkg.name),
-                cause
-            ))?,
+            Some(d) => d.validate().map_err(|(key, cause)| {
+                Error::chain(
+                    format!("In dependency `{}` of package `{}`:", key, pkg.name),
+                    cause,
+                )
+            })?,
+            None => HashMap::new(),
+        };
+        let links = match self.package_links {
+            Some(s) => s,
             None => HashMap::new(),
         };
         let srcs = match self.sources {
-            Some(s) => Some(s.validate().map_err(|cause| Error::chain(
-                format!("In source list of package `{}`:", pkg.name),
-                cause
-            ))?),
-            None => None
+            Some(s) => Some(s.validate().map_err(|cause| {
+                Error::chain(format!("In source list of package `{}`:", pkg.name), cause)
+            })?),
+            None => None,
         };
         let plugins = match self.plugins {
             Some(s) => s,
@@ -250,6 +276,7 @@ impl Validate for PartialManifest {
         Ok(Manifest {
             package: pkg,
             dependencies: deps,
+            package_links: links,
             sources: srcs,
             plugins: plugins,
         })
@@ -296,7 +323,7 @@ impl FromStr for PartialDependency {
 impl PrefixPaths for PartialDependency {
     fn prefix_paths(self, prefix: &Path) -> Self {
         PartialDependency {
-           path: self.path.prefix_paths(prefix),
+            path: self.path.prefix_paths(prefix),
             ..self
         }
     }
@@ -307,23 +334,33 @@ impl Validate for PartialDependency {
     type Error = Error;
     fn validate(self) -> Result<Dependency> {
         let version = match self.version {
-            Some(v) => Some(semver::VersionReq::parse(&v).map_err(|cause| Error::chain(
-                format!("\"{}\" is not a valid semantic version requirement.", v),
-                cause
-            ))?),
+            Some(v) => Some(semver::VersionReq::parse(&v).map_err(|cause| {
+                Error::chain(
+                    format!("\"{}\" is not a valid semantic version requirement.", v),
+                    cause,
+                )
+            })?),
             None => None,
         };
         if self.rev.is_some() && version.is_some() {
-            return Err(Error::new("A dependency cannot specify `version` and `rev` at the same time."));
+            return Err(Error::new(
+                "A dependency cannot specify `version` and `rev` at the same time.",
+            ));
         }
         if let Some(path) = self.path {
             if let Some(list) = string_list(
-                self.git.map(|_| "`git`").iter()
-                .chain(self.rev.map(|_| "`rev`").iter())
-                .chain(version.map(|_| "`version`").iter()),
-                ",", "or"
+                self.git
+                    .map(|_| "`git`")
+                    .iter()
+                    .chain(self.rev.map(|_| "`rev`").iter())
+                    .chain(version.map(|_| "`version`").iter()),
+                ",",
+                "or",
             ) {
-                Err(Error::new(format!("A `path` dependency cannot have a {} field.", list)))
+                Err(Error::new(format!(
+                    "A `path` dependency cannot have a {} field.",
+                    list
+                )))
             } else {
                 Ok(Dependency::Path(path))
             }
@@ -333,12 +370,16 @@ impl Validate for PartialDependency {
             } else if let Some(version) = version {
                 Ok(Dependency::GitVersion(git, version))
             } else {
-                Err(Error::new("A `git` dependency must have either a `rev` or `version` field."))
+                Err(Error::new(
+                    "A `git` dependency must have either a `rev` or `version` field.",
+                ))
             }
         } else if let Some(version) = version {
             Ok(Dependency::Version(version))
         } else {
-            Err(Error::new("A dependency must specify `version`, `path`, or `git`."))
+            Err(Error::new(
+                "A dependency must specify `version`, `path`, or `git`.",
+            ))
         }
     }
 }
@@ -395,7 +436,8 @@ pub enum PartialSourceFile {
 // Custom serialization for partial source files.
 impl Serialize for PartialSourceFile {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         match *self {
             PartialSourceFile::File(ref path) => path.serialize(serializer),
@@ -407,7 +449,8 @@ impl Serialize for PartialSourceFile {
 // Custom deserialization for partial source files.
 impl<'de> Deserialize<'de> for PartialSourceFile {
     fn deserialize<D>(deserializer: D) -> std::result::Result<PartialSourceFile, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         use serde::de;
         use std::fmt;
@@ -423,16 +466,19 @@ impl<'de> Deserialize<'de> for PartialSourceFile {
 
             // Parse a single source file.
             fn visit_str<E>(self, value: &str) -> Result<PartialSourceFile, E>
-                where E: de::Error
+            where
+                E: de::Error,
             {
                 Ok(PartialSourceFile::File(value.into()))
             }
 
             // Parse an entire source file group.
             fn visit_map<M>(self, visitor: M) -> Result<PartialSourceFile, M::Error>
-                where M: de::MapAccess<'de>
+            where
+                M: de::MapAccess<'de>,
             {
-                let srcs = PartialSources::deserialize(de::value::MapAccessDeserializer::new(visitor))?;
+                let srcs =
+                    PartialSources::deserialize(de::value::MapAccessDeserializer::new(visitor))?;
                 Ok(PartialSourceFile::Group(Box::new(srcs)))
             }
         }
@@ -447,9 +493,7 @@ impl Validate for PartialSourceFile {
     fn validate(self) -> Result<SourceFile> {
         match self {
             PartialSourceFile::File(path) => Ok(SourceFile::File(path)),
-            PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(
-                Box::new(srcs.validate()?)
-            )),
+            PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate()?))),
         }
     }
 }
@@ -472,21 +516,33 @@ impl PrefixPaths for PathBuf {
     }
 }
 
-impl<T> PrefixPaths for Option<T> where T: PrefixPaths {
+impl<T> PrefixPaths for Option<T>
+where
+    T: PrefixPaths,
+{
     fn prefix_paths(self, prefix: &Path) -> Self {
         self.map(|inner| inner.prefix_paths(prefix))
     }
 }
 
 // Implement `PrefixPaths` for hash maps of prefixable values.
-impl<K,V> PrefixPaths for HashMap<K,V> where K: Hash + Eq, V: PrefixPaths {
+impl<K, V> PrefixPaths for HashMap<K, V>
+where
+    K: Hash + Eq,
+    V: PrefixPaths,
+{
     fn prefix_paths(self, prefix: &Path) -> Self {
-        self.into_iter().map(|(k, v)| (k, v.prefix_paths(prefix))).collect()
+        self.into_iter()
+            .map(|(k, v)| (k, v.prefix_paths(prefix)))
+            .collect()
     }
 }
 
 // Implement `PrefixPaths` for vectors of prefixable values.
-impl<V> PrefixPaths for Vec<V> where V: PrefixPaths {
+impl<V> PrefixPaths for Vec<V>
+where
+    V: PrefixPaths,
+{
     fn prefix_paths(self, prefix: &Path) -> Self {
         self.into_iter().map(|v| v.prefix_paths(prefix)).collect()
     }
@@ -583,17 +639,15 @@ impl Validate for PartialConfig {
                 None => return Err(Error::new("Git command or path to binary not configured")),
             },
             overrides: match self.overrides {
-                Some(d) => d.validate().map_err(|(key,cause)| Error::chain(
-                    format!("In override `{}`:", key),
-                    cause
-                ))?,
+                Some(d) => d.validate().map_err(|(key, cause)| {
+                    Error::chain(format!("In override `{}`:", key), cause)
+                })?,
                 None => HashMap::new(),
             },
             plugins: match self.plugins {
-                Some(d) => d.validate().map_err(|(key,cause)| Error::chain(
-                    format!("In plugin `{}`:", key),
-                    cause
-                ))?,
+                Some(d) => d
+                    .validate()
+                    .map_err(|(key, cause)| Error::chain(format!("In plugin `{}`:", key), cause))?,
                 None => HashMap::new(),
             },
         })
