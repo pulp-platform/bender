@@ -47,8 +47,7 @@ impl PrefixPaths for Manifest {
         Manifest {
             package: self.package,
             dependencies: self.dependencies.prefix_paths(prefix),
-            package_links: self
-                .package_links
+            package_links: self.package_links
                 .into_iter()
                 .map(|(k, v)| (k.prefix_paths(prefix), v))
                 .collect(),
@@ -654,8 +653,7 @@ impl Validate for PartialConfig {
                 None => HashMap::new(),
             },
             plugins: match self.plugins {
-                Some(d) => d
-                    .validate()
+                Some(d) => d.validate()
                     .map_err(|(key, cause)| Error::chain(format!("In plugin `{}`:", key), cause))?,
                 None => HashMap::new(),
             },

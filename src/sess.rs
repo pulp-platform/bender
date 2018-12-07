@@ -153,8 +153,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
                     name: name.clone(),
                     source: src,
                     revision: pkg.revision.clone(),
-                    version: pkg
-                        .version
+                    version: pkg.version
                         .as_ref()
                         .map(|s| semver::Version::parse(&s).unwrap()),
                 }),
@@ -423,8 +422,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         // Determine the location of the git database and create it if its does
         // not yet exist.
-        let db_dir = self
-            .sess
+        let db_dir = self.sess
             .config
             .database
             .join("git")
@@ -509,12 +507,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
         });
         let out = dep_refs_and_revs.and_then(move |(refs, revs)| {
-            let refs: Vec<_> = refs
-                .into_iter()
+            let refs: Vec<_> = refs.into_iter()
                 .map(|(a, b)| (self.sess.intern_string(a), self.sess.intern_string(b)))
                 .collect();
-            let revs: Vec<_> = revs
-                .into_iter()
+            let revs: Vec<_> = revs.into_iter()
                 .map(|s| self.sess.intern_string(s))
                 .collect();
             debugln!("sess: refs {:?}", refs);
@@ -543,8 +539,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             };
 
             // Extract the tags that look like semantic versions.
-            let mut versions: Vec<(semver::Version, &'ctx str)> = tags
-                .iter()
+            let mut versions: Vec<(semver::Version, &'ctx str)> = tags.iter()
                 .filter_map(|(tag, &hash)| {
                     if tag.starts_with("v") {
                         match semver::Version::parse(&tag[1..]) {
@@ -709,8 +704,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 // branches or tags for shallow clones.
                 let tag_name_0 = format!("bender-tmp-{}", revision);
                 let tag_name_1 = tag_name_0.clone();
-                let f = self
-                    .git_database(name, url)
+                let f = self.git_database(name, url)
                     .and_then(move |git| {
                         git.clone()
                             .spawn_with(move |c| {
@@ -750,8 +744,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     ) -> Box<Future<Item = Option<&'ctx Manifest>, Error = Error> + 'io> {
         // Check if the manifest is already in the cache.
         let cache_key = (dep_id, version.clone());
-        if let Some(&cached) = self
-            .sess
+        if let Some(&cached) = self.sess
             .cache
             .dependency_manifest_version
             .lock()
@@ -842,8 +835,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         dep_id: DependencyRef,
     ) -> Box<Future<Item = Option<&'ctx Manifest>, Error = Error> + 'io> {
         // Check if the manifest is already in the cache.
-        if let Some(&cached) = self
-            .sess
+        if let Some(&cached) = self.sess
             .cache
             .dependency_manifest
             .lock()
