@@ -234,7 +234,6 @@ pub struct PartialManifest {
     /// The dependencies.
     pub dependencies: Option<HashMap<String, StringOrStruct<PartialDependency>>>,
     /// The locally linked packages.
-    #[serde(rename = "package-links")]
     pub package_links: Option<HashMap<PathBuf, String>>,
     /// The source files.
     pub sources: Option<SeqOrStruct<PartialSources, PartialSourceFile>>,
