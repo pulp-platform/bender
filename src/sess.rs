@@ -911,6 +911,25 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         Box::new(
             manifests
                 .and_then(move |ranks| {
+                    // Collect a set of exported include directories that will be applied to
+                    // all packages.
+                    // TODO: Make this more fine-grained, such that only include dirs from
+                    // directly depended-on packages are considered.
+                    let export_include_dirs: Vec<_> = ranks
+                        .iter()
+                        .chain(once(&vec![Some(self.sess.manifest)]))
+                        .flat_map(|manifests| {
+                            manifests
+                                .iter()
+                                .filter_map(|&m| m)
+                                .flat_map(|m| m.export_include_dirs.iter())
+                        })
+                        .collect();
+                    debugln!(
+                        "explicitly exported include dirs: {:#?}",
+                        export_include_dirs
+                    );
+
                     use std::iter::once;
                     let files = ranks
                         .into_iter()
@@ -927,6 +946,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     })
                                 })
                                 .collect();
+
+                            // Create a source group for this rank.
                             SourceGroup {
                                 package: None,
                                 independent: true,
@@ -937,11 +958,17 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             }.into()
                         })
                         .collect();
+
+                    // Create a source group covering all ranks, i.e. the root
+                    // source group.
                     Ok(SourceGroup {
                         package: None,
                         independent: false,
                         target: TargetSpec::Wildcard,
-                        include_dirs: Vec::new(),
+                        include_dirs: export_include_dirs
+                            .iter()
+                            .map(|p| self.sess.intern_path(p.clone()))
+                            .collect(),
                         defines: HashMap::new(),
                         files: files,
                     }.simplify())

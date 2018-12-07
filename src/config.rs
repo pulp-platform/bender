@@ -36,6 +36,8 @@ pub struct Manifest {
     pub package_links: HashMap<PathBuf, String>,
     /// The source files.
     pub sources: Option<Sources>,
+    /// The include directories exported to dependent packages.
+    pub export_include_dirs: Vec<PathBuf>,
     /// The plugin binaries.
     pub plugins: HashMap<String, PathBuf>,
 }
@@ -51,6 +53,10 @@ impl PrefixPaths for Manifest {
                 .map(|(k, v)| (k.prefix_paths(prefix), v))
                 .collect(),
             sources: self.sources.map(|src| src.prefix_paths(prefix)),
+            export_include_dirs: self.export_include_dirs
+                .into_iter()
+                .map(|src| src.prefix_paths(prefix))
+                .collect(),
             plugins: self.plugins.prefix_paths(prefix),
         }
     }
@@ -237,6 +243,8 @@ pub struct PartialManifest {
     pub package_links: Option<HashMap<PathBuf, String>>,
     /// The source files.
     pub sources: Option<SeqOrStruct<PartialSources, PartialSourceFile>>,
+    /// The include directories exported to dependent packages.
+    pub export_include_dirs: Option<Vec<PathBuf>>,
     /// The plugin binaries.
     pub plugins: Option<HashMap<String, PathBuf>>,
 }
@@ -268,6 +276,7 @@ impl Validate for PartialManifest {
             })?),
             None => None,
         };
+        let exp_inc_dirs = self.export_include_dirs.unwrap_or(Vec::new());
         let plugins = match self.plugins {
             Some(s) => s,
             None => HashMap::new(),
@@ -277,6 +286,7 @@ impl Validate for PartialManifest {
             dependencies: deps,
             package_links: links,
             sources: srcs,
+            export_include_dirs: exp_inc_dirs,
             plugins: plugins,
         })
     }
