@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
+## 0.8.0 - 2018-12-07
 ### Added
 - Add `export_include_dirs` section to manifest, allowing packages to expose a subdirectory as include file search path.
 
