@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
+## 0.7.1 - 2018-12-07
+### Fixed
+- Fix an issue where path dependencies would not properly resolve transitively.
+
 ## 0.7.0 - 2018-09-20
 ### Added
 - Submodules are now checked out as well.

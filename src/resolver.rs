@@ -378,11 +378,14 @@ impl<'ctx> DependencyResolver<'ctx> {
                     State::Open => unreachable!(),
                     State::Locked(id) => State::Locked(id),
                     State::Constrained(ref ids) => {
+                        any_changes = true;
                         match src.versions {
-                            DependencyVersions::Path => State::Picked(0, HashSet::new()),
+                            DependencyVersions::Path => {
+                                debugln!("resolve: picking path version `{}[{}]`", dep.name, src.id);
+                                State::Picked(0, HashSet::new())
+                            }
                             DependencyVersions::Git(..) => {
                                 debugln!("resolve: picking version for `{}[{}]`", dep.name, src.id);
-                                any_changes = true;
                                 State::Picked(
                                     ids.iter().map(|i| *i).min().unwrap(),
                                     ids.clone()
