@@ -8,7 +8,7 @@ use std::fs::{canonicalize, metadata};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use clap::{App, AppSettings, Arg, OsValues};
+use clap::{App, AppSettings, Arg, OsValues, SubCommand};
 use serde_yaml;
 
 use cmd;
@@ -17,7 +17,6 @@ use error::*;
 use resolver::DependencyResolver;
 use sess::{Session, SessionArenas, SessionIo};
 use tokio_core::reactor::Core;
-use util::try_modification_time;
 
 /// Inner main function which can return an error.
 pub fn main() -> Result<()> {
@@ -34,6 +33,7 @@ pub fn main() -> Result<()> {
                 .global(true)
                 .help("Sets a custom root working directory"),
         )
+        .subcommand(SubCommand::with_name("update").about("Update the dependencies"))
         .subcommand(cmd::path::new())
         .subcommand(cmd::packages::new())
         .subcommand(cmd::sources::new())
@@ -63,8 +63,9 @@ pub fn main() -> Result<()> {
     // the -d/--dir switch, or by searching upwards in the file system
     // hierarchy.
     let root_dir: PathBuf = match matches.value_of("dir") {
-        Some(d) => canonicalize(d)
-            .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", d), cause))?,
+        Some(d) => canonicalize(d).map_err(|cause| {
+            Error::chain(format!("Failed to canonicalize path {:?}.", d), cause)
+        })?,
         None => find_package_root(Path::new("."))
             .map_err(|cause| Error::chain("Cannot find root directory of package.", cause))?,
     };
@@ -84,12 +85,6 @@ pub fn main() -> Result<()> {
 
     // Read the existing lockfile.
     let lock_path = root_dir.join("Bender.lock");
-    let locked_outdated = {
-        let lockfile_mtime = try_modification_time(&lock_path);
-        sess.manifest_mtime.is_none()
-            || lockfile_mtime.is_none()
-            || sess.manifest_mtime > lockfile_mtime
-    };
     let locked_existing = if lock_path.exists() {
         Some(read_lockfile(&lock_path)?)
     } else {
@@ -97,7 +92,7 @@ pub fn main() -> Result<()> {
     };
 
     // Resolve the dependencies if the lockfile does not exist or is outdated.
-    let locked = if locked_outdated {
+    let locked = if matches.subcommand().0 == "update" || locked_existing.is_none() {
         debugln!("main: lockfile {:?} outdated", lock_path);
         let res = DependencyResolver::new(&sess);
         let locked_new = res.resolve()?;
@@ -174,6 +169,7 @@ pub fn main() -> Result<()> {
         ("packages", Some(matches)) => cmd::packages::run(&sess, matches),
         ("sources", Some(matches)) => cmd::sources::run(&sess, matches),
         ("config", Some(matches)) => cmd::config::run(&sess, matches),
+        ("update", _) => Ok(()),
         (plugin, Some(matches)) => execute_plugin(&sess, plugin, matches.values_of_os("")),
         _ => Ok(()),
     }
