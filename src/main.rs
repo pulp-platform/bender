@@ -16,6 +16,7 @@ extern crate tokio_process;
 
 extern crate clap;
 extern crate dirs;
+extern crate pathdiff;
 extern crate semver;
 extern crate blake2;
 extern crate typed_arena;

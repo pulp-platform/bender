@@ -113,6 +113,10 @@ pub fn main() -> Result<()> {
 
             // Determine the checkout path for this package.
             let pkg_path = core.run(io.checkout(sess.dependency_with_name(pkg_name)?))?;
+            let pkg_path = path
+                .parent()
+                .and_then(|path| pathdiff::diff_paths(pkg_path, path))
+                .unwrap_or(pkg_path.into());
 
             // Check if there is something at the destination path that needs to be
             // removed.
@@ -150,7 +154,15 @@ pub fn main() -> Result<()> {
                         Error::chain(format!("Failed to create directory {:?}.", parent), cause)
                     })?;
                 }
-                std::os::unix::fs::symlink(pkg_path, path).map_err(|cause| {
+                let previous_dir = match path.parent() {
+                    Some(parent) => {
+                        let d = std::env::current_dir().unwrap();
+                        std::env::set_current_dir(parent).unwrap();
+                        Some(d)
+                    }
+                    None => None,
+                };
+                std::os::unix::fs::symlink(&pkg_path, path).map_err(|cause| {
                     Error::chain(
                         format!(
                             "Failed to create symlink to {:?} at path {:?}.",
@@ -158,7 +170,10 @@ pub fn main() -> Result<()> {
                         ),
                         cause,
                     )
-                })?
+                })?;
+                if let Some(d) = previous_dir {
+                    std::env::set_current_dir(d).unwrap();
+                }
             }
         }
     }
