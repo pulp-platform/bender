@@ -281,7 +281,7 @@ fn load_config(from: &Path) -> Result<Config> {
     }
 
     // Load the user configuration.
-    if let Some(mut home) = std::env::home_dir() {
+    if let Some(mut home) = dirs::home_dir() {
         home.push(".config");
         home.push("bender.yml");
         if let Some(cfg) = maybe_load_config(&home)? {

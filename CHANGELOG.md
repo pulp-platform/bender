@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Added
 - Add the `udpate` subcommand that explicitly updates dependencies.
+- Add dependency on the `dirs` crate.
 
 ### Changed
 - No longer automatically update dependencies when the manifest changes.
