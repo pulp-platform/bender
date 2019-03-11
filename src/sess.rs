@@ -1227,7 +1227,7 @@ impl<'ctx> fmt::Display for DependencyVersion<'ctx> {
 }
 
 /// A constraint on a dependency.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum DependencyConstraint {
     /// A path constraint. If a package has a path dependency, it imposes a path
     /// constraint on it.
