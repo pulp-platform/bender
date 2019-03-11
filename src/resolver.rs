@@ -13,6 +13,11 @@ use futures::Future;
 use futures::future::join_all;
 use tokio_core::reactor::Core;
 
+extern crate itertools;
+use self::itertools::Itertools;
+
+use std::io::{self, Write};
+
 use sess::{self, Session, SessionIo, DependencyVersions, DependencyVersion, DependencyRef, DependencyConstraint};
 use error::*;
 use config;
@@ -273,19 +278,15 @@ impl<'ctx> DependencyResolver<'ctx> {
         Ok(())
     }
 
-    /// Impose a constraint on a dependency.
-    fn impose(
-        &self,
+    fn req_indices(&self,
         name: &str,
         con: &DependencyConstraint,
-        src: &mut DependencySource<'ctx>,
-        all_cons: &[(&str, DependencyConstraint)],
-    ) -> Result<()> {
-
+        src: &DependencySource<'ctx>
+    ) -> Result<Option<std::collections::HashSet<usize>>> {
         use self::DependencyConstraint as DepCon;
         use self::DependencyVersions as DepVer;
-        let indices = match (con, &src.versions) {
-            (&DepCon::Path, &DepVer::Path) => return Ok(()),
+        match (con, &src.versions) {
+            (&DepCon::Path, &DepVer::Path) => return Ok(None),
             (&DepCon::Version(ref con), &DepVer::Git(ref gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
                 let hash_ids: HashMap<&str, usize> = gv.revs
@@ -302,7 +303,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     })
                     .collect();
                 // debugln!("resolve: `{}` matches version requirement `{}` for revs {:?}", name, con, revs);
-                revs
+                Ok(Some(revs))
             }
             (&DepCon::Revision(ref con), &DepVer::Git(ref gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
@@ -324,7 +325,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                         .collect()
                     );
                 // debugln!("resolve: `{}` matches revision `{}` for revs {:?}", name, con, revs);
-                revs
+                Ok(Some(revs))
             }
             (&DepCon::Version(ref _con), &DepVer::Registry(ref _rv)) => {
                 return Err(Error::new(format!("Constraints on registry dependency `{}` not implemented", name)));
@@ -341,6 +342,24 @@ impl<'ctx> DependencyResolver<'ctx> {
             (_, &DepVer::Path) => {
                 return Err(Error::new(format!("`{}` is not declared as a path dependency everywhere.", name)));
             }
+        }
+    }
+
+    /// Impose a constraint on a dependency.
+    fn impose(
+        &self,
+        name: &str,
+        con: &DependencyConstraint,
+        src: &mut DependencySource<'ctx>,
+        all_cons: &[(&str, DependencyConstraint)],
+    ) -> Result<()> {
+
+        let indices = match self.req_indices(name, con, src) {
+            Ok(o) => match o {
+                Some(v) => v,
+                None => return Ok(())
+            },
+            Err(e) => return Err(e)
         };
         // debugln!("resolve: restricting `{}` to versions {:?}", name, indices);
 
@@ -349,23 +368,57 @@ impl<'ctx> DependencyResolver<'ctx> {
         }
 
         // Mark all other versions of the dependency as invalid.
-        match src.state {
+        let new_ids = match src.state {
             State::Open => unreachable!(),
             State::Locked(_) => unreachable!(), // TODO: This needs to do something.
-            State::Constrained(ref mut ids) |
-            State::Picked(_, ref mut ids) => {
-                *ids = (*ids).intersection(&indices).map(|i| *i).collect();
-                if ids.is_empty() {
+            State::Constrained(ref ids) |
+            State::Picked(_, ref ids) => {
+                let is_ids = (*ids).intersection(&indices).map(|i| *i).collect::<HashSet<usize>>();
+                if is_ids.is_empty() {
                     let mut msg = format!("Requirement `{}` conflicts with other requirements on dependency `{}`.\n", con, name);
+                    let mut cons = Vec::new();
                     for &(pkg_name, ref con) in all_cons {
                         msg.push_str(&format!("\n- package `{}` requires `{}`", pkg_name, con));
+                        cons.push(con);
                     }
-                    return Err(Error::new(msg));
+                    cons = cons.into_iter().unique().collect();
+                    println!("{}\n\nTo resolve this conflict manually, \
+                        select a revision for `{}` among:", msg, name);
+                    for (idx, e) in cons.iter().enumerate() {
+                        println!("{}) `{}`", idx, e);
+                    };
+                    print!("Enter a number or hit enter to abort: ");
+                    io::stdout().flush().unwrap();
+                    let mut buffer = String::new();
+                    io::stdin().read_line(&mut buffer).unwrap();
+                    let choice = buffer.trim().parse::<usize>().unwrap();
+                    let decision = cons[choice];
+                    match self.req_indices(name, decision, src) {
+                        Ok(o) => match o {
+                            Some(v) => Ok(v),
+                            None => Err(Error::new("something"))
+                        },
+                        Err(e) => Err(e)
+                    }
+                } else {
+                    Ok(is_ids)
                 }
             }
         };
-
-        Ok(())
+        match src.state {
+            State::Open => unreachable!(),
+            State::Locked(_) => unreachable!(),
+            State::Constrained(ref mut ids) |
+            State::Picked(_, ref mut ids) => {
+                match new_ids {
+                    Err(e) => Err(e),
+                    Ok(is) => {
+                        *ids = is;
+                        Ok(())
+                    }
+                }
+            }
+        }
     }
 
     /// Pick a version for each dependency.
