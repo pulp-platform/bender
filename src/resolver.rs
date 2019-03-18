@@ -387,12 +387,30 @@ impl<'ctx> DependencyResolver<'ctx> {
                     for (idx, e) in cons.iter().enumerate() {
                         println!("{}) `{}`", idx, e);
                     };
-                    print!("Enter a number or hit enter to abort: ");
-                    io::stdout().flush().unwrap();
-                    let mut buffer = String::new();
-                    io::stdin().read_line(&mut buffer).unwrap();
-                    let choice = buffer.trim().parse::<usize>().unwrap();
-                    let decision = cons[choice];
+                    let decision = loop {
+                        print!("Enter a number or hit enter to abort: ");
+                        io::stdout().flush().unwrap();
+                        let mut buffer = String::new();
+                        io::stdin().read_line(&mut buffer).unwrap();
+                        if buffer.starts_with("\n") {
+                            break Err(Error::new(msg))
+                        }
+                        let choice = match buffer.trim().parse::<usize>() {
+                            Ok(u) => u,
+                            Err(_) => {
+                                println!("Invalid input!");
+                                continue
+                            }
+                        };
+                        let decision = match cons.get(choice) {
+                            Some(c) => c,
+                            None => {
+                                println!("Choice out of bounds!");
+                                continue
+                            }
+                        };
+                        break Ok(decision)
+                    }?;
                     match self.req_indices(name, decision, src) {
                         Ok(o) => match o {
                             Some(v) => Ok(v),
