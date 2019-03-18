@@ -16,6 +16,8 @@ use tokio_core::reactor::Core;
 extern crate itertools;
 use self::itertools::Itertools;
 
+extern crate atty;
+
 use std::io::{self, Write};
 
 use sess::{self, Session, SessionIo, DependencyVersions, DependencyVersion, DependencyRef, DependencyConstraint};
@@ -382,41 +384,46 @@ impl<'ctx> DependencyResolver<'ctx> {
                         cons.push(con);
                     }
                     cons = cons.into_iter().unique().collect();
-                    eprintln!("{}\n\nTo resolve this conflict manually, \
-                        select a revision for `{}` among:", msg, name);
-                    for (idx, e) in cons.iter().enumerate() {
-                        eprintln!("{}) `{}`", idx, e);
-                    };
-                    let decision = loop {
-                        eprint!("Enter a number or hit enter to abort: ");
-                        io::stdout().flush().unwrap();
-                        let mut buffer = String::new();
-                        io::stdin().read_line(&mut buffer).unwrap();
-                        if buffer.starts_with("\n") {
-                            break Err(Error::new(msg))
+                    // Let user resolve conflict if both stderr and stdin go to a TTY.
+                    if atty::is(atty::Stream::Stderr) && atty::is(atty::Stream::Stdin) {
+                        eprintln!("{}\n\nTo resolve this conflict manually, \
+                            select a revision for `{}` among:", msg, name);
+                        for (idx, e) in cons.iter().enumerate() {
+                            eprintln!("{}) `{}`", idx, e);
+                        };
+                        let decision = loop {
+                            eprint!("Enter a number or hit enter to abort: ");
+                            io::stdout().flush().unwrap();
+                            let mut buffer = String::new();
+                            io::stdin().read_line(&mut buffer).unwrap();
+                            if buffer.starts_with("\n") {
+                                break Err(Error::new(msg))
+                            }
+                            let choice = match buffer.trim().parse::<usize>() {
+                                Ok(u) => u,
+                                Err(_) => {
+                                    eprintln!("Invalid input!");
+                                    continue
+                                }
+                            };
+                            let decision = match cons.get(choice) {
+                                Some(c) => c,
+                                None => {
+                                    eprintln!("Choice out of bounds!");
+                                    continue
+                                }
+                            };
+                            break Ok(decision)
+                        }?;
+                        match self.req_indices(name, decision, src) {
+                            Ok(o) => match o {
+                                Some(v) => Ok(v),
+                                None => Err(Error::new("something"))
+                            },
+                            Err(e) => Err(e)
                         }
-                        let choice = match buffer.trim().parse::<usize>() {
-                            Ok(u) => u,
-                            Err(_) => {
-                                eprintln!("Invalid input!");
-                                continue
-                            }
-                        };
-                        let decision = match cons.get(choice) {
-                            Some(c) => c,
-                            None => {
-                                eprintln!("Choice out of bounds!");
-                                continue
-                            }
-                        };
-                        break Ok(decision)
-                    }?;
-                    match self.req_indices(name, decision, src) {
-                        Ok(o) => match o {
-                            Some(v) => Ok(v),
-                            None => Err(Error::new("something"))
-                        },
-                        Err(e) => Err(e)
+                    } else {
+                        Err(Error::new(msg))
                     }
                 } else {
                     Ok(is_ids)
