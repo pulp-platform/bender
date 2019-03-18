@@ -382,13 +382,13 @@ impl<'ctx> DependencyResolver<'ctx> {
                         cons.push(con);
                     }
                     cons = cons.into_iter().unique().collect();
-                    println!("{}\n\nTo resolve this conflict manually, \
+                    eprintln!("{}\n\nTo resolve this conflict manually, \
                         select a revision for `{}` among:", msg, name);
                     for (idx, e) in cons.iter().enumerate() {
-                        println!("{}) `{}`", idx, e);
+                        eprintln!("{}) `{}`", idx, e);
                     };
                     let decision = loop {
-                        print!("Enter a number or hit enter to abort: ");
+                        eprint!("Enter a number or hit enter to abort: ");
                         io::stdout().flush().unwrap();
                         let mut buffer = String::new();
                         io::stdin().read_line(&mut buffer).unwrap();
@@ -398,14 +398,14 @@ impl<'ctx> DependencyResolver<'ctx> {
                         let choice = match buffer.trim().parse::<usize>() {
                             Ok(u) => u,
                             Err(_) => {
-                                println!("Invalid input!");
+                                eprintln!("Invalid input!");
                                 continue
                             }
                         };
                         let decision = match cons.get(choice) {
                             Some(c) => c,
                             None => {
-                                println!("Choice out of bounds!");
+                                eprintln!("Choice out of bounds!");
                                 continue
                             }
                         };
