@@ -23,3 +23,5 @@ dirs = "1"
 pathdiff = "0.1"
 
 itertools = "0.8.0"
+
+atty = "0.2"
