@@ -418,7 +418,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                         match self.req_indices(name, decision, src) {
                             Ok(o) => match o {
                                 Some(v) => Ok(v),
-                                None => Err(Error::new("something"))
+                                None => unreachable!(),
                             },
                             Err(e) => Err(e)
                         }
