@@ -30,6 +30,8 @@ pub struct DependencyResolver<'ctx> {
     sess: &'ctx Session<'ctx>,
     /// The version table which is used to perform resolution.
     table: HashMap<&'ctx str, Dependency<'ctx>>,
+    /// A cache of decisions made by the user during the resolution.
+    decisions: HashMap<&'ctx str, usize>,
 }
 
 impl<'ctx> DependencyResolver<'ctx> {
@@ -39,6 +41,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         DependencyResolver {
             sess: sess,
             table: HashMap::new(),
+            decisions: HashMap::new(),
         }
     }
 
@@ -349,13 +352,12 @@ impl<'ctx> DependencyResolver<'ctx> {
 
     /// Impose a constraint on a dependency.
     fn impose(
-        &self,
-        name: &str,
+        &mut self,
+        name: &'ctx str,
         con: &DependencyConstraint,
         src: &mut DependencySource<'ctx>,
         all_cons: &[(&str, DependencyConstraint)],
     ) -> Result<()> {
-
         let indices = match self.req_indices(name, con, src) {
             Ok(o) => match o {
                 Some(v) => v,
@@ -386,35 +388,43 @@ impl<'ctx> DependencyResolver<'ctx> {
                     cons = cons.into_iter().unique().collect();
                     // Let user resolve conflict if both stderr and stdin go to a TTY.
                     if atty::is(atty::Stream::Stderr) && atty::is(atty::Stream::Stdin) {
-                        eprintln!("{}\n\nTo resolve this conflict manually, \
-                            select a revision for `{}` among:", msg, name);
-                        for (idx, e) in cons.iter().enumerate() {
-                            eprintln!("{}) `{}`", idx, e);
-                        };
-                        let decision = loop {
-                            eprint!("Enter a number or hit enter to abort: ");
-                            io::stdout().flush().unwrap();
-                            let mut buffer = String::new();
-                            io::stdin().read_line(&mut buffer).unwrap();
-                            if buffer.starts_with("\n") {
-                                break Err(Error::new(msg))
+                        let decision = if let Some(&d) = self.decisions.get(name) {
+                            &cons[d]
+                        } else {
+                            eprintln!(
+                                "{}\n\nTo resolve this conflict manually, \
+                                 select a revision for `{}` among:",
+                                msg, name
+                            );
+                            for (idx, e) in cons.iter().enumerate() {
+                                eprintln!("{}) `{}`", idx, e);
                             }
-                            let choice = match buffer.trim().parse::<usize>() {
-                                Ok(u) => u,
-                                Err(_) => {
-                                    eprintln!("Invalid input!");
-                                    continue
+                            loop {
+                                eprint!("Enter a number or hit enter to abort: ");
+                                io::stdout().flush().unwrap();
+                                let mut buffer = String::new();
+                                io::stdin().read_line(&mut buffer).unwrap();
+                                if buffer.starts_with("\n") {
+                                    break Err(Error::new(msg));
                                 }
-                            };
-                            let decision = match cons.get(choice) {
-                                Some(c) => c,
-                                None => {
-                                    eprintln!("Choice out of bounds!");
-                                    continue
-                                }
-                            };
-                            break Ok(decision)
-                        }?;
+                                let choice = match buffer.trim().parse::<usize>() {
+                                    Ok(u) => u,
+                                    Err(_) => {
+                                        eprintln!("Invalid input!");
+                                        continue;
+                                    }
+                                };
+                                let decision = match cons.get(choice) {
+                                    Some(c) => c,
+                                    None => {
+                                        eprintln!("Choice out of bounds!");
+                                        continue;
+                                    }
+                                };
+                                self.decisions.insert(name, choice);
+                                break Ok(decision);
+                            }?
+                        };
                         match self.req_indices(name, decision, src) {
                             Ok(o) => match o {
                                 Some(v) => Ok(v),
