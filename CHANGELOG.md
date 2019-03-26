@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
+### Added
+- Add `atty` dependency.
+- Add `itertools` dependency.
+
+### Changed
+- Ask the user to resolve dependency conflicts if stdin/stdout are attached to an interactive console.
+- Update `semver` dependency to v0.9.
+
 ## 0.10.0 - 2019-01-08
 ### Changed
 - Create relative package links if possible.
