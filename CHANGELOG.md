@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
+## 0.11.0 - 2019-03-26
 ### Added
 - Add `atty` dependency.
 - Add `itertools` dependency.
