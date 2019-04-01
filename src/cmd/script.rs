@@ -28,7 +28,7 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("format")
                 .help("Format of the generated script")
                 .required(true)
-                .possible_values(&["vsim"]),
+                .possible_values(&["vsim", "synopsys"]),
         )
         .arg(
             Arg::with_name("vcom-arg")
@@ -74,6 +74,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     // Generate the corresponding output.
     match matches.value_of("format").unwrap() {
         "vsim" => emit_vsim_tcl(sess, matches, srcs),
+        "synopsys" => emit_synopsys_tcl(sess, matches, srcs),
         _ => unreachable!(),
     }
 }
@@ -181,5 +182,84 @@ fn emit_vsim_tcl(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>) -
             },
         );
     }
+    Ok(())
+}
+
+/// Emit a Synopsys Design Compiler compilation script.
+fn emit_synopsys_tcl(sess: &Session, _matches: &ArgMatches, srcs: Vec<SourceGroup>) -> Result<()> {
+    println!("# This script was generated automatically by bender.");
+    println!("set search_path_initial $search_path");
+    println!("set ROOT \"{}\"", sess.root.to_str().unwrap());
+    let relativize_path = |p: &std::path::Path| {
+        if p.starts_with(sess.root) {
+            format!(
+                "\"$ROOT/{}\"",
+                p.strip_prefix(sess.root).unwrap().to_str().unwrap()
+            )
+        } else {
+            format!("\"{}\"", p.to_str().unwrap())
+        }
+    };
+    for src in srcs {
+        // Adjust the search path.
+        println!("");
+        println!("set search_path $search_path_initial");
+        for i in &src.include_dirs {
+            println!("lappend search_path {}", relativize_path(i));
+        }
+
+        // Emit analyze commands.
+        separate_files_in_group(
+            src,
+            |f| match f {
+                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
+                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
+                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
+                    _ => None,
+                },
+                _ => None,
+            },
+            |src, ty, files| {
+                let mut lines = vec![];
+                match ty {
+                    SourceType::Verilog => {
+                        lines.push("analyze -format sv".to_owned());
+                    }
+                    SourceType::Vhdl => {
+                        lines.push("analyze -format vhdl -2008".to_owned());
+                    }
+                }
+
+                // Add defines.
+                if !src.defines.is_empty() {
+                    lines.push("-define {".to_owned());
+                    for (k, v) in &src.defines {
+                        let mut s = format!("    {}", k);
+                        if let Some(v) = v {
+                            s.push('=');
+                            s.push_str(v);
+                        }
+                        lines.push(s);
+                    }
+                    lines.push("}".to_owned());
+                }
+
+                // Add files.
+                lines.push("[list".to_owned());
+                for file in files {
+                    let p = match file {
+                        SourceFile::File(p) => p,
+                        _ => continue,
+                    };
+                    lines.push(format!("    {}", relativize_path(p)));
+                }
+                lines.push("]".to_owned());
+                println!("");
+                println!("{}", lines.join(" \\\n    "));
+            },
+        );
+    }
+    println!("");
+    println!("set search_path $search_path_initial");
     Ok(())
 }

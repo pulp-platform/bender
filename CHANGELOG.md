@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Added
 - Add `script` subcommand.
-- Add `vsim` script output format.
+- Add `vsim` and `synopsys` script output formats.
 
 ## 0.11.0 - 2019-03-26
 ### Added
