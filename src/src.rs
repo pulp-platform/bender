@@ -7,13 +7,13 @@
 
 #![deny(missing_docs)]
 
+use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
-use std::collections::HashMap;
 
 use serde::ser::{Serialize, Serializer};
 
-use target::{TargetSpec, TargetSet};
+use target::{TargetSet, TargetSpec};
 
 /// A source file group.
 #[derive(Serialize, Clone, Debug)]
@@ -36,25 +36,34 @@ impl<'ctx> SourceGroup<'ctx> {
     /// Simplify the source group. Removes empty subgroups and inlines subgroups
     /// with the same configuration.
     pub fn simplify(self) -> Self {
-        let files = self.files.into_iter().filter_map(|s| match s {
-            SourceFile::Group(group) => {
-                let group = group.simplify();
+        let files = self
+            .files
+            .into_iter()
+            .filter_map(|s| match s {
+                SourceFile::Group(group) => {
+                    let group = group.simplify();
 
-                // Discard empty groups.
-                if group.files.is_empty() {
-                    return None;
+                    // Discard empty groups.
+                    if group.files.is_empty() {
+                        return None;
+                    }
+
+                    // Drop groups with only one file.
+                    if group.files.len() == 1
+                        && group.include_dirs.is_empty()
+                        && group.defines.is_empty()
+                        && group.target.is_wildcard()
+                        && group.package.is_none()
+                    {
+                        return Some(group.files.into_iter().next().unwrap());
+                    }
+
+                    // Preserve the rest.
+                    Some(SourceFile::Group(Box::new(group)))
                 }
-
-                // Drop groups with only one file.
-                if group.files.len() == 1 && group.include_dirs.is_empty() && group.defines.is_empty() && group.target.is_wildcard() && group.package.is_none() {
-                    return Some(group.files.into_iter().next().unwrap());
-                }
-
-                // Preserve the rest.
-                Some(SourceFile::Group(Box::new(group)))
-            }
-            other => Some(other),
-        }).collect();
+                other => Some(other),
+            })
+            .collect();
         SourceGroup {
             files: files,
             ..self
@@ -66,22 +75,27 @@ impl<'ctx> SourceGroup<'ctx> {
         if !self.target.matches(targets) {
             return None;
         }
-        let files = self.files.iter().filter_map(|file|{
-            match *file {
+        let files = self
+            .files
+            .iter()
+            .filter_map(|file| match *file {
                 SourceFile::Group(ref group) => group
                     .filter_targets(targets)
                     .map(|g| SourceFile::Group(Box::new(g))),
                 ref other => Some(other.clone()),
+            })
+            .collect();
+        Some(
+            SourceGroup {
+                package: self.package,
+                independent: self.independent,
+                target: self.target.clone(),
+                include_dirs: self.include_dirs.clone(),
+                defines: self.defines.clone(),
+                files: files,
             }
-        }).collect();
-        Some(SourceGroup {
-            package: self.package,
-            independent: self.independent,
-            target: self.target.clone(),
-            include_dirs: self.include_dirs.clone(),
-            defines: self.defines.clone(),
-            files: files,
-        }.simplify())
+            .simplify(),
+        )
     }
 }
 
@@ -99,7 +113,7 @@ pub enum SourceFile<'ctx> {
 impl<'ctx> fmt::Debug for SourceFile<'ctx> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SourceFile::File(path)  => fmt::Debug::fmt(path, f),
+            SourceFile::File(path) => fmt::Debug::fmt(path, f),
             SourceFile::Group(ref srcs) => fmt::Debug::fmt(srcs, f),
         }
     }
@@ -120,7 +134,8 @@ impl<'ctx> From<&'ctx Path> for SourceFile<'ctx> {
 // Custom serialization for source files.
 impl<'ctx> Serialize for SourceFile<'ctx> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         match *self {
             SourceFile::File(path) => path.serialize(serializer),
