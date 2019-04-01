@@ -1,7 +1,7 @@
 [package]
 name = "bender"
 version = "0.11.0"
-authors = ["Fabian Schuiki <fschuiki@iis.ee.ethz.ch>"]
+authors = ["Fabian Schuiki <fschuiki@iis.ee.ethz.ch>", "Andreas Kurth <akurth@iis.ee.ethz.ch>"]
 description = "A dependency management tool for hardware projects."
 readme = "README.md"
 license = "Apache-2.0 OR MIT"
