@@ -97,6 +97,66 @@ impl<'ctx> SourceGroup<'ctx> {
             .simplify(),
         )
     }
+
+    /// Flatten nested source groups.
+    ///
+    /// Removes all levels of hierarchy and produces a canonical list of source
+    /// groups.
+    pub fn flatten(self) -> Vec<SourceGroup<'ctx>> {
+        let mut v = vec![];
+        self.flatten_into(&mut v);
+        v
+    }
+
+    fn flatten_into(mut self, into: &mut Vec<SourceGroup<'ctx>>) {
+        let mut files = vec![];
+        let subfiles = std::mem::replace(&mut self.files, vec![]);
+        let flush_files = |files: &mut Vec<SourceFile<'ctx>>, into: &mut Vec<SourceGroup<'ctx>>| {
+            if files.is_empty() {
+                return;
+            }
+            let files = std::mem::replace(files, vec![]);
+            into.push(SourceGroup {
+                files: files,
+                ..self.clone()
+            });
+        };
+        for file in subfiles {
+            match file {
+                SourceFile::File(_) => {
+                    files.push(file);
+                }
+                SourceFile::Group(grp) => {
+                    let mut grp = *grp;
+                    if !self.independent {
+                        flush_files(&mut files, into);
+                    }
+                    grp.package = grp.package.or(self.package);
+                    grp.independent &= self.independent;
+                    grp.target = TargetSpec::All(
+                        [&self.target, &grp.target]
+                            .into_iter()
+                            .map(|&i| i.clone())
+                            .collect(),
+                    );
+                    grp.include_dirs = self
+                        .include_dirs
+                        .iter()
+                        .cloned()
+                        .chain(grp.include_dirs.into_iter())
+                        .collect();
+                    grp.defines = self
+                        .defines
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .chain(grp.defines.into_iter())
+                        .collect();
+                    grp.flatten_into(into);
+                }
+            }
+        }
+        flush_files(&mut files, into);
+    }
 }
 
 /// A source file.
