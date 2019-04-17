@@ -80,8 +80,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     // Generate the corresponding output.
     match matches.value_of("format").unwrap() {
-        "vsim" => emit_vsim_tcl(sess, matches, srcs),
-        "synopsys" => emit_synopsys_tcl(sess, matches, srcs),
+        "vsim" => emit_vsim_tcl(sess, matches, targets, srcs),
+        "synopsys" => emit_synopsys_tcl(sess, matches, targets, srcs),
         _ => unreachable!(),
     }
 }
@@ -129,7 +129,12 @@ enum SourceType {
 }
 
 /// Emit a vsim compilation script.
-fn emit_vsim_tcl(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>) -> Result<()> {
+fn emit_vsim_tcl(
+    sess: &Session,
+    matches: &ArgMatches,
+    targets: TargetSet,
+    srcs: Vec<SourceGroup>,
+) -> Result<()> {
     println!("# This script was generated automatically by bender.");
     println!("set ROOT \"{}\"", sess.root.to_str().unwrap());
     for src in srcs {
@@ -158,6 +163,9 @@ fn emit_vsim_tcl(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>) -
                                 s.push_str(v);
                             }
                             lines.push(s);
+                        }
+                        for t in &targets {
+                            lines.push(format!("+define+TARGET_{}", t));
                         }
                         for i in &src.include_dirs {
                             if i.starts_with(sess.root) {
@@ -200,7 +208,12 @@ fn emit_vsim_tcl(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>) -
 }
 
 /// Emit a Synopsys Design Compiler compilation script.
-fn emit_synopsys_tcl(sess: &Session, _matches: &ArgMatches, srcs: Vec<SourceGroup>) -> Result<()> {
+fn emit_synopsys_tcl(
+    sess: &Session,
+    _matches: &ArgMatches,
+    targets: TargetSet,
+    srcs: Vec<SourceGroup>,
+) -> Result<()> {
     println!("# This script was generated automatically by bender.");
     println!("set search_path_initial $search_path");
     println!("set ROOT \"{}\"", sess.root.to_str().unwrap());
@@ -254,6 +267,9 @@ fn emit_synopsys_tcl(sess: &Session, _matches: &ArgMatches, srcs: Vec<SourceGrou
                             s.push_str(v);
                         }
                         lines.push(s);
+                    }
+                    for t in &targets {
+                        lines.push(format!("    TARGET_{}", t));
                     }
                     lines.push("}".to_owned());
                 }
