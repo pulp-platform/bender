@@ -52,10 +52,17 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let io = SessionIo::new(&sess, core.handle());
     let srcs = core.run(io.sources())?;
 
+    // Format-specific target specifiers.
+    let format_targets = match matches.value_of("format").unwrap() {
+        "vsim" => &["vsim", "simulation"],
+        "synopsys" => &["synopsys", "synthesis"],
+        _ => unreachable!(),
+    };
+
     // Filter the sources by target.
     let targets = matches
         .values_of("target")
-        .map(|t| TargetSet::new(t))
+        .map(|t| TargetSet::new(t.chain(format_targets.into_iter().cloned())))
         .unwrap_or_else(|| TargetSet::empty());
     let srcs = srcs
         .filter_targets(&targets)
