@@ -153,7 +153,14 @@ fn emit_vsim_tcl(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>) -
                             lines.push(s);
                         }
                         for i in &src.include_dirs {
-                            lines.push(format!("+incdir+\"{}\"", i.to_str().unwrap()));
+                            if i.starts_with(sess.root) {
+                                lines.push(format!(
+                                    "\"+incdir+$ROOT/{}\"",
+                                    i.strip_prefix(sess.root).unwrap().to_str().unwrap()
+                                ));
+                            } else {
+                                lines.push(format!("\"+incdir+{}\"", i.to_str().unwrap()));
+                            }
                         }
                     }
                     SourceType::Vhdl => {
