@@ -299,3 +299,19 @@ impl TargetSet {
         TargetSet(targets)
     }
 }
+
+impl<'a> IntoIterator for &'a TargetSet {
+    type Item = <&'a HashSet<String> as IntoIterator>::Item;
+    type IntoIter = <&'a HashSet<String> as IntoIterator>::IntoIter;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl IntoIterator for TargetSet {
+    type Item = <HashSet<String> as IntoIterator>::Item;
+    type IntoIter = <HashSet<String> as IntoIterator>::IntoIter;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
