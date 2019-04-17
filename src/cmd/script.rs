@@ -171,7 +171,7 @@ fn emit_vsim_tcl(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>) -
                         }
                     }
                     SourceType::Vhdl => {
-                        lines.push("vcom -incr -2008".to_owned());
+                        lines.push("vcom -2008".to_owned());
                         if let Some(args) = matches.values_of("vcom-arg") {
                             lines.extend(args.map(Into::into));
                         }
