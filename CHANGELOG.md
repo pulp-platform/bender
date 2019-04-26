@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
+### Added
+- Add `-f` flag to `sources` for printing a flattend source listing
+
+### Changed
+- Fixed JSON output to be human readable
+
 ## 0.12.0 - 2019-04-17
 ### Added
 - Add `script` subcommand.
