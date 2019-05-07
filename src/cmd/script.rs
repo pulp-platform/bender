@@ -165,7 +165,7 @@ fn emit_vsim_tcl(
                             lines.push(s);
                         }
                         for t in &targets {
-                            lines.push(format!("+define+TARGET_{}", t));
+                            lines.push(format!("+define+TARGET_{}", t.to_uppercase()));
                         }
                         for i in &src.include_dirs {
                             if i.starts_with(sess.root) {
@@ -269,7 +269,7 @@ fn emit_synopsys_tcl(
                         lines.push(s);
                     }
                     for t in &targets {
-                        lines.push(format!("    TARGET_{}", t));
+                        lines.push(format!("    TARGET_{}", t.to_uppercase()));
                     }
                     lines.push("}".to_owned());
                 }
