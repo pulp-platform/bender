@@ -258,7 +258,7 @@ fn emit_synopsys_tcl(
                 }
 
                 // Add defines.
-                if !src.defines.is_empty() {
+                if !src.defines.is_empty() || !targets.is_empty() {
                     lines.push("-define {".to_owned());
                     for (k, v) in &src.defines {
                         let mut s = format!("    {}", k);
