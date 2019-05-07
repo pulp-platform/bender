@@ -298,6 +298,11 @@ impl TargetSet {
             .collect();
         TargetSet(targets)
     }
+
+    /// Returns true if the set of targets is empty.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl<'a> IntoIterator for &'a TargetSet {
