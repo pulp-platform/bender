@@ -7,10 +7,14 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 
 ### Added
-- Add `-f` flag to `sources` for printing a flattend source listing
+- Add `-f` flag to `sources` for printing a flattend source listing.
 
 ### Changed
-- Fixed JSON output to be human readable
+- Make JSON output human readable.
+
+### Fixed
+- Fix target defines to be all uppercase.
+- Fix emission of target defines for source files which have no other defines.
 
 ## 0.12.0 - 2019-04-17
 ### Added
