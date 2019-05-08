@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
+## 0.12.1 - 2019-05-08
 ### Added
 - Add `-f` flag to `sources` for printing a flattend source listing.
 
