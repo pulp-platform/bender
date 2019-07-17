@@ -7,9 +7,12 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Added
 - Add the `frozen` option to prevent any dependency updates for a package.
+- Add the `workspace` section to carry workspace configuration.
+- Add the `workspace.checkout_dir` option to keep local working copies of each dependency.
 
 ### Changed
 - Make order of packages and defines deterministic.
+- Move the `package_links` option to `workspace.package_links`.
 
 ## 0.12.1 - 2019-05-08
 ### Added

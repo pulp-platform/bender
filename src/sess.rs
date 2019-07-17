@@ -614,15 +614,20 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         };
         let checkout_name = format!("{}-{}", dep.name, hash);
 
-        // Determine the location of the git checkout.
-        let checkout_dir = self.sess.intern_path(
-            self.sess
-                .config
-                .database
-                .join("git")
-                .join("checkouts")
-                .join(checkout_name),
-        );
+        // Determine the location of the git checkout. If the workspace has an
+        // explicit checkout directory, use that and do not append any hash to
+        // the dependency name.
+        let checkout_dir = match self.sess.manifest.workspace.checkout_dir {
+            Some(ref cd) => self.sess.intern_path(cd.join(&dep.name)),
+            None => self.sess.intern_path(
+                self.sess
+                    .config
+                    .database
+                    .join("git")
+                    .join("checkouts")
+                    .join(checkout_name),
+            ),
+        };
 
         match dep.source {
             DependencySource::Path(..) => unreachable!(),
@@ -665,6 +670,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         let scrapped = future::lazy(move || future::ok(path.exists()))
             .and_then(move |exists| -> Box<Future<Item = _, Error = Error>> {
                 if exists {
+                    // Never scrap checkouts the user asked for explicitly in
+                    // the workspace configuration.
+                    if self.sess.manifest.workspace.checkout_dir.is_some() {
+                        return Box::new(future::ok(false));
+                    }
+
                     // Scrap checkouts with the wrong tag.
                     Box::new(
                         Git::new(path, self)

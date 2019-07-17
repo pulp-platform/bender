@@ -113,7 +113,7 @@ pub fn main() -> Result<()> {
     {
         let mut core = Core::new().unwrap();
         let io = SessionIo::new(&sess, core.handle());
-        for (path, pkg_name) in &sess.manifest.package_links {
+        for (path, pkg_name) in &sess.manifest.workspace.package_links {
             debugln!("main: maintaining link to {} at {:?}", pkg_name, path);
 
             // Determine the checkout path for this package.

@@ -32,8 +32,6 @@ pub struct Manifest {
     pub package: Package,
     /// The dependencies.
     pub dependencies: HashMap<String, Dependency>,
-    /// The locally linked packages.
-    pub package_links: HashMap<PathBuf, String>,
     /// The source files.
     pub sources: Option<Sources>,
     /// The include directories exported to dependent packages.
@@ -42,6 +40,8 @@ pub struct Manifest {
     pub plugins: HashMap<String, PathBuf>,
     /// Whether the dependencies of the manifest are frozen.
     pub frozen: bool,
+    /// The workspace configuration.
+    pub workspace: Workspace,
 }
 
 impl PrefixPaths for Manifest {
@@ -49,11 +49,6 @@ impl PrefixPaths for Manifest {
         Manifest {
             package: self.package,
             dependencies: self.dependencies.prefix_paths(prefix),
-            package_links: self
-                .package_links
-                .into_iter()
-                .map(|(k, v)| (k.prefix_paths(prefix), v))
-                .collect(),
             sources: self.sources.map(|src| src.prefix_paths(prefix)),
             export_include_dirs: self
                 .export_include_dirs
@@ -62,6 +57,7 @@ impl PrefixPaths for Manifest {
                 .collect(),
             plugins: self.plugins.prefix_paths(prefix),
             frozen: self.frozen,
+            workspace: self.workspace.prefix_paths(prefix),
         }
     }
 }
@@ -182,6 +178,28 @@ impl PrefixPaths for SourceFile {
     }
 }
 
+/// A workspace configuration.
+#[derive(Debug, Default)]
+pub struct Workspace {
+    /// The directory which will contain working copies of the dependencies.
+    pub checkout_dir: Option<PathBuf>,
+    /// The locally linked packages.
+    pub package_links: HashMap<PathBuf, String>,
+}
+
+impl PrefixPaths for Workspace {
+    fn prefix_paths(self, prefix: &Path) -> Self {
+        Workspace {
+            checkout_dir: self.checkout_dir.prefix_paths(prefix),
+            package_links: self
+                .package_links
+                .into_iter()
+                .map(|(k, v)| (k.prefix_paths(prefix), v))
+                .collect(),
+        }
+    }
+}
+
 /// Converts partial configuration into a validated full configuration.
 pub trait Validate {
     /// The output type produced by validation.
@@ -243,8 +261,6 @@ pub struct PartialManifest {
     pub package: Option<Package>,
     /// The dependencies.
     pub dependencies: Option<HashMap<String, StringOrStruct<PartialDependency>>>,
-    /// The locally linked packages.
-    pub package_links: Option<HashMap<PathBuf, String>>,
     /// The source files.
     pub sources: Option<SeqOrStruct<PartialSources, PartialSourceFile>>,
     /// The include directories exported to dependent packages.
@@ -253,6 +269,8 @@ pub struct PartialManifest {
     pub plugins: Option<HashMap<String, PathBuf>>,
     /// Whether the dependencies of the manifest are frozen.
     pub frozen: Option<bool>,
+    /// The workspace configuration.
+    pub workspace: Option<PartialWorkspace>,
 }
 
 impl Validate for PartialManifest {
@@ -272,10 +290,6 @@ impl Validate for PartialManifest {
             })?,
             None => HashMap::new(),
         };
-        let links = match self.package_links {
-            Some(s) => s,
-            None => HashMap::new(),
-        };
         let srcs = match self.sources {
             Some(s) => Some(s.validate().map_err(|cause| {
                 Error::chain(format!("In source list of package `{}`:", pkg.name), cause)
@@ -288,14 +302,20 @@ impl Validate for PartialManifest {
             None => HashMap::new(),
         };
         let frozen = self.frozen.unwrap_or(false);
+        let workspace = match self.workspace {
+            Some(w) => w
+                .validate()
+                .map_err(|cause| Error::chain(format!("In workspace configuration:"), cause))?,
+            None => Workspace::default(),
+        };
         Ok(Manifest {
             package: pkg,
             dependencies: deps,
-            package_links: links,
             sources: srcs,
             export_include_dirs: exp_inc_dirs,
             plugins,
             frozen,
+            workspace,
         })
     }
 }
@@ -512,6 +532,26 @@ impl Validate for PartialSourceFile {
             PartialSourceFile::File(path) => Ok(SourceFile::File(path)),
             PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate()?))),
         }
+    }
+}
+
+/// A partial workspace configuration.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PartialWorkspace {
+    /// The directory which will contain working copies of the dependencies.
+    pub checkout_dir: Option<PathBuf>,
+    /// The locally linked packages.
+    pub package_links: Option<HashMap<PathBuf, String>>,
+}
+
+impl Validate for PartialWorkspace {
+    type Output = Workspace;
+    type Error = Error;
+    fn validate(self) -> Result<Workspace> {
+        Ok(Workspace {
+            checkout_dir: self.checkout_dir,
+            package_links: self.package_links.unwrap_or_else(Default::default),
+        })
     }
 }
 
