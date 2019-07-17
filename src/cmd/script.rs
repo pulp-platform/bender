@@ -254,7 +254,7 @@ fn emit_synopsys_tcl(
                         lines.push("analyze -format sv".to_owned());
                     }
                     SourceType::Vhdl => {
-                        lines.push("analyze -format vhdl -2008".to_owned());
+                        lines.push("analyze -format vhdl".to_owned());
                     }
                 }
 
