@@ -28,7 +28,7 @@ if $BENDER path foo &> log; then # this fails according to issue #2
 	exit 1
 fi
 
-if ! grep 'Dependency `foo` cannot satisfy requirement `master`' log; then
+if ! grep -E 'Dependency `foo` from `.*?` cannot satisfy requirement `master`' log; then
 	cat log
 	echo "should fail differently" >&2
 	exit 2

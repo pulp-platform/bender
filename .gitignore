@@ -1,4 +1,5 @@
 .*
 !.git*
+!.travis.yml
 /target
 /tests/tmp

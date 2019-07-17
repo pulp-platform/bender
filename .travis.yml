@@ -1,0 +1,15 @@
+language: rust
+rust:
+  - stable
+  - beta
+  - nightly
+  # minimum supported version
+  - "1.31.0"
+matrix:
+  allow_failures:
+    - rust: nightly
+
+script:
+  - cargo build
+  - cargo test --all
+  - tests/run_all.sh
