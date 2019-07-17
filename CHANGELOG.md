@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+## 0.13.0 - 2019-07-17
 ### Added
 - Add the `frozen` option to prevent any dependency updates for a package.
 - Add the `workspace` section to carry workspace configuration.
