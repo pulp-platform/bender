@@ -156,16 +156,17 @@ fn emit_vsim_tcl(
                         if let Some(args) = matches.values_of("vlog-arg") {
                             lines.extend(args.map(Into::into));
                         }
-                        for (k, v) in &src.defines {
+                        let mut defines: Vec<(String, Option<&str>)> = vec![];
+                        defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+                        defines.extend(targets.iter().map(|t| (format!("TARGET_{}", t), None)));
+                        defines.sort();
+                        for (k, v) in defines {
                             let mut s = format!("+define+{}", k);
                             if let Some(v) = v {
                                 s.push('=');
                                 s.push_str(v);
                             }
                             lines.push(s);
-                        }
-                        for t in &targets {
-                            lines.push(format!("+define+TARGET_{}", t.to_uppercase()));
                         }
                         for i in &src.include_dirs {
                             if i.starts_with(sess.root) {
@@ -258,18 +259,19 @@ fn emit_synopsys_tcl(
                 }
 
                 // Add defines.
-                if !src.defines.is_empty() || !targets.is_empty() {
+                let mut defines: Vec<(String, Option<&str>)> = vec![];
+                defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+                defines.extend(targets.iter().map(|t| (format!("TARGET_{}", t), None)));
+                defines.sort();
+                if !defines.is_empty() {
                     lines.push("-define {".to_owned());
-                    for (k, v) in &src.defines {
+                    for (k, v) in defines {
                         let mut s = format!("    {}", k);
                         if let Some(v) = v {
                             s.push('=');
                             s.push_str(v);
                         }
                         lines.push(s);
-                    }
-                    for t in &targets {
-                        lines.push(format!("    TARGET_{}", t.to_uppercase()));
                     }
                     lines.push("}".to_owned());
                 }

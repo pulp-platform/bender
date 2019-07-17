@@ -303,6 +303,11 @@ impl TargetSet {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    /// Get an iterator over this set.
+    pub fn iter(&self) -> impl Iterator<Item = &String> {
+        self.0.iter()
+    }
 }
 
 impl<'a> IntoIterator for &'a TargetSet {
