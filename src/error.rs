@@ -5,10 +5,12 @@
 
 use std;
 use std::fmt;
-use std::sync::Arc;
+#[allow(deprecated)]
 use std::sync::atomic::{AtomicBool, ATOMIC_BOOL_INIT};
+use std::sync::Arc;
 
 pub use std::sync::atomic::Ordering;
+#[allow(deprecated)]
 pub static ENABLE_DEBUG: AtomicBool = ATOMIC_BOOL_INIT;
 
 /// Print an error.
@@ -69,10 +71,10 @@ pub enum Severity {
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let (color, prefix) = match *self {
-            Severity::Error   => ("\x1B[31;1m", "error"),
+            Severity::Error => ("\x1B[31;1m", "error"),
             Severity::Warning => ("\x1B[33;1m", "warning"),
-            Severity::Note    => ("\x1B[;1m", "note"),
-            Severity::Debug   => ("\x1B[34;1m", "debug"),
+            Severity::Note => ("\x1B[;1m", "note"),
+            Severity::Debug => ("\x1B[34;1m", "debug"),
         };
         write!(f, "{}{}:\x1B[m", color, prefix)
     }
@@ -100,8 +102,10 @@ impl Error {
     }
 
     /// Create a new error with cause.
-    pub fn chain<S,E>(msg: S, cause: E) -> Error
-        where S: Into<String>, E: std::error::Error + Send + Sync + 'static
+    pub fn chain<S, E>(msg: S, cause: E) -> Error
+    where
+        S: Into<String>,
+        E: std::error::Error + Send + Sync + 'static,
     {
         Error {
             msg: msg.into(),
