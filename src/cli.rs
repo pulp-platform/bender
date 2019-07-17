@@ -73,7 +73,8 @@ pub fn main() -> Result<()> {
     debugln!("main: root dir {:?}", root_dir);
 
     // Parse the manifest file of the package.
-    let manifest = read_manifest(&root_dir.join("Bender.yml"))?;
+    let manifest_path = root_dir.join("Bender.yml");
+    let manifest = read_manifest(&manifest_path)?;
     debugln!("main: {:#?}", manifest);
 
     // Gather and parse the tool configuration.
@@ -94,6 +95,9 @@ pub fn main() -> Result<()> {
 
     // Resolve the dependencies if the lockfile does not exist or is outdated.
     let locked = if matches.subcommand().0 == "update" || locked_existing.is_none() {
+        if manifest.frozen {
+            return Err(Error::new(format!("Refusing to update dependencies because the package is frozen. Remove the `frozen: true` from {:?} to proceed; there be dragons.", manifest_path)));
+        }
         debugln!("main: lockfile {:?} outdated", lock_path);
         let res = DependencyResolver::new(&sess);
         let locked_new = res.resolve()?;

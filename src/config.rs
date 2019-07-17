@@ -40,6 +40,8 @@ pub struct Manifest {
     pub export_include_dirs: Vec<PathBuf>,
     /// The plugin binaries.
     pub plugins: HashMap<String, PathBuf>,
+    /// Whether the dependencies of the manifest are frozen.
+    pub frozen: bool,
 }
 
 impl PrefixPaths for Manifest {
@@ -47,16 +49,19 @@ impl PrefixPaths for Manifest {
         Manifest {
             package: self.package,
             dependencies: self.dependencies.prefix_paths(prefix),
-            package_links: self.package_links
+            package_links: self
+                .package_links
                 .into_iter()
                 .map(|(k, v)| (k.prefix_paths(prefix), v))
                 .collect(),
             sources: self.sources.map(|src| src.prefix_paths(prefix)),
-            export_include_dirs: self.export_include_dirs
+            export_include_dirs: self
+                .export_include_dirs
                 .into_iter()
                 .map(|src| src.prefix_paths(prefix))
                 .collect(),
             plugins: self.plugins.prefix_paths(prefix),
+            frozen: self.frozen,
         }
     }
 }
@@ -246,6 +251,8 @@ pub struct PartialManifest {
     pub export_include_dirs: Option<Vec<PathBuf>>,
     /// The plugin binaries.
     pub plugins: Option<HashMap<String, PathBuf>>,
+    /// Whether the dependencies of the manifest are frozen.
+    pub frozen: Option<bool>,
 }
 
 impl Validate for PartialManifest {
@@ -280,13 +287,15 @@ impl Validate for PartialManifest {
             Some(s) => s,
             None => HashMap::new(),
         };
+        let frozen = self.frozen.unwrap_or(false);
         Ok(Manifest {
             package: pkg,
             dependencies: deps,
             package_links: links,
             sources: srcs,
             export_include_dirs: exp_inc_dirs,
-            plugins: plugins,
+            plugins,
+            frozen,
         })
     }
 }
@@ -653,7 +662,8 @@ impl Validate for PartialConfig {
                 None => HashMap::new(),
             },
             plugins: match self.plugins {
-                Some(d) => d.validate()
+                Some(d) => d
+                    .validate()
                     .map_err(|(key, cause)| Error::chain(format!("In plugin `{}`:", key), cause))?,
                 None => HashMap::new(),
             },
