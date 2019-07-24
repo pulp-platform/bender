@@ -1,4 +1,5 @@
 .*
+!/.ci/
 !.git*
 !.travis.yml
 /target
