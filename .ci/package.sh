@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 
-readonly pkgver="$(git tag -l --points-at HEAD | grep '^v.*$' | sed -n 's/^v//p')"
+if [ -z "$TRAVIS_TAG" ]; then
+    readonly pkgver="$TRAVIS_BRANCH"
+else
+    if [[ "$TRAVIS_TAG" =~ ^v.*$ ]]; then
+        readonly pkgver="$(echo $TRAVIS_TAG | sed -n 's/^v//p')"
+    else
+        readonly pkgver="$TRAVIS_TAG"
+    fi
+fi
 
 if [ -z "$1" ]; then
     readonly release_dir="target/release"
