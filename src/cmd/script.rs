@@ -158,10 +158,14 @@ fn emit_vsim_tcl(
                         }
                         let mut defines: Vec<(String, Option<&str>)> = vec![];
                         defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
-                        defines.extend(targets.iter().map(|t| (format!("TARGET_{}", t), None)));
+                        defines.extend(
+                            targets
+                                .iter()
+                                .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
+                        );
                         defines.sort();
                         for (k, v) in defines {
-                            let mut s = format!("+define+{}", k);
+                            let mut s = format!("+define+{}", k.to_uppercase());
                             if let Some(v) = v {
                                 s.push('=');
                                 s.push_str(v);
@@ -261,7 +265,11 @@ fn emit_synopsys_tcl(
                 // Add defines.
                 let mut defines: Vec<(String, Option<&str>)> = vec![];
                 defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
-                defines.extend(targets.iter().map(|t| (format!("TARGET_{}", t), None)));
+                defines.extend(
+                    targets
+                        .iter()
+                        .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
+                );
                 defines.sort();
                 if !defines.is_empty() {
                     lines.push("-define {".to_owned());
