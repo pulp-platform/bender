@@ -1,6 +1,6 @@
 [package]
 name = "bender"
-version = "0.13.1"
+version = "0.13.2"
 authors = ["Fabian Schuiki <fschuiki@iis.ee.ethz.ch>", "Andreas Kurth <akurth@iis.ee.ethz.ch>"]
 description = "A dependency management tool for hardware projects."
 readme = "README.md"

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
+## 0.13.2 - 2019-07-29
+### Fixed
+- Fix capitalization of target defines such as `TARGET_SYNTHESIS`.
+
 ## 0.13.1 - 2019-07-18
 ### Fixed
 - Omit unsupported `-2008` flag for VHDL analysis commands in Synopsys scripts.
