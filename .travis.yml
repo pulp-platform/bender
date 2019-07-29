@@ -1,8 +1,7 @@
 language: rust
 rust:
-  #- stable
-  - "1.35.0"
-  #- beta
+  - stable
+  - beta
   - nightly
   # minimum supported version
   - "1.31.0"
