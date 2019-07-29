@@ -335,8 +335,8 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             .iter()
             .map(|(k, v)| {
                 (
-                    self.intern_string(k.as_ref()),
-                    v.as_ref().map(|v| self.intern_string(v.as_ref())),
+                    self.intern_string(k),
+                    v.as_ref().map(|v| self.intern_string(v)),
                 )
             })
             .collect();
@@ -634,11 +634,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             DependencySource::Registry => unimplemented!(),
             DependencySource::Git(ref url) => Box::new(
                 self.checkout_git(
-                    self.sess.intern_string(dep.name.as_ref()),
+                    self.sess.intern_string(&dep.name),
                     checkout_dir,
-                    self.sess.intern_string(url.as_ref()),
-                    self.sess
-                        .intern_string(dep.revision.as_ref().unwrap().as_ref()),
+                    self.sess.intern_string(url),
+                    self.sess.intern_string(dep.revision.as_ref().unwrap()),
                 )
                 .and_then(move |path| {
                     self.sess
