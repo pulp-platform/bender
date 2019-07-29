@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Fixed
 - Fix rustc 1.36 `as_ref` [regression](https://github.com/rust-lang/rust/issues/60958)
+- Emit format-specific target defines even if no target is specified.
 
 ## 0.13.2 - 2019-07-29
 ### Fixed
