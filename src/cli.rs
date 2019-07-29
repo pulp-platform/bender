@@ -57,7 +57,7 @@ pub fn main() -> Result<()> {
 
     // Enable debug outputs if needed.
     if matches.is_present("debug") {
-        ENABLE_DEBUG.store(true, Ordering::Relaxed);
+        ENABLE_DEBUG.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     // Determine the root working directory, which has either been provided via
@@ -261,7 +261,6 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
 
 /// Load a configuration by traversing a directory hierarchy upwards.
 fn load_config(from: &Path) -> Result<Config> {
-    use std::fs::{canonicalize, metadata};
     use std::os::unix::fs::MetadataExt;
     let mut out = PartialConfig::new();
 

@@ -59,7 +59,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     let result = {
         let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
+        let handle = stdout.lock();
         if matches.is_present("flatten") {
             let srcs = srcs.flatten();
             serde_json::to_writer_pretty(handle, &srcs)

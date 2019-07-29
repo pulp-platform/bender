@@ -490,7 +490,6 @@ impl<'de> Deserialize<'de> for PartialSourceFile {
         D: Deserializer<'de>,
     {
         use serde::de;
-        use std::fmt;
         use std::result::Result;
         struct Visitor;
 

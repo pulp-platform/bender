@@ -9,7 +9,6 @@ use std::fmt;
 use std::sync::atomic::{AtomicBool, ATOMIC_BOOL_INIT};
 use std::sync::Arc;
 
-pub use std::sync::atomic::Ordering;
 #[allow(deprecated)]
 pub static ENABLE_DEBUG: AtomicBool = ATOMIC_BOOL_INIT;
 
@@ -36,7 +35,7 @@ macro_rules! noteln {
 #[cfg(debug_assertions)]
 macro_rules! debugln {
     ($($arg:tt)*) => {
-        if $crate::error::ENABLE_DEBUG.load($crate::error::Ordering::Relaxed) {
+        if $crate::error::ENABLE_DEBUG.load(std::sync::atomic::Ordering::Relaxed) {
             diagnostic!($crate::error::Severity::Debug; $($arg)*);
         }
     }
