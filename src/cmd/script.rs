@@ -63,7 +63,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let targets = matches
         .values_of("target")
         .map(|t| TargetSet::new(t.chain(format_targets.into_iter().cloned())))
-        .unwrap_or_else(|| TargetSet::empty());
+        .unwrap_or_else(|| TargetSet::new(format_targets.into_iter()));
     let srcs = srcs
         .filter_targets(&targets)
         .unwrap_or_else(|| SourceGroup {
