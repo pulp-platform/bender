@@ -28,7 +28,7 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("format")
                 .help("Format of the generated script")
                 .required(true)
-                .possible_values(&["vsim", "synopsys"]),
+                .possible_values(&["vsim", "synopsys", "vivado"]),
         )
         .arg(
             Arg::with_name("vcom-arg")
@@ -53,9 +53,10 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let srcs = core.run(io.sources())?;
 
     // Format-specific target specifiers.
-    let format_targets = match matches.value_of("format").unwrap() {
+    let format_targets: &[&str] = match matches.value_of("format").unwrap() {
         "vsim" => &["vsim", "simulation"],
         "synopsys" => &["synopsys", "synthesis"],
+        "vivado" => &["vivado", "synthesis", "fpga", "xilinx"],
         _ => unreachable!(),
     };
 
@@ -82,6 +83,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     match matches.value_of("format").unwrap() {
         "vsim" => emit_vsim_tcl(sess, matches, targets, srcs),
         "synopsys" => emit_synopsys_tcl(sess, matches, targets, srcs),
+        "vivado" => emit_vivado_tcl(sess, matches, targets, srcs),
         _ => unreachable!(),
     }
 }
@@ -92,10 +94,10 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 /// Files with the same category that appear after each other will be kept in
 /// the same source group. Files with different cateogries are split into
 /// separate groups.
-fn separate_files_in_group<F1, F2, T>(mut src: SourceGroup, categorize: F1, consume: F2)
+fn separate_files_in_group<F1, F2, T>(mut src: SourceGroup, categorize: F1, mut consume: F2)
 where
     F1: Fn(&SourceFile) -> Option<T>,
-    F2: Fn(&SourceGroup, T, Vec<SourceFile>),
+    F2: FnMut(&SourceGroup, T, Vec<SourceFile>),
     T: Eq,
 {
     let mut category = None;
@@ -301,5 +303,69 @@ fn emit_synopsys_tcl(
     }
     println!("");
     println!("set search_path $search_path_initial");
+    Ok(())
+}
+
+/// Emit a script to add sources to Vivado.
+fn emit_vivado_tcl(
+    _sess: &Session,
+    _matches: &ArgMatches,
+    targets: TargetSet,
+    srcs: Vec<SourceGroup>,
+) -> Result<()> {
+    println!("# This script was generated automatically by bender.");
+    let mut include_dirs = vec![];
+    let mut defines = vec![];
+    for src in srcs {
+        for i in &src.include_dirs {
+            include_dirs.push(i.to_str().unwrap());
+        }
+        separate_files_in_group(
+            src,
+            |f| match f {
+                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
+                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
+                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
+                    _ => None,
+                },
+                _ => None,
+            },
+            |src, _ty, files| {
+                let mut lines = vec![];
+                lines.push("add_files -fileset [current_fileset] [list".to_owned());
+                for file in files {
+                    let p = match file {
+                        SourceFile::File(p) => p,
+                        _ => continue,
+                    };
+                    lines.push(format!("{}", p.to_str().unwrap()));
+                }
+                println!("{} \\\n]", lines.join(" \\\n    "));
+                defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
+            },
+        );
+    }
+    if !include_dirs.is_empty() {
+        include_dirs.sort();
+        include_dirs.dedup();
+        println!("");
+        println!("set_property verilog_dir [list \\\n    {} \\\n] [current_fileset]",
+                    include_dirs.join(" \\\n    "));
+    }
+    defines.extend(targets.iter().map(|t| (format!("TARGET_{}", t.to_uppercase()), None)));
+    if !defines.is_empty() {
+        println!("");
+        println!("set_property verilog_define [list \\");
+        defines.sort();
+        defines.dedup();
+        for (k, v) in defines {
+            let s = match v {
+                Some(s) => format!("{}={}", k, s),
+                None => format!("{}", k)
+            };
+            println!("    {} \\", s);
+        }
+        println!("] [current_fileset]");
+    }
     Ok(())
 }
