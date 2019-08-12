@@ -28,7 +28,7 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("format")
                 .help("Format of the generated script")
                 .required(true)
-                .possible_values(&["vsim", "synopsys", "vivado"]),
+                .possible_values(&["vsim", "xcelium", "synopsys", "vivado"]),
         )
         .arg(
             Arg::with_name("vcom-arg")
@@ -55,6 +55,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     // Format-specific target specifiers.
     let format_targets: &[&str] = match matches.value_of("format").unwrap() {
         "vsim" => &["vsim", "simulation"],
+        "xcelium" => &["xcelium", "simulation"],
         "synopsys" => &["synopsys", "synthesis"],
         "vivado" => &["vivado", "synthesis", "fpga", "xilinx"],
         _ => unreachable!(),
@@ -82,6 +83,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     // Generate the corresponding output.
     match matches.value_of("format").unwrap() {
         "vsim" => emit_vsim_tcl(sess, matches, targets, srcs),
+        "xcelium" => emit_xcelium_flist(sess, matches, targets, srcs),
         "synopsys" => emit_synopsys_tcl(sess, matches, targets, srcs),
         "vivado" => emit_vivado_tcl(sess, matches, targets, srcs),
         _ => unreachable!(),
@@ -208,6 +210,69 @@ fn emit_vsim_tcl(
                 }
                 println!("");
                 println!("{}", lines.join(" \\\n    "));
+            },
+        );
+    }
+    Ok(())
+}
+
+/// Emit a xcelium compilation script.
+/// TODO: allow for relative paths
+fn emit_xcelium_flist(
+    sess: &Session,
+    matches: &ArgMatches,
+    targets: TargetSet,
+    srcs: Vec<SourceGroup>,
+) -> Result<()> {
+    println!("# This script was generated automatically by bender.");
+    for src in srcs {
+        separate_files_in_group(
+            src,
+            |f| match f {
+                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
+                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
+                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
+                    _ => None,
+                },
+                _ => None,
+            },
+            |src, ty, files| {
+                let mut lines = vec![];
+                match ty {
+                    SourceType::Verilog => {
+                        let mut defines: Vec<(String, Option<&str>)> = vec![];
+                        defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+                        defines.extend(
+                            targets
+                                .iter()
+                                .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
+                        );
+                        defines.sort();
+                        for (k, v) in defines {
+                            let mut s = format!("-define {}", k.to_uppercase());
+                            if let Some(v) = v {
+                                s.push('=');
+                                s.push_str(v);
+                            }
+                            lines.push(s);
+                        }
+                        for i in &src.include_dirs {
+                            lines.push(format!("-incdir \"{}\"", i.to_str().unwrap()));
+                        }
+                    }
+                    SourceType::Vhdl => {
+                        // TODO: hmm
+                    }
+                }
+                for file in files {
+                    let p = match file {
+                        SourceFile::File(p) => p,
+                        _ => continue,
+                    };
+                    lines.push(format!("\"{}\"", p.to_str().unwrap()));
+                }
+                println!("");
+                println!("{}", lines.join("\n"));
             },
         );
     }
