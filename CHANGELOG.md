@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Added
 - Add `flist` scripts target emitting a plain file list.
+### Changed
+- Add `--abort-on-error` flag to the `script` command (effective for `synopsys` and `vsim`).
 
 ## 0.18.0 - 2020-04-03
 ### Added
