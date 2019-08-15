@@ -558,14 +558,10 @@ fn emit_synopsys_tcl(
             },
             |src, ty, files| {
                 let mut lines = vec![];
-                match ty {
-                    SourceType::Verilog => {
-                        lines.push("analyze -format sv".to_owned());
-                    }
-                    SourceType::Vhdl => {
-                        lines.push("analyze -format vhdl".to_owned());
-                    }
-                }
+                lines.push(format!("analyze -format {}", match ty {
+                        SourceType::Verilog => { "sv" }
+                        SourceType::Vhdl => { "vhdl" }
+                    }).to_owned());
 
                 // Add defines.
                 let mut defines: Vec<(String, Option<&str>)> = vec![];
