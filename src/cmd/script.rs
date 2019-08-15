@@ -98,6 +98,11 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
                 .default_value("vhdlan")
                 .number_of_values(1),
         )
+        .arg(
+            Arg::with_name("abort-on-error")
+                .long("abort-on-error")
+                .help("Abort analysis/compilation on first caught error")
+        )
 }
 
 /// Execute the `script` subcommand.
@@ -123,6 +128,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "vivado-sim" => concat(vivado_targets, &["simulation"]),
         _ => unreachable!(),
     };
+
+    let abort_on_error = matches.is_present("abort-on-error");
 
     // Filter the sources by target.
     let targets = matches
@@ -166,10 +173,10 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     // Generate the corresponding output.
     match format {
         "flist" => emit_flist(sess, matches, srcs),
-        "vsim" => emit_vsim_tcl(sess, matches, targets, srcs),
+        "vsim" => emit_vsim_tcl(sess, matches, targets, srcs, abort_on_error),
         "vcs" => emit_vcs_sh(sess, matches, targets, srcs),
         "verilator" => emit_verilator_sh(sess, matches, targets, srcs),
-        "synopsys" => emit_synopsys_tcl(sess, matches, targets, srcs),
+        "synopsys" => emit_synopsys_tcl(sess, matches, targets, srcs, abort_on_error),
         "genus" => emit_genus_tcl(sess, matches, targets, srcs),
         "vivado" => emit_vivado_tcl(sess, matches, targets, srcs),
         "vivado-sim" => emit_vivado_tcl(sess, matches, targets, srcs),
@@ -251,12 +258,22 @@ fn header_sh(sess: &Session) -> String {
     lines.join("\n")
 }
 
+fn tcl_catch_prefix(cmd: &str, do_prefix: bool) -> String {
+    let prefix = if do_prefix { "if {[catch {" } else { "" };
+    return format!("{}{}", prefix, cmd);
+}
+
+fn tcl_catch_postfix() -> &'static str {
+    return "}]} {return 1}";
+}
+
 /// Emit a vsim compilation script.
 fn emit_vsim_tcl(
     sess: &Session,
     matches: &ArgMatches,
     targets: TargetSet,
     srcs: Vec<SourceGroup>,
+    abort_on_error: bool,
 ) -> Result<()> {
     println!("{}", header_tcl(sess));
     for src in srcs {
@@ -274,7 +291,7 @@ fn emit_vsim_tcl(
                 let mut lines = vec![];
                 match ty {
                     SourceType::Verilog => {
-                        lines.push("vlog -incr -sv".to_owned());
+                        lines.push(tcl_catch_prefix("vlog -incr -sv", abort_on_error).to_owned());
                         if let Some(args) = matches.values_of("vlog-arg") {
                             lines.extend(args.map(Into::into));
                         }
@@ -300,7 +317,7 @@ fn emit_vsim_tcl(
                         }
                     }
                     SourceType::Vhdl => {
-                        lines.push("vcom -2008".to_owned());
+                        lines.push(tcl_catch_prefix("vcom -2008", abort_on_error).to_owned());
                         if let Some(args) = matches.values_of("vcom-arg") {
                             lines.extend(args.map(Into::into));
                         }
@@ -315,6 +332,9 @@ fn emit_vsim_tcl(
                 }
                 println!("");
                 println!("{}", lines.join(" \\\n    "));
+                if abort_on_error {
+                    println!("{}", tcl_catch_postfix());
+                }
             },
         );
     }
@@ -533,6 +553,7 @@ fn emit_synopsys_tcl(
     _matches: &ArgMatches,
     targets: TargetSet,
     srcs: Vec<SourceGroup>,
+    abort_on_error: bool,
 ) -> Result<()> {
     println!("{}", header_tcl(sess));
     println!("set search_path_initial $search_path");
@@ -558,10 +579,10 @@ fn emit_synopsys_tcl(
             },
             |src, ty, files| {
                 let mut lines = vec![];
-                lines.push(format!("analyze -format {}", match ty {
+                lines.push(tcl_catch_prefix(&format!("analyze -format {}", match ty {
                         SourceType::Verilog => { "sv" }
                         SourceType::Vhdl => { "vhdl" }
-                    }).to_owned());
+                    }), abort_on_error).to_owned());
 
                 // Add defines.
                 let mut defines: Vec<(String, Option<&str>)> = vec![];
@@ -597,6 +618,9 @@ fn emit_synopsys_tcl(
                 lines.push("]".to_owned());
                 println!("");
                 println!("{}", lines.join(" \\\n    "));
+                if abort_on_error {
+                    println!("{}", tcl_catch_postfix());
+                }
             },
         );
     }
