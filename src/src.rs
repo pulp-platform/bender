@@ -135,7 +135,7 @@ impl<'ctx> SourceGroup<'ctx> {
                     grp.independent &= self.independent;
                     grp.target = TargetSpec::All(
                         [&self.target, &grp.target]
-                            .into_iter()
+                            .iter()
                             .map(|&i| i.clone())
                             .collect(),
                     );
