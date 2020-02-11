@@ -349,7 +349,7 @@ fn emit_vivado_tcl(
         include_dirs.sort();
         include_dirs.dedup();
         println!("");
-        println!("set_property verilog_dir [list \\\n    {} \\\n] [current_fileset]",
+        println!("set_property include_dirs [list \\\n    {} \\\n] [current_fileset]",
                     include_dirs.join(" \\\n    "));
     }
     defines.extend(targets.iter().map(|t| (format!("TARGET_{}", t.to_uppercase()), None)));
