@@ -332,7 +332,7 @@ fn emit_vivado_tcl(
             },
             |src, _ty, files| {
                 let mut lines = vec![];
-                lines.push("add_files -fileset [current_fileset] [list".to_owned());
+                lines.push("add_files -norecurse -fileset [current_fileset] [list".to_owned());
                 for file in files {
                     let p = match file {
                         SourceFile::File(p) => p,
