@@ -348,9 +348,11 @@ fn emit_vivado_tcl(
     if !include_dirs.is_empty() {
         include_dirs.sort();
         include_dirs.dedup();
-        println!("");
-        println!("set_property include_dirs [list \\\n    {} \\\n] [current_fileset]",
-                    include_dirs.join(" \\\n    "));
+        for arg in &["", " -simset"] {
+            println!("");
+            println!("set_property include_dirs [list \\\n    {} \\\n] [current_fileset{}]",
+                        include_dirs.join(" \\\n    "), arg);
+        }
     }
     defines.extend(targets.iter().map(|t| (format!("TARGET_{}", t.to_uppercase()), None)));
     if !defines.is_empty() {
