@@ -12,8 +12,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - `script`: Raise error if `vcom-arg` or `vlog-arg` are used with format other than `vsim`.
 - `script vivado`:
   - Add `-norecurse` to `add_files` to prevent warnings.
-  - Set `include_dirs` property also for `simset` to prevent critical warnings.
-  - Set `verilog_define` property also for `simset` to prevent critical warnings.
+  - Set `include_dirs` and `verilog_define` properties also for `simset` to prevent critical warnings.  This can be disabled with the new `--no-simset` option.
 
 ### Fixed
 - `script vivado`: Fix name of `include_dirs` property.
