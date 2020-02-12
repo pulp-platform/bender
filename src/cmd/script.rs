@@ -356,18 +356,20 @@ fn emit_vivado_tcl(
     }
     defines.extend(targets.iter().map(|t| (format!("TARGET_{}", t.to_uppercase()), None)));
     if !defines.is_empty() {
-        println!("");
-        println!("set_property verilog_define [list \\");
         defines.sort();
         defines.dedup();
-        for (k, v) in defines {
-            let s = match v {
-                Some(s) => format!("{}={}", k, s),
-                None => format!("{}", k)
-            };
-            println!("    {} \\", s);
+        for arg in &["", " -simset"] {
+            println!("");
+            println!("set_property verilog_define [list \\");
+            for (k, v) in &defines {
+                let s = match v {
+                    Some(s) => format!("{}={}", k, s),
+                    None => format!("{}", k)
+                };
+                println!("    {} \\", s);
+            }
+            println!("] [current_fileset{}]", arg);
         }
-        println!("] [current_fileset]");
     }
     Ok(())
 }
