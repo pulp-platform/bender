@@ -59,6 +59,11 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
                 .long("only-sources")
                 .help("Only output commands to define source files (Vivado only)")
         )
+        .arg(
+            Arg::with_name("no-simset")
+                .long("no-simset")
+                .help("Do not change `simset` fileset (Vivado only)")
+        )
 }
 
 /// Execute the `script` subcommand.
@@ -100,7 +105,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         return Err(Error::new("vsim-only options can only be used for 'vsim' format!"));
     }
     if (matches.is_present("only-defines") || matches.is_present("only-includes")
-                || matches.is_present("only-sources")
+                || matches.is_present("only-sources") || matches.is_present("no-simset")
             ) && matches.value_of("format") != Some("vivado") {
         return Err(Error::new("Vivado-only options can only be used for 'vivado' format!"));
     }
@@ -366,6 +371,11 @@ fn emit_vivado_tcl(
     println!("# This script was generated automatically by bender.");
     let mut include_dirs = vec![];
     let mut defines = vec![];
+    let filesets = if matches.is_present("no-simset") {
+        vec![""]
+    } else {
+        vec!["", " -simset"]
+    };
     for src in srcs {
         for i in &src.include_dirs {
             include_dirs.push(i.to_str().unwrap());
@@ -400,7 +410,7 @@ fn emit_vivado_tcl(
     if !include_dirs.is_empty() && output_components.include_dirs {
         include_dirs.sort();
         include_dirs.dedup();
-        for arg in &["", " -simset"] {
+        for arg in &filesets {
             println!("");
             println!("set_property include_dirs [list \\\n    {} \\\n] [current_fileset{}]",
                         include_dirs.join(" \\\n    "), arg);
@@ -410,7 +420,7 @@ fn emit_vivado_tcl(
     if !defines.is_empty() && output_components.defines {
         defines.sort();
         defines.dedup();
-        for arg in &["", " -simset"] {
+        for arg in &filesets {
             println!("");
             println!("set_property verilog_define [list \\");
             for (k, v) in &defines {
