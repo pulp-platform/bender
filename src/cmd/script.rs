@@ -44,6 +44,21 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .multiple(true)
         )
+        .arg(
+            Arg::with_name("only-defines")
+                .long("only-defines")
+                .help("Only output commands to define macros (Vivado only)")
+        )
+        .arg(
+            Arg::with_name("only-includes")
+                .long("only-includes")
+                .help("Only output commands to define include directories (Vivado only)")
+        )
+        .arg(
+            Arg::with_name("only-sources")
+                .long("only-sources")
+                .help("Only output commands to define source files (Vivado only)")
+        )
 }
 
 /// Execute the `script` subcommand.
@@ -83,6 +98,11 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     if (matches.is_present("vcom-arg") || matches.is_present("vlog-arg"))
             && matches.value_of("format") != Some("vsim") {
         return Err(Error::new("vsim-only options can only be used for 'vsim' format!"));
+    }
+    if (matches.is_present("only-defines") || matches.is_present("only-includes")
+                || matches.is_present("only-sources")
+            ) && matches.value_of("format") != Some("vivado") {
+        return Err(Error::new("Vivado-only options can only be used for 'vivado' format!"));
     }
 
     // Generate the corresponding output.
@@ -315,10 +335,34 @@ fn emit_synopsys_tcl(
 /// Emit a script to add sources to Vivado.
 fn emit_vivado_tcl(
     _sess: &Session,
-    _matches: &ArgMatches,
+    matches: &ArgMatches,
     targets: TargetSet,
     srcs: Vec<SourceGroup>,
 ) -> Result<()> {
+    // Determine the components that are part of the output.
+    #[derive(Default)]
+    struct OutputComponents {
+        include_dirs: bool,
+        defines: bool,
+        sources: bool,
+    };
+    let mut output_components = OutputComponents::default();
+    if !matches.is_present("only-defines") && !matches.is_present("only-includes") &&
+            !matches.is_present("only-sources") {
+        // Print everything if user specified no restriction.
+        output_components = OutputComponents { include_dirs: true, defines: true, sources: true };
+    } else {
+        if matches.is_present("only-defines") {
+            output_components.defines = true;
+        }
+        if matches.is_present("only-includes") {
+            output_components.include_dirs = true;
+        }
+        if matches.is_present("only-sources") {
+            output_components.sources = true;
+        }
+    }
+
     println!("# This script was generated automatically by bender.");
     let mut include_dirs = vec![];
     let mut defines = vec![];
@@ -346,12 +390,14 @@ fn emit_vivado_tcl(
                     };
                     lines.push(format!("{}", p.to_str().unwrap()));
                 }
-                println!("{} \\\n]", lines.join(" \\\n    "));
+                if output_components.sources {
+                    println!("{} \\\n]", lines.join(" \\\n    "));
+                }
                 defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
             },
         );
     }
-    if !include_dirs.is_empty() {
+    if !include_dirs.is_empty() && output_components.include_dirs {
         include_dirs.sort();
         include_dirs.dedup();
         for arg in &["", " -simset"] {
@@ -361,7 +407,7 @@ fn emit_vivado_tcl(
         }
     }
     defines.extend(targets.iter().map(|t| (format!("TARGET_{}", t.to_uppercase()), None)));
-    if !defines.is_empty() {
+    if !defines.is_empty() && output_components.defines {
         defines.sort();
         defines.dedup();
         for arg in &["", " -simset"] {
@@ -378,4 +424,5 @@ fn emit_vivado_tcl(
         }
     }
     Ok(())
+
 }
