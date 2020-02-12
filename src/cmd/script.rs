@@ -33,16 +33,16 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("vcom-arg")
                 .long("vcom-arg")
-                .help("Pass an argument to vcom calls")
+                .help("Pass an argument to vcom calls (vsim only)")
                 .takes_value(true)
-                .multiple(true),
+                .multiple(true)
         )
         .arg(
             Arg::with_name("vlog-arg")
                 .long("vlog-arg")
-                .help("Pass an argument to vlog calls")
+                .help("Pass an argument to vlog calls (vsim only)")
                 .takes_value(true)
-                .multiple(true),
+                .multiple(true)
         )
 }
 
@@ -78,6 +78,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     // Flatten the sources.
     let srcs = srcs.flatten();
+
+    // Validate format-specific options.
+    if (matches.is_present("vcom-arg") || matches.is_present("vlog-arg"))
+            && matches.value_of("format") != Some("vsim") {
+        return Err(Error::new("vsim-only options can only be used for 'vsim' format!"));
+    }
 
     // Generate the corresponding output.
     match matches.value_of("format").unwrap() {

@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 ### Changed
+- `script`: Raise error if `vcom-arg` or `vlog-arg` are used with format other than `vsim`.
 - `script vivado`:
   - Add `-norecurse` to `add_files` to prevent warnings.
   - Set `include_dirs` property also for `simset` to prevent critical warnings.
