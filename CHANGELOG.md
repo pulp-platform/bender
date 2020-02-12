@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+### Changed
+- `script vivado`:
+  - Add `-norecurse` to `add_files` to prevent warnings.
+  - Set `include_dirs` property also for `simset` to prevent critical warnings.
+  - Set `verilog_define` property also for `simset` to prevent critical warnings.
+
+### Fixed
+- `script vivado`: Fix name of `include_dirs` property.
 
 ## 0.14.0 - 2019-10-16
 ### Added
