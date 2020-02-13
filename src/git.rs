@@ -5,12 +5,12 @@
 
 #![deny(missing_docs)]
 
+use std::ffi::OsStr;
 use std::path::Path;
 use std::process::Command;
-use std::ffi::OsStr;
 
-use futures::Future;
 use futures::future;
+use futures::Future;
 use tokio_process::CommandExt;
 
 use error::*;
@@ -61,17 +61,19 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     pub fn spawn(self, mut cmd: Command, check: bool) -> GitFuture<'io, String> {
         let output = cmd
             .output_async(&self.sess.handle)
-            .map_err(|cause| Error::chain(
-                "Failed to spawn child process.",
-                cause
-            ));
-        let result = output.and_then(move |output|{
+            .map_err(|cause| Error::chain("Failed to spawn child process.", cause));
+        let result = output.and_then(move |output| {
             debugln!("git: {:?} in {:?}", cmd, self.path);
             if output.status.success() || !check {
-                String::from_utf8(output.stdout).map_err(|cause| Error::chain(
-                    format!("Output of git command ({:?}) in directory {:?} is not valid UTF-8.", cmd, self.path),
-                    cause
-                ))
+                String::from_utf8(output.stdout).map_err(|cause| {
+                    Error::chain(
+                        format!(
+                            "Output of git command ({:?}) in directory {:?} is not valid UTF-8.",
+                            cmd, self.path
+                        ),
+                        cause,
+                    )
+                })
             } else {
                 let mut msg = format!("Git command ({:?}) in directory {:?}", cmd, self.path);
                 match output.status.code() {
@@ -97,7 +99,8 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     /// closure `f` for configuration, then passes it to the `spawn` function
     /// and returns the future.
     pub fn spawn_with<F>(self, f: F) -> GitFuture<'io, String>
-        where F: FnOnce(&mut Command) -> &mut Command
+    where
+        F: FnOnce(&mut Command) -> &mut Command,
     {
         let mut cmd = Command::new(&self.sess.sess.config.git);
         cmd.current_dir(&self.path);
@@ -110,7 +113,8 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     /// This is the same as `spawn_with()`, but returns the stdout regardless of
     /// whether the command failed or not.
     pub fn spawn_unchecked_with<F>(self, f: F) -> GitFuture<'io, String>
-        where F: FnOnce(&mut Command) -> &mut Command
+    where
+        F: FnOnce(&mut Command) -> &mut Command,
     {
         let mut cmd = Command::new(&self.sess.sess.config.git);
         cmd.current_dir(&self.path);
@@ -122,59 +126,58 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     pub fn fetch(self, remote: &str) -> GitFuture<'io, ()> {
         let r1 = String::from(remote);
         let r2 = String::from(remote);
-        Box::new(self.spawn_with(move |c| c
-            .arg("fetch")
-            .arg("--prune")
-            .arg(r1)
-        ).and_then(move |_| self.spawn_with(|c| c
-            .arg("fetch")
-            .arg("--tags")
-            .arg("--prune")
-            .arg(r2)
-        )).map(|_| ()))
+        Box::new(
+            self.spawn_with(move |c| c.arg("fetch").arg("--prune").arg(r1))
+                .and_then(move |_| {
+                    self.spawn_with(|c| c.arg("fetch").arg("--tags").arg("--prune").arg(r2))
+                })
+                .map(|_| ()),
+        )
     }
 
     /// List all refs and their hashes.
     pub fn list_refs(self) -> GitFuture<'io, Vec<(String, String)>> {
-        Box::new(self.spawn_unchecked_with(|c|
-            c.arg("show-ref")
-        ).and_then(move |raw| {
-            future::join_all(raw.lines().map(|line|{
-                // Parse the line.
-                let mut fields = line.split_whitespace().map(String::from);
-                // TODO: Handle the case where the line might not contain enough
-                // information or is missing some fields.
-                let mut rev = fields.next().unwrap();
-                let rf = fields.next().unwrap();
-                rev.push_str("^{commit}");
+        Box::new(
+            self.spawn_unchecked_with(|c| c.arg("show-ref"))
+                .and_then(move |raw| {
+                    future::join_all(
+                        raw.lines()
+                            .map(|line| {
+                                // Parse the line.
+                                let mut fields = line.split_whitespace().map(String::from);
+                                // TODO: Handle the case where the line might not contain enough
+                                // information or is missing some fields.
+                                let mut rev = fields.next().unwrap();
+                                let rf = fields.next().unwrap();
+                                rev.push_str("^{commit}");
 
-                // Parse the ref. This is needed since the ref for an annotated
-                // tag points to the hash of the tag itself, rather than the
-                // underlying commit. By callign `git rev-parse` with the ref
-                // augmented with `^{commit}`, we can ensure that we always end
-                // up with a commit hash.
-                self.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(rev))
-                    .map(|rev| (rev.trim().into(), rf))
-            }).collect::<Vec<_>>())
-        }))
+                                // Parse the ref. This is needed since the ref for an annotated
+                                // tag points to the hash of the tag itself, rather than the
+                                // underlying commit. By callign `git rev-parse` with the ref
+                                // augmented with `^{commit}`, we can ensure that we always end
+                                // up with a commit hash.
+                                self.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(rev))
+                                    .map(|rev| (rev.trim().into(), rf))
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                }),
+        )
     }
 
     /// List all revisions.
     pub fn list_revs(self) -> GitFuture<'io, Vec<String>> {
         Box::new(
             self.spawn_with(|c| c.arg("rev-list").arg("--all").arg("--date-order"))
-            .map(|raw| raw.lines().map(String::from).collect())
+                .map(|raw| raw.lines().map(String::from).collect()),
         )
     }
 
     /// Determine the currently checked out revision.
     pub fn current_checkout(self) -> GitFuture<'io, Option<String>> {
         Box::new(
-            self.spawn_with(|c| c
-                .arg("rev-parse")
-                .arg("--revs-only")
-                .arg("HEAD^{commit}"))
-            .map(|raw| raw.lines().take(1).map(String::from).next())
+            self.spawn_with(|c| c.arg("rev-parse").arg("--revs-only").arg("HEAD^{commit}"))
+                .map(|raw| raw.lines().take(1).map(String::from).next()),
         )
     }
 
@@ -184,7 +187,7 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     pub fn list_files<R: AsRef<OsStr>, P: AsRef<OsStr>>(
         self,
         rev: R,
-        path: Option<P>
+        path: Option<P>,
     ) -> GitFuture<'io, Vec<TreeEntry>> {
         Box::new(
             self.spawn_with(|c| {
@@ -193,23 +196,19 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
                     c.arg(p);
                 }
                 c
-            }).map(|raw| raw.lines().map(TreeEntry::parse).collect())
+            })
+            .map(|raw| raw.lines().map(TreeEntry::parse).collect()),
         )
     }
 
     /// Read the content of a file.
     pub fn cat_file<O: AsRef<OsStr>>(self, hash: O) -> GitFuture<'io, String> {
-        Box::new(
-            self.spawn_with(|c| c
-                .arg("cat-file")
-                .arg("blob")
-                .arg(hash))
-        )
+        Box::new(self.spawn_with(|c| c.arg("cat-file").arg("blob").arg(hash)))
     }
 }
 
 /// A future returned from any of the git functions.
-pub type GitFuture<'io, T> = Box<Future<Item=T, Error=Error> + 'io>;
+pub type GitFuture<'io, T> = Box<dyn Future<Item = T, Error = Error> + 'io>;
 
 /// A single entry in a git tree.
 ///

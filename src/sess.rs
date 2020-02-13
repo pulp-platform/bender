@@ -386,7 +386,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     pub fn dependency_versions(
         &'io self,
         dep_id: DependencyRef,
-    ) -> Box<Future<Item = DependencyVersions<'ctx>, Error = Error> + 'io> {
+    ) -> Box<dyn Future<Item = DependencyVersions<'ctx>, Error = Error> + 'io> {
         self.sess.stats.num_calls_dependency_versions.increment();
         let dep = self.sess.dependency(dep_id);
         match dep.source {
@@ -410,7 +410,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         &'io self,
         name: &str,
         url: &str,
-    ) -> Box<Future<Item = Git<'io, 'sess, 'ctx>, Error = Error> + 'io> {
+    ) -> Box<dyn Future<Item = Git<'io, 'sess, 'ctx>, Error = Error> + 'io> {
         // TODO: Make the assembled future shared and keep it in a lookup table.
         //       Then use that table to return the future if it already exists.
         //       This ensures that the gitdb is setup only once, and makes the
@@ -502,16 +502,17 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     fn git_versions(
         &'io self,
         git: Git<'io, 'sess, 'ctx>,
-    ) -> Box<Future<Item = GitVersions<'ctx>, Error = Error> + 'io> {
+    ) -> Box<dyn Future<Item = GitVersions<'ctx>, Error = Error> + 'io> {
         let dep_refs = git.list_refs();
         let dep_revs = git.list_revs();
-        let dep_refs_and_revs = dep_refs.and_then(|refs| -> Box<Future<Item = _, Error = Error>> {
-            if refs.is_empty() {
-                Box::new(future::ok((refs, vec![])))
-            } else {
-                Box::new(dep_revs.map(move |revs| (refs, revs)))
-            }
-        });
+        let dep_refs_and_revs =
+            dep_refs.and_then(|refs| -> Box<dyn Future<Item = _, Error = Error>> {
+                if refs.is_empty() {
+                    Box::new(future::ok((refs, vec![])))
+                } else {
+                    Box::new(dep_revs.map(move |revs| (refs, revs)))
+                }
+            });
         let out = dep_refs_and_revs.and_then(move |(refs, revs)| {
             let refs: Vec<_> = refs
                 .into_iter()
@@ -578,7 +579,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     pub fn checkout(
         &'io self,
         dep_id: DependencyRef,
-    ) -> Box<Future<Item = &'ctx Path, Error = Error> + 'io> {
+    ) -> Box<dyn Future<Item = &'ctx Path, Error = Error> + 'io> {
         // Check if the checkout is already in the cache.
         if let Some(&cached) = self.sess.cache.checkout.lock().unwrap().get(&dep_id) {
             return Box::new(future::ok(cached));
@@ -662,12 +663,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         path: &'ctx Path,
         url: &'ctx str,
         revision: &'ctx str,
-    ) -> Box<Future<Item = &'ctx Path, Error = Error> + 'io> {
+    ) -> Box<dyn Future<Item = &'ctx Path, Error = Error> + 'io> {
         // First check if we have to get rid of the current checkout. This is
         // the case if it either does not exist or the checked out revision does
         // not match what we expect.
         let scrapped = future::lazy(move || future::ok(path.exists()))
-            .and_then(move |exists| -> Box<Future<Item = _, Error = Error>> {
+            .and_then(move |exists| -> Box<dyn Future<Item = _, Error = Error>> {
                 if exists {
                     // Never scrap checkouts the user asked for explicitly in
                     // the workspace configuration.
@@ -715,7 +716,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             });
 
         // Perform the checkout if necessary.
-        let updated = scrapped.and_then(move |_| -> Box<Future<Item = _, Error = Error>> {
+        let updated = scrapped.and_then(move |_| -> Box<dyn Future<Item = _, Error = Error>> {
             if !path.exists() {
                 stageln!("Checkout", "{} ({})", name, url);
 
@@ -762,7 +763,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         &'io self,
         dep_id: DependencyRef,
         version: DependencyVersion<'ctx>,
-    ) -> Box<Future<Item = Option<&'ctx Manifest>, Error = Error> + 'io> {
+    ) -> Box<dyn Future<Item = Option<&'ctx Manifest>, Error = Error> + 'io> {
         // Check if the manifest is already in the cache.
         let cache_key = (dep_id, version.clone());
         if let Some(&cached) = self
@@ -804,7 +805,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     self.git_database(&dep.name, url)
                         .and_then(move |db| {
                             db.list_files(rev, Some("Bender.yml")).and_then(
-                                move |entries| -> Box<Future<Item = _, Error = _>> {
+                                move |entries| -> Box<dyn Future<Item = _, Error = _>> {
                                     match entries.into_iter().next() {
                                         None => Box::new(future::ok(None)),
                                         Some(entry) => {
@@ -855,7 +856,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     pub fn dependency_manifest(
         &'io self,
         dep_id: DependencyRef,
-    ) -> Box<Future<Item = Option<&'ctx Manifest>, Error = Error> + 'io> {
+    ) -> Box<dyn Future<Item = Option<&'ctx Manifest>, Error = Error> + 'io> {
         // Check if the manifest is already in the cache.
         if let Some(&cached) = self
             .sess
@@ -900,7 +901,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     ///
     /// Loads and returns the source file manifest for the root package and all
     /// its dependencies..
-    pub fn sources(&'io self) -> Box<Future<Item = SourceGroup<'ctx>, Error = Error> + 'io> {
+    pub fn sources(&'io self) -> Box<dyn Future<Item = SourceGroup<'ctx>, Error = Error> + 'io> {
         // Check if we already have the source manifest.
         if let Some(ref cached) = *self.sess.sources.lock().unwrap() {
             return Box::new(future::ok((*cached).clone()));
@@ -998,7 +999,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     }
 
     /// Load the plugins declared by any of the dependencies.
-    pub fn plugins(&'io self) -> Box<Future<Item = &'ctx Plugins, Error = Error> + 'io> {
+    pub fn plugins(&'io self) -> Box<dyn Future<Item = &'ctx Plugins, Error = Error> + 'io> {
         // Check if we already have the list of plugins.
         if let Some(cached) = *self.sess.plugins.lock().unwrap() {
             return Box::new(future::ok(cached));

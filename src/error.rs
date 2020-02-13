@@ -88,7 +88,7 @@ pub struct Error {
     /// A formatted error message.
     pub msg: String,
     /// An optional underlying cause.
-    pub cause: Option<Arc<std::error::Error + Send + Sync>>,
+    pub cause: Option<Arc<dyn std::error::Error + Send + Sync>>,
 }
 
 impl Error {
@@ -118,7 +118,7 @@ impl std::error::Error for Error {
         &self.msg
     }
 
-    fn cause(&self) -> Option<&std::error::Error> {
+    fn cause(&self) -> Option<&dyn std::error::Error> {
         match self.cause {
             Some(ref b) => Some(b.as_ref()),
             None => None,
