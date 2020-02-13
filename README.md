@@ -37,7 +37,9 @@ Targets are flags that can be used to filter source files and dependencies. They
 
 - **Tool**: You should set exactly one of the following to indicate with which tool you are working.
 
-  - `vsim`: Set this target when working with Siemens vsim. Automatically set by the *bender-vsim* plugin.
+  - `vsim`: Set this target when working with ModelSim vsim. Automatically set by the *bender-vsim* plugin.
+
+  - `vcs`: Set this target when working with Synopsys VCS. Automatically set by the *bender-vcs* plugin.
 
   - `synopsys`: Set this target when working with Synopsys Design Compiler. Automatically set by the *bender-synopsys* plugin.
 
