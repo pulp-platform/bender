@@ -93,7 +93,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     // Format-specific target specifiers.
     let format_targets: &[&str] = match matches.value_of("format").unwrap() {
         "vsim" => &["vsim", "simulation"],
-        "vcs" => &["vca", "simulation"],
+        "vcs" => &["vcs", "simulation"],
         "synopsys" => &["synopsys", "synthesis"],
         "vivado" => &["vivado", "synthesis", "fpga", "xilinx"],
         _ => unreachable!(),
@@ -121,7 +121,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     // Validate format-specific options.
     if (matches.is_present("vcom-arg") || matches.is_present("vlog-arg"))
             && matches.value_of("format") != Some("vsim") && matches.value_of("format") != Some("vcs") {
-        return Err(Error::new("vsim/vcs-only options can only be used for 'vsim/vcs' format!"));
+        return Err(Error::new("vsim/vcs-only options can only be used for 'vcs' or 'vsim' format!"));
     }
     if (matches.is_present("only-defines") || matches.is_present("only-includes")
                 || matches.is_present("only-sources") || matches.is_present("no-simset")
