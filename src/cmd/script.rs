@@ -490,10 +490,10 @@ fn emit_genus_tcl(
                 let mut lines = vec![];
                 match ty {
                     SourceType::Verilog => {
-                        lines.push("read_hdl -format sv".to_owned());
+                        lines.push("read_hdl -language sv".to_owned());
                     }
                     SourceType::Vhdl => {
-                        lines.push("read_hdl -format vhdl".to_owned());
+                        lines.push("read_hdl -language vhdl".to_owned());
                     }
                 }
 
