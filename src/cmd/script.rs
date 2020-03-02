@@ -28,7 +28,7 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("format")
                 .help("Format of the generated script")
                 .required(true)
-                .possible_values(&["vsim", "vcs", "synopsys", "vivado", "vivado-sim"]),
+                .possible_values(&["vsim", "vcs", "synopsys", "genus", "vivado", "vivado-sim"]),
         )
         .arg(
             Arg::with_name("vcom-arg")
@@ -100,6 +100,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "vsim" => vec!["vsim", "simulation"],
         "vcs" => vec!["vcs", "simulation"],
         "synopsys" => vec!["synopsys", "synthesis"],
+        "genus" => &["genus", "synthesis"],
         "vivado" => concat(vivado_targets, &["synthesis"]),
         "vivado-sim" => concat(vivado_targets, &["simulation"]),
         _ => unreachable!(),
@@ -140,6 +141,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "vsim" => emit_vsim_tcl(sess, matches, targets, srcs),
         "vcs" => emit_vcs_sh(sess, matches, targets, srcs),
         "synopsys" => emit_synopsys_tcl(sess, matches, targets, srcs),
+        "genus" => emit_genus_tcl(sess, matches, targets, srcs),
         "vivado" => emit_vivado_tcl(sess, matches, targets, srcs),
         "vivado-sim" => emit_vivado_tcl(sess, matches, targets, srcs),
         _ => unreachable!(),
@@ -398,6 +400,100 @@ fn emit_synopsys_tcl(
                     }
                     SourceType::Vhdl => {
                         lines.push("analyze -format vhdl".to_owned());
+                    }
+                }
+
+                // Add defines.
+                let mut defines: Vec<(String, Option<&str>)> = vec![];
+                defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+                defines.extend(
+                    targets
+                        .iter()
+                        .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
+                );
+                defines.sort();
+                if !defines.is_empty() {
+                    lines.push("-define {".to_owned());
+                    for (k, v) in defines {
+                        let mut s = format!("    {}", k);
+                        if let Some(v) = v {
+                            s.push('=');
+                            s.push_str(v);
+                        }
+                        lines.push(s);
+                    }
+                    lines.push("}".to_owned());
+                }
+
+                // Add files.
+                lines.push("[list".to_owned());
+                for file in files {
+                    let p = match file {
+                        SourceFile::File(p) => p,
+                        _ => continue,
+                    };
+                    lines.push(format!("    {}", relativize_path(p)));
+                }
+                lines.push("]".to_owned());
+                println!("");
+                println!("{}", lines.join(" \\\n    "));
+            },
+        );
+    }
+    println!("");
+    println!("set search_path $search_path_initial");
+    Ok(())
+}
+
+/// Emit a Cadence Genus compilation script.
+fn emit_genus_tcl(
+    sess: &Session,
+    _matches: &ArgMatches,
+    targets: TargetSet,
+    srcs: Vec<SourceGroup>,
+) -> Result<()> {
+    println!("# This script was generated automatically by bender.");
+    println!("set search_path_initial $search_path");
+    println!("set ROOT \"{}\"", sess.root.to_str().unwrap());
+    let relativize_path = |p: &std::path::Path| {
+        if p.starts_with(sess.root) {
+            format!(
+                "\"$ROOT/{}\"",
+                p.strip_prefix(sess.root).unwrap().to_str().unwrap()
+            )
+        } else {
+            format!("\"{}\"", p.to_str().unwrap())
+        }
+    };
+    for src in srcs {
+        // Adjust the search path.
+        println!("");
+        println!("set search_path $search_path_initial");
+        for i in &src.include_dirs {
+            println!("lappend search_path {}", relativize_path(i));
+        }
+
+        println!("set_db init_hdl_search_path $search_path");
+
+        // Emit analyze commands.
+        separate_files_in_group(
+            src,
+            |f| match f {
+                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
+                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
+                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
+                    _ => None,
+                },
+                _ => None,
+            },
+            |src, ty, files| {
+                let mut lines = vec![];
+                match ty {
+                    SourceType::Verilog => {
+                        lines.push("read_hdl -format sv".to_owned());
+                    }
+                    SourceType::Vhdl => {
+                        lines.push("read_hdl -format vhdl".to_owned());
                     }
                 }
 
