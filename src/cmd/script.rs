@@ -28,7 +28,7 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("format")
                 .help("Format of the generated script")
                 .required(true)
-                .possible_values(&["vsim", "vcs", "synopsys", "genus", "vivado", "vivado-sim"]),
+                .possible_values(&["vsim", "vcs", "verilator", "synopsys", "genus", "vivado", "vivado-sim"]),
         )
         .arg(
             Arg::with_name("vcom-arg")
@@ -99,6 +99,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let format_targets: Vec<&str> = match format {
         "vsim" => vec!["vsim", "simulation"],
         "vcs" => vec!["vcs", "simulation"],
+        "verilator" => &["verilator", "synthesis"],
         "synopsys" => vec!["synopsys", "synthesis"],
         "genus" => &["genus", "synthesis"],
         "vivado" => concat(vivado_targets, &["synthesis"]),
@@ -140,6 +141,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     match format {
         "vsim" => emit_vsim_tcl(sess, matches, targets, srcs),
         "vcs" => emit_vcs_sh(sess, matches, targets, srcs),
+        "verilator" => emit_verilator_sh(sess, matches, targets, srcs),
         "synopsys" => emit_synopsys_tcl(sess, matches, targets, srcs),
         "genus" => emit_genus_tcl(sess, matches, targets, srcs),
         "vivado" => emit_vivado_tcl(sess, matches, targets, srcs),
@@ -290,6 +292,8 @@ fn emit_vsim_tcl(
     Ok(())
 }
 
+
+
 /// Emit a vcs compilation script.
 fn emit_vcs_sh(
     sess: &Session,
@@ -357,6 +361,82 @@ fn emit_vcs_sh(
                 }
                 println!("");
                 println!("{}", lines.join(" \\\n    "));
+            },
+        );
+    }
+    Ok(())
+}
+
+/// Emit a verilator compilation script.
+fn emit_verilator_sh(
+    sess: &Session,
+    matches: &ArgMatches,
+    targets: TargetSet,
+    srcs: Vec<SourceGroup>,
+) -> Result<()> {
+    for src in srcs {
+        separate_files_in_group(
+            src,
+            |f| match f {
+                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
+                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
+                    _ => None,
+                },
+                _ => None,
+            },
+            |src, ty, files| {
+                let mut lines = vec![];
+                match ty {
+                    SourceType::Verilog => {
+                        // Default flags
+                        if let Some(args) = matches.values_of("vlog-arg") {
+                            lines.extend(args.map(Into::into));
+                        }
+                        let mut defines: Vec<(String, Option<&str>)> = vec![];
+                        defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+                        defines.extend(
+                            targets
+                                .iter()
+                                .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
+                        );
+                        defines.sort();
+                        for (k, v) in defines {
+                            let mut s = format!("+define+{}", k.to_uppercase());
+                            if let Some(v) = v {
+                                s.push('=');
+                                s.push_str(v);
+                            }
+                            lines.push(s);
+                        }
+                        for i in &src.include_dirs {
+                            if i.starts_with(sess.root) {
+                                lines.push(format!(
+                                    "+incdir+{}/{}", sess.root.to_str().unwrap(),
+                                    i.strip_prefix(sess.root).unwrap().to_str().unwrap()
+                                ));
+                            } else {
+                                lines.push(format!("+incdir+{}", i.to_str().unwrap()));
+                            }
+                        }
+                    }
+                    _ => {},
+                }
+                for file in files {
+                    let p = match file {
+                        SourceFile::File(p) => p,
+                        _ => continue,
+                    };
+                    if p.starts_with(sess.root) {
+                        lines.push(format!(
+                            "{}/{}",sess.root.to_str().unwrap(),
+                            p.strip_prefix(sess.root).unwrap().to_str().unwrap()
+                        ));
+                    } else {
+                        lines.push(format!("{}", p.to_str().unwrap()));
+                    }
+                }
+                println!("");
+                println!("{}", lines.join("\n"));
             },
         );
     }
