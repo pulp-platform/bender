@@ -193,6 +193,15 @@ fn relativize_path(path: &std::path::Path, root: &std::path::Path) -> String {
     }
 }
 
+static HEADER_AUTOGEN: &str = "This script was generated automatically by bender.";
+
+fn header_tcl(sess: &Session) -> String {
+    let mut lines = vec![];
+    lines.push(format!("# {}", HEADER_AUTOGEN));
+    lines.push(format!("set ROOT {}", quote(sess.root.to_str().unwrap())));
+    lines.join("\n")
+}
+
 /// Emit a vsim compilation script.
 fn emit_vsim_tcl(
     sess: &Session,
@@ -200,8 +209,7 @@ fn emit_vsim_tcl(
     targets: TargetSet,
     srcs: Vec<SourceGroup>,
 ) -> Result<()> {
-    println!("# This script was generated automatically by bender.");
-    println!("set ROOT {}", quote(sess.root.to_str().unwrap()));
+    println!("{}", header_tcl(sess));
     for src in srcs {
         separate_files_in_group(
             src,
@@ -347,9 +355,8 @@ fn emit_synopsys_tcl(
     targets: TargetSet,
     srcs: Vec<SourceGroup>,
 ) -> Result<()> {
-    println!("# This script was generated automatically by bender.");
+    println!("{}", header_tcl(sess));
     println!("set search_path_initial $search_path");
-    println!("set ROOT {}", quote(sess.root.to_str().unwrap()));
     let relativize_path = |p: &std::path::Path| quote(&relativize_path(p, sess.root));
     for src in srcs {
         // Adjust the search path.
