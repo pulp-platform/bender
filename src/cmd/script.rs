@@ -202,6 +202,14 @@ fn header_tcl(sess: &Session) -> String {
     lines.join("\n")
 }
 
+fn header_sh(sess: &Session) -> String {
+    let mut lines = vec![];
+    lines.push("#!/usr/bin/env bash".to_string());
+    lines.push(format!("# {}", HEADER_AUTOGEN));
+    lines.push(format!("ROOT={}", quote(sess.root.to_str().unwrap())));
+    lines.join("\n")
+}
+
 /// Emit a vsim compilation script.
 fn emit_vsim_tcl(
     sess: &Session,
@@ -280,9 +288,7 @@ fn emit_vcs_sh(
     targets: TargetSet,
     srcs: Vec<SourceGroup>,
 ) -> Result<()> {
-    println!("#!/usr/bin/env bash");
-    println!("# This script was generated automatically by bender.");
-    println!("ROOT={}", quote(sess.root.to_str().unwrap()));
+    println!("{}", header_sh(sess));
     for src in srcs {
         separate_files_in_group(
             src,
