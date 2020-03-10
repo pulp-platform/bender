@@ -181,6 +181,14 @@ enum SourceType {
     Vhdl,
 }
 
+fn relativize_path(path: &std::path::Path, root: &std::path::Path) -> String {
+    if path.starts_with(root) {
+        format!("\"$ROOT/{}\"", path.strip_prefix(root).unwrap().to_str().unwrap())
+    } else {
+        format!("\"{}\"", path.to_str().unwrap())
+    }
+}
+
 /// Emit a vsim compilation script.
 fn emit_vsim_tcl(
     sess: &Session,
@@ -362,16 +370,7 @@ fn emit_synopsys_tcl(
     println!("# This script was generated automatically by bender.");
     println!("set search_path_initial $search_path");
     println!("set ROOT \"{}\"", sess.root.to_str().unwrap());
-    let relativize_path = |p: &std::path::Path| {
-        if p.starts_with(sess.root) {
-            format!(
-                "\"$ROOT/{}\"",
-                p.strip_prefix(sess.root).unwrap().to_str().unwrap()
-            )
-        } else {
-            format!("\"{}\"", p.to_str().unwrap())
-        }
-    };
+    let relativize_path = |p: &std::path::Path| relativize_path(p, sess.root);
     for src in srcs {
         // Adjust the search path.
         println!("");
