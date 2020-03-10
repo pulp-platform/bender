@@ -181,7 +181,7 @@ enum SourceType {
     Vhdl,
 }
 
-fn quote(s: &str) -> String {
+fn quote(s: &(impl std::fmt::Display + ?Sized)) -> String {
     format!("\"{}\"", s)
 }
 
