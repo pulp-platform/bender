@@ -274,7 +274,7 @@ fn emit_vcs_sh(
 ) -> Result<()> {
     println!("#!/usr/bin/env bash");
     println!("# This script was generated automatically by bender.");
-    println!("set ROOT {}", quote(sess.root.to_str().unwrap()));
+    println!("ROOT={}", quote(sess.root.to_str().unwrap()));
     for src in srcs {
         separate_files_in_group(
             src,
