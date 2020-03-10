@@ -438,7 +438,7 @@ fn emit_synopsys_tcl(
 
 /// Emit a script to add sources to Vivado.
 fn emit_vivado_tcl(
-    _sess: &Session,
+    sess: &Session,
     matches: &ArgMatches,
     targets: TargetSet,
     srcs: Vec<SourceGroup>,
@@ -467,7 +467,7 @@ fn emit_vivado_tcl(
         }
     }
 
-    println!("# This script was generated automatically by bender.");
+    println!("{}", header_tcl(sess));
     let mut include_dirs = vec![];
     let mut defines = vec![];
     let filesets = if matches.is_present("no-simset") {
@@ -477,7 +477,7 @@ fn emit_vivado_tcl(
     };
     for src in srcs {
         for i in &src.include_dirs {
-            include_dirs.push(i.to_str().unwrap());
+            include_dirs.push(relativize_path(i, sess.root));
         }
         separate_files_in_group(
             src,
@@ -497,7 +497,7 @@ fn emit_vivado_tcl(
                         SourceFile::File(p) => p,
                         _ => continue,
                     };
-                    lines.push(format!("{}", p.to_str().unwrap()));
+                    lines.push(relativize_path(p, sess.root));
                 }
                 if output_components.sources {
                     println!("{} \\\n]", lines.join(" \\\n    "));
