@@ -201,7 +201,7 @@ fn emit_vsim_tcl(
     srcs: Vec<SourceGroup>,
 ) -> Result<()> {
     println!("# This script was generated automatically by bender.");
-    println!("set ROOT \"{}\"", sess.root.to_str().unwrap());
+    println!("set ROOT {}", quote(sess.root.to_str().unwrap()));
     for src in srcs {
         separate_files_in_group(
             src,
@@ -238,14 +238,9 @@ fn emit_vsim_tcl(
                             lines.push(s);
                         }
                         for i in &src.include_dirs {
-                            if i.starts_with(sess.root) {
-                                lines.push(format!(
-                                    "\"+incdir+$ROOT/{}\"",
-                                    i.strip_prefix(sess.root).unwrap().to_str().unwrap()
-                                ));
-                            } else {
-                                lines.push(format!("\"+incdir+{}\"", i.to_str().unwrap()));
-                            }
+                            lines.push(quote(&format!(
+                                "+incdir+{}", relativize_path(i, sess.root)
+                            )));
                         }
                     }
                     SourceType::Vhdl => {
@@ -260,14 +255,7 @@ fn emit_vsim_tcl(
                         SourceFile::File(p) => p,
                         _ => continue,
                     };
-                    if p.starts_with(sess.root) {
-                        lines.push(format!(
-                            "\"$ROOT/{}\"",
-                            p.strip_prefix(sess.root).unwrap().to_str().unwrap()
-                        ));
-                    } else {
-                        lines.push(format!("\"{}\"", p.to_str().unwrap()));
-                    }
+                    lines.push(quote(&relativize_path(p, sess.root)));
                 }
                 println!("");
                 println!("{}", lines.join(" \\\n    "));
