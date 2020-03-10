@@ -349,7 +349,7 @@ fn emit_synopsys_tcl(
 ) -> Result<()> {
     println!("# This script was generated automatically by bender.");
     println!("set search_path_initial $search_path");
-    println!("set ROOT \"{}\"", sess.root.to_str().unwrap());
+    println!("set ROOT {}", quote(sess.root.to_str().unwrap()));
     let relativize_path = |p: &std::path::Path| quote(&relativize_path(p, sess.root));
     for src in srcs {
         // Adjust the search path.
