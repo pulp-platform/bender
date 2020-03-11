@@ -28,7 +28,7 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("format")
                 .help("Format of the generated script")
                 .required(true)
-                .possible_values(&["vsim", "vcs", "synopsys", "vivado"]),
+                .possible_values(&["vsim", "vcs", "synopsys", "vivado", "vivado-sim"]),
         )
         .arg(
             Arg::with_name("vcom-arg")
@@ -91,20 +91,25 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let srcs = core.run(io.sources())?;
 
     // Format-specific target specifiers.
+    let vivado_targets = &["vivado", "fpga", "xilinx"];
+    fn concat<T: Clone>(a: &[T], b: &[T]) -> Vec<T> {
+        a.iter().chain(b).cloned().collect()
+    }
     let format = matches.value_of("format").unwrap();
-    let format_targets: &[&str] = match format {
-        "vsim" => &["vsim", "simulation"],
-        "vcs" => &["vcs", "simulation"],
-        "synopsys" => &["synopsys", "synthesis"],
-        "vivado" => &["vivado", "synthesis", "fpga", "xilinx"],
+    let format_targets: Vec<&str> = match format {
+        "vsim" => vec!["vsim", "simulation"],
+        "vcs" => vec!["vcs", "simulation"],
+        "synopsys" => vec!["synopsys", "synthesis"],
+        "vivado" => concat(vivado_targets, &["synthesis"]),
+        "vivado-sim" => concat(vivado_targets, &["simulation"]),
         _ => unreachable!(),
     };
 
     // Filter the sources by target.
     let targets = matches
         .values_of("target")
-        .map(|t| TargetSet::new(t.chain(format_targets.into_iter().cloned())))
-        .unwrap_or_else(|| TargetSet::new(format_targets.into_iter()));
+        .map(|t| TargetSet::new(t.chain(format_targets.clone())))
+        .unwrap_or_else(|| TargetSet::new(format_targets));
     let srcs = srcs
         .filter_targets(&targets)
         .unwrap_or_else(|| SourceGroup {
@@ -126,7 +131,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     }
     if (matches.is_present("only-defines") || matches.is_present("only-includes")
                 || matches.is_present("only-sources") || matches.is_present("no-simset")
-            ) && format != "vivado" {
+            ) && !format.starts_with("vivado") {
         return Err(Error::new("Vivado-only options can only be used for 'vivado' format!"));
     }
 
@@ -136,6 +141,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "vcs" => emit_vcs_sh(sess, matches, targets, srcs),
         "synopsys" => emit_synopsys_tcl(sess, matches, targets, srcs),
         "vivado" => emit_vivado_tcl(sess, matches, targets, srcs),
+        "vivado-sim" => emit_vivado_tcl(sess, matches, targets, srcs),
         _ => unreachable!(),
     }
 }
