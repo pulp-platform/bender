@@ -91,7 +91,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let srcs = core.run(io.sources())?;
 
     // Format-specific target specifiers.
-    let format_targets: &[&str] = match matches.value_of("format").unwrap() {
+    let format = matches.value_of("format").unwrap();
+    let format_targets: &[&str] = match format {
         "vsim" => &["vsim", "simulation"],
         "vcs" => &["vcs", "simulation"],
         "synopsys" => &["synopsys", "synthesis"],
@@ -120,17 +121,17 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     // Validate format-specific options.
     if (matches.is_present("vcom-arg") || matches.is_present("vlog-arg"))
-            && matches.value_of("format") != Some("vsim") && matches.value_of("format") != Some("vcs") {
+            && format != "vsim" && format != "vcs" {
         return Err(Error::new("vsim/vcs-only options can only be used for 'vcs' or 'vsim' format!"));
     }
     if (matches.is_present("only-defines") || matches.is_present("only-includes")
                 || matches.is_present("only-sources") || matches.is_present("no-simset")
-            ) && matches.value_of("format") != Some("vivado") {
+            ) && format != "vivado" {
         return Err(Error::new("Vivado-only options can only be used for 'vivado' format!"));
     }
 
     // Generate the corresponding output.
-    match matches.value_of("format").unwrap() {
+    match format {
         "vsim" => emit_vsim_tcl(sess, matches, targets, srcs),
         "vcs" => emit_vcs_sh(sess, matches, targets, srcs),
         "synopsys" => emit_synopsys_tcl(sess, matches, targets, srcs),
