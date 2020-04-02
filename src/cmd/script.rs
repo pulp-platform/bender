@@ -533,7 +533,11 @@ fn emit_genus_tcl(
     srcs: Vec<SourceGroup>,
 ) -> Result<()> {
     println!("# This script was generated automatically by bender.");
-    println!("set search_path_initial $search_path");
+    println!("if [ info exists search_path ] {{");
+    println!("  set search_path_initial $search_path");
+    println!("}} else {{");
+    println!("  set search_path_initial {{}}");
+    println!("}}");
     println!("set ROOT \"{}\"", sess.root.to_str().unwrap());
     let relativize_path = |p: &std::path::Path| {
         if p.starts_with(sess.root) {
