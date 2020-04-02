@@ -99,9 +99,9 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let format_targets: Vec<&str> = match format {
         "vsim" => vec!["vsim", "simulation"],
         "vcs" => vec!["vcs", "simulation"],
-        "verilator" => &["verilator", "synthesis"],
+        "verilator" => vec!["verilator", "synthesis"],
         "synopsys" => vec!["synopsys", "synthesis"],
-        "genus" => &["genus", "synthesis"],
+        "genus" => vec!["genus", "synthesis"],
         "vivado" => concat(vivado_targets, &["synthesis"]),
         "vivado-sim" => concat(vivado_targets, &["simulation"]),
         _ => unreachable!(),
@@ -533,7 +533,11 @@ fn emit_genus_tcl(
     srcs: Vec<SourceGroup>,
 ) -> Result<()> {
     println!("# This script was generated automatically by bender.");
-    println!("set search_path_initial $search_path");
+    println!("if [ info exists search_path ] {{");
+    println!("  set search_path_initial $search_path");
+    println!("}} else {{");
+    println!("  set search_path_initial {{}}");
+    println!("}}");
     println!("set ROOT \"{}\"", sess.root.to_str().unwrap());
     let relativize_path = |p: &std::path::Path| {
         if p.starts_with(sess.root) {
