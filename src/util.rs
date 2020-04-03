@@ -7,11 +7,11 @@
 
 use std;
 use std::fmt;
-use std::str::FromStr;
-use std::marker::PhantomData;
-use std::path::Path;
 use std::fs::File;
 use std::io::prelude::*;
+use std::marker::PhantomData;
+use std::path::Path;
+use std::str::FromStr;
 use std::time::SystemTime;
 
 use serde::de::{Deserialize, Deserializer};
@@ -22,8 +22,10 @@ use serde::ser::{Serialize, Serializer};
 pub enum Void {}
 
 /// Create a human-readable list of the form `a, b, and c`.
-pub fn string_list<I,T>(mut iter: I, sep: &str, con: &str) -> Option<String>
-    where I: Iterator<Item=T>, T: AsRef<str>
+pub fn string_list<I, T>(mut iter: I, sep: &str, con: &str) -> Option<String>
+where
+    I: Iterator<Item = T>,
+    T: AsRef<str>,
 {
     let mut buffer = match iter.next() {
         Some(i) => String::from(i.as_ref()),
@@ -59,25 +61,32 @@ pub fn string_list<I,T>(mut iter: I, sep: &str, con: &str) -> Option<String>
 #[derive(Debug)]
 pub struct StringOrStruct<T>(pub T);
 
-impl<T> Serialize for StringOrStruct<T> where T: Serialize {
+impl<T> Serialize for StringOrStruct<T>
+where
+    T: Serialize,
+{
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         self.0.serialize(serializer)
     }
 }
 
 impl<'de, T> Deserialize<'de> for StringOrStruct<T>
-    where T: Deserialize<'de> + FromStr<Err=Void>
+where
+    T: Deserialize<'de> + FromStr<Err = Void>,
 {
     fn deserialize<D>(deserializer: D) -> std::result::Result<StringOrStruct<T>, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         use serde::de;
         struct Visitor<T>(PhantomData<T>);
 
         impl<'de, T> de::Visitor<'de> for Visitor<T>
-            where T: Deserialize<'de> + FromStr<Err=Void>
+        where
+            T: Deserialize<'de> + FromStr<Err = Void>,
         {
             type Value = T;
 
@@ -86,19 +95,23 @@ impl<'de, T> Deserialize<'de> for StringOrStruct<T>
             }
 
             fn visit_str<E>(self, value: &str) -> std::result::Result<T, E>
-                where E: de::Error
+            where
+                E: de::Error,
             {
                 Ok(T::from_str(value).unwrap())
             }
 
             fn visit_map<M>(self, visitor: M) -> std::result::Result<T, M::Error>
-                where M: de::MapAccess<'de>
+            where
+                M: de::MapAccess<'de>,
             {
                 T::deserialize(de::value::MapAccessDeserializer::new(visitor))
             }
         }
 
-        deserializer.deserialize_any(Visitor::<T>(PhantomData)).map(|v| StringOrStruct(v))
+        deserializer
+            .deserialize_any(Visitor::<T>(PhantomData))
+            .map(|v| StringOrStruct(v))
     }
 }
 
@@ -108,27 +121,36 @@ impl<'de, T> Deserialize<'de> for StringOrStruct<T>
 /// to the regular deserialization if anything else is encountered. Serializes
 /// the same way `T` serializes.
 #[derive(Debug)]
-pub struct SeqOrStruct<T,F>(pub T, PhantomData<F>);
+pub struct SeqOrStruct<T, F>(pub T, PhantomData<F>);
 
-impl<T,F> Serialize for SeqOrStruct<T,F> where T: Serialize {
+impl<T, F> Serialize for SeqOrStruct<T, F>
+where
+    T: Serialize,
+{
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         self.0.serialize(serializer)
     }
 }
 
-impl<'de, T, F> Deserialize<'de> for SeqOrStruct<T,F>
-    where T: Deserialize<'de> + From<Vec<F>>, F: Deserialize<'de>
+impl<'de, T, F> Deserialize<'de> for SeqOrStruct<T, F>
+where
+    T: Deserialize<'de> + From<Vec<F>>,
+    F: Deserialize<'de>,
 {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<SeqOrStruct<T,F>, D::Error>
-        where D: Deserializer<'de>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<SeqOrStruct<T, F>, D::Error>
+    where
+        D: Deserializer<'de>,
     {
         use serde::de;
-        struct Visitor<T,F>(PhantomData<T>, PhantomData<F>);
+        struct Visitor<T, F>(PhantomData<T>, PhantomData<F>);
 
-        impl<'de, T, F> de::Visitor<'de> for Visitor<T,F>
-            where T: Deserialize<'de> + From<Vec<F>>, F: Deserialize<'de>
+        impl<'de, T, F> de::Visitor<'de> for Visitor<T, F>
+        where
+            T: Deserialize<'de> + From<Vec<F>>,
+            F: Deserialize<'de>,
         {
             type Value = T;
 
@@ -137,22 +159,23 @@ impl<'de, T, F> Deserialize<'de> for SeqOrStruct<T,F>
             }
 
             fn visit_seq<A>(self, visitor: A) -> std::result::Result<T, A::Error>
-                where A: de::SeqAccess<'de>
+            where
+                A: de::SeqAccess<'de>,
             {
-                let v: Vec<F> = Vec::deserialize(
-                    de::value::SeqAccessDeserializer::new(visitor))?;
+                let v: Vec<F> = Vec::deserialize(de::value::SeqAccessDeserializer::new(visitor))?;
                 Ok(T::from(v))
             }
 
             fn visit_map<M>(self, visitor: M) -> std::result::Result<T, M::Error>
-                where M: de::MapAccess<'de>
+            where
+                M: de::MapAccess<'de>,
             {
                 T::deserialize(de::value::MapAccessDeserializer::new(visitor))
             }
         }
 
         deserializer
-            .deserialize_any(Visitor::<T,F>(PhantomData, PhantomData))
+            .deserialize_any(Visitor::<T, F>(PhantomData, PhantomData))
             .map(|v| SeqOrStruct(v, PhantomData))
     }
 }

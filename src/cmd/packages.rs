@@ -3,7 +3,7 @@
 
 //! The `packages` subcommand.
 
-use clap::{App, SubCommand, Arg, ArgMatches};
+use clap::{App, Arg, ArgMatches, SubCommand};
 
 use error::*;
 use sess::Session;
@@ -27,7 +27,7 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
 /// Execute the `packages` subcommand.
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let graph = matches.is_present("graph");
-    let flat  = matches.is_present("flat");
+    let flat = matches.is_present("flat");
     if graph {
         for (&pkg, deps) in sess.graph().iter() {
             let pkg_name = sess.dependency_name(pkg);

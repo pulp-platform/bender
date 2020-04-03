@@ -4,8 +4,8 @@
 
 use std::sync::Mutex;
 
-use futures::{Future, IntoFuture, Poll, Async};
 use futures::task::{self, Task};
+use futures::{Async, Future, IntoFuture, Poll};
 
 /// A throttling pool for futures.
 ///
@@ -34,7 +34,8 @@ impl FutureThrottle {
     /// `Async::NotReady` not because the future `f` was not ready, but because
     /// maximum number of futures in the pool are already executing.
     pub fn spawn<'a, F>(&'a self, f: F) -> ThrottledFuture<'a, <F as IntoFuture>::Future>
-        where F: IntoFuture
+    where
+        F: IntoFuture,
     {
         ThrottledFuture {
             pool: self,

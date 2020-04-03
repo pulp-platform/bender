@@ -28,41 +28,49 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("format")
                 .help("Format of the generated script")
                 .required(true)
-                .possible_values(&["vsim", "vcs", "verilator", "synopsys", "genus", "vivado", "vivado-sim"]),
+                .possible_values(&[
+                    "vsim",
+                    "vcs",
+                    "verilator",
+                    "synopsys",
+                    "genus",
+                    "vivado",
+                    "vivado-sim",
+                ]),
         )
         .arg(
             Arg::with_name("vcom-arg")
                 .long("vcom-arg")
                 .help("Pass an argument to vcom calls (vsim/vhdlan only)")
                 .takes_value(true)
-                .multiple(true)
+                .multiple(true),
         )
         .arg(
             Arg::with_name("vlog-arg")
                 .long("vlog-arg")
                 .help("Pass an argument to vlog calls (vsim/vlogan only)")
                 .takes_value(true)
-                .multiple(true)
+                .multiple(true),
         )
         .arg(
             Arg::with_name("only-defines")
                 .long("only-defines")
-                .help("Only output commands to define macros (Vivado only)")
+                .help("Only output commands to define macros (Vivado only)"),
         )
         .arg(
             Arg::with_name("only-includes")
                 .long("only-includes")
-                .help("Only output commands to define include directories (Vivado only)")
+                .help("Only output commands to define include directories (Vivado only)"),
         )
         .arg(
             Arg::with_name("only-sources")
                 .long("only-sources")
-                .help("Only output commands to define source files (Vivado only)")
+                .help("Only output commands to define source files (Vivado only)"),
         )
         .arg(
             Arg::with_name("no-simset")
                 .long("no-simset")
-                .help("Do not change `simset` fileset (Vivado only)")
+                .help("Do not change `simset` fileset (Vivado only)"),
         )
         .arg(
             Arg::with_name("vlogan-bin")
@@ -128,13 +136,22 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     // Validate format-specific options.
     if (matches.is_present("vcom-arg") || matches.is_present("vlog-arg"))
-            && format != "vsim" && format != "vcs" {
-        return Err(Error::new("vsim/vcs-only options can only be used for 'vcs' or 'vsim' format!"));
+        && format != "vsim"
+        && format != "vcs"
+    {
+        return Err(Error::new(
+            "vsim/vcs-only options can only be used for 'vcs' or 'vsim' format!",
+        ));
     }
-    if (matches.is_present("only-defines") || matches.is_present("only-includes")
-                || matches.is_present("only-sources") || matches.is_present("no-simset")
-            ) && !format.starts_with("vivado") {
-        return Err(Error::new("Vivado-only options can only be used for 'vivado' format!"));
+    if (matches.is_present("only-defines")
+        || matches.is_present("only-includes")
+        || matches.is_present("only-sources")
+        || matches.is_present("no-simset"))
+        && !format.starts_with("vivado")
+    {
+        return Err(Error::new(
+            "Vivado-only options can only be used for 'vivado' format!",
+        ));
     }
 
     // Generate the corresponding output.
@@ -198,7 +215,10 @@ fn quote(s: &(impl std::fmt::Display + ?Sized)) -> String {
 
 fn relativize_path(path: &std::path::Path, root: &std::path::Path) -> String {
     if path.starts_with(root) {
-        format!("$ROOT/{}", path.strip_prefix(root).unwrap().to_str().unwrap())
+        format!(
+            "$ROOT/{}",
+            path.strip_prefix(root).unwrap().to_str().unwrap()
+        )
     } else {
         path.to_str().unwrap().to_string()
     }
@@ -265,9 +285,8 @@ fn emit_vsim_tcl(
                             lines.push(s);
                         }
                         for i in &src.include_dirs {
-                            lines.push(quote(&format!(
-                                "+incdir+{}", relativize_path(i, sess.root)
-                            )));
+                            lines
+                                .push(quote(&format!("+incdir+{}", relativize_path(i, sess.root))));
                         }
                     }
                     SourceType::Vhdl => {
@@ -292,8 +311,6 @@ fn emit_vsim_tcl(
     Ok(())
 }
 
-
-
 /// Emit a vcs compilation script.
 fn emit_vcs_sh(
     sess: &Session,
@@ -317,7 +334,10 @@ fn emit_vcs_sh(
                 let mut lines = vec![];
                 match ty {
                     SourceType::Verilog => {
-                        lines.push(format!("{} -sverilog", matches.value_of("vlogan-bin").unwrap()));
+                        lines.push(format!(
+                            "{} -sverilog",
+                            matches.value_of("vlogan-bin").unwrap()
+                        ));
                         // Default flags
                         lines.push("-full64".to_owned());
                         if let Some(args) = matches.values_of("vlog-arg") {
@@ -340,9 +360,8 @@ fn emit_vcs_sh(
                             lines.push(s);
                         }
                         for i in &src.include_dirs {
-                            lines.push(quote(&format!(
-                                "+incdir+{}", relativize_path(i, sess.root)
-                            )));
+                            lines
+                                .push(quote(&format!("+incdir+{}", relativize_path(i, sess.root))));
                         }
                     }
                     SourceType::Vhdl => {
@@ -411,7 +430,8 @@ fn emit_verilator_sh(
                         for i in &src.include_dirs {
                             if i.starts_with(sess.root) {
                                 lines.push(format!(
-                                    "+incdir+{}/{}", sess.root.to_str().unwrap(),
+                                    "+incdir+{}/{}",
+                                    sess.root.to_str().unwrap(),
                                     i.strip_prefix(sess.root).unwrap().to_str().unwrap()
                                 ));
                             } else {
@@ -419,7 +439,7 @@ fn emit_verilator_sh(
                             }
                         }
                     }
-                    _ => {},
+                    _ => {}
                 }
                 for file in files {
                     let p = match file {
@@ -428,7 +448,8 @@ fn emit_verilator_sh(
                     };
                     if p.starts_with(sess.root) {
                         lines.push(format!(
-                            "{}/{}",sess.root.to_str().unwrap(),
+                            "{}/{}",
+                            sess.root.to_str().unwrap(),
                             p.strip_prefix(sess.root).unwrap().to_str().unwrap()
                         ));
                     } else {
@@ -638,10 +659,16 @@ fn emit_vivado_tcl(
         sources: bool,
     };
     let mut output_components = OutputComponents::default();
-    if !matches.is_present("only-defines") && !matches.is_present("only-includes") &&
-            !matches.is_present("only-sources") {
+    if !matches.is_present("only-defines")
+        && !matches.is_present("only-includes")
+        && !matches.is_present("only-sources")
+    {
         // Print everything if user specified no restriction.
-        output_components = OutputComponents { include_dirs: true, defines: true, sources: true };
+        output_components = OutputComponents {
+            include_dirs: true,
+            defines: true,
+            sources: true,
+        };
     } else {
         if matches.is_present("only-defines") {
             output_components.defines = true;
@@ -689,7 +716,11 @@ fn emit_vivado_tcl(
                 if output_components.sources {
                     println!("{} \\\n]", lines.join(" \\\n    "));
                 }
-                defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
+                defines.extend(
+                    src.defines
+                        .iter()
+                        .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+                );
             },
         );
     }
@@ -698,11 +729,18 @@ fn emit_vivado_tcl(
         include_dirs.dedup();
         for arg in &filesets {
             println!("");
-            println!("set_property include_dirs [list \\\n    {} \\\n] [current_fileset{}]",
-                        include_dirs.join(" \\\n    "), arg);
+            println!(
+                "set_property include_dirs [list \\\n    {} \\\n] [current_fileset{}]",
+                include_dirs.join(" \\\n    "),
+                arg
+            );
         }
     }
-    defines.extend(targets.iter().map(|t| (format!("TARGET_{}", t.to_uppercase()), None)));
+    defines.extend(
+        targets
+            .iter()
+            .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
+    );
     if !defines.is_empty() && output_components.defines {
         defines.sort();
         defines.dedup();
@@ -712,7 +750,7 @@ fn emit_vivado_tcl(
             for (k, v) in &defines {
                 let s = match v {
                     Some(s) => format!("{}={}", k, s),
-                    None => format!("{}", k)
+                    None => format!("{}", k),
                 };
                 println!("    {} \\", s);
             }
@@ -720,5 +758,4 @@ fn emit_vivado_tcl(
         }
     }
     Ok(())
-
 }
