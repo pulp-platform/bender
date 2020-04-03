@@ -17,6 +17,9 @@ before_install:
       .ci/if_deploy_build.sh docker pull accuminium/rust-centos:${centos}_${TRAVIS_RUST_VERSION};
     done
 
+before_script:
+  - rustup component add rustfmt
+
 script:
   - cargo build
   - cargo test --all
