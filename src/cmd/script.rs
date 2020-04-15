@@ -11,6 +11,8 @@ use sess::{Session, SessionIo};
 use src::{SourceFile, SourceGroup};
 use target::{TargetSet, TargetSpec};
 
+use std::collections::HashSet;
+
 /// Assemble the `script` subcommand.
 pub fn new<'a, 'b>() -> App<'a, 'b> {
     SubCommand::with_name("script")
@@ -29,6 +31,7 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
                 .help("Format of the generated script")
                 .required(true)
                 .possible_values(&[
+                    "flist",
                     "vsim",
                     "vcs",
                     "verilator",
@@ -37,6 +40,11 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
                     "vivado",
                     "vivado-sim",
                 ]),
+        )
+        .arg(
+            Arg::with_name("relative-path")
+                .long("relative-path")
+                .help("Use relative paths (flist generation only)"),
         )
         .arg(
             Arg::with_name("vcom-arg")
@@ -105,6 +113,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     }
     let format = matches.value_of("format").unwrap();
     let format_targets: Vec<&str> = match format {
+        "flist" => vec!["flist"],
         "vsim" => vec!["vsim", "simulation"],
         "vcs" => vec!["vcs", "simulation"],
         "verilator" => vec!["verilator", "synthesis"],
@@ -156,6 +165,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     // Generate the corresponding output.
     match format {
+        "flist" => emit_flist(sess, matches, srcs),
         "vsim" => emit_vsim_tcl(sess, matches, targets, srcs),
         "vcs" => emit_vcs_sh(sess, matches, targets, srcs),
         "verilator" => emit_verilator_sh(sess, matches, targets, srcs),
@@ -461,6 +471,59 @@ fn emit_verilator_sh(
             },
         );
     }
+    Ok(())
+}
+
+/// Emit a flat file list
+fn emit_flist(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>) -> Result<()> {
+    let mut lines = vec![];
+    let mut inc_dirs = HashSet::new();
+    let mut files = vec![];
+    // Gobble double includes with a HashSet.
+    for src in srcs {
+        inc_dirs = src
+            .include_dirs
+            .into_iter()
+            .fold(HashSet::new(), |mut acc, inc_dir| {
+                acc.insert(inc_dir);
+                acc
+            });
+        files.append(&mut src.files.clone());
+    }
+
+    let mut root = format!("{}/", sess.root.to_str().unwrap());
+    if matches.is_present("relative-path") {
+        root = "".to_string();
+    }
+
+    for i in &inc_dirs {
+        if i.starts_with(sess.root) {
+            lines.push(format!(
+                "+incdir+{}{}",
+                root,
+                i.strip_prefix(sess.root).unwrap().to_str().unwrap()
+            ));
+        } else {
+            lines.push(format!("+incdir+{}", i.to_str().unwrap()));
+        }
+    }
+
+    for file in files {
+        let p = match file {
+            SourceFile::File(p) => p,
+            _ => continue,
+        };
+        if p.starts_with(sess.root) {
+            lines.push(format!(
+                "{}{}",
+                root,
+                p.strip_prefix(sess.root).unwrap().to_str().unwrap()
+            ));
+        } else {
+            lines.push(format!("{}", p.to_str().unwrap()));
+        }
+    }
+    println!("{}", lines.join("\n"));
     Ok(())
 }
 
