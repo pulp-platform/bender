@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Added
 - Add `flist` scripts target emitting a plain file list.
 ### Changed
-- Add `--abort-on-error` flag to the `script` command (effective for `synopsys` and `vsim`).
+- `script` now inserts Tcl `catch` statements for `synopsys` and `vsim` to abort elaboration on the first error.  This can be disabled with the new `--no-abort-on-error` flag.
 
 ## 0.18.0 - 2020-04-03
 ### Added
