@@ -99,9 +99,9 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
                 .number_of_values(1),
         )
         .arg(
-            Arg::with_name("abort-on-error")
-                .long("abort-on-error")
-                .help("Abort analysis/compilation on first caught error")
+            Arg::with_name("no-abort-on-error")
+                .long("no-abort-on-error")
+                .help("Do not abort analysis/compilation on first caught error (only for programs that support early aborting)")
         )
 }
 
@@ -129,7 +129,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         _ => unreachable!(),
     };
 
-    let abort_on_error = matches.is_present("abort-on-error");
+    let abort_on_error = !matches.is_present("no-abort-on-error");
 
     // Filter the sources by target.
     let targets = matches
