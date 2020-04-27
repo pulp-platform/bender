@@ -23,7 +23,7 @@ before_script:
 script:
   - cargo build
   - cargo test --all
-  - cargo fmt -- --check
+  - "[ $TRAVIS_RUST_VERSION != stable ] || cargo fmt -- --check"
   - tests/run_all.sh
 
 after_success:
