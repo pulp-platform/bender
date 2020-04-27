@@ -5,8 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+## 0.19.0 - 2020-04-27
 ### Added
 - Add `flist` scripts target emitting a plain file list.
+
 ### Changed
 - `script` now inserts Tcl `catch` statements for `synopsys` and `vsim` to abort elaboration on the first error.  This can be disabled with the new `--no-abort-on-error` flag.
 
