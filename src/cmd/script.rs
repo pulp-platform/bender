@@ -579,10 +579,23 @@ fn emit_synopsys_tcl(
             },
             |src, ty, files| {
                 let mut lines = vec![];
-                lines.push(tcl_catch_prefix(&format!("analyze -format {}", match ty {
-                        SourceType::Verilog => { "sv" }
-                        SourceType::Vhdl => { "vhdl" }
-                    }), abort_on_error).to_owned());
+                lines.push(
+                    tcl_catch_prefix(
+                        &format!(
+                            "analyze -format {}",
+                            match ty {
+                                SourceType::Verilog => {
+                                    "sv"
+                                }
+                                SourceType::Vhdl => {
+                                    "vhdl"
+                                }
+                            }
+                        ),
+                        abort_on_error,
+                    )
+                    .to_owned(),
+                );
 
                 // Add defines.
                 let mut defines: Vec<(String, Option<&str>)> = vec![];
