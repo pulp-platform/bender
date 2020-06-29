@@ -36,6 +36,7 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
                     "vcs",
                     "verilator",
                     "synopsys",
+                    "riviera",
                     "genus",
                     "vivado",
                     "vivado-sim",
@@ -49,14 +50,14 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("vcom-arg")
                 .long("vcom-arg")
-                .help("Pass an argument to vcom calls (vsim/vhdlan only)")
+                .help("Pass an argument to vcom calls (vsim/vhdlan/riviera only)")
                 .takes_value(true)
                 .multiple(true),
         )
         .arg(
             Arg::with_name("vlog-arg")
                 .long("vlog-arg")
-                .help("Pass an argument to vlog calls (vsim/vlogan only)")
+                .help("Pass an argument to vlog calls (vsim/vlogan/riviera only)")
                 .takes_value(true)
                 .multiple(true),
         )
@@ -123,6 +124,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "vcs" => vec!["vcs", "simulation"],
         "verilator" => vec!["verilator", "synthesis"],
         "synopsys" => vec!["synopsys", "synthesis"],
+        "riviera" => vec!["riviera", "simulation"],
         "genus" => vec!["genus", "synthesis"],
         "vivado" => concat(vivado_targets, &["synthesis"]),
         "vivado-sim" => concat(vivado_targets, &["simulation"]),
@@ -154,9 +156,10 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     if (matches.is_present("vcom-arg") || matches.is_present("vlog-arg"))
         && format != "vsim"
         && format != "vcs"
+        && format != "riviera"
     {
         return Err(Error::new(
-            "vsim/vcs-only options can only be used for 'vcs' or 'vsim' format!",
+            "vsim/vcs-only options can only be used for 'vcs', 'vsim' or 'riviera' format!",
         ));
     }
     if (matches.is_present("only-defines")
@@ -177,6 +180,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "vcs" => emit_vcs_sh(sess, matches, targets, srcs),
         "verilator" => emit_verilator_sh(sess, matches, targets, srcs),
         "synopsys" => emit_synopsys_tcl(sess, matches, targets, srcs, abort_on_error),
+        "riviera" => emit_riviera_tcl(sess, matches, targets, srcs, abort_on_error),
         "genus" => emit_genus_tcl(sess, matches, targets, srcs),
         "vivado" => emit_vivado_tcl(sess, matches, targets, srcs),
         "vivado-sim" => emit_vivado_tcl(sess, matches, targets, srcs),
@@ -852,6 +856,81 @@ fn emit_vivado_tcl(
             }
             println!("] [current_fileset{}]", arg);
         }
+    }
+    Ok(())
+}
+
+/// Emit a riviera compilation script.
+fn emit_riviera_tcl(
+    sess: &Session,
+    matches: &ArgMatches,
+    targets: TargetSet,
+    srcs: Vec<SourceGroup>,
+    abort_on_error: bool,
+) -> Result<()> {
+    println!("{}", header_tcl(sess));
+    println!("vlib work");
+    for src in srcs {
+        separate_files_in_group(
+            src,
+            |f| match f {
+                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
+                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
+                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
+                    _ => None,
+                },
+                _ => None,
+            },
+            |src, ty, files| {
+                let mut lines = vec![];
+                match ty {
+                    SourceType::Verilog => {
+                        lines.push(tcl_catch_prefix("vlog -sv", abort_on_error).to_owned());
+                        if let Some(args) = matches.values_of("vlog-arg") {
+                            lines.extend(args.map(Into::into));
+                        }
+                        let mut defines: Vec<(String, Option<&str>)> = vec![];
+                        defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+                        defines.extend(
+                            targets
+                                .iter()
+                                .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
+                        );
+                        defines.sort();
+                        for (k, v) in defines {
+                            let mut s = format!("+define+{}", k.to_uppercase());
+                            if let Some(v) = v {
+                                s.push('=');
+                                s.push_str(v);
+                            }
+                            lines.push(s);
+                        }
+                        for i in &src.include_dirs {
+                            lines
+                                .push(quote(&format!("+incdir+{}", relativize_path(i, sess.root))));
+                        }
+                    }
+                    SourceType::Vhdl => {
+                        lines.push(tcl_catch_prefix("vcom -2008", abort_on_error).to_owned());
+                        if let Some(args) = matches.values_of("vcom-arg") {
+                            lines.extend(args.map(Into::into));
+                        }
+                    }
+                }
+                for file in files {
+                    let p = match file {
+                        SourceFile::File(p) => p,
+                        _ => continue,
+                    };
+                    lines.push(quote(&relativize_path(p, sess.root)));
+                }
+                println!("");
+                println!("{}", lines.join(" \\\n    "));
+                if abort_on_error {
+                    println!("{}", tcl_catch_postfix());
+                }
+            },
+        );
     }
     Ok(())
 }
