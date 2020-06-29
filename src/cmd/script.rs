@@ -104,6 +104,18 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
                 .long("no-abort-on-error")
                 .help("Do not abort analysis/compilation on first caught error (only for programs that support early aborting)")
         )
+        .arg(
+            Arg::with_name("compilation_mode")
+                .long("compilation-mode")
+                .help("Choose compilation mode for Riviera-PRO option: separate/common (Riviera-PRO only)")
+                .takes_value(true)
+                .multiple(false)
+                 .default_value("common")
+                .possible_values(&[
+                    "separate",
+                    "common",
+                ])
+        )
 }
 
 /// Execute the `script` subcommand.
@@ -132,7 +144,11 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     };
 
     let abort_on_error = !matches.is_present("no-abort-on-error");
-
+    //////riviera compilation mode
+    let mut riviera_separate_compilation_mode = false;
+    if matches.value_of("compilation_mode").unwrap() == "separate" {
+        riviera_separate_compilation_mode = true;
+    }
     // Filter the sources by target.
     let targets = matches
         .values_of("target")
@@ -180,7 +196,14 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "vcs" => emit_vcs_sh(sess, matches, targets, srcs),
         "verilator" => emit_verilator_sh(sess, matches, targets, srcs),
         "synopsys" => emit_synopsys_tcl(sess, matches, targets, srcs, abort_on_error),
-        "riviera" => emit_riviera_tcl(sess, matches, targets, srcs, abort_on_error),
+        "riviera" => emit_riviera_tcl(
+            sess,
+            matches,
+            targets,
+            srcs,
+            abort_on_error,
+            riviera_separate_compilation_mode,
+        ),
         "genus" => emit_genus_tcl(sess, matches, targets, srcs),
         "vivado" => emit_vivado_tcl(sess, matches, targets, srcs),
         "vivado-sim" => emit_vivado_tcl(sess, matches, targets, srcs),
@@ -867,70 +890,144 @@ fn emit_riviera_tcl(
     targets: TargetSet,
     srcs: Vec<SourceGroup>,
     abort_on_error: bool,
+    riviera_separate_compilation_mode: bool,
 ) -> Result<()> {
     println!("{}", header_tcl(sess));
     println!("vlib work");
-    for src in srcs {
-        separate_files_in_group(
-            src,
-            |f| match f {
-                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
-                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
-                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
+
+    if riviera_separate_compilation_mode {
+        for src in srcs {
+            separate_files_in_group(
+                src,
+                |f| match f {
+                    SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
+                        Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
+                        Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
+                        _ => None,
+                    },
                     _ => None,
                 },
-                _ => None,
-            },
-            |src, ty, files| {
-                let mut lines = vec![];
-                match ty {
-                    SourceType::Verilog => {
-                        lines.push(tcl_catch_prefix("vlog -sv", abort_on_error).to_owned());
-                        if let Some(args) = matches.values_of("vlog-arg") {
-                            lines.extend(args.map(Into::into));
-                        }
-                        let mut defines: Vec<(String, Option<&str>)> = vec![];
-                        defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
-                        defines.extend(
-                            targets
-                                .iter()
-                                .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
-                        );
-                        defines.sort();
-                        for (k, v) in defines {
-                            let mut s = format!("+define+{}", k.to_uppercase());
-                            if let Some(v) = v {
-                                s.push('=');
-                                s.push_str(v);
+                |src, ty, files| {
+                    let mut lines = vec![];
+                    match ty {
+                        SourceType::Verilog => {
+                            lines.push(tcl_catch_prefix("vlog -sv", abort_on_error).to_owned());
+                            if let Some(args) = matches.values_of("vlog-arg") {
+                                lines.extend(args.map(Into::into));
                             }
-                            lines.push(s);
+                            let mut defines: Vec<(String, Option<&str>)> = vec![];
+                            defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+                            defines.extend(
+                                targets
+                                    .iter()
+                                    .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
+                            );
+                            defines.sort();
+                            for (k, v) in defines {
+                                let mut s = format!("+define+{}", k.to_uppercase());
+                                if let Some(v) = v {
+                                    s.push('=');
+                                    s.push_str(v);
+                                }
+                                lines.push(s);
+                            }
+                            for i in &src.include_dirs {
+                                lines.push(quote(&format!(
+                                    "+incdir+{}",
+                                    relativize_path(i, sess.root)
+                                )));
+                            }
                         }
-                        for i in &src.include_dirs {
-                            lines
-                                .push(quote(&format!("+incdir+{}", relativize_path(i, sess.root))));
+                        SourceType::Vhdl => {
+                            lines.push(tcl_catch_prefix("vcom -2008", abort_on_error).to_owned());
+                            if let Some(args) = matches.values_of("vcom-arg") {
+                                lines.extend(args.map(Into::into));
+                            }
                         }
                     }
-                    SourceType::Vhdl => {
-                        lines.push(tcl_catch_prefix("vcom -2008", abort_on_error).to_owned());
-                        if let Some(args) = matches.values_of("vcom-arg") {
-                            lines.extend(args.map(Into::into));
-                        }
+                    for file in files {
+                        let p = match file {
+                            SourceFile::File(p) => p,
+                            _ => continue,
+                        };
+                        lines.push(quote(&relativize_path(p, sess.root)));
                     }
+                    println!("");
+                    println!("{}", lines.join(" \\\n    "));
+                    if abort_on_error {
+                        println!("{}", tcl_catch_postfix());
+                    }
+                },
+            );
+        }
+    } else {
+        let mut lines = vec![];
+        let mut file_lines = vec![];
+        let mut inc_dirs = HashSet::new();
+        let mut files = vec![];
+        let mut defines: Vec<(String, Option<&str>)> = vec![];
+        let mut t: bool = false;
+        for src in srcs {
+            inc_dirs = src
+                .include_dirs
+                .into_iter()
+                .fold(HashSet::new(), |mut acc, inc_dir| {
+                    acc.insert(inc_dir);
+                    acc
+                });
+            files.append(&mut src.files.clone());
+            defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+        }
+        for file in files {
+            let p = match file {
+                SourceFile::File(p) => p,
+                _ => continue,
+            };
+            if p.to_str().unwrap().contains(".sv")
+                || p.to_str().unwrap().contains(".v")
+                || p.to_str().unwrap().contains(".vp")
+            {
+                t = true;
+            } else if p.to_str().unwrap().contains(".vhd") || p.to_str().unwrap().contains(".vhdl")
+            {
+                t = false;
+            }
+            file_lines.push(quote(&relativize_path(p, sess.root)));
+        }
+        if t {
+            lines.push(tcl_catch_prefix("vlog -sv", abort_on_error).to_owned());
+            if let Some(args) = matches.values_of("vlog-arg") {
+                lines.extend(args.map(Into::into));
+            }
+            defines.extend(
+                targets
+                    .iter()
+                    .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
+            );
+            defines.sort();
+            for (k, v) in defines {
+                let mut s = format!("+define+{}", k.to_uppercase());
+                if let Some(v) = v {
+                    s.push('=');
+                    s.push_str(v);
                 }
-                for file in files {
-                    let p = match file {
-                        SourceFile::File(p) => p,
-                        _ => continue,
-                    };
-                    lines.push(quote(&relativize_path(p, sess.root)));
-                }
-                println!("");
-                println!("{}", lines.join(" \\\n    "));
-                if abort_on_error {
-                    println!("{}", tcl_catch_postfix());
-                }
-            },
-        );
+                lines.push(s);
+            }
+
+            for i in &inc_dirs {
+                lines.push(quote(&format!("+incdir+{}", relativize_path(i, sess.root))));
+            }
+        } else {
+            lines.push(tcl_catch_prefix("vcom -2008", abort_on_error).to_owned());
+            if let Some(args) = matches.values_of("vcom-arg") {
+                lines.extend(args.map(Into::into));
+            }
+        }
+        lines.extend(file_lines.iter().cloned());
+        println!("{}", lines.join("\\\n"));
+        if abort_on_error {
+            println!("{}", tcl_catch_postfix());
+        }
     }
     Ok(())
 }
