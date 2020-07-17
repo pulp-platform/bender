@@ -47,6 +47,8 @@ Targets are flags that can be used to filter source files and dependencies. They
 
   - `vivado`: Set this target when working with Xilinx Vivado. Automatically set by the *bender-vivado* plugin.
 
+  - `riviera`: Set this target when working with Aldec Riviera-PRO.
+
 - **Abstraction**: You should set exactly one of the following to indicate at which abstraction level you are working on.
 
   - `rtl`: Set this target when working with the Register Transfer Level description of a design. If this target is set, only behavioural and no technology-specific modules should be used.
