@@ -264,11 +264,6 @@ fn load_config(from: &Path) -> Result<Config> {
     use std::os::unix::fs::MetadataExt;
     let mut out = PartialConfig::new();
 
-    // Load the optional local configuration.
-    if let Some(cfg) = maybe_load_config(&from.join("Bender.local"))? {
-        out = out.merge(cfg);
-    }
-
     // Canonicalize the path. This will resolve any intermediate links.
     let mut path = canonicalize(from)
         .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", from), cause))?;
@@ -281,6 +276,11 @@ fn load_config(from: &Path) -> Result<Config> {
 
     // Step upwards through the path hierarchy.
     for _ in 0..100 {
+        // Load the optional local configuration.
+        if let Some(cfg) = maybe_load_config(&path.join("Bender.local"))? {
+            out = out.merge(cfg);
+        }
+
         debugln!("load_config: looking in {:?}", path);
 
         if let Some(cfg) = maybe_load_config(&path.join(".bender.yml"))? {
