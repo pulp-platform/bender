@@ -48,6 +48,13 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
                 .help("Use relative paths (flist generation only)"),
         )
         .arg(
+            Arg::with_name("defines")
+                .long("defines")
+                .help("Pass an additional define to all source files")
+                .takes_value(true)
+                .multiple(true),
+        )
+        .arg(
             Arg::with_name("vcom-arg")
                 .long("vcom-arg")
                 .help("Pass an argument to vcom calls (vsim/vhdlan/riviera only)")
@@ -864,6 +871,13 @@ fn emit_vivado_tcl(
             .iter()
             .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
     );
+    if let Some(define) = matches.values_of("defines") {
+        defines.extend(
+            matches.values_of("defines")
+            .unwrap()
+            .map(|t| (t.to_string(), None))
+        );
+    }
     if !defines.is_empty() && output_components.defines {
         defines.sort();
         defines.dedup();
