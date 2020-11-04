@@ -40,7 +40,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "bender"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "atty 0.2.14 (registry+https://github.com/rust-lang/crates.io-index)",
  "blake2 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
