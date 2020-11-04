@@ -874,9 +874,12 @@ fn emit_vivado_tcl(
     );
     if let Some(d) = matches.values_of("define") {
         defines.extend(
-            matches.values_of("define")
-            .unwrap()
-            .map(|t| (t.to_string(), None))
+            d.map(|t| {
+                let mut parts = t.splitn(2, "=");
+                let name = parts.next().unwrap().trim(); // split always has at least one element
+                let value = parts.next().map(|v| v.trim().to_string());
+                (name.to_string(), value)
+            })
         );
     }
     if !defines.is_empty() && output_components.defines {
