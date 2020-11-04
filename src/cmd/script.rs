@@ -304,14 +304,12 @@ fn tcl_catch_postfix() -> &'static str {
 
 fn add_defines_from_matches(defines: &mut Vec<(String, Option<String>)>, matches: &ArgMatches) {
     if let Some(d) = matches.values_of("define") {
-        defines.extend(
-            d.map(|t| {
-                let mut parts = t.splitn(2, "=");
-                let name = parts.next().unwrap().trim(); // split always has at least one element
-                let value = parts.next().map(|v| v.trim().to_string());
-                (name.to_string(), value)
-            })
-        );
+        defines.extend(d.map(|t| {
+            let mut parts = t.splitn(2, "=");
+            let name = parts.next().unwrap().trim(); // split always has at least one element
+            let value = parts.next().map(|v| v.trim().to_string());
+            (name.to_string(), value)
+        }));
     }
 }
 
@@ -344,7 +342,11 @@ fn emit_vsim_tcl(
                             lines.extend(args.map(Into::into));
                         }
                         let mut defines: Vec<(String, Option<String>)> = vec![];
-                        defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
+                        defines.extend(
+                            src.defines
+                                .iter()
+                                .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+                        );
                         defines.extend(
                             targets
                                 .iter()
@@ -423,7 +425,11 @@ fn emit_vcs_sh(
                             lines.extend(args.map(Into::into));
                         }
                         let mut defines: Vec<(String, Option<String>)> = vec![];
-                        defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
+                        defines.extend(
+                            src.defines
+                                .iter()
+                                .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+                        );
                         defines.extend(
                             targets
                                 .iter()
@@ -492,7 +498,11 @@ fn emit_verilator_sh(
                             lines.extend(args.map(Into::into));
                         }
                         let mut defines: Vec<(String, Option<String>)> = vec![];
-                        defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
+                        defines.extend(
+                            src.defines
+                                .iter()
+                                .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+                        );
                         defines.extend(
                             targets
                                 .iter()
@@ -650,7 +660,11 @@ fn emit_synopsys_tcl(
 
                 // Add defines.
                 let mut defines: Vec<(String, Option<String>)> = vec![];
-                defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
+                defines.extend(
+                    src.defines
+                        .iter()
+                        .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+                );
                 defines.extend(
                     targets
                         .iter()
@@ -752,7 +766,11 @@ fn emit_genus_tcl(
 
                 // Add defines.
                 let mut defines: Vec<(String, Option<String>)> = vec![];
-                defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
+                defines.extend(
+                    src.defines
+                        .iter()
+                        .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+                );
                 defines.extend(
                     targets
                         .iter()
@@ -943,7 +961,11 @@ fn emit_riviera_tcl(
                                 lines.extend(args.map(Into::into));
                             }
                             let mut defines: Vec<(String, Option<String>)> = vec![];
-                            defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
+                            defines.extend(
+                                src.defines
+                                    .iter()
+                                    .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+                            );
                             defines.extend(
                                 targets
                                     .iter()
@@ -1004,7 +1026,11 @@ fn emit_riviera_tcl(
                     acc
                 });
             files.append(&mut src.files.clone());
-            defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
+            defines.extend(
+                src.defines
+                    .iter()
+                    .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+            );
         }
         for file in files {
             let p = match file {
