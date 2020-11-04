@@ -13,7 +13,7 @@ services:
   - docker
 
 before_install:
-  - for centos in '7.4.1708' '7.6.1810'; do
+  - for centos in '7.4.1708' '7.6.1810' '7.7.1908' '7.8.2003'; do
       .ci/if_deploy_build.sh docker pull accuminium/rust-centos:${centos}_${TRAVIS_RUST_VERSION};
     done
 
@@ -28,7 +28,7 @@ script:
 
 after_success:
   - .ci/if_deploy_build.sh cargo build --release
-  - for centos in '7.4.1708' '7.6.1810'; do
+  - for centos in '7.4.1708' '7.6.1810' '7.7.1908' '7.8.2003'; do
       .ci/if_deploy_build.sh docker run
         -t --rm
         -v "$PWD:/source"
@@ -39,7 +39,7 @@ after_success:
 
 before_deploy:
   - .ci/if_deploy_build.sh .ci/package.sh
-  - for centos in '7.4.1708' '7.6.1810'; do
+  - for centos in '7.4.1708' '7.6.1810' '7.7.1908' '7.8.2003'; do
       .ci/if_deploy_build.sh .ci/package.sh centos$centos;
     done
 
