@@ -6,11 +6,12 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 ### Added
-- Add option to pass additional defines through the command line
+- Add option to pass additional defines through the command line ([#34](https://github.com/fabianschuiki/bender/pull/34))
 
 ### Changed
 - Switch to Rust 2018 edition
 - Update dependency `serde_yaml`, `tokio-timer`, `semver`, `blake2`, `typed-arena`, `dirs`, `pathdiff`, and `itertools`
+- Extended documentation in the README
 
 ## 0.20.0 - 2020-07-04
 ### Added
