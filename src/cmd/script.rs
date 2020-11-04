@@ -48,8 +48,9 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
                 .help("Use relative paths (flist generation only)"),
         )
         .arg(
-            Arg::with_name("defines")
-                .long("defines")
+            Arg::with_name("define")
+                .short("D")
+                .long("define")
                 .help("Pass an additional define to all source files")
                 .takes_value(true)
                 .multiple(true),
@@ -871,9 +872,9 @@ fn emit_vivado_tcl(
             .iter()
             .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
     );
-    if let Some(define) = matches.values_of("defines") {
+    if let Some(d) = matches.values_of("define") {
         defines.extend(
-            matches.values_of("defines")
+            matches.values_of("define")
             .unwrap()
             .map(|t| (t.to_string(), None))
         );
