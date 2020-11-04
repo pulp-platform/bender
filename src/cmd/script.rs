@@ -302,13 +302,13 @@ fn tcl_catch_postfix() -> &'static str {
     return "}]} {return 1}";
 }
 
-fn add_defines_from_matches(defines: &mut Vec<(String, Option<&str>)>, matches: &ArgMatches) {
+fn add_defines_from_matches(defines: &mut Vec<(String, Option<String>)>, matches: &ArgMatches) {
     if let Some(d) = matches.values_of("define") {
         defines.extend(
             d.map(|t| {
                 let mut parts = t.splitn(2, "=");
                 let name = parts.next().unwrap().trim(); // split always has at least one element
-                let value = parts.next().map(|v| v.trim());
+                let value = parts.next().map(|v| v.trim().to_string());
                 (name.to_string(), value)
             })
         );
@@ -343,8 +343,8 @@ fn emit_vsim_tcl(
                         if let Some(args) = matches.values_of("vlog-arg") {
                             lines.extend(args.map(Into::into));
                         }
-                        let mut defines: Vec<(String, Option<&str>)> = vec![];
-                        defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+                        let mut defines: Vec<(String, Option<String>)> = vec![];
+                        defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
                         defines.extend(
                             targets
                                 .iter()
@@ -356,7 +356,7 @@ fn emit_vsim_tcl(
                             let mut s = format!("+define+{}", k.to_uppercase());
                             if let Some(v) = v {
                                 s.push('=');
-                                s.push_str(v);
+                                s.push_str(&v);
                             }
                             lines.push(s);
                         }
@@ -422,8 +422,8 @@ fn emit_vcs_sh(
                         if let Some(args) = matches.values_of("vlog-arg") {
                             lines.extend(args.map(Into::into));
                         }
-                        let mut defines: Vec<(String, Option<&str>)> = vec![];
-                        defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+                        let mut defines: Vec<(String, Option<String>)> = vec![];
+                        defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
                         defines.extend(
                             targets
                                 .iter()
@@ -435,7 +435,7 @@ fn emit_vcs_sh(
                             let mut s = format!("+define+{}", k.to_uppercase());
                             if let Some(v) = v {
                                 s.push('=');
-                                s.push_str(v);
+                                s.push_str(&v);
                             }
                             lines.push(s);
                         }
@@ -491,8 +491,8 @@ fn emit_verilator_sh(
                         if let Some(args) = matches.values_of("vlog-arg") {
                             lines.extend(args.map(Into::into));
                         }
-                        let mut defines: Vec<(String, Option<&str>)> = vec![];
-                        defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+                        let mut defines: Vec<(String, Option<String>)> = vec![];
+                        defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
                         defines.extend(
                             targets
                                 .iter()
@@ -504,7 +504,7 @@ fn emit_verilator_sh(
                             let mut s = format!("+define+{}", k.to_uppercase());
                             if let Some(v) = v {
                                 s.push('=');
-                                s.push_str(v);
+                                s.push_str(&v);
                             }
                             lines.push(s);
                         }
@@ -649,8 +649,8 @@ fn emit_synopsys_tcl(
                 );
 
                 // Add defines.
-                let mut defines: Vec<(String, Option<&str>)> = vec![];
-                defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+                let mut defines: Vec<(String, Option<String>)> = vec![];
+                defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
                 defines.extend(
                     targets
                         .iter()
@@ -664,7 +664,7 @@ fn emit_synopsys_tcl(
                         let mut s = format!("    {}", k);
                         if let Some(v) = v {
                             s.push('=');
-                            s.push_str(v);
+                            s.push_str(&v);
                         }
                         lines.push(s);
                     }
@@ -751,8 +751,8 @@ fn emit_genus_tcl(
                 }
 
                 // Add defines.
-                let mut defines: Vec<(String, Option<&str>)> = vec![];
-                defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+                let mut defines: Vec<(String, Option<String>)> = vec![];
+                defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
                 defines.extend(
                     targets
                         .iter()
@@ -766,7 +766,7 @@ fn emit_genus_tcl(
                         let mut s = format!("    {}", k);
                         if let Some(v) = v {
                             s.push('=');
-                            s.push_str(v);
+                            s.push_str(&v);
                         }
                         lines.push(s);
                     }
@@ -832,7 +832,7 @@ fn emit_vivado_tcl(
 
     println!("{}", header_tcl(sess));
     let mut include_dirs = vec![];
-    let mut defines = vec![];
+    let mut defines: Vec<(String, Option<String>)> = vec![];
     let filesets = if matches.is_present("no-simset") {
         vec![""]
     } else {
@@ -942,8 +942,8 @@ fn emit_riviera_tcl(
                             if let Some(args) = matches.values_of("vlog-arg") {
                                 lines.extend(args.map(Into::into));
                             }
-                            let mut defines: Vec<(String, Option<&str>)> = vec![];
-                            defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+                            let mut defines: Vec<(String, Option<String>)> = vec![];
+                            defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
                             defines.extend(
                                 targets
                                     .iter()
@@ -955,7 +955,7 @@ fn emit_riviera_tcl(
                                 let mut s = format!("+define+{}", k.to_uppercase());
                                 if let Some(v) = v {
                                     s.push('=');
-                                    s.push_str(v);
+                                    s.push_str(&v);
                                 }
                                 lines.push(s);
                             }
@@ -993,7 +993,7 @@ fn emit_riviera_tcl(
         let mut file_lines = vec![];
         let mut inc_dirs = HashSet::new();
         let mut files = vec![];
-        let mut defines: Vec<(String, Option<&str>)> = vec![];
+        let mut defines: Vec<(String, Option<String>)> = vec![];
         let mut t: bool = false;
         for src in srcs {
             inc_dirs = src
@@ -1004,7 +1004,7 @@ fn emit_riviera_tcl(
                     acc
                 });
             files.append(&mut src.files.clone());
-            defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v)));
+            defines.extend(src.defines.iter().map(|(k, &v)| (k.to_string(), v.map(String::from))));
         }
         for file in files {
             let p = match file {
@@ -1038,7 +1038,7 @@ fn emit_riviera_tcl(
                 let mut s = format!("+define+{}", k.to_uppercase());
                 if let Some(v) = v {
                     s.push('=');
-                    s.push_str(v);
+                    s.push_str(&v);
                 }
                 lines.push(s);
             }
