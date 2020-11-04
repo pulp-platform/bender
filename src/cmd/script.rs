@@ -302,6 +302,19 @@ fn tcl_catch_postfix() -> &'static str {
     return "}]} {return 1}";
 }
 
+fn add_defines_from_matches(defines: &mut Vec<(String, Option<&str>)>, matches: &ArgMatches) {
+    if let Some(d) = matches.values_of("define") {
+        defines.extend(
+            d.map(|t| {
+                let mut parts = t.splitn(2, "=");
+                let name = parts.next().unwrap().trim(); // split always has at least one element
+                let value = parts.next().map(|v| v.trim());
+                (name.to_string(), value)
+            })
+        );
+    }
+}
+
 /// Emit a vsim compilation script.
 fn emit_vsim_tcl(
     sess: &Session,
@@ -337,6 +350,7 @@ fn emit_vsim_tcl(
                                 .iter()
                                 .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
                         );
+                        add_defines_from_matches(&mut defines, matches);
                         defines.sort();
                         for (k, v) in defines {
                             let mut s = format!("+define+{}", k.to_uppercase());
@@ -415,6 +429,7 @@ fn emit_vcs_sh(
                                 .iter()
                                 .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
                         );
+                        add_defines_from_matches(&mut defines, matches);
                         defines.sort();
                         for (k, v) in defines {
                             let mut s = format!("+define+{}", k.to_uppercase());
@@ -483,6 +498,7 @@ fn emit_verilator_sh(
                                 .iter()
                                 .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
                         );
+                        add_defines_from_matches(&mut defines, matches);
                         defines.sort();
                         for (k, v) in defines {
                             let mut s = format!("+define+{}", k.to_uppercase());
@@ -585,7 +601,7 @@ fn emit_flist(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>) -> R
 /// Emit a Synopsys Design Compiler compilation script.
 fn emit_synopsys_tcl(
     sess: &Session,
-    _matches: &ArgMatches,
+    matches: &ArgMatches,
     targets: TargetSet,
     srcs: Vec<SourceGroup>,
     abort_on_error: bool,
@@ -640,6 +656,7 @@ fn emit_synopsys_tcl(
                         .iter()
                         .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
                 );
+                add_defines_from_matches(&mut defines, matches);
                 defines.sort();
                 if !defines.is_empty() {
                     lines.push("-define {".to_owned());
@@ -680,7 +697,7 @@ fn emit_synopsys_tcl(
 /// Emit a Cadence Genus compilation script.
 fn emit_genus_tcl(
     sess: &Session,
-    _matches: &ArgMatches,
+    matches: &ArgMatches,
     targets: TargetSet,
     srcs: Vec<SourceGroup>,
 ) -> Result<()> {
@@ -741,6 +758,7 @@ fn emit_genus_tcl(
                         .iter()
                         .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
                 );
+                add_defines_from_matches(&mut defines, matches);
                 defines.sort();
                 if !defines.is_empty() {
                     lines.push("-define {".to_owned());
@@ -872,16 +890,7 @@ fn emit_vivado_tcl(
             .iter()
             .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
     );
-    if let Some(d) = matches.values_of("define") {
-        defines.extend(
-            d.map(|t| {
-                let mut parts = t.splitn(2, "=");
-                let name = parts.next().unwrap().trim(); // split always has at least one element
-                let value = parts.next().map(|v| v.trim().to_string());
-                (name.to_string(), value)
-            })
-        );
-    }
+    add_defines_from_matches(&mut defines, matches);
     if !defines.is_empty() && output_components.defines {
         defines.sort();
         defines.dedup();
@@ -940,6 +949,7 @@ fn emit_riviera_tcl(
                                     .iter()
                                     .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
                             );
+                            add_defines_from_matches(&mut defines, matches);
                             defines.sort();
                             for (k, v) in defines {
                                 let mut s = format!("+define+{}", k.to_uppercase());
@@ -1022,6 +1032,7 @@ fn emit_riviera_tcl(
                     .iter()
                     .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
             );
+            add_defines_from_matches(&mut defines, matches);
             defines.sort();
             for (k, v) in defines {
                 let mut s = format!("+define+{}", k.to_uppercase());
