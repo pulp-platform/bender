@@ -9,10 +9,10 @@ use clap::{App, Arg, ArgMatches, SubCommand};
 use serde_json;
 use tokio_core::reactor::Core;
 
-use error::*;
-use sess::{Session, SessionIo};
-use src::SourceGroup;
-use target::{TargetSet, TargetSpec};
+use crate::error::*;
+use crate::sess::{Session, SessionIo};
+use crate::src::SourceGroup;
+use crate::target::{TargetSet, TargetSpec};
 
 /// Assemble the `sources` subcommand.
 pub fn new<'a, 'b>() -> App<'a, 'b> {

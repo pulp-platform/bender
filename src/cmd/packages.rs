@@ -5,8 +5,8 @@
 
 use clap::{App, Arg, ArgMatches, SubCommand};
 
-use error::*;
-use sess::Session;
+use crate::error::*;
+use crate::sess::Session;
 
 /// Assemble the `packages` subcommand.
 pub fn new<'a, 'b>() -> App<'a, 'b> {

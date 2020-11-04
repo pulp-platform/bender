@@ -19,9 +19,9 @@ use semver;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
-use error::*;
-use target::TargetSpec;
-use util::*;
+use crate::error::*;
+use crate::target::TargetSpec;
+use crate::util::*;
 
 /// A package manifest.
 ///

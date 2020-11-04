@@ -11,11 +11,11 @@ use std::process::Command;
 use clap::{App, AppSettings, Arg, OsValues, SubCommand};
 use serde_yaml;
 
-use cmd;
-use config::{Config, Locked, Manifest, Merge, PartialConfig, PrefixPaths, Validate};
-use error::*;
-use resolver::DependencyResolver;
-use sess::{Session, SessionArenas, SessionIo};
+use crate::cmd;
+use crate::config::{Config, Locked, Manifest, Merge, PartialConfig, PrefixPaths, Validate};
+use crate::error::*;
+use crate::resolver::DependencyResolver;
+use crate::sess::{Session, SessionArenas, SessionIo};
 use tokio_core::reactor::Core;
 
 /// Inner main function which can return an error.
@@ -246,7 +246,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
 
 /// Read a package manifest from a file.
 pub fn read_manifest(path: &Path) -> Result<Manifest> {
-    use config::PartialManifest;
+    use crate::config::PartialManifest;
     use std::fs::File;
     debugln!("read_manifest: {:?}", path);
     let file = File::open(path)

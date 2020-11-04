@@ -20,9 +20,9 @@ extern crate atty;
 
 use std::io::{self, Write};
 
-use config;
-use error::*;
-use sess::{
+use crate::config;
+use crate::error::*;
+use crate::sess::{
     self, DependencyConstraint, DependencyRef, DependencyVersion, DependencyVersions, Session,
     SessionIo,
 };

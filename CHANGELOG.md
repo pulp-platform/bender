@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Add option to pass additional defines through the command line
 
 ### Changed
+- Switch to Rust 2018 edition
 - Update dependency `serde_yaml`, `tokio-timer`, `semver`, `blake2`, `typed-arena`, `dirs`, `pathdiff`, and `itertools`
 
 ## 0.20.0 - 2020-07-04

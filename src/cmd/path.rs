@@ -7,8 +7,8 @@ use clap::{App, Arg, ArgMatches, SubCommand};
 use futures::future;
 use tokio_core::reactor::Core;
 
-use error::*;
-use sess::{Session, SessionIo};
+use crate::error::*;
+use crate::sess::{Session, SessionIo};
 
 /// Assemble the `path` subcommand.
 pub fn new<'a, 'b>() -> App<'a, 'b> {

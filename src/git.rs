@@ -13,8 +13,8 @@ use futures::future;
 use futures::Future;
 use tokio_process::CommandExt;
 
-use error::*;
-use sess::SessionIo;
+use crate::error::*;
+use crate::sess::SessionIo;
 
 /// A git repository.
 ///

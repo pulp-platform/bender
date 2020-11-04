@@ -8,8 +8,8 @@ use std;
 use clap::{App, ArgMatches, SubCommand};
 use serde_json;
 
-use error::*;
-use sess::Session;
+use crate::error::*;
+use crate::sess::Session;
 
 /// Assemble the `config` subcommand.
 pub fn new<'a, 'b>() -> App<'a, 'b> {

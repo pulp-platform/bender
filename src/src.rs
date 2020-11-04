@@ -13,7 +13,7 @@ use std::path::Path;
 
 use serde::ser::{Serialize, Serializer};
 
-use target::{TargetSet, TargetSpec};
+use crate::target::{TargetSet, TargetSpec};
 
 /// A source file group.
 #[derive(Serialize, Clone, Debug)]

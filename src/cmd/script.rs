@@ -6,10 +6,10 @@
 use clap::{App, Arg, ArgMatches, SubCommand};
 use tokio_core::reactor::Core;
 
-use error::*;
-use sess::{Session, SessionIo};
-use src::{SourceFile, SourceGroup};
-use target::{TargetSet, TargetSpec};
+use crate::error::*;
+use crate::sess::{Session, SessionIo};
+use crate::src::{SourceFile, SourceGroup};
+use crate::target::{TargetSet, TargetSpec};
 
 use std::collections::HashSet;
 

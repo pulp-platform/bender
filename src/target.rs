@@ -16,7 +16,7 @@ use std::str::FromStr;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
-use error::*;
+use crate::error::*;
 
 /// A target specification.
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq)]

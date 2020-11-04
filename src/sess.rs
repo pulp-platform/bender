@@ -22,15 +22,15 @@ use serde_yaml;
 use tokio_core::reactor::Handle;
 use typed_arena::Arena;
 
-use cli::read_manifest;
-use config::Validate;
-use config::{self, Config, Manifest};
-use error::*;
-use future_throttle::FutureThrottle;
-use git::Git;
-use src::SourceGroup;
-use target::TargetSpec;
-use util::try_modification_time;
+use crate::cli::read_manifest;
+use crate::config::Validate;
+use crate::config::{self, Config, Manifest};
+use crate::error::*;
+use crate::future_throttle::FutureThrottle;
+use crate::git::Git;
+use crate::src::SourceGroup;
+use crate::target::TargetSpec;
+use crate::util::try_modification_time;
 
 /// A session on the command line.
 ///
