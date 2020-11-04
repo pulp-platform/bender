@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Added
 - Add option to pass additional defines through the command line
 
+### Changed
+- Update dependency `serde_yaml`, `tokio-timer`, `semver`, `blake2`, `typed-arena`, `dirs`, `pathdiff`, and `itertools`
+
 ## 0.20.0 - 2020-07-04
 ### Added
 - Add `riviera` format to the script command. ([#29](https://github.com/fabianschuiki/bender/pull/29))

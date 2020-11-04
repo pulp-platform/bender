@@ -420,7 +420,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // Determine the name of the database as the given name and the first
         // 8 bytes (16 hex characters) of the URL's BLAKE2 hash.
         use blake2::{Blake2b, Digest};
-        let hash = &format!("{:016x}", Blake2b::digest_str(url))[..16];
+        let hash = &format!("{:016x}", Blake2b::digest(url.as_bytes()))[..16];
         let db_name = format!("{}-{}", name, hash);
 
         // Determine the location of the git database and create it if its does
@@ -597,7 +597,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             let mut hasher = Blake2b::new();
             match dep.source {
                 DependencySource::Registry => unimplemented!(),
-                DependencySource::Git(ref url) => hasher.input(url.as_bytes()),
+                DependencySource::Git(ref url) => hasher.update(url.as_bytes()),
                 DependencySource::Path(ref path) => {
                     // Determine and canonicalize the dependency path, and
                     // immediately return it.
@@ -610,8 +610,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     return Box::new(future::ok(path));
                 }
             }
-            hasher.input(format!("{:?}", self.sess.root).as_bytes());
-            &format!("{:016x}", hasher.result())[..16]
+            hasher.update(format!("{:?}", self.sess.root).as_bytes());
+            &format!("{:016x}", hasher.finalize())[..16]
         };
         let checkout_name = format!("{}-{}", dep.name, hash);
 
@@ -817,16 +817,26 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         })
                         .and_then(move |data| match data {
                             Some(data) => {
-                                let partial: config::PartialManifest =
-                                serde_yaml::from_str(&data).map_err(|cause| Error::chain(
-                                    format!("Syntax error in manifest of dependency `{}` at revisison `{}`.", dep_name, rev),
-                                    cause
-                                ))?;
+                                let partial: config::PartialManifest = serde_yaml::from_str(&data)
+                                    .map_err(|cause| {
+                                        Error::chain(
+                                            format!(
+                                                "Syntax error in manifest of dependency `{}` at \
+                                                 revisison `{}`.",
+                                                dep_name, rev
+                                            ),
+                                            cause,
+                                        )
+                                    })?;
                                 let full = partial.validate().map_err(|cause| {
                                     Error::chain(
-                                    format!("Error in manifest of dependency `{}` at revisison `{}`.", dep_name, rev),
-                                    cause
-                                )
+                                        format!(
+                                            "Error in manifest of dependency `{}` at revisison \
+                                             `{}`.",
+                                            dep_name, rev
+                                        ),
+                                        cause,
+                                    )
                                 })?;
                                 Ok(Some(self.sess.intern_manifest(full)))
                             }
