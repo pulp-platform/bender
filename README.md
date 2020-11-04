@@ -4,6 +4,8 @@ Bender is a dependency management tool for hardware design projects. It provides
 
 [![Build Status](https://travis-ci.org/fabianschuiki/bender.svg?branch=master)](https://travis-ci.org/fabianschuiki/bender)
 [![Crates.io](https://img.shields.io/crates/v/bender.svg)](https://crates.io/crates/bender)
+[![dependency status](https://deps.rs/repo/github/fabianschuiki/bender/status.svg)](https://deps.rs/repo/github/fabianschuiki/bender)
+![Crates.io](https://img.shields.io/crates/l/bender)
 
 ## Workflow
 
