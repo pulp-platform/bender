@@ -8,13 +8,15 @@ rust:
 matrix:
   allow_failures:
     - rust: nightly
+env:
+  - PKG_OS="centos:7.4.1708 centos:7.6.1810 centos:7.7.1908 centos:7.8.2003"
 
 services:
   - docker
 
 before_install:
-  - for centos in '7.4.1708' '7.6.1810' '7.7.1908' '7.8.2003'; do
-      .ci/if_deploy_build.sh docker pull accuminium/rust-centos:${centos}_${TRAVIS_RUST_VERSION};
+  - for os in $PKG_OS; do
+      .ci/if_deploy_build.sh docker pull accuminium/rust-${os}_${TRAVIS_RUST_VERSION};
     done
 
 before_script:
@@ -28,19 +30,21 @@ script:
 
 after_success:
   - .ci/if_deploy_build.sh cargo build --release
-  - for centos in '7.4.1708' '7.6.1810' '7.7.1908' '7.8.2003'; do
+  - for os in $PKG_OS; do
+      tgtname=$(echo $os | tr -d ':')
       .ci/if_deploy_build.sh docker run
         -t --rm
         -v "$PWD:/source"
-        -v "$PWD/target/centos$centos:/source/target"
-        accuminium/rust-centos:${centos}_${TRAVIS_RUST_VERSION}
+        -v "$PWD/target/$tgtname:/source/target"
+        accuminium/rust-${os}_${TRAVIS_RUST_VERSION}
         cargo build --release;
     done
 
 before_deploy:
   - .ci/if_deploy_build.sh .ci/package.sh
-  - for centos in '7.4.1708' '7.6.1810' '7.7.1908' '7.8.2003'; do
-      .ci/if_deploy_build.sh .ci/package.sh centos$centos;
+  - for os in $PKG_OS; do
+      tgtname=$(echo $os | tr -d ':')
+      .ci/if_deploy_build.sh .ci/package.sh $tgtname;
     done
 
 deploy:
