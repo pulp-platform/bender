@@ -8,6 +8,19 @@ Bender is a dependency management tool for hardware design projects. It provides
 ![Crates.io](https://img.shields.io/crates/l/bender)
 
 
+## Table of Contents
+
+- [Principles](#principles)
+- [Workflow](#workflow)
+- [Package Structure](#package-structure)
+- [Manifest Format (`Bender.yml`)](#manifest-format-benderyml)
+  - [Dependencies](#dependencies)
+  - [Sources](#sources)
+  - [Targets](#targets)
+- [Configuration Format (`bender.yml`, `Bender.local`)](#configuration-format-benderyml-benderlocal)
+- [Commands](#commands)
+
+
 ## Principles
 
 Bender is built around the following core principles:
