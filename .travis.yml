@@ -9,7 +9,7 @@ matrix:
   allow_failures:
     - rust: nightly
 env:
-  - PKG_OS="centos:7.4.1708 centos:7.6.1810 centos:7.7.1908 centos:7.8.2003"
+  - PKG_OS="centos:7.4.1708 centos:7.6.1810 centos:7.7.1908 centos:7.8.2003 ubuntu:16.04 ubuntu:18.04 ubuntu:20.04 ubuntu:20.10"
 
 services:
   - docker
