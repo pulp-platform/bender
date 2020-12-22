@@ -1070,6 +1070,29 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             }
                         }
                     }
+                    let root_plugins = &self.sess.manifest.plugins;
+                    for (name, plugin) in root_plugins.into_iter() {
+                        debugln!(
+                            "sess: plugin `{}` declared by root package",
+                            name
+                        );
+                        let existing = plugins.insert(
+                            name.clone(),
+                            Plugin {
+                                name: name.clone(),
+                                package: DependencyRef(0), // FIXME: unclean implementation
+                                path: plugin.clone(),
+                            },
+                        );
+                        if let Some(existing) = existing {
+                            return Err(Error::new(format!(
+                                "Plugin `{}` declared by multiple packages (`{}` and `{}`).",
+                                name,
+                                self.sess.dependency_name(existing.package),
+                                "root",
+                            )));
+                        }
+                    }
                     Ok(plugins)
                 })
                 .and_then(move |plugins| {
