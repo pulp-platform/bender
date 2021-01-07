@@ -1072,10 +1072,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     }
                     let root_plugins = &self.sess.manifest.plugins;
                     for (name, plugin) in root_plugins.into_iter() {
-                        debugln!(
-                            "sess: plugin `{}` declared by root package",
-                            name
-                        );
+                        debugln!("sess: plugin `{}` declared by root package", name);
                         let existing = plugins.insert(
                             name.clone(),
                             Plugin {
