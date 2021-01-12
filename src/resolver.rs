@@ -192,7 +192,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Determine the available versions for the dependencies.
         let versions: Vec<_> = ids
             .iter()
-            .map(|&id| io.dependency_versions(id).map(move |v| (id, v)))
+            .map(|&id| io.dependency_versions(id, false).map(move |v| (id, v)))
             .collect();
         let versions: HashMap<_, _> = core.run(join_all(versions))?.into_iter().collect();
         // debugln!("resolve: versions {:#?}", versions);
@@ -395,12 +395,26 @@ impl<'ctx> DependencyResolver<'ctx> {
         // debugln!("resolve: restricting `{}` to versions {:?}", name, indices);
 
         if indices.is_empty() {
-            return Err(Error::new(format!(
-                "Dependency `{}` from {} cannot satisfy requirement `{}`",
-                name,
-                self.sess.dependency(src.id).source,
-                con
-            )));
+            let mut core = Core::new().unwrap();
+            let io = SessionIo::new(self.sess, core.handle());
+
+            core.run(io.dependency_versions(src.id, true))?;
+
+            let indices = match self.req_indices(name, con, src) {
+                Ok(o) => match o {
+                    Some(v) => v,
+                    None => return Ok(()),
+                },
+                Err(e) => return Err(e),
+            };
+            if indices.is_empty() {
+                return Err(Error::new(format!(
+                    "Dependency `{}` from {} cannot satisfy requirement `{}`",
+                    name,
+                    self.sess.dependency(src.id).source,
+                    con
+                )));
+            }
         }
 
         // Mark all other versions of the dependency as invalid.
