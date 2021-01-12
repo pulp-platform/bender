@@ -386,6 +386,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     pub fn dependency_versions(
         &'io self,
         dep_id: DependencyRef,
+        force_fetch: bool,
     ) -> Box<dyn Future<Item = DependencyVersions<'ctx>, Error = Error> + 'io> {
         self.sess.stats.num_calls_dependency_versions.increment();
         let dep = self.sess.dependency(dep_id);
@@ -395,7 +396,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             DependencySource::Path(_) => Box::new(future::ok(DependencyVersions::Path)),
             DependencySource::Git(ref url) => Box::new(
-                self.git_database(&dep.name, url)
+                self.git_database(&dep.name, url, force_fetch)
                     .and_then(move |db| self.git_versions(db))
                     .map(DependencyVersions::Git),
             ),
@@ -410,6 +411,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         &'io self,
         name: &str,
         url: &str,
+        force_fetch: bool,
     ) -> Box<dyn Future<Item = Git<'io, 'sess, 'ctx>, Error = Error> + 'io> {
         // TODO: Make the assembled future shared and keep it in a lookup table.
         //       Then use that table to return the future if it already exists.
@@ -474,7 +476,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         } else {
             // Update if the manifest has been modified since the last fetch.
             let db_mtime = try_modification_time(db_dir.join("FETCH_HEAD"));
-            if self.sess.manifest_mtime < db_mtime {
+            if self.sess.manifest_mtime < db_mtime && !force_fetch {
                 debugln!("sess: skipping update of {:?}", db_dir);
                 return Box::new(future::ok(git));
             }
@@ -726,7 +728,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 let tag_name_0 = format!("bender-tmp-{}", revision);
                 let tag_name_1 = tag_name_0.clone();
                 let f = self
-                    .git_database(name, url)
+                    .git_database(name, url, false)
                     .and_then(move |git| {
                         git.clone()
                             .spawn_with(move |c| {
@@ -802,7 +804,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             (&DepSrc::Git(ref url), DepVer::Git(rev)) => {
                 let dep_name = self.sess.intern_string(dep.name.as_str());
                 Box::new(
-                    self.git_database(&dep.name, url)
+                    self.git_database(&dep.name, url, false)
                         .and_then(move |db| {
                             db.list_files(rev, Some("Bender.yml")).and_then(
                                 move |entries| -> Box<dyn Future<Item = _, Error = _>> {
