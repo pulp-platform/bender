@@ -9,6 +9,7 @@
 
 pub mod config;
 pub mod packages;
+pub mod parents;
 pub mod path;
 pub mod script;
 pub mod sources;
