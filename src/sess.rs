@@ -1201,6 +1201,17 @@ impl fmt::Display for DependencySource {
     }
 }
 
+impl DependencySource {
+    /// returns a string of the source
+    pub fn to_str(&self) -> String {
+        match *self {
+            DependencySource::Registry => "registry".to_string(),
+            DependencySource::Path(ref path) => format!("{:?}", path),
+            DependencySource::Git(ref url) => format!("{}", url),
+        }
+    }
+}
+
 /// A table of internalized dependencies.
 #[derive(Debug)]
 struct DependencyTable<'ctx> {
@@ -1281,6 +1292,17 @@ impl<'ctx> fmt::Display for DependencyVersion<'ctx> {
             DependencyVersion::Path => write!(f, "path"),
             DependencyVersion::Registry(ref v) => write!(f, "{}", v),
             DependencyVersion::Git(ref r) => write!(f, "{}", r),
+        }
+    }
+}
+
+impl<'ctx> DependencyVersion<'ctx> {
+    /// returns a string of the version
+    pub fn to_str(&self) -> String {
+        match *self {
+            DependencyVersion::Path => "path".to_string(),
+            DependencyVersion::Registry(ref v) => format!("{}", v),
+            DependencyVersion::Git(ref r) => format!("{}", r),
         }
     }
 }
