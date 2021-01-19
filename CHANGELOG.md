@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Added
 - `workon` command to checkout individual ips to a directory and create a path reference in Bender.local
+- `parents` command to get list of packages requiring the queried package
 
 ### Fixed
 - plugins work for scripts in root repository

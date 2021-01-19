@@ -35,6 +35,7 @@ pub fn main() -> Result<()> {
         )
         .subcommand(SubCommand::with_name("update").about("Update the dependencies"))
         .subcommand(cmd::path::new())
+        .subcommand(cmd::parents::new())
         .subcommand(cmd::workon::new())
         .subcommand(cmd::packages::new())
         .subcommand(cmd::sources::new())
@@ -187,6 +188,7 @@ pub fn main() -> Result<()> {
     // Dispatch the different subcommands.
     match matches.subcommand() {
         ("path", Some(matches)) => cmd::path::run(&sess, matches),
+        ("parents", Some(matches)) => cmd::parents::run(&sess, matches),
         ("workon", Some(matches)) => cmd::workon::run(&sess, &root_dir, matches),
         ("packages", Some(matches)) => cmd::packages::run(&sess, matches),
         ("sources", Some(matches)) => cmd::sources::run(&sess, matches),
