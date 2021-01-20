@@ -402,9 +402,11 @@ Whenever you update the list of dependencies, you likely have to run `bender upd
 The `bender clone <PKG>` command checks out the package `PKG` into a directory (default `working_dir`, can be overridden with `-p / --path <DIR>`). 
 To ensure the package is correctly linked in bender, the `Bender.local` file is modified to include a `path` dependency override, linking to the corresponding package.
 
-This can be used for development of dependent packages alowing with the larger repo, allowing to test uncommitted and committed changes, without the worry that bender would update the dependency.
+This can be used for development of dependent packages within the parent repository, allowing to test uncommitted and committed changes, without the worry that bender would update the dependency.
 
 To clean up once the changes are added, ensure the correct version is referenced by the calling packages and remove the path dependency in Bender.local.
+
+> Note: The location of the override may be updated in the future to prevent modifying the human-editable `Bender.local` file.
 
 ### `parents` --- Lists packages calling the specified package
 

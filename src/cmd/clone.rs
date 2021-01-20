@@ -16,17 +16,17 @@ use crate::sess::{Session, SessionIo};
 /// Assemble the `clone` subcommand.
 pub fn new<'a, 'b>() -> App<'a, 'b> {
     SubCommand::with_name("clone")
-        .about("Checkout dependency to a working directory")
+        .about("Clone dependency to a working directory")
         .arg(
             Arg::with_name("name")
                 .required(true)
-                .help("Package name to checkout to working_dir"),
+                .help("Package name to clone to a working directory"),
         )
         .arg(
             Arg::with_name("path")
                 .short("p")
                 .long("path")
-                .help("working_dir override")
+                .help("Relative directory to clone PKG into (default: working_dir)")
                 .takes_value(true)
                 .number_of_values(1),
         )
