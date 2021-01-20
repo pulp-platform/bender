@@ -397,9 +397,9 @@ Whenever you update the list of dependencies, you likely have to run `bender upd
 > Note: Actually this should be done automatically if you add a new dependency. But due to the lack of coding time, this has to be done manually as of now.
 
 
-### `workon` --- Checkout dependency to make modifications
+### `clone` --- Checkout dependency to make modifications
 
-The `bender workon <PKG>` command checks out the package `PKG` into a directory (default `working_dir`, can be overridden with `-p / --path <DIR>`). 
+The `bender clone <PKG>` command checks out the package `PKG` into a directory (default `working_dir`, can be overridden with `-p / --path <DIR>`). 
 To ensure the package is correctly linked in bender, the `Bender.local` file is modified to include a `path` dependency override, linking to the corresponding package.
 
 This can be used for development of dependent packages alowing with the larger repo, allowing to test uncommitted and committed changes, without the worry that bender would update the dependency.
