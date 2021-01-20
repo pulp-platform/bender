@@ -1,7 +1,7 @@
 // Copyright (c) 2021 ETH Zurich
 // Michael Rogenmoser <michaero@student.ethz.ch>
 
-//! The `workon` subcommand.
+//! The `clone` subcommand.
 
 use clap::{App, Arg, ArgMatches, SubCommand};
 use futures::future;
@@ -13,9 +13,9 @@ use crate::config;
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
 
-/// Assemble the `workon` subcommand.
+/// Assemble the `clone` subcommand.
 pub fn new<'a, 'b>() -> App<'a, 'b> {
-    SubCommand::with_name("workon")
+    SubCommand::with_name("clone")
         .about("Checkout dependency to a working directory")
         .arg(
             Arg::with_name("name")
@@ -32,7 +32,7 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-/// Execute the `workon` subcommand.
+/// Execute the `clone` subcommand.
 pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     let dep = matches.value_of("name").unwrap();
     sess.dependency_with_name(dep)?;
@@ -155,7 +155,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     // Rewrite Bender.local file to keep changes
     let local_path = path.join("Bender.local");
     let dep_str = format!(
-        "  {}: {{ path: \"{}/{0}\" }} # Temporary override by Bender using `workon` command\n",
+        "  {}: {{ path: \"{}/{0}\" }} # Temporary override by Bender using `bender clone` command\n",
         dep, path_mod
     );
     if local_path.exists() {
