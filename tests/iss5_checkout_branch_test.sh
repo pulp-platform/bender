@@ -19,12 +19,14 @@ touch README
 git add .
 git commit -m "Hello"
 
+readonly BRANCH=$(git branch --show-current)
+
 cd "$DIR"/bar
 echo "
 package:
   name: bar
 
 dependencies:
-  foo: { git: \"file://$DIR/foo\", rev: master }
+  foo: { git: \"file://$DIR/foo\", rev: $BRANCH }
 " > Bender.yml
 $BENDER path foo # this fails according to issue #5
