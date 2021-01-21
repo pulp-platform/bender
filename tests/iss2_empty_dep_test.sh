@@ -20,7 +20,7 @@ package:
   name: bar
 
 dependencies:
-  foo: { git: \"file://$DIR/foo\", rev: master }
+  foo: { git: \"file://$DIR/foo\", rev: main }
 " > Bender.yml
 if $BENDER path foo &> log; then # this fails according to issue #2
 	cat log
@@ -28,7 +28,7 @@ if $BENDER path foo &> log; then # this fails according to issue #2
 	exit 1
 fi
 
-if ! grep -E 'Dependency `foo` from `.*?` cannot satisfy requirement `master`' log; then
+if ! grep -E 'Dependency `foo` from `.*?` cannot satisfy requirement `main`' log; then
 	cat log
 	echo "should fail differently" >&2
 	exit 2
