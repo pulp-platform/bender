@@ -5,13 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+## 0.22.0 - 2021-01-21
 ### Added
-- `clone` command to checkout individual ips to a directory and create a path reference in Bender.local
-- `parents` command to get list of packages requiring the queried package
+- Add `clone` command to checkout individual ips to a directory and create a path reference in Bender.local
+- Add `parents` command to get list of packages requiring the queried package
 
 ### Fixed
-- plugins work for scripts in root repository
-- force git fetch on unsatisfied requirements to check for newly added tags in server repository
+- Fix plugins to work for scripts in root repository
+- Force git fetch on unsatisfied requirements to check for newly added tags in server repository
 
 ## 0.21.0 - 2020-11-04
 ### Added
