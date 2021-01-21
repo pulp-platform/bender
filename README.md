@@ -406,7 +406,7 @@ This can be used for development of dependent packages within the parent reposit
 
 To clean up once the changes are added, ensure the correct version is referenced by the calling packages and remove the path dependency in Bender.local.
 
-> Note: The location of the override may be updated in the future to prevent modifying the human-editable `Bender.local` file.
+> Note: The location of the override may be updated in the future to prevent modifying the human-editable `Bender.local` file by adding a persistent section to `Bender.lock`.
 
 ### `parents` --- Lists packages calling the specified package
 
