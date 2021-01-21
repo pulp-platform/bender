@@ -21,7 +21,8 @@ pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
     let result = {
         let stdout = std::io::stdout();
         let handle = stdout.lock();
-        serde_json::to_writer(handle, sess.config)
+        serde_json::to_writer_pretty(handle, sess.config)
     };
+    println!("");
     result.map_err(|cause| Error::chain("Failed to serialize configuration.", cause))
 }
