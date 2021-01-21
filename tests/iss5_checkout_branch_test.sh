@@ -19,7 +19,7 @@ touch README
 git add .
 git commit -m "Hello"
 
-readonly BRANCH=$(git branch --show-current)
+readonly BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 cd "$DIR"/bar
 echo "
