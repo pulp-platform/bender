@@ -5,9 +5,13 @@
 
 use clap::{App, Arg, ArgMatches, SubCommand};
 use std::collections::HashMap;
+use std::io::Write;
+use tabwriter::TabWriter;
+use tokio_core::reactor::Core;
 
 use crate::error::*;
-use crate::sess::Session;
+use crate::sess::DependencyConstraint;
+use crate::sess::{Session, SessionIo};
 
 /// Assemble the `parents` subcommand.
 pub fn new<'a, 'b>() -> App<'a, 'b> {
@@ -24,18 +28,32 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let dep = matches.value_of("name").unwrap();
     sess.dependency_with_name(dep)?;
+    let mut core = Core::new().unwrap();
+    let io = SessionIo::new(&sess, core.handle());
 
     let parent_array = {
-        let mut map = HashMap::<&str, &str>::new();
+        let mut map = HashMap::<String, String>::new();
         if sess.manifest.dependencies.contains_key(dep) {
-            map.insert(&sess.manifest.package.name, "version tbd");
+            let dep_str = format!(
+                "{}",
+                DependencyConstraint::from(&sess.manifest.dependencies[dep])
+            );
+            map.insert(sess.manifest.package.name.clone(), dep_str);
+            println!("Testing: {:?}", &sess.manifest.dependencies[dep]);
         }
         for (&pkg, deps) in sess.graph().iter() {
             let pkg_name = sess.dependency_name(pkg);
-            let dep_names = deps.iter().map(|&id| sess.dependency_name(id));
-            for dep_name in dep_names {
-                if dep == dep_name {
-                    map.insert(pkg_name, "version tbd"); // TODO find each version reference
+            let all_deps = deps.iter().map(|&id| sess.dependency(id));
+            for current_dep in all_deps {
+                if dep == current_dep.name.as_str() {
+                    let dep_manifest = core.run(io.dependency_manifest(pkg)).unwrap().unwrap();
+                    map.insert(
+                        pkg_name.to_string(),
+                        format!(
+                            "{}",
+                            DependencyConstraint::from(&dep_manifest.dependencies[dep])
+                        ),
+                    );
                 }
             }
         }
@@ -46,9 +64,14 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         println!("No parents found for {}.", dep);
     } else {
         println!("Parents found:");
-        for (k, _v) in parent_array.iter() {
-            println!("    {}", k);
+        let mut res = String::from("");
+        for (k, v) in parent_array.iter() {
+            res.push_str(&format!("    {}\trequires: {}\n", k, v).to_string());
         }
+        let mut tw = TabWriter::new(vec![]);
+        write!(&mut tw, "{}", res).unwrap();
+        tw.flush().unwrap();
+        print!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
     }
 
     Ok(())
