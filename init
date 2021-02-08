@@ -11,7 +11,7 @@
 
 set -u
 
-readonly GITHUB_API_BENDER_ROOT='https://api.github.com/repos/fabianschuiki/bender'
+readonly GITHUB_API_BENDER_ROOT='https://api.github.com/repos/pulp-platform/bender'
 readonly GITHUB_API_HEADER='Accept: application/vnd.github.v3+json'
 
 usage() {
