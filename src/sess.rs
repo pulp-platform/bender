@@ -371,6 +371,7 @@ pub struct SessionIo<'sess, 'ctx: 'sess> {
     pub sess: &'sess Session<'ctx>,
     /// The event loop where IO will be run.
     pub handle: Handle,
+    git_versions: Mutex<HashMap<PathBuf, GitVersions<'ctx>>>,
 }
 
 impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
@@ -379,6 +380,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         SessionIo {
             sess: sess,
             handle: handle,
+            git_versions: Mutex::new(HashMap::new()),
         }
     }
 
@@ -477,7 +479,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             // Update if the manifest has been modified since the last fetch.
             let db_mtime = try_modification_time(db_dir.join("FETCH_HEAD"));
             if self.sess.manifest_mtime < db_mtime && !force_fetch {
-                debugln!("sess: skipping update of {:?}", db_dir);
+                debugln!("sess: skipping fetch of {:?}", db_dir);
                 return Box::new(future::ok(git));
             }
             self.sess.stats.num_database_fetch.increment();
@@ -505,76 +507,110 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         &'io self,
         git: Git<'io, 'sess, 'ctx>,
     ) -> Box<dyn Future<Item = GitVersions<'ctx>, Error = Error> + 'io> {
-        let dep_refs = git.list_refs();
-        let dep_revs = git.list_revs();
-        let dep_refs_and_revs =
-            dep_refs.and_then(|refs| -> Box<dyn Future<Item = _, Error = Error>> {
-                if refs.is_empty() {
-                    Box::new(future::ok((refs, vec![])))
-                } else {
-                    Box::new(dep_revs.map(move |revs| (refs, revs)))
-                }
-            });
-        let out = dep_refs_and_revs.and_then(move |(refs, revs)| {
-            let refs: Vec<_> = refs
-                .into_iter()
-                .map(|(a, b)| (self.sess.intern_string(a), self.sess.intern_string(b)))
-                .collect();
-            let revs: Vec<_> = revs
-                .into_iter()
-                .map(|s| self.sess.intern_string(s))
-                .collect();
-            debugln!("sess: refs {:?}", refs);
-            let (tags, branches) = {
-                // Create a lookup table for the revisions. This will be used to
-                // only accept refs that point to actual revisions.
-                let rev_ids: HashSet<&str> = revs.iter().map(|s| *s).collect();
-
-                // Split the refs into tags and branches, discard
-                // everything else.
-                let mut tags = HashMap::<&'ctx str, &'ctx str>::new();
-                let mut branches = HashMap::<&'ctx str, &'ctx str>::new();
-                let tag_pfx = "refs/tags/";
-                let branch_pfx = "refs/remotes/origin/";
-                for (hash, rf) in refs {
-                    if !rev_ids.contains(hash) {
-                        continue;
-                    }
-                    if rf.starts_with(tag_pfx) {
-                        tags.insert(rf[tag_pfx.len()..].into(), hash);
-                    } else if rf.starts_with(branch_pfx) {
-                        branches.insert(rf[branch_pfx.len()..].into(), hash);
-                    }
-                }
-                (tags, branches)
-            };
-
-            // Extract the tags that look like semantic versions.
-            let mut versions: Vec<(semver::Version, &'ctx str)> = tags
-                .iter()
-                .filter_map(|(tag, &hash)| {
-                    if tag.starts_with("v") {
-                        match semver::Version::parse(&tag[1..]) {
-                            Ok(v) => Some((v, hash)),
-                            Err(_) => None,
+        match self
+            .git_versions
+            .lock()
+            .unwrap()
+            .get(&git.path.to_path_buf())
+        {
+            Some(result) => {
+                debugln!("sess: git_versions from stored");
+                Box::new(future::ok(GitVersions {
+                    versions: result.versions.clone(),
+                    refs: result.refs.clone(),
+                    revs: result.revs.clone(),
+                }))
+            }
+            None => {
+                debugln!("sess: git_versions get new");
+                let dep_refs = git.list_refs();
+                let dep_revs = git.list_revs();
+                let dep_refs_and_revs =
+                    dep_refs.and_then(|refs| -> Box<dyn Future<Item = _, Error = Error>> {
+                        if refs.is_empty() {
+                            Box::new(future::ok((refs, vec![])))
+                        } else {
+                            Box::new(dep_revs.map(move |revs| (refs, revs)))
                         }
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            versions.sort_by(|a, b| b.cmp(a));
+                    });
+                let out = dep_refs_and_revs.and_then(move |(refs, revs)| {
+                    let refs: Vec<_> = refs
+                        .into_iter()
+                        .map(|(a, b)| (self.sess.intern_string(a), self.sess.intern_string(b)))
+                        .collect();
+                    let revs: Vec<_> = revs
+                        .into_iter()
+                        .map(|s| self.sess.intern_string(s))
+                        .collect();
+                    debugln!("sess: refs {:?}", refs);
+                    let (tags, branches) = {
+                        // Create a lookup table for the revisions. This will be used to
+                        // only accept refs that point to actual revisions.
+                        let rev_ids: HashSet<&str> = revs.iter().map(|s| *s).collect();
 
-            // Merge tags and branches.
-            let refs = branches.into_iter().chain(tags.into_iter()).collect();
+                        // Split the refs into tags and branches, discard
+                        // everything else.
+                        let mut tags = HashMap::<&'ctx str, &'ctx str>::new();
+                        let mut branches = HashMap::<&'ctx str, &'ctx str>::new();
+                        let tag_pfx = "refs/tags/";
+                        let branch_pfx = "refs/remotes/origin/";
+                        for (hash, rf) in refs {
+                            if !rev_ids.contains(hash) {
+                                continue;
+                            }
+                            if rf.starts_with(tag_pfx) {
+                                tags.insert(rf[tag_pfx.len()..].into(), hash);
+                            } else if rf.starts_with(branch_pfx) {
+                                branches.insert(rf[branch_pfx.len()..].into(), hash);
+                            }
+                        }
+                        (tags, branches)
+                    };
 
-            Ok(GitVersions {
-                versions: versions,
-                refs: refs,
-                revs: revs,
-            })
-        });
-        Box::new(out)
+                    // Extract the tags that look like semantic versions.
+                    let mut versions: Vec<(semver::Version, &'ctx str)> = tags
+                        .iter()
+                        .filter_map(|(tag, &hash)| {
+                            if tag.starts_with("v") {
+                                match semver::Version::parse(&tag[1..]) {
+                                    Ok(v) => Some((v, hash)),
+                                    Err(_) => None,
+                                }
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    versions.sort_by(|a, b| b.cmp(a));
+
+                    // Merge tags and branches.
+                    let refs: HashMap<&str, &str> =
+                        branches.into_iter().chain(tags.into_iter()).collect();
+
+                    let mut git_versions = self.git_versions.lock().unwrap().clone();
+
+                    let git_path = git.path;
+
+                    git_versions.insert(
+                        git_path.to_path_buf(),
+                        GitVersions {
+                            versions: versions.clone(),
+                            refs: refs.clone(),
+                            revs: revs.clone(),
+                        },
+                    );
+
+                    *self.git_versions.lock().unwrap() = git_versions.clone();
+
+                    Ok(GitVersions {
+                        versions: versions,
+                        refs: refs,
+                        revs: revs,
+                    })
+                });
+                Box::new(out)
+            }
+        }
     }
 
     /// Ensure that a dependency is checked out and obtain its path.
