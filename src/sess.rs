@@ -824,7 +824,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                         Error::chain(
                                             format!(
                                                 "Syntax error in manifest of dependency `{}` at \
-                                                 revisison `{}`.",
+                                                 revision `{}`.",
                                                 dep_name, rev
                                             ),
                                             cause,
@@ -833,7 +833,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 let full = partial.validate().map_err(|cause| {
                                     Error::chain(
                                         format!(
-                                            "Error in manifest of dependency `{}` at revisison \
+                                            "Error in manifest of dependency `{}` at revision \
                                              `{}`.",
                                             dep_name, rev
                                         ),

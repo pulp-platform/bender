@@ -824,7 +824,7 @@ fn emit_vivado_tcl(
         include_dirs: bool,
         defines: bool,
         sources: bool,
-    };
+    }
     let mut output_components = OutputComponents::default();
     if !matches.is_present("only-defines")
         && !matches.is_present("only-includes")
