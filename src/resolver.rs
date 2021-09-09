@@ -63,7 +63,12 @@ impl<'ctx> DependencyResolver<'ctx> {
         let io = SessionIo::new(self.sess, core.handle());
 
         // Load the plugin dependencies.
-        self.register_dependencies_in_manifest(&self.sess.config.plugins, self.sess.manifest, &mut core, &io)?;
+        self.register_dependencies_in_manifest(
+            &self.sess.config.plugins,
+            self.sess.manifest,
+            &mut core,
+            &io,
+        )?;
 
         // Load the dependencies in the root manifest.
         self.register_dependencies_in_manifest(
@@ -584,11 +589,7 @@ impl<'ctx> DependencyResolver<'ctx> {
     }
 
     /// Close the set of dependencies.
-    fn close(
-        &mut self,
-        core: &mut Core,
-        io: &SessionIo<'ctx, 'ctx>,
-    ) -> Result<()> {
+    fn close(&mut self, core: &mut Core, io: &SessionIo<'ctx, 'ctx>) -> Result<()> {
         debugln!("resolve: computing closure over dependencies");
         let manifests = {
             let mut sub_deps = Vec::new();
