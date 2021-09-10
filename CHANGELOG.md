@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Add dependency information to `sources` command
 - Add `--fetch/-f` argument to `bender update` to force re-fetch of git dependencies from their remotes
 - Add global `--local` argument to disable remote accesses of git commands, e.g. for air-gapped computers
+- Add `precision` format to the script command.
 
 ### Changed
 - Reduce the number of open files in large repositories by changing the method to get the Git commit hash from a tag (from individual calls to `git rev-parse --verify HASH^{commit}` to `git show-ref --dereference`).
