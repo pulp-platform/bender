@@ -10,6 +10,7 @@ use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup};
 use crate::target::{TargetSet, TargetSpec};
+use common_path::common_path_all;
 
 use std::collections::HashSet;
 
@@ -1102,10 +1103,26 @@ fn emit_precision_tcl(
     abort_on_error: bool,
 ) -> Result<()> {
 
+    // Find the common_path between session and all source files
+    let mut file_paths = vec![sess.root];
+    for src in &srcs {
+        for file in &src.files {
+            let p = match file {
+                SourceFile::File(p) => p,
+                _ => continue,
+            };
+            file_paths.push(p)
+        }
+    }
+    let root = common_path_all(file_paths).unwrap();
+
     // Print the script header
-    println!("{}", header_tcl(sess));
-    // Note Precision errors out when having ${variable} inside of the `add_input_file` command.
-    // -> Use full absolute path.
+    println!("{}", format!("# {}", HEADER_AUTOGEN));
+    println!("# Precision does not take relative paths into account when specifying include dirs.");
+    println!("# Define the common ROOT anyway if needed for patching file paths. ");
+    println!("set ROOT {}", root.to_str().unwrap());
+    println!("set_input_dir $ROOT");
+    println!("setup_design -search_path $ROOT");
 
     // Find all the include dirs as precision only allows to set these globally
     let mut defines: Vec<(String, Option<String>)> = vec![];
@@ -1164,7 +1181,7 @@ fn emit_precision_tcl(
                             for i in &src.include_dirs {
                                 lines.push(format!(
                                     "    {}",
-                                    i.display()
+                                    i.to_str().unwrap()
                                 ));
                             }
                             lines.push("}".to_owned());
@@ -1181,7 +1198,7 @@ fn emit_precision_tcl(
                         SourceFile::File(p) => p,
                         _ => continue,
                     };
-                    lines.push(format!("    {}", p.display()));
+                    lines.push(format!("    {}", p.to_str().unwrap()));
                 }
                 lines.push("} \\".to_owned());
                 println!("");
