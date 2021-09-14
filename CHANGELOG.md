@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ### Changed
 - changed method to get git commit hash from tag to use `git show-ref --dereference` instead of individually calling `git rev-parse --verify HASH^{commit}`
+- Update links to `pulp-platform`
 
 ## 0.23.0 - 2021-09-13
 ### Changed

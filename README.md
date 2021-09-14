@@ -4,7 +4,7 @@ Bender is a dependency management tool for hardware design projects. It provides
 
 [![Build Status](https://travis-ci.org/fabianschuiki/bender.svg?branch=master)](https://travis-ci.org/fabianschuiki/bender)
 [![Crates.io](https://img.shields.io/crates/v/bender.svg)](https://crates.io/crates/bender)
-[![dependency status](https://deps.rs/repo/github/fabianschuiki/bender/status.svg)](https://deps.rs/repo/github/fabianschuiki/bender)
+[![dependency status](https://deps.rs/repo/github/pulp-platform/bender/status.svg)](https://deps.rs/repo/github/pulp-platform/bender)
 ![Crates.io](https://img.shields.io/crates/l/bender)
 
 
@@ -48,7 +48,7 @@ Bender is built around the following core principles:
 
 To use Bender for a single project, the simplest is to download and use a precompiled binary.  We provide binaries for all current versions of Ubuntu and CentOS, as well as generic Linux, on each release.  Open a terminal and enter the following command:
 ```sh
-curl --proto '=https' --tlsv1.2 https://fabianschuiki.github.io/bender/init -sSf | sh
+curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh
 ```
 The command downloads and executes a script that detects your distribution and downloads the appropriate `bender` binary of the latest release to your current directory.  If you need a specific version of Bender (e.g., `0.21.0`), append ` -s -- 0.21.0` to that command.  Alternatively, you can manually download a precompiled binary from [our Releases on GitHub][releases].
 
@@ -83,7 +83,7 @@ Bender looks for the following three files in a package:
 
 - `Bender.local`: This optional file contains **local configuration overrides**. It should be ignored in version control, i.e. added to `.gitignore`. This file can be used to override dependencies with local variants. It is also used when the user asks for a local working copy of a dependency.
 
-[Relevant code](https://github.com/fabianschuiki/bender/blob/master/src/cli.rs)
+[Relevant code](https://github.com/pulp-platform/bender/blob/master/src/cli.rs)
 
 
 ## Manifest Format (`Bender.yml`)
@@ -176,7 +176,7 @@ plugins:
   hello: scripts/hello.sh
 ```
 
-[Relevant code](https://github.com/fabianschuiki/bender/blob/master/src/config.rs)
+[Relevant code](https://github.com/pulp-platform/bender/blob/master/src/config.rs)
 
 
 ### Dependencies
@@ -198,7 +198,7 @@ Git dependencies are automatically checked out and cloned, and are considered fo
 
 All git tags of the form `vX.Y.Z` are considered a version of the package.
 
-[Relevant dependency resolution code](https://github.com/fabianschuiki/bender/blob/master/src/resolver.rs)
+[Relevant dependency resolution code](https://github.com/pulp-platform/bender/blob/master/src/resolver.rs)
 
 
 ### Sources
@@ -288,7 +288,7 @@ Additionally, we suggest to use the following targets to identify source code an
 - `rtl` for synthesizable RTL code
 - `gate` for gate-level netlists
 
-[Relevant code](https://github.com/fabianschuiki/bender/blob/master/src/target.rs)
+[Relevant code](https://github.com/pulp-platform/bender/blob/master/src/target.rs)
 
 
 ## Configuration Format (`bender.yml`, `Bender.local`)
@@ -333,7 +333,7 @@ plugins:
   additional-tools: { path: "/usr/local/additional-tools" }
 ```
 
-[Relevant code](https://github.com/fabianschuiki/bender/blob/master/src/config.rs)
+[Relevant code](https://github.com/pulp-platform/bender/blob/master/src/config.rs)
 
 
 ## Commands
@@ -359,7 +359,7 @@ Useful in scripts:
 
 
 ### `sources` --- List source files
-[Code](https://github.com/fabianschuiki/bender/blob/master/src/cmd/sources.rs)
+[Code](https://github.com/pulp-platform/bender/blob/master/src/cmd/sources.rs)
 
 Produces a *sources manifest*, a JSON description of all files needed to build the project.
 
@@ -413,5 +413,5 @@ To clean up once the changes are added, ensure the correct version is referenced
 The `bender parents <PKG>` command lists all packages calling the `PKG` package.
 
 [aur-bender]: https://aur.archlinux.org/packages/bender
-[releases]: https://github.com/fabianschuiki/bender/releases
+[releases]: https://github.com/pulp-platform/bender/releases
 [rust-installation]: https://doc.rust-lang.org/book/ch01-01-installation.html
