@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Added
 - Added hint for workaround in issue #52
 - Added warning for mismatch of dependency name and name in package
+- Added `-fetch` argument to `bender update` to force refetch of git dependencies from their remotes
 
 ### Changed
 - changed method to get git commit hash from tag to use `git show-ref --dereference` instead of individually calling `git rev-parse --verify HASH^{commit}`
