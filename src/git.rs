@@ -150,6 +150,40 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     /// List all refs and their hashes.
     pub fn list_refs(self) -> GitFuture<'io, Vec<(String, String)>> {
         Box::new(
+            self.spawn_unchecked_with(|c| c.arg("show-ref").arg("--dereference"))
+                .and_then(move |raw| {
+                    let mut all_revs = raw
+                        .lines()
+                        .map(|line| {
+                            // Parse the line
+                            let mut fields = line.split_whitespace().map(String::from);
+                            let rev = fields.next().unwrap();
+                            let rf = fields.next().unwrap();
+                            (rev, rf)
+                        })
+                        .collect::<Vec<_>>();
+                    // Ensure only commit hashes are returned by using dereferenced values in case they exist
+                    let mut deref_revs = all_revs.clone();
+                    deref_revs.retain(|tup| tup.1.ends_with("^{}"));
+                    for item in deref_revs {
+                        let index = all_revs
+                            .iter()
+                            .position(|x| *x.1 == item.1.replace("^{}", ""))
+                            .unwrap();
+                        all_revs.remove(index);
+                        let index = all_revs.iter().position(|x| *x.1 == item.1).unwrap();
+                        all_revs.remove(index);
+                        all_revs.push((item.0, item.1.replace("^{}", "")));
+                    }
+                    // Return future
+                    future::ok(all_revs)
+                }),
+        )
+    }
+
+    /// List all refs and their hashes. --> old version
+    pub fn list_refs_old(self) -> GitFuture<'io, Vec<(String, String)>> {
+        Box::new(
             self.spawn_unchecked_with(|c| c.arg("show-ref"))
                 .and_then(move |raw| {
                     future::join_all(
