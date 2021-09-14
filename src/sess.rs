@@ -827,7 +827,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 let manifest_path = path.join("Bender.yml");
                 if manifest_path.exists() {
                     match read_manifest(&manifest_path) {
-                        Ok(m) => Box::new(future::ok(Some(self.sess.intern_manifest(m)))),
+                        Ok(m) => {
+                            if dep.name != m.package.name {
+                                warnln!("Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
+                                    dep.name, m.package.name);
+                            } else {}
+                            Box::new(future::ok(Some(self.sess.intern_manifest(m))))
+                        },
                         Err(e) => Box::new(future::err(e)),
                     }
                 } else {
@@ -887,6 +893,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .lock()
                                 .unwrap()
                                 .insert(cache_key, manifest);
+                            if dep.name != match manifest {
+                                Some(x) => &x.package.name,
+                                None => "dead"
+                            } {
+                                warnln!("Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
+                                    dep.name, match manifest {
+                                        Some(x) => &x.package.name,
+                                        None => "dead"
+                                    });
+                            } else {}
                             Ok(manifest)
                         }),
                 )
