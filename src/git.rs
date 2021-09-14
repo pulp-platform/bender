@@ -59,9 +59,21 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     /// If `check` is false, the stdout will be returned regardless of the
     /// command's exit code.
     pub fn spawn(self, mut cmd: Command, check: bool) -> GitFuture<'io, String> {
-        let output = cmd
-            .output_async(&self.sess.handle)
-            .map_err(|cause| Error::chain("Failed to spawn child process.", cause));
+        // println!("{:?}: new output", std::time::Instant::now());
+        let output = cmd.output_async(&self.sess.handle).map_err(|cause| {
+            if cause
+                .to_string()
+                .contains("Too many open files (os error 24)")
+            {
+                println!(
+                    "Please consider increasing your `ulimit -n`, e.g. by running `ulimit -n 4096`"
+                );
+                println!("This is a known issue (#52).");
+                Error::chain("Failed to spawn child process.", cause)
+            } else {
+                Error::chain("Failed to spawn child process.", cause)
+            }
+        });
         let result = output.and_then(move |output| {
             debugln!("git: {:?} in {:?}", cmd, self.path);
             if output.status.success() || !check {
@@ -153,7 +165,7 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
 
                                 // Parse the ref. This is needed since the ref for an annotated
                                 // tag points to the hash of the tag itself, rather than the
-                                // underlying commit. By callign `git rev-parse` with the ref
+                                // underlying commit. By calling `git rev-parse` with the ref
                                 // augmented with `^{commit}`, we can ensure that we always end
                                 // up with a commit hash.
                                 self.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(rev))
