@@ -134,15 +134,19 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
             Err(Error::new(format!("git adding remote failed")))?;
         }
 
-        if !Command::new(&sess.config.git)
-            .arg("fetch")
-            .arg("--all")
-            .current_dir(path.join(path_mod).join(dep))
-            .status()
-            .unwrap()
-            .success()
-        {
-            Err(Error::new(format!("git fetch failed")))?;
+        if !sess.local_only {
+            if !Command::new(&sess.config.git)
+                .arg("fetch")
+                .arg("--all")
+                .current_dir(path.join(path_mod).join(dep))
+                .status()
+                .unwrap()
+                .success()
+            {
+                Err(Error::new(format!("git fetch failed")))?;
+            }
+        } else {
+            warnln!("fetch not performed due to --local argument.");
         }
 
         println!(

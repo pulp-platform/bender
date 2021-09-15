@@ -70,6 +70,8 @@ pub struct Session<'ctx> {
     pub cache: SessionCache<'ctx>,
     /// A throttle for futures performing git network operations.
     git_throttle: FutureThrottle,
+    /// A toggle to disable remote fetches & clones
+    pub local_only: bool,
 }
 
 impl<'sess, 'ctx: 'sess> Session<'ctx> {
@@ -79,6 +81,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         manifest: &'ctx Manifest,
         config: &'ctx Config,
         arenas: &'ctx SessionArenas,
+        local_only: bool,
         force_fetch: bool,
     ) -> Session<'ctx> {
         Session {
@@ -104,6 +107,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             plugins: Mutex::new(None),
             cache: Default::default(),
             git_throttle: FutureThrottle::new(8),
+            local_only: local_only,
         }
     }
 
@@ -460,6 +464,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         // Either initialize the repository or update it if needed.
         if !db_dir.join("config").exists() {
+            if self.sess.local_only {
+                return Box::new(future::err(Error::new(format!("Bender --local argument set, unable to initialize git dependency. Please update without --local, or provide a path to the missing dependency."))));
+            }
             // Initialize.
             self.sess.stats.num_database_init.increment();
             Box::new(
@@ -485,7 +492,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         } else {
             // Update if the manifest has been modified since the last fetch.
             let db_mtime = try_modification_time(db_dir.join("FETCH_HEAD"));
-            if self.sess.manifest_mtime < db_mtime && !force_fetch {
+            if (self.sess.manifest_mtime < db_mtime && !force_fetch) || self.sess.local_only {
                 debugln!("sess: skipping fetch of {:?}", db_dir);
                 return Box::new(future::ok(git));
             }
@@ -620,10 +627,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         }
     }
 
-    fn get_package_path(
-        &'io self,
-        dep_id: DependencyRef,
-    ) -> PathBuf {
+    fn get_package_path(&'io self, dep_id: DependencyRef) -> PathBuf {
         let dep = self.sess.dependency(dep_id);
 
         // Determine the name of the checkout as the given name and the first
@@ -655,7 +659,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         let checkout_dir = match self.sess.manifest.workspace.checkout_dir {
             Some(ref cd) => cd.join(&dep.name),
-            None => self.sess.config.database.join("git").join("checkouts").join(checkout_name),
+            None => self
+                .sess
+                .config
+                .database
+                .join("git")
+                .join("checkouts")
+                .join(checkout_name),
         };
         checkout_dir.to_path_buf()
     }
@@ -675,7 +685,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         match dep.source {
             DependencySource::Registry => unimplemented!(),
-            DependencySource::Git(ref _url) => {},
+            DependencySource::Git(ref _url) => {}
             DependencySource::Path(ref path) => {
                 // Determine and canonicalize the dependency path, and
                 // immediately return it.
@@ -857,9 +867,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             if dep.name != m.package.name {
                                 warnln!("Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
                                     dep.name, m.package.name);
-                            } else {}
+                            } else {
+                            }
                             Box::new(future::ok(Some(self.sess.intern_manifest(m))))
-                        },
+                        }
                         Err(e) => Box::new(future::err(e)),
                     }
                 } else {
