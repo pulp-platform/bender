@@ -648,7 +648,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Ok(p) => p,
                         Err(_) => path,
                     };
-                    let path = self.sess.intern_path(path);
                     return path.to_path_buf();
                 }
             }
@@ -685,16 +684,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         match dep.source {
             DependencySource::Registry => unimplemented!(),
-            DependencySource::Git(ref _url) => {}
-            DependencySource::Path(ref path) => {
-                // Determine and canonicalize the dependency path, and
-                // immediately return it.
-                let path = self.sess.root.join(path);
-                let path = match canonicalize(&path) {
-                    Ok(p) => p,
-                    Err(_) => path,
-                };
-                let path = self.sess.intern_path(path);
+            DependencySource::Git(..) => {}
+            DependencySource::Path(..) => {
+                let path = self
+                    .sess
+                    .intern_path(self.get_package_path(dep_id).as_path());
                 return Box::new(future::ok(path));
             }
         }
@@ -924,6 +918,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     match dep {
                                         (_, config::Dependency::Path(ref path)) => {
                                             if !path.starts_with("/") {
+                                                if !self.get_package_path(dep_id).exists() {
+                                                    warnln!("Please note that dependencies for {:?} may not be available unless {:?} is properly checked out.\n         (to checkout run `bender sources` and then `bender update` again).", dep.0, full.package.name);
+                                                }
                                                 *dep.1 = config::Dependency::Path(self.get_package_path(dep_id).join(path).clone());
                                             }
                                         },
