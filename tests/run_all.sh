@@ -2,11 +2,12 @@
 # Copyright (c) 2017-2018 ETH Zurich
 # Fabian Schuiki <fschuiki@iis.ee.ethz.ch>
 
+
 set -e
-CRST=`tput sgr0`
-CNAME=`tput bold`
-CFAIL=`tput setaf 1`
-CPASS=`tput setaf 2`
+# CRST=`tput sgr0`
+# CNAME=`tput bold`
+# CFAIL=`tput setaf 1`
+# CPASS=`tput setaf 2`
 
 TMP=`mktemp`
 TESTS_DIR="$(dirname "${BASH_SOURCE[0]}")"
