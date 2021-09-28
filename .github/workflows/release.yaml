@@ -17,6 +17,7 @@ jobs:
           - centos:7.6.1810
           - centos:7.7.1908
           - centos:7.8.2003
+          - centos:7.9.2009
           - centos:8.1.1911
           - centos:8.2.2004
           - ubuntu:16.04
@@ -37,12 +38,15 @@ jobs:
       - name: OS Build
         if: matrix.os != 'gnu'
         run: |
+          export full_tgtname=${{ matrix.os }}
           export tgtname=$(echo ${{ matrix.os }} | tr -d ':')
+          .github/scripts/gen_dockerfile.sh
+          docker build ./ -t $tgtname
           docker run \
             -t --rm \
             -v "$GITHUB_WORKSPACE:/source" \
             -v "$GITHUB_WORKSPACE/target/$tgtname:/source/target" \
-            accuminium/rust-${{ matrix.os }}_stable \
+            $tgtname \
             cargo build --release;
         shell: bash
       - name: GNU Create Package
