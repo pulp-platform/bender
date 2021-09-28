@@ -8,6 +8,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         rust:
           - stable
@@ -26,6 +27,7 @@ jobs:
           - ubuntu:18.04
           - ubuntu:20.04
           - ubuntu:20.10
+          - fedora:34
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1

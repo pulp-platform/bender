@@ -16,8 +16,7 @@ jobs:
           - beta
           - nightly
           - 1.44.0 # minimum supported version
-        allow_failures:
-          - rust: nightly
+    continue-on-error: ${{ matrix.rust == 'nightly' }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
