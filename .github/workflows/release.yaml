@@ -20,6 +20,8 @@ jobs:
           - centos:7.9.2009
           - centos:8.1.1911
           - centos:8.2.2004
+          - centos:8.3.2011
+          - centos:8.4.2105
           - ubuntu:16.04
           - ubuntu:18.04
           - ubuntu:20.04
