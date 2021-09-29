@@ -1,0 +1,82 @@
+name: release
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust:
+          - stable
+        os:
+          - gnu
+          - centos:7.4.1708
+          - centos:7.6.1810
+          - centos:7.7.1908
+          - centos:7.8.2003
+          - centos:7.9.2009
+          - centos:8.1.1911
+          - centos:8.2.2004
+          - centos:8.3.2011
+          - centos:8.4.2105
+          - ubuntu:16.04
+          - ubuntu:18.04
+          - ubuntu:20.04
+          - ubuntu:20.10
+          - fedora:34
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+          components: rustfmt
+      - name: GNU Build
+        if: matrix.os == 'gnu'
+        run: cargo build --release
+      - name: OS Build
+        if: matrix.os != 'gnu'
+        run: |
+          export full_tgtname=${{ matrix.os }}
+          export tgtname=$(echo ${{ matrix.os }} | tr -d ':')
+          .github/scripts/gen_dockerfile.sh
+          docker build ./ -t $tgtname
+          docker run \
+            -t --rm \
+            -v "$GITHUB_WORKSPACE:/source" \
+            -v "$GITHUB_WORKSPACE/target/$tgtname:/source/target" \
+            $tgtname \
+            cargo build --release;
+        shell: bash
+      - name: GNU Create Package
+        if: matrix.os == 'gnu'
+        run: .github/scripts/package.sh
+        shell: bash
+      - name: OS Create Package
+        if: matrix.os != 'gnu'
+        run: |
+          tgtname=$(echo ${{ matrix.os }} | tr -d ':')
+          .github/scripts/package.sh $tgtname;
+        shell: bash
+      - name: Get Artifact Name
+        run: |
+          ARTIFACT_PATHNAME=$(ls ./bender-*.tar.gz | head -n 1)
+          ARTIFACT_NAME=$(basename $ARTIFACT_PATHNAME)
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
+          echo "ARTIFACT_PATHNAME=${ARTIFACT_PATHNAME}" >> $GITHUB_ENV
+        shell: bash
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ${{ env.ARTIFACT_PATHNAME }}
+          asset_name: ${{ env.ARTIFACT_NAME }}
+          asset_content_type: application/tar.gz
+

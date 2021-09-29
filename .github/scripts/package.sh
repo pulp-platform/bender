@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
 
-if [ -z "$TRAVIS_TAG" ]; then
-    readonly pkgver="$TRAVIS_BRANCH"
+if [[ "$GITHUB_REF" =~ ^refs/tags/v.*$ ]]; then
+    readonly pkgver="$(echo $GITHUB_REF | sed -n 's/^refs\/tags\/v//p')"
 else
-    if [[ "$TRAVIS_TAG" =~ ^v.*$ ]]; then
-        readonly pkgver="$(echo $TRAVIS_TAG | sed -n 's/^v//p')"
-    else
-        readonly pkgver="$TRAVIS_TAG"
-    fi
+    readonly pkgver="$(echo $GITHUB_REF | sed -n 's/^refs\/tags\///p')"
 fi
 
 if [ -z "$1" ]; then
