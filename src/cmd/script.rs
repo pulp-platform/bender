@@ -1102,7 +1102,6 @@ fn emit_precision_tcl(
     srcs: Vec<SourceGroup>,
     abort_on_error: bool,
 ) -> Result<()> {
-
     // Find the common_path between session and all source files
     let mut file_paths = vec![sess.root];
     for src in &srcs {
@@ -1179,10 +1178,7 @@ fn emit_precision_tcl(
                         if !src.include_dirs.is_empty() {
                             lines.push("-search_path {".to_owned());
                             for i in &src.include_dirs {
-                                lines.push(format!(
-                                    "    {}",
-                                    i.to_str().unwrap()
-                                ));
+                                lines.push(format!("    {}", i.to_str().unwrap()));
                             }
                             lines.push("}".to_owned());
                         }
