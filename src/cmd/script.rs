@@ -150,7 +150,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "genus" => vec!["genus", "synthesis"],
         "vivado" => concat(vivado_targets, &["synthesis"]),
         "vivado-sim" => concat(vivado_targets, &["simulation"]),
-        "precision" => vec!["precision", "synthesis"],
+        "precision" => vec!["precision", "fpga", "synthesis"],
         _ => unreachable!(),
     };
 
