@@ -2,7 +2,7 @@
 name = "bender"
 version = "0.23.1"
 authors = ["Fabian Schuiki <fschuiki@iis.ee.ethz.ch>", "Andreas Kurth <akurth@iis.ee.ethz.ch>"]
-repository = "https://github.com/fabianschuiki/bender"
+repository = "https://github.com/pulp-platform/bender"
 description = "A dependency management tool for hardware projects."
 readme = "README.md"
 license = "Apache-2.0 OR MIT"
