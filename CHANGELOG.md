@@ -16,6 +16,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Update links to `pulp-platform`
 - Add correct base path to path dependencies linked within git dependencies
 
+## 0.23.1 - 2021-09-29
+### Fixed
+- CI -> changed from travis to github actions
+
 ## 0.23.0 - 2021-09-13
 ### Changed
 - Change `parents` command, now displays version requirement of each package
