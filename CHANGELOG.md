@@ -21,6 +21,9 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Add `clone` command to checkout individual ips to a directory and create a path reference in Bender.local
 - Add `parents` command to get list of packages requiring the queried package
 
+### Changed
+- Wrap defines in quotes for the VCS's shell script
+
 ### Fixed
 - Fix plugins to work for scripts in root repository
 - Force git fetch on unsatisfied requirements to check for newly added tags in server repository

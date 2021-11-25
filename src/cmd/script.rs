@@ -441,7 +441,9 @@ fn emit_vcs_sh(
                             let mut s = format!("+define+{}", k.to_uppercase());
                             if let Some(v) = v {
                                 s.push('=');
+                                s.push('"');
                                 s.push_str(&v);
+                                s.push('"');
                             }
                             lines.push(s);
                         }
