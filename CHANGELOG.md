@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
+## 0.23.2 - 2021-11-30
+### Changed
+- Wrap defines in quotes for the VCS's shell script
+
 ## 0.23.1 - 2021-09-29
 ### Fixed
 - CI -> changed from travis to github actions
@@ -20,9 +24,6 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Added
 - Add `clone` command to checkout individual ips to a directory and create a path reference in Bender.local
 - Add `parents` command to get list of packages requiring the queried package
-
-### Changed
-- Wrap defines in quotes for the VCS's shell script
 
 ### Fixed
 - Fix plugins to work for scripts in root repository
