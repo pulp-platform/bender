@@ -138,7 +138,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
     ///
     /// This internalizes the dependency sources, i.e. assigns `DependencyRef`
     /// objects to them, and generates a nametable.
-    pub fn load_locked(&self, locked: &config::Locked) {
+    pub fn load_locked(&self, locked: &config::Locked) -> Result<()> {
         let mut deps = self.deps.lock().unwrap();
         let mut names = HashMap::new();
         let mut graph_names = HashMap::new();
@@ -218,6 +218,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         *self.names.lock().unwrap() = names;
         *self.graph.lock().unwrap() = Arc::new(graph);
         *self.pkgs.lock().unwrap() = Arc::new(pkgs);
+        Ok(())
     }
 
     /// Obtain information on a dependency.
