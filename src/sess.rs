@@ -179,6 +179,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
                 graph.keys().map(|&id| (id, 0)).collect();
             let mut pending = HashSet::new();
             pending.extend(self.manifest.dependencies.keys().map(|name| names[name]));
+            let mut cyclic = false;
             while !pending.is_empty() {
                 let mut current_pending = HashSet::new();
                 swap(&mut pending, &mut current_pending);
@@ -190,6 +191,22 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
                             pending.insert(dep_id);
                         }
                     }
+                    // Limit rank to two times graph length, which is sufficient except if there is
+                    // a cyclic dependency
+                    if ranks[&id] > 2 * graph.len() {
+                        cyclic = true;
+                    }
+                }
+                if cyclic == true {
+                    let mut pend_str = vec![];
+                    for element in pending.iter() {
+                        pend_str.push(self.dependency_name(*element));
+                    }
+                    return Err(Error::new(format!(
+                        "a cyclical dependency was discovered, likely relates to one of {:?}.\n\
+                        \tPlease ensure no dependency loops.",
+                        pend_str
+                    )));
                 }
             }
             debugln!("sess: topological ranks {:#?}", ranks);
