@@ -79,13 +79,20 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         manifest: &'ctx Manifest,
         config: &'ctx Config,
         arenas: &'ctx SessionArenas,
+        force_fetch: bool,
     ) -> Session<'ctx> {
         Session {
             root: root,
             manifest: manifest,
             config: config,
             arenas: arenas,
-            manifest_mtime: try_modification_time(root.join("Bender.yml")),
+            manifest_mtime: {
+                if force_fetch {
+                    Some(SystemTime::now())
+                } else {
+                    try_modification_time(root.join("Bender.yml"))
+                }
+            },
             stats: Default::default(),
             deps: Mutex::new(DependencyTable::new()),
             paths: Mutex::new(HashSet::new()),
