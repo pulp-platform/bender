@@ -7,12 +7,14 @@
 
 #![deny(missing_docs)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::iter::FromIterator;
 use std::path::Path;
 
 use serde::ser::{Serialize, Serializer};
 
+use crate::sess::Session;
 use crate::target::{TargetSet, TargetSpec};
 
 /// A source file group.
@@ -87,6 +89,108 @@ impl<'ctx> SourceGroup<'ctx> {
                 ref other => Some(other.clone()),
             })
             .collect();
+        Some(
+            SourceGroup {
+                package: self.package,
+                independent: self.independent,
+                target: self.target.clone(),
+                include_dirs: self.include_dirs.clone(),
+                defines: self.defines.clone(),
+                files: files,
+                dependencies: self.dependencies.clone(),
+            }
+            .simplify(),
+        )
+    }
+
+    /// recursively get dependency names
+    fn get_deps(&self, packages: &HashSet<String>, excludes: &HashSet<String>) -> HashSet<String> {
+        let mut result = packages.clone();
+
+        match self.package {
+            Some(x) => {
+                if result.contains(x) {
+                    result.extend(HashSet::<String>::from_iter(self.dependencies.clone()));
+                    result = &result - &excludes;
+                }
+            }
+            None => {}
+        }
+
+        for file in &self.files {
+            match file {
+                SourceFile::Group(group) => {
+                    result.extend(group.get_deps(&result, excludes));
+                }
+                _ => {}
+            }
+        }
+
+        result
+    }
+
+    /// Get list of packages bassed on constraints
+    pub fn get_package_list(
+        &self,
+        sess: &Session,
+        packages: &HashSet<String>,
+        excludes: &HashSet<String>,
+        no_deps: bool,
+    ) -> HashSet<String> {
+        let mut result = HashSet::new();
+
+        if !packages.is_empty() {
+            result.extend(packages.clone());
+        } else {
+            result.insert(sess.manifest.package.name.to_string());
+        }
+
+        result = &result - &excludes;
+
+        if !no_deps {
+            let mut curr_length = 0;
+            while curr_length < result.len() {
+                curr_length = result.len();
+                result.extend(self.get_deps(&result, excludes));
+            }
+        }
+
+        result
+    }
+
+    /// Filter the sources, keeping only the ones that apply to the selected packages.
+    pub fn filter_packages(&self, packages: &HashSet<String>) -> Option<SourceGroup<'ctx>> {
+        let mut files = Vec::new();
+
+        match self.package {
+            Some(x) => {
+                if packages.contains(&x.to_string()) {
+                    files = self
+                        .files
+                        .iter()
+                        .filter_map(|file| match *file {
+                            SourceFile::Group(ref group) => group
+                                .filter_packages(packages)
+                                .map(|g| SourceFile::Group(Box::new(g))),
+                            ref other => Some(other.clone()),
+                        })
+                        .collect();
+                }
+            }
+            None => {
+                files = self
+                    .files
+                    .iter()
+                    .filter_map(|file| match *file {
+                        SourceFile::Group(ref group) => group
+                            .filter_packages(packages)
+                            .map(|g| SourceFile::Group(Box::new(g))),
+                        ref other => Some(other.clone()),
+                    })
+                    .collect();
+            }
+        }
+
         Some(
             SourceGroup {
                 package: self.package,

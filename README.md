@@ -367,6 +367,14 @@ The manifest is recursive by default; meaning that dependencies and groups are n
 
 To enable specific targets, use the `-t`/`--target` option.
 
+To get the sources for a subset of packages, exclude specific packages and their dependencies, or exclude all dependencies, the following flags exist:
+
+- `-p`/`--package`: Specify package to show sources for.
+- `-e`/`--exclude`: Specify package to exclude from sources.
+- `-n`/`--no_deps`: Exclude all dependencies, i.e. only top level or specified package(s).
+
+For multiple packages (or excludes), multiple `-p` (or `-e`) arguments can be added to the command.
+
 
 ### `config` --- Emit the current configuration
 
@@ -388,6 +396,8 @@ Supported formats:
 - `genus`:  A Tcl compilation script for Cadence Genus.
 - `vivado`: A Tcl file addition script for Xilinx Vivado.
 - `vivado-sim`: Same as `vivado`, but specifically for simulation targets.
+
+Furthermore, similar flags to the `sources` command exist.
 
 
 ### `update` --- Re-resolve dependencies

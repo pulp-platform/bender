@@ -126,13 +126,48 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
                     "common",
                 ])
         )
+        .arg(
+            Arg::with_name("package")
+                .short("p")
+                .long("package")
+                .help("Specify package to show sources for.")
+                .takes_value(true)
+                .multiple(true)
+                .number_of_values(1),
+        )
+        .arg(
+            Arg::with_name("no_deps")
+                .short("n")
+                .long("no_deps")
+                .help("Exclude all dependencies, i.e. only top level or specified package(s)."),
+        )
+        .arg(
+            Arg::with_name("exclude")
+                .short("e")
+                .long("exclude")
+                .help("Specify package to exclude from sources.")
+                .takes_value(true)
+                .multiple(true)
+                .number_of_values(1),
+        )
+}
+
+fn get_package_strings<I>(packages: I) -> HashSet<String>
+where
+    I: IntoIterator,
+    I::Item: AsRef<str>,
+{
+    packages
+        .into_iter()
+        .map(|t| t.as_ref().to_string())
+        .collect()
 }
 
 /// Execute the `script` subcommand.
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let mut core = Core::new().unwrap();
     let io = SessionIo::new(&sess, core.handle());
-    let srcs = core.run(io.sources())?;
+    let mut srcs = core.run(io.sources())?;
 
     // Format-specific target specifiers.
     let vivado_targets = &["vivado", "fpga", "xilinx"];
@@ -165,7 +200,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         .values_of("target")
         .map(|t| TargetSet::new(t.chain(format_targets.clone())))
         .unwrap_or_else(|| TargetSet::new(format_targets));
-    let srcs = srcs
+    srcs = srcs
         .filter_targets(&targets)
         .unwrap_or_else(|| SourceGroup {
             package: Default::default(),
@@ -176,6 +211,37 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             files: Default::default(),
             dependencies: Default::default(),
         });
+
+    // Filter the sources by specified packages.
+    let packages = &srcs.get_package_list(
+        sess,
+        &matches
+            .values_of("package")
+            .map(|p| get_package_strings(p))
+            .unwrap_or_else(|| HashSet::new()),
+        &matches
+            .values_of("exclude")
+            .map(|p| get_package_strings(p))
+            .unwrap_or_else(|| HashSet::new()),
+        matches.is_present("no_deps"),
+    );
+
+    if matches.is_present("package")
+        || matches.is_present("exclude")
+        || matches.is_present("no_deps")
+    {
+        srcs = srcs
+            .filter_packages(&packages)
+            .unwrap_or_else(|| SourceGroup {
+                package: Default::default(),
+                independent: true,
+                target: TargetSpec::Wildcard,
+                include_dirs: Default::default(),
+                defines: Default::default(),
+                files: Default::default(),
+                dependencies: Default::default(),
+            });
+    }
 
     // Flatten the sources.
     let srcs = srcs.flatten();
