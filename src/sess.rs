@@ -178,6 +178,15 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             let mut ranks: HashMap<DependencyRef, usize> =
                 graph.keys().map(|&id| (id, 0)).collect();
             let mut pending = HashSet::new();
+            for name in self.manifest.dependencies.keys() {
+                if !(names.contains_key(name)) {
+                    return Err(Error::new(format!(
+                        "`Bender.yml` contains dependency `{}` but `Bender.lock` does not.\n\
+                        \tYou may need to run `bender update`.",
+                        name
+                    )));
+                }
+            }
             pending.extend(self.manifest.dependencies.keys().map(|name| names[name]));
             let mut cyclic = false;
             while !pending.is_empty() {
