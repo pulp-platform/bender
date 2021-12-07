@@ -153,7 +153,7 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
 
                                 // Parse the ref. This is needed since the ref for an annotated
                                 // tag points to the hash of the tag itself, rather than the
-                                // underlying commit. By callign `git rev-parse` with the ref
+                                // underlying commit. By calling `git rev-parse` with the ref
                                 // augmented with `^{commit}`, we can ensure that we always end
                                 // up with a commit hash.
                                 self.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(rev))
