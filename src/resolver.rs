@@ -218,6 +218,13 @@ impl<'ctx> DependencyResolver<'ctx> {
                     name, manifest.package.name
                 )));
             }
+            if name == manifest.package.name {
+                return Err(Error::new(format!(
+                    "Please ensure no packages with same name as calling package\n\
+                    \tCurrently {} is called in {}",
+                    name, manifest.package.name
+                )));
+            }
             self.register_dependency(name, id, versions[&id].clone());
         }
         Ok(())
