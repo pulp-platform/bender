@@ -26,9 +26,12 @@ jobs:
           toolchain: ${{ matrix.rust}}
           override: true
           components: rustfmt
-      - name: Test
+      - name: Build
         run: cargo build
-      - run: cargo test --all
-      - run: cargo fmt -- --check
-      - run: tests/run_all.sh
+      - name: Cargo Test
+        run: cargo test --all
+      - name: Format (fix with `cargo fmt`)
+        run: cargo fmt -- --check
+      - name: Run unit-tests
+        run: tests/run_all.sh
         shell: bash
