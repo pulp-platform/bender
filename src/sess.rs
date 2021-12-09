@@ -70,6 +70,8 @@ pub struct Session<'ctx> {
     pub cache: SessionCache<'ctx>,
     /// A throttle for futures performing git network operations.
     git_throttle: FutureThrottle,
+    /// A toggle to disable remote fetches & clones
+    pub local_only: bool,
 }
 
 impl<'sess, 'ctx: 'sess> Session<'ctx> {
@@ -79,6 +81,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         manifest: &'ctx Manifest,
         config: &'ctx Config,
         arenas: &'ctx SessionArenas,
+        local_only: bool,
         force_fetch: bool,
     ) -> Session<'ctx> {
         Session {
@@ -104,6 +107,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             plugins: Mutex::new(None),
             cache: Default::default(),
             git_throttle: FutureThrottle::new(8),
+            local_only: local_only,
         }
     }
 
@@ -489,6 +493,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         // Either initialize the repository or update it if needed.
         if !db_dir.join("config").exists() {
+            if self.sess.local_only {
+                return Box::new(future::err(Error::new(format!(
+                    "Bender --local argument set, unable to initialize git dependency. \n\
+                    \tPlease update without --local, or provide a path to the missing dependency."
+                ))));
+            }
             // Initialize.
             self.sess.stats.num_database_init.increment();
             Box::new(
@@ -514,7 +524,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         } else {
             // Update if the manifest has been modified since the last fetch.
             let db_mtime = try_modification_time(db_dir.join("FETCH_HEAD"));
-            if self.sess.manifest_mtime < db_mtime && !force_fetch {
+            if (self.sess.manifest_mtime < db_mtime && !force_fetch) || self.sess.local_only {
                 debugln!("sess: skipping fetch of {:?}", db_dir);
                 return Box::new(future::ok(git));
             }

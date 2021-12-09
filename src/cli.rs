@@ -33,6 +33,12 @@ pub fn main() -> Result<()> {
                 .global(true)
                 .help("Sets a custom root working directory"),
         )
+        .arg(
+            Arg::with_name("local")
+                .long("local")
+                .global(true)
+                .help("Disables fetching of remotes (e.g. for air-gapped computers)"),
+        )
         .subcommand(
             SubCommand::with_name("update")
                 .about("Update the dependencies")
@@ -73,8 +79,13 @@ pub fn main() -> Result<()> {
 
     let mut force_fetch = false;
     match matches.subcommand() {
-        ("update", Some(matches)) => {
-            force_fetch = matches.is_present("fetch");
+        ("update", Some(intern_matches)) => {
+            force_fetch = intern_matches.is_present("fetch");
+            if matches.is_present("local") && intern_matches.is_present("fetch") {
+                warnln!(
+                    "As --local argument is set for bender command, no fetching will be performed."
+                );
+            }
         }
         _ => {}
     }
@@ -102,7 +113,14 @@ pub fn main() -> Result<()> {
 
     // Assemble the session.
     let sess_arenas = SessionArenas::new();
-    let sess = Session::new(&root_dir, &manifest, &config, &sess_arenas, force_fetch);
+    let sess = Session::new(
+        &root_dir,
+        &manifest,
+        &config,
+        &sess_arenas,
+        matches.is_present("local"),
+        force_fetch,
+    );
 
     // Read the existing lockfile.
     let lock_path = root_dir.join("Bender.lock");
