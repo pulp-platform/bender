@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Added
 - Add error if a cyclical dependency is detected to avoid infinite loop
 - Add error on dependency mismatch between `Bender.yml` and `Bender.lock`
+- Add hint to work around the "too many open files" error (issue #52).
+
+### Changed
+- Reduce the number of open files in large repositories by changing the method to get the Git commit hash from a tag (from individual calls to `git rev-parse --verify HASH^{commit}` to `git show-ref --dereference`).
 
 ## 0.23.2 - 2021-11-30
 ### Changed
