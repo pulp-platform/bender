@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Added
 - Add error if a cyclical dependency is detected to avoid infinite loop
+- Add error on dependency mismatch between `Bender.yml` and `Bender.lock`
 
 ## 0.23.2 - 2021-11-30
 ### Changed
