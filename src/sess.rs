@@ -138,7 +138,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
     ///
     /// This internalizes the dependency sources, i.e. assigns `DependencyRef`
     /// objects to them, and generates a nametable.
-    pub fn load_locked(&self, locked: &config::Locked) {
+    pub fn load_locked(&self, locked: &config::Locked) -> Result<()> {
         let mut deps = self.deps.lock().unwrap();
         let mut names = HashMap::new();
         let mut graph_names = HashMap::new();
@@ -179,6 +179,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
                 graph.keys().map(|&id| (id, 0)).collect();
             let mut pending = HashSet::new();
             pending.extend(self.manifest.dependencies.keys().map(|name| names[name]));
+            let mut cyclic = false;
             while !pending.is_empty() {
                 let mut current_pending = HashSet::new();
                 swap(&mut pending, &mut current_pending);
@@ -190,6 +191,22 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
                             pending.insert(dep_id);
                         }
                     }
+                    // Limit rank to two times graph length, which is sufficient except if there is
+                    // a cyclic dependency
+                    if ranks[&id] > 2 * graph.len() {
+                        cyclic = true;
+                    }
+                }
+                if cyclic == true {
+                    let mut pend_str = vec![];
+                    for element in pending.iter() {
+                        pend_str.push(self.dependency_name(*element));
+                    }
+                    return Err(Error::new(format!(
+                        "a cyclical dependency was discovered, likely relates to one of {:?}.\n\
+                        \tPlease ensure no dependency loops.",
+                        pend_str
+                    )));
                 }
             }
             debugln!("sess: topological ranks {:#?}", ranks);
@@ -218,6 +235,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         *self.names.lock().unwrap() = names;
         *self.graph.lock().unwrap() = Arc::new(graph);
         *self.pkgs.lock().unwrap() = Arc::new(pkgs);
+        Ok(())
     }
 
     /// Obtain information on a dependency.

@@ -109,7 +109,7 @@ pub fn main() -> Result<()> {
         debugln!("main: lockfile {:?} up-to-date", lock_path);
         locked_existing.unwrap()
     };
-    sess.load_locked(&locked);
+    sess.load_locked(&locked)?;
 
     // Ensure the locally linked packages are up-to-date.
     {
