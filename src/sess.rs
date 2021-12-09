@@ -351,6 +351,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         &self,
         sources: &'ctx config::Sources,
         package: Option<&'ctx str>,
+        dependencies: Vec<String>,
     ) -> SourceGroup<'ctx> {
         let include_dirs = sources
             .include_dirs
@@ -372,9 +373,9 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             .iter()
             .map(|file| match *file {
                 config::SourceFile::File(ref path) => (path as &Path).into(),
-                config::SourceFile::Group(ref group) => {
-                    self.load_sources(group.as_ref(), None).into()
-                }
+                config::SourceFile::Group(ref group) => self
+                    .load_sources(group.as_ref(), None, dependencies.clone())
+                    .into(),
             })
             .collect();
         SourceGroup {
@@ -384,6 +385,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             include_dirs: include_dirs,
             defines: defines,
             files: files,
+            dependencies: dependencies,
         }
     }
 }
@@ -1048,7 +1050,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .filter_map(|m| {
                                     m.sources.as_ref().map(|s| {
                                         self.sess
-                                            .load_sources(s, Some(m.package.name.as_str()))
+                                            .load_sources(
+                                                s,
+                                                Some(m.package.name.as_str()),
+                                                m.dependencies.keys().cloned().collect(),
+                                            )
                                             .into()
                                     })
                                 })
@@ -1062,6 +1068,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 include_dirs: Vec::new(),
                                 defines: HashMap::new(),
                                 files: files,
+                                dependencies: Vec::new(),
                             }
                             .into()
                         })
@@ -1079,6 +1086,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             .collect(),
                         defines: HashMap::new(),
                         files: files,
+                        dependencies: Vec::new(),
                     }
                     .simplify())
                 })

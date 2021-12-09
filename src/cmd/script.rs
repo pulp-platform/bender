@@ -171,6 +171,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             include_dirs: Default::default(),
             defines: Default::default(),
             files: Default::default(),
+            dependencies: Default::default(),
         });
 
     // Flatten the sources.

@@ -30,6 +30,8 @@ pub struct SourceGroup<'ctx> {
     pub defines: HashMap<&'ctx str, Option<&'ctx str>>,
     /// The files in this group.
     pub files: Vec<SourceFile<'ctx>>,
+    /// Package dependencies of this source group
+    pub dependencies: Vec<String>,
 }
 
 impl<'ctx> SourceGroup<'ctx> {
@@ -93,6 +95,7 @@ impl<'ctx> SourceGroup<'ctx> {
                 include_dirs: self.include_dirs.clone(),
                 defines: self.defines.clone(),
                 files: files,
+                dependencies: self.dependencies.clone(),
             }
             .simplify(),
         )
