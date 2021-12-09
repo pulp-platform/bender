@@ -59,9 +59,21 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     /// If `check` is false, the stdout will be returned regardless of the
     /// command's exit code.
     pub fn spawn(self, mut cmd: Command, check: bool) -> GitFuture<'io, String> {
-        let output = cmd
-            .output_async(&self.sess.handle)
-            .map_err(|cause| Error::chain("Failed to spawn child process.", cause));
+        let output = cmd.output_async(&self.sess.handle).map_err(|cause| {
+            if cause
+                .to_string()
+                .to_lowercase()
+                .contains("too many open files")
+            {
+                println!(
+                    "Please consider increasing your `ulimit -n`, e.g. by running `ulimit -n 4096`"
+                );
+                println!("This is a known issue (#52).");
+                Error::chain("Failed to spawn child process.", cause)
+            } else {
+                Error::chain("Failed to spawn child process.", cause)
+            }
+        });
         let result = output.and_then(move |output| {
             debugln!("git: {:?} in {:?}", cmd, self.path);
             if output.status.success() || !check {
