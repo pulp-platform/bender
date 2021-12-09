@@ -10,6 +10,7 @@ use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup};
 use crate::target::{TargetSet, TargetSpec};
+use common_path::common_path_all;
 
 use std::collections::HashSet;
 
@@ -40,6 +41,7 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
                     "genus",
                     "vivado",
                     "vivado-sim",
+                    "precision",
                 ]),
         )
         .arg(
@@ -148,6 +150,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "genus" => vec!["genus", "synthesis"],
         "vivado" => concat(vivado_targets, &["synthesis"]),
         "vivado-sim" => concat(vivado_targets, &["simulation"]),
+        "precision" => vec!["precision", "fpga", "synthesis"],
         _ => unreachable!(),
     };
 
@@ -216,6 +219,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "genus" => emit_genus_tcl(sess, matches, targets, srcs),
         "vivado" => emit_vivado_tcl(sess, matches, targets, srcs),
         "vivado-sim" => emit_vivado_tcl(sess, matches, targets, srcs),
+        "precision" => emit_precision_tcl(sess, matches, targets, srcs, abort_on_error),
         _ => unreachable!(),
     }
 }
@@ -1086,6 +1090,120 @@ fn emit_riviera_tcl(
         if abort_on_error {
             println!("{}", tcl_catch_postfix());
         }
+    }
+    Ok(())
+}
+
+/// Emit a script to add sources to Mentor Precision
+fn emit_precision_tcl(
+    sess: &Session,
+    matches: &ArgMatches,
+    targets: TargetSet,
+    srcs: Vec<SourceGroup>,
+    abort_on_error: bool,
+) -> Result<()> {
+    // Find the common_path between session and all source files
+    let mut file_paths = vec![sess.root];
+    for src in &srcs {
+        for file in &src.files {
+            let p = match file {
+                SourceFile::File(p) => p,
+                _ => continue,
+            };
+            file_paths.push(p)
+        }
+    }
+    let root = common_path_all(file_paths).unwrap();
+
+    // Print the script header
+    println!("{}", format!("# {}", HEADER_AUTOGEN));
+    println!("# Precision does not take relative paths into account when specifying include dirs.");
+    println!("# Define the common ROOT anyway if needed for patching file paths. ");
+    println!("set ROOT {}", root.to_str().unwrap());
+    println!("set_input_dir $ROOT");
+    println!("setup_design -search_path $ROOT");
+
+    // Find all the include dirs as precision only allows to set these globally
+    let mut defines: Vec<(String, Option<String>)> = vec![];
+    for src in &srcs {
+        defines.extend(
+            src.defines
+                .iter()
+                .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+        );
+    }
+    defines.extend(
+        targets
+            .iter()
+            .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
+    );
+    add_defines_from_matches(&mut defines, matches);
+    defines.sort();
+    if !defines.is_empty() {
+        let mut lines = vec![];
+
+        lines.push("setup_design -defines { \\".to_owned());
+        for (k, v) in defines {
+            let mut s = format!("    +define+{}", k);
+            if let Some(v) = v {
+                s.push('=');
+                s.push_str(&v);
+            }
+            s.push_str(" \\");
+            lines.push(s);
+        }
+        lines.push("}".to_owned());
+        println!("\n# Set globally all defines for the (S)Verilog sources.");
+        println!("{}", lines.join("\n"));
+    }
+
+    // Add the source files depending on group
+    for src in srcs {
+        separate_files_in_group(
+            src,
+            |f| match f {
+                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
+                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
+                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
+                    _ => None,
+                },
+                _ => None,
+            },
+            |src, ty, files| {
+                let mut lines = vec![];
+                match ty {
+                    SourceType::Verilog => {
+                        lines.push(tcl_catch_prefix("add_input_file", abort_on_error).to_owned());
+                        lines.push("-format SystemVerilog2012".to_owned());
+                        if !src.include_dirs.is_empty() {
+                            lines.push("-search_path {".to_owned());
+                            for i in &src.include_dirs {
+                                lines.push(format!("    {}", i.to_str().unwrap()));
+                            }
+                            lines.push("}".to_owned());
+                        }
+                    }
+                    SourceType::Vhdl => {
+                        lines.push(tcl_catch_prefix("add_input_file", abort_on_error).to_owned());
+                        lines.push("-format vhdl_2008".to_owned());
+                    }
+                }
+                lines.push("{".to_owned());
+                for file in files {
+                    let p = match file {
+                        SourceFile::File(p) => p,
+                        _ => continue,
+                    };
+                    lines.push(format!("    {}", p.to_str().unwrap()));
+                }
+                lines.push("} \\".to_owned());
+                println!("");
+                println!("{}", lines.join(" \\\n    "));
+                if abort_on_error {
+                    println!("{}", tcl_catch_postfix());
+                }
+            },
+        );
     }
     Ok(())
 }
