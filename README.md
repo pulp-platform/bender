@@ -394,6 +394,8 @@ Supported formats:
 
 Whenever you update the list of dependencies, you likely have to run `bender update` to re-resolve the dependency versions, and recreate the `Bender.lock` file.
 
+Calling update with the `--fetch/-f` flag will force all git dependencies to be re-fetched from their corresponding urls.
+
 > Note: Actually this should be done automatically if you add a new dependency. But due to the lack of coding time, this has to be done manually as of now.
 
 

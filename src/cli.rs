@@ -33,7 +33,22 @@ pub fn main() -> Result<()> {
                 .global(true)
                 .help("Sets a custom root working directory"),
         )
-        .subcommand(SubCommand::with_name("update").about("Update the dependencies"))
+        .arg(
+            Arg::with_name("local")
+                .long("local")
+                .global(true)
+                .help("Disables fetching of remotes (e.g. for air-gapped computers)"),
+        )
+        .subcommand(
+            SubCommand::with_name("update")
+                .about("Update the dependencies")
+                .arg(
+                    Arg::with_name("fetch")
+                        .short("f")
+                        .long("fetch")
+                        .help("forces fetch of git dependencies"),
+                ),
+        )
         .subcommand(cmd::path::new())
         .subcommand(cmd::parents::new())
         .subcommand(cmd::clone::new())
@@ -62,6 +77,19 @@ pub fn main() -> Result<()> {
         ENABLE_DEBUG.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
+    let mut force_fetch = false;
+    match matches.subcommand() {
+        ("update", Some(intern_matches)) => {
+            force_fetch = intern_matches.is_present("fetch");
+            if matches.is_present("local") && intern_matches.is_present("fetch") {
+                warnln!(
+                    "As --local argument is set for bender command, no fetching will be performed."
+                );
+            }
+        }
+        _ => {}
+    }
+
     // Determine the root working directory, which has either been provided via
     // the -d/--dir switch, or by searching upwards in the file system
     // hierarchy.
@@ -85,7 +113,14 @@ pub fn main() -> Result<()> {
 
     // Assemble the session.
     let sess_arenas = SessionArenas::new();
-    let sess = Session::new(&root_dir, &manifest, &config, &sess_arenas);
+    let sess = Session::new(
+        &root_dir,
+        &manifest,
+        &config,
+        &sess_arenas,
+        matches.is_present("local"),
+        force_fetch,
+    );
 
     // Read the existing lockfile.
     let lock_path = root_dir.join("Bender.lock");
