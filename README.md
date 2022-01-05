@@ -371,7 +371,7 @@ To get the sources for a subset of packages, exclude specific packages and their
 
 - `-p`/`--package`: Specify package to show sources for.
 - `-e`/`--exclude`: Specify package to exclude from sources.
-- `-n`/`--no_deps`: Exclude all dependencies, i.e. only top level or specified package(s).
+- `-n`/`--no-deps`: Exclude all dependencies, i.e. only top level or specified package(s).
 
 For multiple packages (or excludes), multiple `-p` (or `-e`) arguments can be added to the command.
 

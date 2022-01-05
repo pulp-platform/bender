@@ -103,7 +103,7 @@ impl<'ctx> SourceGroup<'ctx> {
         )
     }
 
-    /// recursively get dependency names
+    /// Recursively get dependency names.
     fn get_deps(&self, packages: &HashSet<String>, excludes: &HashSet<String>) -> HashSet<String> {
         let mut result = packages.clone();
 
@@ -129,7 +129,7 @@ impl<'ctx> SourceGroup<'ctx> {
         result
     }
 
-    /// Get list of packages bassed on constraints
+    /// Get list of packages based on constraints.
     pub fn get_package_list(
         &self,
         sess: &Session,
@@ -162,33 +162,17 @@ impl<'ctx> SourceGroup<'ctx> {
     pub fn filter_packages(&self, packages: &HashSet<String>) -> Option<SourceGroup<'ctx>> {
         let mut files = Vec::new();
 
-        match self.package {
-            Some(x) => {
-                if packages.contains(&x.to_string()) {
-                    files = self
-                        .files
-                        .iter()
-                        .filter_map(|file| match *file {
-                            SourceFile::Group(ref group) => group
-                                .filter_packages(packages)
-                                .map(|g| SourceFile::Group(Box::new(g))),
-                            ref other => Some(other.clone()),
-                        })
-                        .collect();
-                }
-            }
-            None => {
-                files = self
-                    .files
-                    .iter()
-                    .filter_map(|file| match *file {
-                        SourceFile::Group(ref group) => group
-                            .filter_packages(packages)
-                            .map(|g| SourceFile::Group(Box::new(g))),
-                        ref other => Some(other.clone()),
-                    })
-                    .collect();
-            }
+        if self.package.is_none() || packages.contains(self.package.unwrap()) {
+            files = self
+                .files
+                .iter()
+                .filter_map(|file| match *file {
+                    SourceFile::Group(ref group) => group
+                        .filter_packages(packages)
+                        .map(|g| SourceFile::Group(Box::new(g))),
+                    ref other => Some(other.clone()),
+                })
+                .collect();
         }
 
         Some(

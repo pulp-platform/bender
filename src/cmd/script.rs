@@ -130,7 +130,7 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("package")
                 .short("p")
                 .long("package")
-                .help("Specify package to show sources for.")
+                .help("Specify package to show sources for")
                 .takes_value(true)
                 .multiple(true)
                 .number_of_values(1),
@@ -138,14 +138,14 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("no_deps")
                 .short("n")
-                .long("no_deps")
-                .help("Exclude all dependencies, i.e. only top level or specified package(s)."),
+                .long("no-deps")
+                .help("Exclude all dependencies, i.e. only top level or specified package(s)"),
         )
         .arg(
             Arg::with_name("exclude")
                 .short("e")
                 .long("exclude")
-                .help("Specify package to exclude from sources.")
+                .help("Specify package to exclude from sources")
                 .takes_value(true)
                 .multiple(true)
                 .number_of_values(1),
