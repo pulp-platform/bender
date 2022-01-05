@@ -881,7 +881,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Ok(m) => {
                             if dep.name != m.package.name {
                                 warnln!("Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
-                                    dep.name, m.package.name);
+                                    dep.name, m.package.name); // TODO: This should be an error
                             }
                             Box::new(future::ok(Some(self.sess.intern_manifest(m))))
                         }
@@ -952,7 +952,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     dep.name, match manifest {
                                         Some(x) => &x.package.name,
                                         None => "dead"
-                                    });
+                                    }); // TODO (micprog): This should be an error
                             }
                             Ok(manifest)
                         }),
@@ -1096,10 +1096,15 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                         );
                                         if !m.dependencies.is_empty() {
                                             for i in m.dependencies.keys() {
-                                                export_include_dirs.insert(
-                                                    i.clone(),
-                                                    all_export_include_dirs[i].clone(),
-                                                );
+                                                if !all_export_include_dirs.contains_key(i) {
+                                                    warnln!("Name issue with {:?}, `export_include_dirs` not handled\n\tCould relate to name mismatch, see `bender update`", i);
+                                                    export_include_dirs.insert(i.clone(), Vec::new());
+                                                } else {
+                                                    export_include_dirs.insert(
+                                                        i.clone(),
+                                                        all_export_include_dirs[i].clone(),
+                                                    );
+                                                }
                                             }
                                         }
                                         self.sess
