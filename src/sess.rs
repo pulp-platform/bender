@@ -9,6 +9,7 @@ use std;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::canonicalize;
+use std::iter::FromIterator;
 use std::mem::swap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
@@ -363,12 +364,16 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         sources: &'ctx config::Sources,
         package: Option<&'ctx str>,
         dependencies: Vec<String>,
+        dependency_export_includes: Vec<&'ctx Path>,
     ) -> SourceGroup<'ctx> {
-        let include_dirs = sources
-            .include_dirs
-            .iter()
-            .map(|d| self.intern_path(d))
-            .collect();
+        let mut include_dirs: HashSet<&Path> =
+            HashSet::from_iter(sources.include_dirs.iter().map(|d| self.intern_path(d)));
+        include_dirs.extend(
+            dependency_export_includes
+                .clone()
+                .iter()
+                .map(|d| self.intern_path(d)),
+        );
         let defines = sources
             .defines
             .iter()
@@ -385,7 +390,12 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             .map(|file| match *file {
                 config::SourceFile::File(ref path) => (path as &Path).into(),
                 config::SourceFile::Group(ref group) => self
-                    .load_sources(group.as_ref(), None, dependencies.clone())
+                    .load_sources(
+                        group.as_ref(),
+                        None,
+                        dependencies.clone(),
+                        dependency_export_includes.clone(),
+                    )
                     .into(),
             })
             .collect();
@@ -393,7 +403,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             package: package,
             independent: false,
             target: sources.target.clone(),
-            include_dirs: include_dirs,
+            include_dirs: include_dirs.into_iter().collect(),
             defines: defines,
             files: files,
             dependencies: dependencies,
@@ -1037,26 +1047,39 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         Box::new(
             manifests
                 .and_then(move |ranks| {
-                    // Collect a set of exported include directories that will be applied to
-                    // all packages.
-                    // TODO: Make this more fine-grained, such that only include dirs from
-                    // directly depended-on packages are considered.
-                    let export_include_dirs: Vec<_> = ranks
-                        .iter()
-                        .chain(once(&vec![Some(self.sess.manifest)]))
-                        .flat_map(|manifests| {
+                    use std::iter::once;
+
+                    // Create HashMap of the export_include_dirs for each package
+                    let mut all_export_include_dirs: HashMap<String, Vec<&Path>> = HashMap::new();
+                    let tmp_export_include_dirs: Vec<HashMap<_, _>> = ranks
+                        .clone()
+                        .into_iter()
+                        .chain(once(vec![Some(self.sess.manifest)]))
+                        .map(|manifests| {
                             manifests
-                                .iter()
-                                .filter_map(|&m| m)
-                                .flat_map(|m| m.export_include_dirs.iter())
+                                .clone()
+                                .into_iter()
+                                .filter_map(|m| m)
+                                .map(|m| {
+                                    (
+                                        m.package.name.clone(),
+                                        m.export_include_dirs
+                                            .iter()
+                                            .map(PathBuf::as_path)
+                                            .collect(),
+                                    )
+                                })
+                                .collect()
                         })
                         .collect();
+                    for element in tmp_export_include_dirs {
+                        all_export_include_dirs.extend(element);
+                    }
                     debugln!(
-                        "explicitly exported include dirs: {:#?}",
-                        export_include_dirs
+                        "export_include_dirs for each package: {:?}",
+                        all_export_include_dirs
                     );
 
-                    use std::iter::once;
                     let files = ranks
                         .into_iter()
                         .chain(once(vec![Some(self.sess.manifest)]))
@@ -1066,11 +1089,24 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .filter_map(|m| m)
                                 .filter_map(|m| {
                                     m.sources.as_ref().map(|s| {
+                                        // Collect include dirs from export_include_dirs of package and direct dependencies
+                                        let mut export_include_dirs: Vec<&Path> = m
+                                            .export_include_dirs
+                                            .iter()
+                                            .map(PathBuf::as_path)
+                                            .collect();
+                                        if !m.dependencies.is_empty() {
+                                            for i in m.dependencies.keys() {
+                                                export_include_dirs
+                                                    .extend(all_export_include_dirs[i].clone());
+                                            }
+                                        }
                                         self.sess
                                             .load_sources(
                                                 s,
                                                 Some(m.package.name.as_str()),
                                                 m.dependencies.keys().cloned().collect(),
+                                                export_include_dirs,
                                             )
                                             .into()
                                     })
@@ -1097,10 +1133,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         package: None,
                         independent: false,
                         target: TargetSpec::Wildcard,
-                        include_dirs: export_include_dirs
-                            .iter()
-                            .map(|p| self.sess.intern_path(p.clone()))
-                            .collect(),
+                        include_dirs: Vec::new(),
                         defines: HashMap::new(),
                         files: files,
                         dependencies: Vec::new(),

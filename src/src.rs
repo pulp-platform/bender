@@ -230,12 +230,14 @@ impl<'ctx> SourceGroup<'ctx> {
                             .map(|&i| i.clone())
                             .collect(),
                     );
-                    grp.include_dirs = self
-                        .include_dirs
-                        .iter()
-                        .cloned()
-                        .chain(grp.include_dirs.into_iter())
-                        .collect();
+                    grp.include_dirs = HashSet::<&Path>::from_iter(
+                        self.include_dirs
+                            .iter()
+                            .cloned()
+                            .chain(grp.include_dirs.into_iter()),
+                    )
+                    .into_iter()
+                    .collect();
                     grp.defines = self
                         .defines
                         .iter()
