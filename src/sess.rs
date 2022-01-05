@@ -887,6 +887,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         use self::DependencyVersion as DepVer;
         match (&dep.source, version) {
             (&DepSrc::Path(ref path), DepVer::Path) => {
+                if !path.starts_with("/") {
+                    warnln!("There may be issues in the path for {:?}.", dep.name);
+                }
                 let manifest_path = path.join("Bender.yml");
                 if manifest_path.exists() {
                     match read_manifest(&manifest_path) {
@@ -935,7 +938,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                             cause,
                                         )
                                     })?;
-                                let full = partial.validate().map_err(|cause| {
+                                let mut full = partial.validate().map_err(|cause| {
                                     Error::chain(
                                         format!(
                                             "Error in manifest of dependency `{}` at revision \
@@ -945,6 +948,20 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                         cause,
                                     )
                                 })?;
+                                // Add base path to path dependencies within git repositories
+                                for dep in full.dependencies.iter_mut() {
+                                    match dep {
+                                        (_, config::Dependency::Path(ref path)) => {
+                                            if !path.starts_with("/") {
+                                                if !self.get_package_path(dep_id).exists() {
+                                                    warnln!("Please note that dependencies for {:?} may not be available unless {:?} is properly checked out.\n         (to checkout run `bender sources` and then `bender update` again).", dep.0, full.package.name);
+                                                }
+                                                *dep.1 = config::Dependency::Path(self.get_package_path(dep_id).join(path).clone());
+                                            }
+                                        },
+                                        (_, _) => {},
+                                    }
+                                }
                                 Ok(Some(self.sess.intern_manifest(full)))
                             }
                             None => Ok(None),

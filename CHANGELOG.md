@@ -17,6 +17,9 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Changed
 - Reduce the number of open files in large repositories by changing the method to get the Git commit hash from a tag (from individual calls to `git rev-parse --verify HASH^{commit}` to `git show-ref --dereference`).
 
+### Fixed
+- Fix absolute path of path dependencies inside git dependencies.
+
 ## 0.23.2 - 2021-11-30
 ### Changed
 - Wrap defines in quotes for the VCS's shell script
