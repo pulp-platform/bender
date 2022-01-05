@@ -659,17 +659,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         }
     }
 
-    /// Ensure that a dependency is checked out and obtain its path.
-    pub fn checkout(
-        &'io self,
-        dep_id: DependencyRef,
-    ) -> Box<dyn Future<Item = &'ctx Path, Error = Error> + 'io> {
-        // Check if the checkout is already in the cache.
-        if let Some(&cached) = self.sess.cache.checkout.lock().unwrap().get(&dep_id) {
-            return Box::new(future::ok(cached));
-        }
-
-        self.sess.stats.num_calls_checkout.increment();
+    /// Get the path of a dependency
+    fn get_package_path(&'io self, dep_id: DependencyRef) -> PathBuf {
         let dep = self.sess.dependency(dep_id);
 
         // Determine the name of the checkout as the given name and the first
@@ -690,8 +681,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Ok(p) => p,
                         Err(_) => path,
                     };
-                    let path = self.sess.intern_path(path);
-                    return Box::new(future::ok(path));
+                    return path.to_path_buf();
                 }
             }
             hasher.update(format!("{:?}", self.sess.root).as_bytes());
@@ -703,16 +693,43 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // explicit checkout directory, use that and do not append any hash to
         // the dependency name.
         let checkout_dir = match self.sess.manifest.workspace.checkout_dir {
-            Some(ref cd) => self.sess.intern_path(cd.join(&dep.name)),
-            None => self.sess.intern_path(
-                self.sess
-                    .config
-                    .database
-                    .join("git")
-                    .join("checkouts")
-                    .join(checkout_name),
-            ),
+            Some(ref cd) => cd.join(&dep.name),
+            None => self
+                .sess
+                .config
+                .database
+                .join("git")
+                .join("checkouts")
+                .join(checkout_name),
         };
+        checkout_dir.to_path_buf()
+    }
+
+    /// Ensure that a dependency is checked out and obtain its path.
+    pub fn checkout(
+        &'io self,
+        dep_id: DependencyRef,
+    ) -> Box<dyn Future<Item = &'ctx Path, Error = Error> + 'io> {
+        // Check if the checkout is already in the cache.
+        if let Some(&cached) = self.sess.cache.checkout.lock().unwrap().get(&dep_id) {
+            return Box::new(future::ok(cached));
+        }
+
+        self.sess.stats.num_calls_checkout.increment();
+        let dep = self.sess.dependency(dep_id);
+
+        match dep.source {
+            DependencySource::Registry => unimplemented!(),
+            DependencySource::Git(..) => {}
+            DependencySource::Path(..) => {
+                let path = self
+                    .sess
+                    .intern_path(self.get_package_path(dep_id).as_path());
+                return Box::new(future::ok(path));
+            }
+        }
+
+        let checkout_dir = self.sess.intern_path(self.get_package_path(dep_id));
 
         match dep.source {
             DependencySource::Path(..) => unreachable!(),
@@ -870,6 +887,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         use self::DependencyVersion as DepVer;
         match (&dep.source, version) {
             (&DepSrc::Path(ref path), DepVer::Path) => {
+                if !path.starts_with("/") {
+                    warnln!("There may be issues in the path for {:?}.", dep.name);
+                }
                 let manifest_path = path.join("Bender.yml");
                 if manifest_path.exists() {
                     match read_manifest(&manifest_path) {
@@ -918,7 +938,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                             cause,
                                         )
                                     })?;
-                                let full = partial.validate().map_err(|cause| {
+                                let mut full = partial.validate().map_err(|cause| {
                                     Error::chain(
                                         format!(
                                             "Error in manifest of dependency `{}` at revision \
@@ -928,6 +948,20 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                         cause,
                                     )
                                 })?;
+                                // Add base path to path dependencies within git repositories
+                                for dep in full.dependencies.iter_mut() {
+                                    match dep {
+                                        (_, config::Dependency::Path(ref path)) => {
+                                            if !path.starts_with("/") {
+                                                if !self.get_package_path(dep_id).exists() {
+                                                    warnln!("Please note that dependencies for {:?} may not be available unless {:?} is properly checked out.\n         (to checkout run `bender sources` and then `bender update` again).", dep.0, full.package.name);
+                                                }
+                                                *dep.1 = config::Dependency::Path(self.get_package_path(dep_id).join(path).clone());
+                                            }
+                                        },
+                                        (_, _) => {},
+                                    }
+                                }
                                 Ok(Some(self.sess.intern_manifest(full)))
                             }
                             None => Ok(None),
