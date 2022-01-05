@@ -207,6 +207,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             independent: true,
             target: TargetSpec::Wildcard,
             include_dirs: Default::default(),
+            export_incdirs: Default::default(),
             defines: Default::default(),
             files: Default::default(),
             dependencies: Default::default(),
@@ -237,6 +238,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 independent: true,
                 target: TargetSpec::Wildcard,
                 include_dirs: Default::default(),
+                export_incdirs: Default::default(),
                 defines: Default::default(),
                 files: Default::default(),
                 dependencies: Default::default(),
@@ -433,7 +435,7 @@ fn emit_vsim_tcl(
                             }
                             lines.push(s);
                         }
-                        for i in &src.include_dirs {
+                        for i in src.clone().get_incdirs() {
                             lines
                                 .push(quote(&format!("+incdir+{}", relativize_path(i, sess.root))));
                         }
@@ -518,7 +520,7 @@ fn emit_vcs_sh(
                             }
                             lines.push(s);
                         }
-                        for i in &src.include_dirs {
+                        for i in src.clone().get_incdirs() {
                             lines
                                 .push(quote(&format!("+incdir+{}", relativize_path(i, sess.root))));
                         }
@@ -591,7 +593,7 @@ fn emit_verilator_sh(
                             }
                             lines.push(s);
                         }
-                        for i in &src.include_dirs {
+                        for i in src.clone().get_incdirs() {
                             if i.starts_with(sess.root) {
                                 lines.push(format!(
                                     "+incdir+{}/{}",
@@ -631,17 +633,10 @@ fn emit_verilator_sh(
 /// Emit a flat file list
 fn emit_flist(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>) -> Result<()> {
     let mut lines = vec![];
-    let mut inc_dirs = HashSet::new();
+    let mut inc_dirs = Vec::new();
     let mut files = vec![];
-    // Gobble double includes with a HashSet.
     for src in srcs {
-        inc_dirs = src
-            .include_dirs
-            .into_iter()
-            .fold(HashSet::new(), |mut acc, inc_dir| {
-                acc.insert(inc_dir);
-                acc
-            });
+        inc_dirs = src.clone().get_incdirs();
         files.append(&mut src.files.clone());
     }
 
@@ -696,7 +691,7 @@ fn emit_synopsys_tcl(
         // Adjust the search path.
         println!("");
         println!("set search_path $search_path_initial");
-        for i in &src.include_dirs {
+        for i in src.clone().get_incdirs() {
             println!("lappend search_path {}", relativize_path(i));
         }
 
@@ -809,7 +804,7 @@ fn emit_genus_tcl(
         // Adjust the search path.
         println!("");
         println!("set search_path $search_path_initial");
-        for i in &src.include_dirs {
+        for i in src.clone().get_incdirs() {
             println!("lappend search_path {}", relativize_path(i));
         }
 
@@ -930,7 +925,7 @@ fn emit_vivado_tcl(
         vec!["", " -simset"]
     };
     for src in srcs {
-        for i in &src.include_dirs {
+        for i in src.clone().get_incdirs() {
             include_dirs.push(relativize_path(i, sess.root));
         }
         separate_files_in_group(
@@ -1054,7 +1049,7 @@ fn emit_riviera_tcl(
                                 }
                                 lines.push(s);
                             }
-                            for i in &src.include_dirs {
+                            for i in src.clone().get_incdirs() {
                                 lines.push(quote(&format!(
                                     "+incdir+{}",
                                     relativize_path(i, sess.root)
@@ -1086,18 +1081,12 @@ fn emit_riviera_tcl(
     } else {
         let mut lines = vec![];
         let mut file_lines = vec![];
-        let mut inc_dirs = HashSet::new();
+        let mut inc_dirs = Vec::new();
         let mut files = vec![];
         let mut defines: Vec<(String, Option<String>)> = vec![];
         let mut t: bool = false;
         for src in srcs {
-            inc_dirs = src
-                .include_dirs
-                .into_iter()
-                .fold(HashSet::new(), |mut acc, inc_dir| {
-                    acc.insert(inc_dir);
-                    acc
-                });
+            inc_dirs = src.clone().get_incdirs();
             files.append(&mut src.files.clone());
             defines.extend(
                 src.defines
@@ -1241,9 +1230,9 @@ fn emit_precision_tcl(
                     SourceType::Verilog => {
                         lines.push(tcl_catch_prefix("add_input_file", abort_on_error).to_owned());
                         lines.push("-format SystemVerilog2012".to_owned());
-                        if !src.include_dirs.is_empty() {
+                        if !src.clone().get_incdirs().is_empty() {
                             lines.push("-search_path {".to_owned());
-                            for i in &src.include_dirs {
+                            for i in src.clone().get_incdirs() {
                                 lines.push(format!("    {}", i.to_str().unwrap()));
                             }
                             lines.push("}".to_owned());

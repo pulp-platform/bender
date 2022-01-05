@@ -28,6 +28,8 @@ pub struct SourceGroup<'ctx> {
     pub target: TargetSpec,
     /// The directories to search for include files.
     pub include_dirs: Vec<&'ctx Path>,
+    /// The directories exported by dependent package for include files.
+    pub export_incdirs: HashMap<String, Vec<&'ctx Path>>,
     /// The preprocessor definitions.
     pub defines: HashMap<&'ctx str, Option<&'ctx str>>,
     /// The files in this group.
@@ -95,6 +97,7 @@ impl<'ctx> SourceGroup<'ctx> {
                 independent: self.independent,
                 target: self.target.clone(),
                 include_dirs: self.include_dirs.clone(),
+                export_incdirs: self.export_incdirs.clone(),
                 defines: self.defines.clone(),
                 files: files,
                 dependencies: self.dependencies.clone(),
@@ -175,18 +178,40 @@ impl<'ctx> SourceGroup<'ctx> {
                 .collect();
         }
 
+        let mut export_incdirs = self.export_incdirs.clone();
+        export_incdirs.retain(|k, _| packages.contains(k));
         Some(
             SourceGroup {
                 package: self.package,
                 independent: self.independent,
                 target: self.target.clone(),
                 include_dirs: self.include_dirs.clone(),
+                export_incdirs: export_incdirs,
                 defines: self.defines.clone(),
                 files: files,
                 dependencies: self.dependencies.clone(),
             }
             .simplify(),
         )
+    }
+
+    /// Return list of unique include directories for the current src
+    pub fn get_incdirs(self) -> Vec<&'ctx Path> {
+        let dep_incdirs: Vec<&Path> = self
+            .export_incdirs
+            .into_iter()
+            .map(|(_, v)| v)
+            .flat_map(|it| it.clone())
+            .collect();
+        let incdirs = self
+            .include_dirs
+            .into_iter()
+            .chain(dep_incdirs.into_iter())
+            .fold(HashSet::new(), |mut acc, inc_dir| {
+                acc.insert(inc_dir);
+                acc
+            });
+        incdirs.into_iter().collect()
     }
 
     /// Flatten nested source groups.

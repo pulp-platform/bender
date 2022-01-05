@@ -364,16 +364,10 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         sources: &'ctx config::Sources,
         package: Option<&'ctx str>,
         dependencies: Vec<String>,
-        dependency_export_includes: Vec<&'ctx Path>,
+        dependency_export_includes: HashMap<String, Vec<&'ctx Path>>,
     ) -> SourceGroup<'ctx> {
-        let mut include_dirs: HashSet<&Path> =
+        let include_dirs: HashSet<&Path> =
             HashSet::from_iter(sources.include_dirs.iter().map(|d| self.intern_path(d)));
-        include_dirs.extend(
-            dependency_export_includes
-                .clone()
-                .iter()
-                .map(|d| self.intern_path(d)),
-        );
         let defines = sources
             .defines
             .iter()
@@ -404,6 +398,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             independent: false,
             target: sources.target.clone(),
             include_dirs: include_dirs.into_iter().collect(),
+            export_incdirs: dependency_export_includes.clone(),
             defines: defines,
             files: files,
             dependencies: dependencies,
@@ -1090,15 +1085,21 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .filter_map(|m| {
                                     m.sources.as_ref().map(|s| {
                                         // Collect include dirs from export_include_dirs of package and direct dependencies
-                                        let mut export_include_dirs: Vec<&Path> = m
-                                            .export_include_dirs
-                                            .iter()
-                                            .map(PathBuf::as_path)
-                                            .collect();
+                                        let mut export_include_dirs: HashMap<String, Vec<&Path>> =
+                                            HashMap::new();
+                                        export_include_dirs.insert(
+                                            m.package.name.clone(),
+                                            m.export_include_dirs
+                                                .iter()
+                                                .map(PathBuf::as_path)
+                                                .collect(),
+                                        );
                                         if !m.dependencies.is_empty() {
                                             for i in m.dependencies.keys() {
-                                                export_include_dirs
-                                                    .extend(all_export_include_dirs[i].clone());
+                                                export_include_dirs.insert(
+                                                    i.clone(),
+                                                    all_export_include_dirs[i].clone(),
+                                                );
                                             }
                                         }
                                         self.sess
@@ -1119,6 +1120,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 independent: true,
                                 target: TargetSpec::Wildcard,
                                 include_dirs: Vec::new(),
+                                export_incdirs: HashMap::new(),
                                 defines: HashMap::new(),
                                 files: files,
                                 dependencies: Vec::new(),
@@ -1134,6 +1136,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         independent: false,
                         target: TargetSpec::Wildcard,
                         include_dirs: Vec::new(),
+                        export_incdirs: HashMap::new(),
                         defines: HashMap::new(),
                         files: files,
                         dependencies: Vec::new(),
