@@ -126,13 +126,48 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
                     "common",
                 ])
         )
+        .arg(
+            Arg::with_name("package")
+                .short("p")
+                .long("package")
+                .help("Specify package to show sources for")
+                .takes_value(true)
+                .multiple(true)
+                .number_of_values(1),
+        )
+        .arg(
+            Arg::with_name("no_deps")
+                .short("n")
+                .long("no-deps")
+                .help("Exclude all dependencies, i.e. only top level or specified package(s)"),
+        )
+        .arg(
+            Arg::with_name("exclude")
+                .short("e")
+                .long("exclude")
+                .help("Specify package to exclude from sources")
+                .takes_value(true)
+                .multiple(true)
+                .number_of_values(1),
+        )
+}
+
+fn get_package_strings<I>(packages: I) -> HashSet<String>
+where
+    I: IntoIterator,
+    I::Item: AsRef<str>,
+{
+    packages
+        .into_iter()
+        .map(|t| t.as_ref().to_string())
+        .collect()
 }
 
 /// Execute the `script` subcommand.
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let mut core = Core::new().unwrap();
     let io = SessionIo::new(&sess, core.handle());
-    let srcs = core.run(io.sources())?;
+    let mut srcs = core.run(io.sources())?;
 
     // Format-specific target specifiers.
     let vivado_targets = &["vivado", "fpga", "xilinx"];
@@ -165,17 +200,50 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         .values_of("target")
         .map(|t| TargetSet::new(t.chain(format_targets.clone())))
         .unwrap_or_else(|| TargetSet::new(format_targets));
-    let srcs = srcs
+    srcs = srcs
         .filter_targets(&targets)
         .unwrap_or_else(|| SourceGroup {
             package: Default::default(),
             independent: true,
             target: TargetSpec::Wildcard,
             include_dirs: Default::default(),
+            export_incdirs: Default::default(),
             defines: Default::default(),
             files: Default::default(),
             dependencies: Default::default(),
         });
+
+    // Filter the sources by specified packages.
+    let packages = &srcs.get_package_list(
+        sess,
+        &matches
+            .values_of("package")
+            .map(|p| get_package_strings(p))
+            .unwrap_or_else(|| HashSet::new()),
+        &matches
+            .values_of("exclude")
+            .map(|p| get_package_strings(p))
+            .unwrap_or_else(|| HashSet::new()),
+        matches.is_present("no_deps"),
+    );
+
+    if matches.is_present("package")
+        || matches.is_present("exclude")
+        || matches.is_present("no_deps")
+    {
+        srcs = srcs
+            .filter_packages(&packages)
+            .unwrap_or_else(|| SourceGroup {
+                package: Default::default(),
+                independent: true,
+                target: TargetSpec::Wildcard,
+                include_dirs: Default::default(),
+                export_incdirs: Default::default(),
+                defines: Default::default(),
+                files: Default::default(),
+                dependencies: Default::default(),
+            });
+    }
 
     // Flatten the sources.
     let srcs = srcs.flatten();
@@ -367,7 +435,7 @@ fn emit_vsim_tcl(
                             }
                             lines.push(s);
                         }
-                        for i in &src.include_dirs {
+                        for i in src.clone().get_incdirs() {
                             lines
                                 .push(quote(&format!("+incdir+{}", relativize_path(i, sess.root))));
                         }
@@ -452,7 +520,7 @@ fn emit_vcs_sh(
                             }
                             lines.push(s);
                         }
-                        for i in &src.include_dirs {
+                        for i in src.clone().get_incdirs() {
                             lines
                                 .push(quote(&format!("+incdir+{}", relativize_path(i, sess.root))));
                         }
@@ -525,7 +593,7 @@ fn emit_verilator_sh(
                             }
                             lines.push(s);
                         }
-                        for i in &src.include_dirs {
+                        for i in src.clone().get_incdirs() {
                             if i.starts_with(sess.root) {
                                 lines.push(format!(
                                     "+incdir+{}/{}",
@@ -565,17 +633,10 @@ fn emit_verilator_sh(
 /// Emit a flat file list
 fn emit_flist(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>) -> Result<()> {
     let mut lines = vec![];
-    let mut inc_dirs = HashSet::new();
+    let mut inc_dirs = Vec::new();
     let mut files = vec![];
-    // Gobble double includes with a HashSet.
     for src in srcs {
-        inc_dirs = src
-            .include_dirs
-            .into_iter()
-            .fold(HashSet::new(), |mut acc, inc_dir| {
-                acc.insert(inc_dir);
-                acc
-            });
+        inc_dirs = src.clone().get_incdirs();
         files.append(&mut src.files.clone());
     }
 
@@ -630,7 +691,7 @@ fn emit_synopsys_tcl(
         // Adjust the search path.
         println!("");
         println!("set search_path $search_path_initial");
-        for i in &src.include_dirs {
+        for i in src.clone().get_incdirs() {
             println!("lappend search_path {}", relativize_path(i));
         }
 
@@ -743,7 +804,7 @@ fn emit_genus_tcl(
         // Adjust the search path.
         println!("");
         println!("set search_path $search_path_initial");
-        for i in &src.include_dirs {
+        for i in src.clone().get_incdirs() {
             println!("lappend search_path {}", relativize_path(i));
         }
 
@@ -864,7 +925,7 @@ fn emit_vivado_tcl(
         vec!["", " -simset"]
     };
     for src in srcs {
-        for i in &src.include_dirs {
+        for i in src.clone().get_incdirs() {
             include_dirs.push(relativize_path(i, sess.root));
         }
         separate_files_in_group(
@@ -988,7 +1049,7 @@ fn emit_riviera_tcl(
                                 }
                                 lines.push(s);
                             }
-                            for i in &src.include_dirs {
+                            for i in src.clone().get_incdirs() {
                                 lines.push(quote(&format!(
                                     "+incdir+{}",
                                     relativize_path(i, sess.root)
@@ -1020,18 +1081,12 @@ fn emit_riviera_tcl(
     } else {
         let mut lines = vec![];
         let mut file_lines = vec![];
-        let mut inc_dirs = HashSet::new();
+        let mut inc_dirs = Vec::new();
         let mut files = vec![];
         let mut defines: Vec<(String, Option<String>)> = vec![];
         let mut t: bool = false;
         for src in srcs {
-            inc_dirs = src
-                .include_dirs
-                .into_iter()
-                .fold(HashSet::new(), |mut acc, inc_dir| {
-                    acc.insert(inc_dir);
-                    acc
-                });
+            inc_dirs = src.clone().get_incdirs();
             files.append(&mut src.files.clone());
             defines.extend(
                 src.defines
@@ -1175,9 +1230,9 @@ fn emit_precision_tcl(
                     SourceType::Verilog => {
                         lines.push(tcl_catch_prefix("add_input_file", abort_on_error).to_owned());
                         lines.push("-format SystemVerilog2012".to_owned());
-                        if !src.include_dirs.is_empty() {
+                        if !src.clone().get_incdirs().is_empty() {
                             lines.push("-search_path {".to_owned());
-                            for i in &src.include_dirs {
+                            for i in src.clone().get_incdirs() {
                                 lines.push(format!("    {}", i.to_str().unwrap()));
                             }
                             lines.push("}".to_owned());

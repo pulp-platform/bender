@@ -14,9 +14,11 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Add `--fetch/-f` argument to `bender update` to force re-fetch of git dependencies from their remotes
 - Add global `--local` argument to disable remote accesses of git commands, e.g. for air-gapped computers
 - Add `precision` format to the script command.
+- Extend the `sources` and `scripts` commands with three flags to work with a subset of packages (`-p`/`--package`, `-e`/`--exclude`, and `-n`/`--no-deps`; see ReadMe or command help for the description).
 
 ### Changed
 - Reduce the number of open files in large repositories by changing the method to get the Git commit hash from a tag (from individual calls to `git rev-parse --verify HASH^{commit}` to `git show-ref --dereference`).
+- Change behavior of `export_include_dirs` in `Bender.yml` file to not include these directories globally, but only include the directories exported within the package and direct dependencies (this may break unclean implementations).
 
 ### Fixed
 - Fix absolute path of path dependencies inside git dependencies.
