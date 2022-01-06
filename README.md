@@ -59,7 +59,8 @@ cargo install bender
 If you need a specific version of Bender (e.g., `0.21.0`), append ` --version 0.21.0` to that command.
 
 To install Bender system-wide, you can simply copy the binary you have obtained from one of the above methods to one of the system directories on your `PATH`.  Even better, some Linux distributions have Bender in their repositories.  We are currently aware of:
-- ArchLinux: [Bender (AUR)][aur-bender]
+
+### [ArchLinux ![aur-shield](https://img.shields.io/aur/version/bender)][aur-bender]
 
 Please extend this list through a PR if you know additional distributions.
 
