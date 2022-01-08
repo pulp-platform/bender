@@ -278,16 +278,24 @@ impl Validate for PartialManifest {
     type Error = Error;
     fn validate(self) -> Result<Manifest> {
         let pkg = match self.package {
-            Some(p) => p,
+            Some(mut p) => {
+                p.name = p.name.to_lowercase();
+                p
+            }
             None => return Err(Error::new("Missing package information.")),
         };
         let deps = match self.dependencies {
-            Some(d) => d.validate().map_err(|(key, cause)| {
-                Error::chain(
-                    format!("In dependency `{}` of package `{}`:", key, pkg.name),
-                    cause,
-                )
-            })?,
+            Some(d) => d
+                .into_iter()
+                .map(|(k, v)| (k.to_lowercase(), v))
+                .collect::<HashMap<_, _>>()
+                .validate()
+                .map_err(|(key, cause)| {
+                    Error::chain(
+                        format!("In dependency `{}` of package `{}`:", key, pkg.name),
+                        cause,
+                    )
+                })?,
             None => HashMap::new(),
         };
         let srcs = match self.sources {

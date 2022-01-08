@@ -30,7 +30,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let ids = matches
         .values_of("name")
         .unwrap()
-        .map(|n| Ok((n, sess.dependency_with_name(n)?)))
+        .map(|n| Ok((n, sess.dependency_with_name(&n.to_lowercase())?)))
         .collect::<Result<Vec<_>>>()?;
     debugln!("main: obtain checkouts {:?}", ids);
     let checkouts = core.run(future::join_all(
