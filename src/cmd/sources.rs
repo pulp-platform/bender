@@ -67,7 +67,7 @@ where
 {
     packages
         .into_iter()
-        .map(|t| t.as_ref().to_string())
+        .map(|t| t.as_ref().to_string().to_lowercase())
         .collect()
 }
 

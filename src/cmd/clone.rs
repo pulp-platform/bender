@@ -34,7 +34,7 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
 
 /// Execute the `clone` subcommand.
 pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
-    let dep = matches.value_of("name").unwrap();
+    let dep = &matches.value_of("name").unwrap().to_lowercase();
     sess.dependency_with_name(dep)?;
 
     let path_mod = matches.value_of("path").unwrap_or_else(|| "working_dir"); // TODO make this option for config in the Bender.yml file?

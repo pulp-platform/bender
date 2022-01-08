@@ -26,7 +26,7 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
 
 /// Execute the `parents` subcommand.
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
-    let dep = matches.value_of("name").unwrap();
+    let dep = &matches.value_of("name").unwrap().to_lowercase();
     sess.dependency_with_name(dep)?;
     let mut core = Core::new().unwrap();
     let io = SessionIo::new(&sess, core.handle());
@@ -39,7 +39,6 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 DependencyConstraint::from(&sess.manifest.dependencies[dep])
             );
             map.insert(sess.manifest.package.name.clone(), dep_str);
-            println!("Testing: {:?}", &sess.manifest.dependencies[dep]);
         }
         for (&pkg, deps) in sess.graph().iter() {
             let pkg_name = sess.dependency_name(pkg);
