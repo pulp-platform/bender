@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Interpret all dependency names as lowercase to reduce ambiguity
 
 ### Fixed
-- Fix panic of `parents` command if a dependency does not have a manifest
+- Fix panic of `parents` command if a dependency does not have a manifest or if the manifest does not match the `Bender.lock` file.
 
 ## 0.24.0 - 2022-01-06
 ### Added
