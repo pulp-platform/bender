@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Changed
 - Interpret all dependency names as lowercase to reduce ambiguity
 
+### Fixed
+- Fix panic of `parents` command if a dependency does not have a manifest
+
 ## 0.24.0 - 2022-01-06
 ### Added
 - Add error if a cyclical dependency is detected to avoid infinite loop

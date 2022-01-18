@@ -45,7 +45,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             let all_deps = deps.iter().map(|&id| sess.dependency(id));
             for current_dep in all_deps {
                 if dep == current_dep.name.as_str() {
-                    let dep_manifest = core.run(io.dependency_manifest(pkg)).unwrap().unwrap();
+                    let dep_manifest = core.run(io.dependency_manifest(pkg)).unwrap();
+                    // Filter out dependencies without a manifest
+                    if dep_manifest.is_none() {
+                        continue;
+                    }
+                    let dep_manifest = dep_manifest.unwrap();
                     map.insert(
                         pkg_name.to_string(),
                         format!(
