@@ -273,7 +273,7 @@ get_architecture() {
 get_distribution() {
     local _vendor=$(lsb_release -i | cut -f 2 | tr '[:upper:]' '[:lower:]')
     local _release=$(lsb_release -r | cut -f 2)
-    if [ "$_vendor" = "centos" -a "$(echo "$_release" | cut -d. -f3)" -lt 1708 ]; then
+    if [ "$_vendor" = "centos" ] && [ "$(echo "$_release" | cut -d. -f3)" -lt 1708 ]; then
         say "Warning: CentOS older than 7.4.1708 detected, falling back to the latter."
         _release="7.4.1708"
     fi
