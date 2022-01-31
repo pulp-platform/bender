@@ -48,10 +48,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     let dep_manifest = core.run(io.dependency_manifest(pkg)).unwrap();
                     // Filter out dependencies without a manifest
                     if dep_manifest.is_none() {
-                        map.insert(
-                            pkg_name.to_string(),
-                            "unknown, manifest unavailable".to_string(),
-                        );
+                        warnln!("{} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
                         continue;
                     }
                     let dep_manifest = dep_manifest.unwrap();
@@ -65,10 +62,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                         );
                     } else {
                         // Filter out dependencies with mismatching manifest
-                        map.insert(
-                            pkg_name.to_string(),
-                            "unknown, manifest mismatch".to_string(),
-                        );
+                        warnln!("{} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
                     }
                 }
             }
