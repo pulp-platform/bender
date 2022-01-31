@@ -67,22 +67,23 @@ impl<'ctx> DependencyResolver<'ctx> {
         let io = SessionIo::new(self.sess, core.handle());
 
         // Store path dependencies already in checkout_dir
-        if self.sess.manifest.workspace.checkout_dir.is_some() {
-            for dir in
-                fs::read_dir(self.sess.manifest.workspace.checkout_dir.clone().unwrap()).unwrap()
-            {
-                self.checked_out.insert(
-                    dir.as_ref()
-                        .unwrap()
-                        .path()
-                        .file_name()
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                        .to_string(),
-                    config::Dependency::Path(dir.unwrap().path()),
-                );
+        match self.sess.manifest.workspace.checkout_dir.clone() {
+            Some(checkout) => {
+                for dir in fs::read_dir(checkout).unwrap() {
+                    self.checked_out.insert(
+                        dir.as_ref()
+                            .unwrap()
+                            .path()
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .to_string(),
+                        config::Dependency::Path(dir.unwrap().path()),
+                    );
+                }
             }
+            None => {}
         }
 
         // Load the plugin dependencies.
@@ -213,8 +214,8 @@ impl<'ctx> DependencyResolver<'ctx> {
             .iter()
             .map(|(name, dep)| {
                 let name = name.as_str();
-                let dep = self.sess.config.overrides.get(name).unwrap_or(dep);
                 let dep = self.checked_out.get(name).unwrap_or(dep);
+                let dep = self.sess.config.overrides.get(name).unwrap_or(dep);
                 (name, self.sess.load_dependency(name, dep, manifest))
             })
             .collect();
@@ -296,14 +297,14 @@ impl<'ctx> DependencyResolver<'ctx> {
                     m.dependencies.iter().map(move |(n, d)| (n, (pkg_name, d)))
                 })
                 .map(|(name, (pkg_name, dep))| {
+                    (name, (pkg_name, self.checked_out.get(name).unwrap_or(dep)))
+                })
+                .map(|(name, (pkg_name, dep))| {
                     (
                         name,
                         pkg_name,
                         self.sess.config.overrides.get(name).unwrap_or(dep),
                     )
-                })
-                .map(|(name, pkg_name, dep)| {
-                    (name, pkg_name, self.checked_out.get(name).unwrap_or(dep))
                 });
             for (name, pkg_name, dep) in dep_iter {
                 let v = map.entry(name.as_str()).or_insert_with(|| Vec::new());
