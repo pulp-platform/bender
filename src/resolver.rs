@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::fs;
 use std::mem;
 
 use futures::future::join_all;
@@ -35,6 +36,8 @@ pub struct DependencyResolver<'ctx> {
     table: HashMap<&'ctx str, Dependency<'ctx>>,
     /// A cache of decisions made by the user during the resolution.
     decisions: HashMap<&'ctx str, usize>,
+    /// Checkout Directory overrides in case checkout_dir is defined and contains folders.
+    checked_out: HashMap<String, config::Dependency>,
 }
 
 impl<'ctx> DependencyResolver<'ctx> {
@@ -45,6 +48,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             sess: sess,
             table: HashMap::new(),
             decisions: HashMap::new(),
+            checked_out: HashMap::new(),
         }
     }
 
@@ -61,6 +65,26 @@ impl<'ctx> DependencyResolver<'ctx> {
     pub fn resolve(mut self) -> Result<config::Locked> {
         let mut core = Core::new().unwrap();
         let io = SessionIo::new(self.sess, core.handle());
+
+        // Store path dependencies already in checkout_dir
+        match self.sess.manifest.workspace.checkout_dir.clone() {
+            Some(checkout) => {
+                for dir in fs::read_dir(checkout).unwrap() {
+                    self.checked_out.insert(
+                        dir.as_ref()
+                            .unwrap()
+                            .path()
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .to_string(),
+                        config::Dependency::Path(dir.unwrap().path()),
+                    );
+                }
+            }
+            None => {}
+        }
 
         // Load the plugin dependencies.
         self.register_dependencies_in_manifest(
@@ -190,6 +214,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             .iter()
             .map(|(name, dep)| {
                 let name = name.as_str();
+                let dep = self.checked_out.get(name).unwrap_or(dep);
                 let dep = self.sess.config.overrides.get(name).unwrap_or(dep);
                 (name, self.sess.load_dependency(name, dep, manifest))
             })
@@ -270,6 +295,9 @@ impl<'ctx> DependencyResolver<'ctx> {
                 .flat_map(|m| {
                     let pkg_name = self.sess.intern_string(m.package.name.clone());
                     m.dependencies.iter().map(move |(n, d)| (n, (pkg_name, d)))
+                })
+                .map(|(name, (pkg_name, dep))| {
+                    (name, (pkg_name, self.checked_out.get(name).unwrap_or(dep)))
                 })
                 .map(|(name, (pkg_name, dep))| {
                     (
