@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ### Fixed
 - Fix panic of `parents` command if a dependency does not have a manifest or if the manifest does not match the `Bender.lock` file.
+- Use correct manifest of checked out dependency in case folder already exists in `checkout_dir`.
 
 ## 0.24.0 - 2022-01-06
 ### Added
