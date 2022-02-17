@@ -526,7 +526,7 @@ fn emit_vcs_sh(
                         }
                     }
                     SourceType::Vhdl => {
-                        lines.push("vhdlan".to_owned());
+                        lines.push(matches.value_of("vhdlan-bin").unwrap().to_owned());
                         if let Some(args) = matches.values_of("vcom-arg") {
                             lines.extend(args.map(Into::into));
                         }
