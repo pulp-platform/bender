@@ -548,6 +548,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     })
                     .and_then(move |_| git.fetch("origin"))
                     .map_err(move |cause| {
+                        if url3.contains("git@") {
+                            warnln!(
+                                "Please ensure your public ssh key is added to the git server."
+                            );
+                        }
                         Error::chain(
                             format!("Failed to update git database in {:?}.", db_dir),
                             cause,
