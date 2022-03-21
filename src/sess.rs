@@ -524,6 +524,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 "Please ensure your public ssh key is added to the git server."
                             );
                         }
+                        warnln!("Please ensure the url is correct and you have access to the repository.");
                         Error::chain(
                             format!("Failed to initialize git database in {:?}.", db_dir),
                             cause,
@@ -553,6 +554,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 "Please ensure your public ssh key is added to the git server."
                             );
                         }
+                        warnln!("Please ensure the url is correct and you have access to the repository.");
                         Error::chain(
                             format!("Failed to update git database in {:?}.", db_dir),
                             cause,
