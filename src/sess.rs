@@ -1383,6 +1383,17 @@ pub enum DependencySource {
     Git(String),
 }
 
+impl<'a> From<&'a config::Dependency> for DependencySource {
+    fn from(cfg: &'a config::Dependency) -> DependencySource {
+        match *cfg {
+            config::Dependency::Path(ref path) => DependencySource::Path(path.clone()),
+            config::Dependency::GitRevision(ref url, _) => DependencySource::Git(url.clone()),
+            config::Dependency::GitVersion(ref url, _) => DependencySource::Git(url.clone()),
+            config::Dependency::Version(_) => DependencySource::Git("not linked".to_string()),
+        }
+    }
+}
+
 impl fmt::Display for DependencySource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
