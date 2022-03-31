@@ -495,6 +495,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         let name2 = String::from(name);
         let url = String::from(url);
         let url2 = url.clone();
+        let url3 = url.clone();
 
         // Either initialize the repository or update it if needed.
         if !db_dir.join("config").exists() {
@@ -518,6 +519,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     })
                     .and_then(move |_| git.fetch("origin"))
                     .map_err(move |cause| {
+                        if url3.contains("git@") {
+                            warnln!(
+                                "Please ensure your public ssh key is added to the git server."
+                            );
+                        }
+                        warnln!("Please ensure the url is correct and you have access to the repository.");
                         Error::chain(
                             format!("Failed to initialize git database in {:?}.", db_dir),
                             cause,
@@ -542,6 +549,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     })
                     .and_then(move |_| git.fetch("origin"))
                     .map_err(move |cause| {
+                        if url3.contains("git@") {
+                            warnln!(
+                                "Please ensure your public ssh key is added to the git server."
+                            );
+                        }
+                        warnln!("Please ensure the url is correct and you have access to the repository.");
                         Error::chain(
                             format!("Failed to update git database in {:?}.", db_dir),
                             cause,
