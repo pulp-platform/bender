@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Use correct manifest of checked out dependency in case folder already exists in `checkout_dir`.
 - Fix vcs script argument to use `vhdlan-bin` for vhdlan binary
 - Fix incomplete dependency version update when refetching from remote
+- Fix panic when using `checkout_dir` if the directory does not yet exist
 
 ## 0.24.0 - 2022-01-06
 ### Added
