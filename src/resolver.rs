@@ -69,18 +69,20 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Store path dependencies already in checkout_dir
         match self.sess.manifest.workspace.checkout_dir.clone() {
             Some(checkout) => {
-                for dir in fs::read_dir(checkout).unwrap() {
-                    self.checked_out.insert(
-                        dir.as_ref()
-                            .unwrap()
-                            .path()
-                            .file_name()
-                            .unwrap()
-                            .to_str()
-                            .unwrap()
-                            .to_string(),
-                        config::Dependency::Path(dir.unwrap().path()),
-                    );
+                if checkout.exists() {
+                    for dir in fs::read_dir(checkout).unwrap() {
+                        self.checked_out.insert(
+                            dir.as_ref()
+                                .unwrap()
+                                .path()
+                                .file_name()
+                                .unwrap()
+                                .to_str()
+                                .unwrap()
+                                .to_string(),
+                            config::Dependency::Path(dir.unwrap().path()),
+                        );
+                    }
                 }
             }
             None => {}
