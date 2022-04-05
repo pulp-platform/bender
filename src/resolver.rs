@@ -451,7 +451,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         // debugln!("resolve: restricting `{}` to versions {:?}", name, indices);
 
         if indices.is_empty() {
-            core.run(io.dependency_versions(src.id, true))?;
+            src.versions = core.run(io.dependency_versions(src.id, true))?;
 
             let indices = match self.req_indices(name, con, src) {
                 Ok(o) => match o {
