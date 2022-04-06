@@ -10,7 +10,7 @@ use tabwriter::TabWriter;
 use tokio_core::reactor::Core;
 
 use crate::error::*;
-use crate::sess::DependencyConstraint;
+use crate::sess::{DependencyConstraint, DependencySource};
 use crate::sess::{Session, SessionIo};
 
 /// Assemble the `parents` subcommand.
@@ -32,13 +32,20 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let io = SessionIo::new(&sess, core.handle());
 
     let parent_array = {
-        let mut map = HashMap::<String, String>::new();
+        let mut map = HashMap::<String, Vec<String>>::new();
         if sess.manifest.dependencies.contains_key(dep) {
             let dep_str = format!(
                 "{}",
                 DependencyConstraint::from(&sess.manifest.dependencies[dep])
             );
-            map.insert(sess.manifest.package.name.clone(), dep_str);
+            let dep_source = format!(
+                "{}",
+                DependencySource::from(&sess.manifest.dependencies[dep])
+            );
+            map.insert(
+                sess.manifest.package.name.clone(),
+                vec![dep_str, dep_source],
+            );
         }
         for (&pkg, deps) in sess.graph().iter() {
             let pkg_name = sess.dependency_name(pkg);
@@ -55,10 +62,16 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     if dep_manifest.dependencies.contains_key(dep) {
                         map.insert(
                             pkg_name.to_string(),
-                            format!(
-                                "{}",
-                                DependencyConstraint::from(&dep_manifest.dependencies[dep])
-                            ),
+                            vec![
+                                format!(
+                                    "{}",
+                                    DependencyConstraint::from(&dep_manifest.dependencies[dep])
+                                ),
+                                format!(
+                                    "{}",
+                                    DependencySource::from(&dep_manifest.dependencies[dep])
+                                ),
+                            ],
                         );
                     } else {
                         // Filter out dependencies with mismatching manifest
@@ -74,14 +87,36 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         println!("No parents found for {}.", dep);
     } else {
         println!("Parents found:");
+        let source = &parent_array.values().next().unwrap()[1];
+        let mut constant_source = true;
+        for (_, v) in parent_array.iter() {
+            if &v[1] != source {
+                constant_source = false;
+                break;
+            }
+        }
         let mut res = String::from("");
-        for (k, v) in parent_array.iter() {
-            res.push_str(&format!("    {}\trequires: {}\n", k, v).to_string());
+        if constant_source {
+            for (k, v) in parent_array.iter() {
+                res.push_str(&format!("    {}\trequires: {}\n", k, v[0]).to_string());
+            }
+        } else {
+            for (k, v) in parent_array.iter() {
+                res.push_str(&format!("    {}\trequires: {}\tat {}\n", k, v[0], v[1]).to_string());
+            }
         }
         let mut tw = TabWriter::new(vec![]);
         write!(&mut tw, "{}", res).unwrap();
         tw.flush().unwrap();
         print!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
+    }
+
+    if sess.config.overrides.contains_key(dep) {
+        warnln!(
+            "An override is configured for {} to {:?}",
+            dep,
+            sess.config.overrides[dep]
+        )
     }
 
     Ok(())
