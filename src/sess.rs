@@ -129,12 +129,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             cfg,
             manifest.package.name
         );
-        let src = match *cfg {
-            config::Dependency::Version(_) => DependencySource::Registry,
-            config::Dependency::Path(ref p) => DependencySource::Path(p.clone()),
-            config::Dependency::GitRevision(ref g, _)
-            | config::Dependency::GitVersion(ref g, _) => DependencySource::Git(g.clone()),
-        };
+        let src = DependencySource::from(cfg);
         self.deps
             .lock()
             .unwrap()
@@ -1389,7 +1384,7 @@ impl<'a> From<&'a config::Dependency> for DependencySource {
             config::Dependency::Path(ref path) => DependencySource::Path(path.clone()),
             config::Dependency::GitRevision(ref url, _) => DependencySource::Git(url.clone()),
             config::Dependency::GitVersion(ref url, _) => DependencySource::Git(url.clone()),
-            config::Dependency::Version(_) => DependencySource::Git("not linked".to_string()),
+            config::Dependency::Version(_) => DependencySource::Registry,
         }
     }
 }
