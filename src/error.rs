@@ -21,7 +21,7 @@ macro_rules! errorln {
 /// Print a warning.
 #[macro_export]
 macro_rules! warnln {
-    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Warning; $($arg)*); }
+    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Warning; $($arg)*) }
 }
 
 /// Print an informational note.
@@ -54,7 +54,7 @@ macro_rules! debugln {
 /// Emit a diagnostic message.
 macro_rules! diagnostic {
     ($severity:expr; $($arg:tt)*) => {
-        eprintln!("{} {}", $severity, format!($($arg)*));
+        eprintln!("{} {}", $severity, format!($($arg)*))
     }
 }
 
