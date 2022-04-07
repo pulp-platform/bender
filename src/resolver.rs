@@ -396,7 +396,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             }
             (&DepCon::Revision(ref con), &DepVer::Git(ref gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
-                let revs: IndexSet<usize> = gv
+                let mut revs: IndexSet<usize> = gv
                     .refs
                     .get(con.as_str())
                     .map(|rf| {
@@ -415,6 +415,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                             )
                             .collect()
                     });
+                revs.sort();
                 // debugln!("resolve: `{}` matches revision `{}` for revs {:?}", name, con, revs);
                 Ok(Some(revs))
             }
