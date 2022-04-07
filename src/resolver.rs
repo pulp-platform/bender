@@ -12,6 +12,7 @@ use std::mem;
 
 use futures::future::join_all;
 use futures::Future;
+use indexmap::{IndexMap, IndexSet};
 use tokio_core::reactor::Core;
 
 extern crate itertools;
@@ -352,7 +353,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         name: &str,
         con: &DependencyConstraint,
         src: &DependencySource<'ctx>,
-    ) -> Result<Option<std::collections::HashSet<usize>>> {
+    ) -> Result<Option<indexmap::IndexSet<usize>>> {
         use self::DependencyConstraint as DepCon;
         use self::DependencyVersions as DepVer;
         match (con, &src.versions) {
@@ -365,10 +366,24 @@ impl<'ctx> DependencyResolver<'ctx> {
                     .enumerate()
                     .map(|(id, &hash)| (hash, id))
                     .collect();
-                let revs: HashSet<usize> = gv
+                let mut revs_tmp: IndexMap<_, _> = gv
                     .versions
                     .iter()
-                    .filter_map(|&(ref v, h)| {
+                    .sorted()
+                    .filter_map(
+                        |&(ref v, h)| {
+                            if con.matches(v) {
+                                Some((v, h))
+                            } else {
+                                None
+                            }
+                        },
+                    )
+                    .collect();
+                revs_tmp.reverse();
+                let revs: IndexSet<usize> = revs_tmp
+                    .iter()
+                    .filter_map(|(ref v, h)| {
                         if con.matches(v) {
                             Some(hash_ids[h])
                         } else {
@@ -381,7 +396,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             }
             (&DepCon::Revision(ref con), &DepVer::Git(ref gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
-                let revs: HashSet<usize> = gv
+                let revs: IndexSet<usize> = gv
                     .refs
                     .get(con.as_str())
                     .map(|rf| {
@@ -477,10 +492,10 @@ impl<'ctx> DependencyResolver<'ctx> {
             State::Open => unreachable!(),
             State::Locked(_) => unreachable!(), // TODO: This needs to do something.
             State::Constrained(ref ids) | State::Picked(_, ref ids) => {
-                let is_ids = (*ids)
-                    .intersection(&indices)
+                let is_ids = indices
+                    .intersection(&ids)
                     .map(|i| *i)
-                    .collect::<HashSet<usize>>();
+                    .collect::<IndexSet<usize>>();
                 if is_ids.is_empty() {
                     let mut msg = format!(
                         "Requirement `{}` conflicts with other requirements on dependency `{}`.\n",
@@ -577,11 +592,11 @@ impl<'ctx> DependencyResolver<'ctx> {
                                     dep.name,
                                     src.id
                                 );
-                                State::Picked(0, HashSet::new())
+                                State::Picked(0, IndexSet::new())
                             }
                             DependencyVersions::Git(..) => {
                                 debugln!("resolve: picking version for `{}[{}]`", dep.name, src.id);
-                                State::Picked(ids.iter().map(|i| *i).min().unwrap(), ids.clone())
+                                State::Picked(ids.first().map(|i| *i).unwrap(), ids.clone())
                             }
                             DependencyVersions::Registry(..) => {
                                 return Err(Error::new(format!("Version picking for registry dependency `{}` not yet imlemented", dep.name)));
@@ -768,9 +783,9 @@ enum State {
     /// The dependency has been locked in the lockfile.
     Locked(usize),
     /// The dependency may assume any of the listed versions.
-    Constrained(HashSet<usize>),
+    Constrained(IndexSet<usize>),
     /// The dependency had a version picked.
-    Picked(usize, HashSet<usize>),
+    Picked(usize, IndexSet<usize>),
 }
 
 impl State {
