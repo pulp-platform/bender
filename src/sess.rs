@@ -463,8 +463,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         // Determine the name of the database as the given name and the first
         // 8 bytes (16 hex characters) of the URL's BLAKE2 hash.
-        use blake2::{Blake2b, Digest};
-        let hash = &format!("{:016x}", Blake2b::digest(url.as_bytes()))[..16];
+        use blake2::{Blake2b512, Digest};
+        let hash = &format!("{:016x}", Blake2b512::digest(url.as_bytes()))[..16];
         let db_name = format!("{}-{}", name, hash);
 
         // Determine the location of the git database and create it if its does
@@ -681,8 +681,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // path to the root package. This ensures that for every dependency and
         // root package we have at most one checkout.
         let hash = {
-            use blake2::{Blake2b, Digest};
-            let mut hasher = Blake2b::new();
+            use blake2::{Blake2b512, Digest};
+            let mut hasher = Blake2b512::new();
             match dep.source {
                 DependencySource::Registry => unimplemented!(),
                 DependencySource::Git(ref url) => hasher.update(url.as_bytes()),
