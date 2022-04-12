@@ -36,7 +36,7 @@ pub struct DependencyResolver<'ctx> {
     /// The version table which is used to perform resolution.
     table: HashMap<&'ctx str, Dependency<'ctx>>,
     /// A cache of decisions made by the user during the resolution.
-    decisions: HashMap<&'ctx str, usize>,
+    decisions: HashMap<&'ctx str, DependencyConstraint>,
     /// Checkout Directory overrides in case checkout_dir is defined and contains folders.
     checked_out: HashMap<String, config::Dependency>,
 }
@@ -510,8 +510,8 @@ impl<'ctx> DependencyResolver<'ctx> {
                     cons = cons.into_iter().unique().collect();
                     // Let user resolve conflict if both stderr and stdin go to a TTY.
                     if atty::is(atty::Stream::Stderr) && atty::is(atty::Stream::Stdin) {
-                        let decision = if let Some(&d) = self.decisions.get(name) {
-                            &cons[d]
+                        let decision = if let Some(d) = self.decisions.get(name) {
+                            d.clone()
                         } else {
                             eprintln!(
                                 "{}\n\nTo resolve this conflict manually, \
@@ -543,11 +543,11 @@ impl<'ctx> DependencyResolver<'ctx> {
                                         continue;
                                     }
                                 };
-                                self.decisions.insert(name, choice);
-                                break Ok(decision);
+                                self.decisions.insert(name, decision.clone().clone());
+                                break Ok(decision.clone().clone());
                             }?
                         };
-                        match self.req_indices(name, decision, src) {
+                        match self.req_indices(name, &decision, src) {
                             Ok(o) => match o {
                                 Some(v) => Ok(v),
                                 None => unreachable!(),
