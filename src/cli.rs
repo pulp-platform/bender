@@ -55,7 +55,8 @@ pub fn main() -> Result<()> {
         .subcommand(cmd::packages::new())
         .subcommand(cmd::sources::new())
         .subcommand(cmd::config::new())
-        .subcommand(cmd::script::new());
+        .subcommand(cmd::script::new())
+        .subcommand(cmd::checkout::new());
 
     // Add the `--debug` option in debug builds.
     let app = if cfg!(debug_assertions) {
@@ -229,6 +230,7 @@ pub fn main() -> Result<()> {
         ("sources", Some(matches)) => cmd::sources::run(&sess, matches),
         ("config", Some(matches)) => cmd::config::run(&sess, matches),
         ("script", Some(matches)) => cmd::script::run(&sess, matches),
+        ("checkout", Some(matches)) => cmd::checkout::run(&sess, matches),
         ("update", _) => Ok(()),
         (plugin, Some(matches)) => execute_plugin(&sess, plugin, matches.values_of_os("")),
         _ => Ok(()),

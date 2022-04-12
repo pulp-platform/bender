@@ -7,6 +7,7 @@
 
 #![deny(missing_docs)]
 
+pub mod checkout;
 pub mod clone;
 pub mod config;
 pub mod packages;
