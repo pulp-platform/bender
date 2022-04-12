@@ -1,5 +1,5 @@
 // Copyright (c) 2021 ETH Zurich
-// Michael Rogenmoser <michaero@student.ethz.ch>
+// Michael Rogenmoser <michaero@iis.ee.ethz.ch>
 
 //! The `clone` subcommand.
 
@@ -10,6 +10,7 @@ use std::process::Command;
 use tokio_core::reactor::Core;
 
 use crate::config;
+use crate::config::{Locked, LockedSource};
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
 
@@ -210,6 +211,25 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     }
 
     println!("{} dependency added to Bender.local", dep);
+
+    use std::fs::File;
+    let file = File::open(path.join("Bender.lock"))
+        .map_err(|cause| Error::chain(format!("Cannot open lockfile {:?}.", path), cause))?;
+    let mut locked: Locked = serde_yaml::from_reader(&file)
+        .map_err(|cause| Error::chain(format!("Syntax error in lockfile {:?}.", path), cause))?;
+
+    let mut mod_package = locked.packages[dep].clone();
+    mod_package.revision = None;
+    mod_package.version = None;
+    mod_package.source = LockedSource::Path(path.join(path_mod).join(dep));
+    locked.packages.insert(dep.to_string(), mod_package);
+
+    let file = File::create(path.join("Bender.lock"))
+        .map_err(|cause| Error::chain(format!("Cannot create lockfile {:?}.", path), cause))?;
+    serde_yaml::to_writer(&file, &locked)
+        .map_err(|cause| Error::chain(format!("Cannot write lockfile {:?}.", path), cause))?;
+
+    println!("Lockfile updated");
 
     Ok(())
 }

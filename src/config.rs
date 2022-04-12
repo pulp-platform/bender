@@ -731,7 +731,7 @@ pub struct Locked {
 /// A locked dependency.
 ///
 /// Encapsualtes the exact source and version of a dependency.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct LockedPackage {
     /// The revision hash of the dependency.
     pub revision: Option<String>,
@@ -744,7 +744,7 @@ pub struct LockedPackage {
 }
 
 /// A source description for a locked dependency.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum LockedSource {
     /// A path on the system.
     Path(PathBuf),

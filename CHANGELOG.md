@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Fixed
 - Ensure consistency when manually chosing a version if there are conflicts.
+- Update `Bender.lock` when running `bender clone`. Running `bender update` is no longer required afterwards.
 
 ## 0.25.1 - 2022-04-08
 ### Fixed
