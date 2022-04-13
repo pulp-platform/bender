@@ -410,7 +410,7 @@ Calling update with the `--fetch/-f` flag will force all git dependencies to be 
 > Note: Actually this should be done automatically if you add a new dependency. But due to the lack of coding time, this has to be done manually as of now.
 
 
-### `clone` --- Checkout dependency to make modifications
+### `clone` --- Clone dependency to make modifications
 
 The `bender clone <PKG>` command checks out the package `PKG` into a directory (default `working_dir`, can be overridden with `-p / --path <DIR>`). 
 To ensure the package is correctly linked in bender, the `Bender.local` file is modified to include a `path` dependency override, linking to the corresponding package.
@@ -424,6 +424,10 @@ To clean up once the changes are added, ensure the correct version is referenced
 ### `parents` --- Lists packages calling the specified package
 
 The `bender parents <PKG>` command lists all packages calling the `PKG` package.
+
+### `checkout` --- Checkout all dependencies referenced in the Lock file
+
+This command will ensure all dependencies are downloaded from remote repositories. This is usually automatically executed by other commands, such as `sources` and `script`.
 
 [aur-bender]: https://aur.archlinux.org/packages/bender
 [releases]: https://github.com/pulp-platform/bender/releases

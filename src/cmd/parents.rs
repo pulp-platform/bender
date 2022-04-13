@@ -1,9 +1,9 @@
 // Copyright (c) 2021 ETH Zurich
-// Michael Rogenmoser <michaero@student.ethz.ch>
+// Michael Rogenmoser <michaero@iis.ee.ethz.ch>
 
 //! The `parents` subcommand.
 
-use clap::{App, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use std::collections::HashMap;
 use std::io::Write;
 use tabwriter::TabWriter;
@@ -14,11 +14,11 @@ use crate::sess::{DependencyConstraint, DependencySource};
 use crate::sess::{Session, SessionIo};
 
 /// Assemble the `parents` subcommand.
-pub fn new<'a, 'b>() -> App<'a, 'b> {
-    SubCommand::with_name("parents")
+pub fn new<'a>() -> Command<'a> {
+    Command::new("parents")
         .about("List packages calling this dependency")
         .arg(
-            Arg::with_name("name")
+            Arg::new("name")
                 .required(true)
                 .help("Package names to get the parents for"),
         )

@@ -3,22 +3,22 @@
 
 //! The `packages` subcommand.
 
-use clap::{App, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 
 use crate::error::*;
 use crate::sess::Session;
 
 /// Assemble the `packages` subcommand.
-pub fn new<'a, 'b>() -> App<'a, 'b> {
-    SubCommand::with_name("packages")
+pub fn new<'a>() -> Command<'a> {
+    Command::new("packages")
         .about("Information about the dependency graph")
-        .arg(Arg::with_name("graph")
-            .short("g")
+        .arg(Arg::new("graph")
+            .short('g')
             .long("graph")
             .help("Print the dependencies for each package")
         )
-        .arg(Arg::with_name("flat")
-            .short("f")
+        .arg(Arg::new("flat")
+            .short('f')
             .long("flat")
             .help("Do not group packages by topological rank. If the `--graph` option is specified, print multiple lines per package, one for each dependency.")
         )

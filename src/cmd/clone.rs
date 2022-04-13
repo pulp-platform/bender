@@ -3,10 +3,10 @@
 
 //! The `clone` subcommand.
 
-use clap::{App, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use futures::future;
 use std::path::Path;
-use std::process::Command;
+use std::process::Command as SysCommand;
 use tokio_core::reactor::Core;
 
 use crate::config;
@@ -15,21 +15,20 @@ use crate::error::*;
 use crate::sess::{Session, SessionIo};
 
 /// Assemble the `clone` subcommand.
-pub fn new<'a, 'b>() -> App<'a, 'b> {
-    SubCommand::with_name("clone")
+pub fn new<'a>() -> Command<'a> {
+    Command::new("clone")
         .about("Clone dependency to a working directory")
         .arg(
-            Arg::with_name("name")
+            Arg::new("name")
                 .required(true)
                 .help("Package name to clone to a working directory"),
         )
         .arg(
-            Arg::with_name("path")
-                .short("p")
+            Arg::new("path")
+                .short('p')
                 .long("path")
                 .help("Relative directory to clone PKG into (default: working_dir)")
-                .takes_value(true)
-                .number_of_values(1),
+                .takes_value(true),
         )
 }
 
@@ -58,7 +57,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
 
     // Create dir
     if !path.join(path_mod).exists() {
-        if !Command::new("mkdir")
+        if !SysCommand::new("mkdir")
             .arg(path_mod)
             .current_dir(path)
             .status()
@@ -91,7 +90,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         debugln!("main: checkouts {:#?}", checkouts);
         for c in checkouts {
             if let Some(s) = c.to_str() {
-                let command = Command::new("cp")
+                let command = SysCommand::new("cp")
                     .arg("-rf")
                     .arg(s)
                     .arg(path.join(path_mod).join(dep).to_str().unwrap())
@@ -104,7 +103,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         }
 
         // rename and update git remotes for easier handling
-        if !Command::new(&sess.config.git)
+        if !SysCommand::new(&sess.config.git)
             .arg("remote")
             .arg("rename")
             .arg("origin")
@@ -117,7 +116,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
             Err(Error::new(format!("git renaming remote origin failed")))?;
         }
 
-        if !Command::new(&sess.config.git)
+        if !SysCommand::new(&sess.config.git)
             .arg("remote")
             .arg("add")
             .arg("origin")
@@ -136,7 +135,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         }
 
         if !sess.local_only {
-            if !Command::new(&sess.config.git)
+            if !SysCommand::new(&sess.config.git)
                 .arg("fetch")
                 .arg("--all")
                 .current_dir(path.join(path_mod).join(dep))
