@@ -3,15 +3,15 @@
 
 //! The `checkout` subcommand.
 
-use clap::{App, ArgMatches, SubCommand};
+use clap::{ArgMatches, Command};
 use tokio_core::reactor::Core;
 
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
 
 /// Assemble the `checkout` subcommand.
-pub fn new<'a, 'b>() -> App<'a, 'b> {
-    SubCommand::with_name("checkout").about("Checkout all dependencies referenced in the Lock file")
+pub fn new<'a>() -> Command<'a> {
+    Command::new("checkout").about("Checkout all dependencies referenced in the Lock file")
 }
 
 /// Execute the `checkout` subcommand.

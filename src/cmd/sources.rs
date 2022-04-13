@@ -5,7 +5,7 @@
 
 use std;
 
-use clap::{App, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use serde_json;
 use std::collections::HashSet;
 use tokio_core::reactor::Core;
@@ -16,46 +16,46 @@ use crate::src::SourceGroup;
 use crate::target::{TargetSet, TargetSpec};
 
 /// Assemble the `sources` subcommand.
-pub fn new<'a, 'b>() -> App<'a, 'b> {
-    SubCommand::with_name("sources")
+pub fn new<'a>() -> Command<'a> {
+    Command::new("sources")
         .about("Emit the source file manifest for the package")
         .arg(
-            Arg::with_name("target")
-                .short("t")
+            Arg::new("target")
+                .short('t')
                 .long("target")
                 .help("Filter sources by target")
                 .takes_value(true)
-                .multiple(true)
+                .multiple_occurrences(true)
                 .number_of_values(1),
         )
         .arg(
-            Arg::with_name("flatten")
-                .short("f")
+            Arg::new("flatten")
+                .short('f')
                 .long("flatten")
                 .help("Flatten JSON struct"),
         )
         .arg(
-            Arg::with_name("package")
-                .short("p")
+            Arg::new("package")
+                .short('p')
                 .long("package")
                 .help("Specify package to show sources for")
                 .takes_value(true)
-                .multiple(true)
+                .multiple_occurrences(true)
                 .number_of_values(1),
         )
         .arg(
-            Arg::with_name("no_deps")
-                .short("n")
+            Arg::new("no_deps")
+                .short('n')
                 .long("no-deps")
                 .help("Exclude all dependencies, i.e. only top level or specified package(s)"),
         )
         .arg(
-            Arg::with_name("exclude")
-                .short("e")
+            Arg::new("exclude")
+                .short('e')
                 .long("exclude")
                 .help("Specify package to exclude from sources")
                 .takes_value(true)
-                .multiple(true)
+                .multiple_occurrences(true)
                 .number_of_values(1),
         )
 }

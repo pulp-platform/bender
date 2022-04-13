@@ -6,9 +6,9 @@
 use std;
 use std::fs::{canonicalize, metadata};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::Command as SysCommand;
 
-use clap::{App, AppSettings, Arg, OsValues, SubCommand};
+use clap::{Arg, Command, OsValues};
 use serde_yaml;
 
 use crate::cmd;
@@ -20,34 +20,32 @@ use tokio_core::reactor::Core;
 
 /// Inner main function which can return an error.
 pub fn main() -> Result<()> {
-    let app = App::new(env!("CARGO_PKG_NAME"))
-        .setting(AppSettings::AllowExternalSubcommands)
+    let app = Command::new(env!("CARGO_PKG_NAME"))
+        .allow_external_subcommands(true)
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .about("A dependency management tool for hardware projects.")
         .arg(
-            Arg::with_name("dir")
-                .short("d")
+            Arg::new("dir")
+                .short('d')
                 .long("dir")
                 .takes_value(true)
                 .global(true)
                 .help("Sets a custom root working directory"),
         )
         .arg(
-            Arg::with_name("local")
+            Arg::new("local")
                 .long("local")
                 .global(true)
                 .help("Disables fetching of remotes (e.g. for air-gapped computers)"),
         )
         .subcommand(
-            SubCommand::with_name("update")
-                .about("Update the dependencies")
-                .arg(
-                    Arg::with_name("fetch")
-                        .short("f")
-                        .long("fetch")
-                        .help("forces fetch of git dependencies"),
-                ),
+            Command::new("update").about("Update the dependencies").arg(
+                Arg::new("fetch")
+                    .short('f')
+                    .long("fetch")
+                    .help("forces fetch of git dependencies"),
+            ),
         )
         .subcommand(cmd::path::new())
         .subcommand(cmd::parents::new())
@@ -61,7 +59,7 @@ pub fn main() -> Result<()> {
     // Add the `--debug` option in debug builds.
     let app = if cfg!(debug_assertions) {
         app.arg(
-            Arg::with_name("debug")
+            Arg::new("debug")
                 .long("debug")
                 .global(true)
                 .help("Print additional debug information"),
@@ -80,7 +78,7 @@ pub fn main() -> Result<()> {
 
     let mut force_fetch = false;
     match matches.subcommand() {
-        ("update", Some(intern_matches)) => {
+        Some(("update", intern_matches)) => {
             force_fetch = intern_matches.is_present("fetch");
             if matches.is_present("local") && intern_matches.is_present("fetch") {
                 warnln!(
@@ -132,18 +130,25 @@ pub fn main() -> Result<()> {
     };
 
     // Resolve the dependencies if the lockfile does not exist or is outdated.
-    let locked = if matches.subcommand().0 == "update" || locked_existing.is_none() {
-        if manifest.frozen {
-            return Err(Error::new(format!("Refusing to update dependencies because the package is frozen. Remove the `frozen: true` from {:?} to proceed; there be dragons.", manifest_path)));
+    let locked = match matches.subcommand() {
+        Some((command, _)) => {
+            if command == "update" || locked_existing.is_none() {
+                if manifest.frozen {
+                    return Err(Error::new(format!("Refusing to update dependencies because the package is frozen. Remove the `frozen: true` from {:?} to proceed; there be dragons.", manifest_path)));
+                }
+                debugln!("main: lockfile {:?} outdated", lock_path);
+                let res = DependencyResolver::new(&sess);
+                let locked_new = res.resolve()?;
+                write_lockfile(&locked_new, &root_dir.join("Bender.lock"))?;
+                locked_new
+            } else {
+                debugln!("main: lockfile {:?} up-to-date", lock_path);
+                locked_existing.unwrap()
+            }
         }
-        debugln!("main: lockfile {:?} outdated", lock_path);
-        let res = DependencyResolver::new(&sess);
-        let locked_new = res.resolve()?;
-        write_lockfile(&locked_new, &root_dir.join("Bender.lock"))?;
-        locked_new
-    } else {
-        debugln!("main: lockfile {:?} up-to-date", lock_path);
-        locked_existing.unwrap()
+        None => {
+            return Err(Error::new(format!("Please specify a command.")));
+        }
     };
     sess.load_locked(&locked)?;
 
@@ -223,16 +228,16 @@ pub fn main() -> Result<()> {
 
     // Dispatch the different subcommands.
     match matches.subcommand() {
-        ("path", Some(matches)) => cmd::path::run(&sess, matches),
-        ("parents", Some(matches)) => cmd::parents::run(&sess, matches),
-        ("clone", Some(matches)) => cmd::clone::run(&sess, &root_dir, matches),
-        ("packages", Some(matches)) => cmd::packages::run(&sess, matches),
-        ("sources", Some(matches)) => cmd::sources::run(&sess, matches),
-        ("config", Some(matches)) => cmd::config::run(&sess, matches),
-        ("script", Some(matches)) => cmd::script::run(&sess, matches),
-        ("checkout", Some(matches)) => cmd::checkout::run(&sess, matches),
-        ("update", _) => Ok(()),
-        (plugin, Some(matches)) => execute_plugin(&sess, plugin, matches.values_of_os("")),
+        Some(("path", matches)) => cmd::path::run(&sess, matches),
+        Some(("parents", matches)) => cmd::parents::run(&sess, matches),
+        Some(("clone", matches)) => cmd::clone::run(&sess, &root_dir, matches),
+        Some(("packages", matches)) => cmd::packages::run(&sess, matches),
+        Some(("sources", matches)) => cmd::sources::run(&sess, matches),
+        Some(("config", matches)) => cmd::config::run(&sess, matches),
+        Some(("script", matches)) => cmd::script::run(&sess, matches),
+        Some(("checkout", matches)) => cmd::checkout::run(&sess, matches),
+        Some(("update", _)) => Ok(()),
+        Some((plugin, matches)) => execute_plugin(&sess, plugin, matches.values_of_os("")),
         _ => Ok(()),
     }
 }
@@ -422,7 +427,7 @@ fn execute_plugin(sess: &Session, plugin: &str, matches: Option<OsValues>) -> Re
 
     // Assemble a command that executes the plugin with the appropriate
     // environment and forwards command line arguments.
-    let mut cmd = Command::new(&plugin.path);
+    let mut cmd = SysCommand::new(&plugin.path);
     cmd.env(
         "BENDER",
         std::env::current_exe()

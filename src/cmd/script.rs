@@ -3,7 +3,7 @@
 
 //! The `script` subcommand.
 
-use clap::{App, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use tokio_core::reactor::Core;
 
 use crate::error::*;
@@ -15,20 +15,20 @@ use common_path::common_path_all;
 use std::collections::HashSet;
 
 /// Assemble the `script` subcommand.
-pub fn new<'a, 'b>() -> App<'a, 'b> {
-    SubCommand::with_name("script")
+pub fn new<'a>() -> Command<'a> {
+    Command::new("script")
         .about("Emit tool scripts for the package")
         .arg(
-            Arg::with_name("target")
-                .short("t")
+            Arg::new("target")
+                .short('t')
                 .long("target")
                 .help("Only include sources that match the given target")
                 .takes_value(true)
-                .multiple(true)
+                .multiple_values(true)
                 .number_of_values(1),
         )
         .arg(
-            Arg::with_name("format")
+            Arg::new("format")
                 .help("Format of the generated script")
                 .required(true)
                 .possible_values(&[
@@ -45,109 +45,108 @@ pub fn new<'a, 'b>() -> App<'a, 'b> {
                 ]),
         )
         .arg(
-            Arg::with_name("relative-path")
+            Arg::new("relative-path")
                 .long("relative-path")
                 .help("Use relative paths (flist generation only)"),
         )
         .arg(
-            Arg::with_name("define")
-                .short("D")
+            Arg::new("define")
+                .short('D')
                 .long("define")
                 .help("Pass an additional define to all source files")
                 .takes_value(true)
-                .multiple(true),
+                .multiple_values(true),
         )
         .arg(
-            Arg::with_name("vcom-arg")
+            Arg::new("vcom-arg")
                 .long("vcom-arg")
                 .help("Pass an argument to vcom calls (vsim/vhdlan/riviera only)")
                 .takes_value(true)
-                .multiple(true),
+                .multiple_values(true),
         )
         .arg(
-            Arg::with_name("vlog-arg")
+            Arg::new("vlog-arg")
                 .long("vlog-arg")
                 .help("Pass an argument to vlog calls (vsim/vlogan/riviera only)")
                 .takes_value(true)
-                .multiple(true),
+                .multiple_values(true),
         )
         .arg(
-            Arg::with_name("only-defines")
+            Arg::new("only-defines")
                 .long("only-defines")
                 .help("Only output commands to define macros (Vivado only)"),
         )
         .arg(
-            Arg::with_name("only-includes")
+            Arg::new("only-includes")
                 .long("only-includes")
                 .help("Only output commands to define include directories (Vivado only)"),
         )
         .arg(
-            Arg::with_name("only-sources")
+            Arg::new("only-sources")
                 .long("only-sources")
                 .help("Only output commands to define source files (Vivado only)"),
         )
         .arg(
-            Arg::with_name("no-simset")
+            Arg::new("no-simset")
                 .long("no-simset")
                 .help("Do not change `simset` fileset (Vivado only)"),
         )
         .arg(
-            Arg::with_name("vlogan-bin")
+            Arg::new("vlogan-bin")
                 .long("vlogan-bin")
                 .help("Specify a `vlogan` command")
                 .takes_value(true)
-                .multiple(false)
+                .multiple_values(false)
                 .default_value("vlogan")
                 .number_of_values(1),
         )
         .arg(
-            Arg::with_name("vhdlan-bin")
+            Arg::new("vhdlan-bin")
                 .long("vhdlan-bin")
                 .help("Specify a `vhdlan` command")
                 .takes_value(true)
-                .multiple(false)
+                .multiple_values(false)
                 .default_value("vhdlan")
                 .number_of_values(1),
         )
         .arg(
-            Arg::with_name("no-abort-on-error")
+            Arg::new("no-abort-on-error")
                 .long("no-abort-on-error")
                 .help("Do not abort analysis/compilation on first caught error (only for programs that support early aborting)")
         )
         .arg(
-            Arg::with_name("compilation_mode")
+            Arg::new("compilation_mode")
                 .long("compilation-mode")
                 .help("Choose compilation mode for Riviera-PRO option: separate/common (Riviera-PRO only)")
                 .takes_value(true)
-                .multiple(false)
-                 .default_value("common")
+                .default_value("common")
                 .possible_values(&[
                     "separate",
                     "common",
                 ])
         )
         .arg(
-            Arg::with_name("package")
-                .short("p")
+            Arg::new("package")
+                .short('p')
                 .long("package")
                 .help("Specify package to show sources for")
                 .takes_value(true)
-                .multiple(true)
+                .multiple_occurrences(true)
                 .number_of_values(1),
         )
         .arg(
-            Arg::with_name("no_deps")
-                .short("n")
+            Arg::new("no_deps")
+                .short('n')
                 .long("no-deps")
                 .help("Exclude all dependencies, i.e. only top level or specified package(s)"),
         )
         .arg(
-            Arg::with_name("exclude")
-                .short("e")
+            Arg::new("exclude")
+                .short('e')
                 .long("exclude")
                 .help("Specify package to exclude from sources")
                 .takes_value(true)
-                .multiple(true)
+                .multiple_occurrences(true)
                 .number_of_values(1),
         )
 }

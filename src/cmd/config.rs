@@ -5,15 +5,15 @@
 
 use std;
 
-use clap::{App, ArgMatches, SubCommand};
+use clap::{ArgMatches, Command};
 use serde_json;
 
 use crate::error::*;
 use crate::sess::Session;
 
 /// Assemble the `config` subcommand.
-pub fn new<'a, 'b>() -> App<'a, 'b> {
-    SubCommand::with_name("config").about("Emit the configuration")
+pub fn new<'a>() -> Command<'a> {
+    Command::new("config").about("Emit the configuration")
 }
 
 /// Execute the `config` subcommand.

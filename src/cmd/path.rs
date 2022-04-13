@@ -3,7 +3,7 @@
 
 //! The `path` subcommand.
 
-use clap::{App, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use futures::future;
 use tokio_core::reactor::Core;
 
@@ -11,12 +11,13 @@ use crate::error::*;
 use crate::sess::{Session, SessionIo};
 
 /// Assemble the `path` subcommand.
-pub fn new<'a, 'b>() -> App<'a, 'b> {
-    SubCommand::with_name("path")
+pub fn new<'a>() -> Command<'a> {
+    Command::new("path")
         .about("Get the path to a dependency")
         .arg(
-            Arg::with_name("name")
-                .multiple(true)
+            Arg::new("name")
+                .multiple_values(true)
+                .multiple_occurrences(true)
                 .required(true)
                 .help("Package names to get the path for"),
         )

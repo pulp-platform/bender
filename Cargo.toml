@@ -20,7 +20,7 @@ tokio-core = "0.1.12"
 tokio-process = "0.1.5"
 tokio-timer = "0.2"
 
-clap = "2.34"
+clap = { version = "3.1", features = ["derive"] }
 semver = "1.0"
 blake2 = "0.10"
 typed-arena = "2"
