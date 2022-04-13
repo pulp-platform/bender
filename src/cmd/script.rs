@@ -24,8 +24,7 @@ pub fn new<'a>() -> Command<'a> {
                 .long("target")
                 .help("Only include sources that match the given target")
                 .takes_value(true)
-                .multiple_values(true)
-                .number_of_values(1),
+                .multiple_occurrences(true),
         )
         .arg(
             Arg::new("format")
@@ -55,21 +54,24 @@ pub fn new<'a>() -> Command<'a> {
                 .long("define")
                 .help("Pass an additional define to all source files")
                 .takes_value(true)
-                .multiple_values(true),
+                .multiple_values(true)
+                .multiple_occurrences(true),
         )
         .arg(
             Arg::new("vcom-arg")
                 .long("vcom-arg")
                 .help("Pass an argument to vcom calls (vsim/vhdlan/riviera only)")
                 .takes_value(true)
-                .multiple_values(true),
+                .multiple_values(true)
+                .multiple_occurrences(true),
         )
         .arg(
             Arg::new("vlog-arg")
                 .long("vlog-arg")
                 .help("Pass an argument to vlog calls (vsim/vlogan/riviera only)")
                 .takes_value(true)
-                .multiple_values(true),
+                .multiple_values(true)
+                .multiple_occurrences(true),
         )
         .arg(
             Arg::new("only-defines")
@@ -96,18 +98,14 @@ pub fn new<'a>() -> Command<'a> {
                 .long("vlogan-bin")
                 .help("Specify a `vlogan` command")
                 .takes_value(true)
-                .multiple_values(false)
-                .default_value("vlogan")
-                .number_of_values(1),
+                .default_value("vlogan"),
         )
         .arg(
             Arg::new("vhdlan-bin")
                 .long("vhdlan-bin")
                 .help("Specify a `vhdlan` command")
                 .takes_value(true)
-                .multiple_values(false)
-                .default_value("vhdlan")
-                .number_of_values(1),
+                .default_value("vhdlan"),
         )
         .arg(
             Arg::new("no-abort-on-error")
@@ -131,8 +129,7 @@ pub fn new<'a>() -> Command<'a> {
                 .long("package")
                 .help("Specify package to show sources for")
                 .takes_value(true)
-                .multiple_occurrences(true)
-                .number_of_values(1),
+                .multiple_occurrences(true),
         )
         .arg(
             Arg::new("no_deps")
@@ -146,8 +143,7 @@ pub fn new<'a>() -> Command<'a> {
                 .long("exclude")
                 .help("Specify package to exclude from sources")
                 .takes_value(true)
-                .multiple_occurrences(true)
-                .number_of_values(1),
+                .multiple_occurrences(true),
         )
 }
 

@@ -28,8 +28,7 @@ pub fn new<'a>() -> Command<'a> {
                 .short('p')
                 .long("path")
                 .help("Relative directory to clone PKG into (default: working_dir)")
-                .takes_value(true)
-                .number_of_values(1),
+                .takes_value(true),
         )
 }
 

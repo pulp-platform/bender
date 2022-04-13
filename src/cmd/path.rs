@@ -17,7 +17,6 @@ pub fn new<'a>() -> Command<'a> {
         .arg(
             Arg::new("name")
                 .multiple_values(true)
-                .multiple_occurrences(true)
                 .required(true)
                 .help("Package names to get the path for"),
         )

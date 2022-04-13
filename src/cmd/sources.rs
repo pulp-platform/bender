@@ -25,8 +25,7 @@ pub fn new<'a>() -> Command<'a> {
                 .long("target")
                 .help("Filter sources by target")
                 .takes_value(true)
-                .multiple_occurrences(true)
-                .number_of_values(1),
+                .multiple_occurrences(true),
         )
         .arg(
             Arg::new("flatten")
@@ -40,8 +39,7 @@ pub fn new<'a>() -> Command<'a> {
                 .long("package")
                 .help("Specify package to show sources for")
                 .takes_value(true)
-                .multiple_occurrences(true)
-                .number_of_values(1),
+                .multiple_occurrences(true),
         )
         .arg(
             Arg::new("no_deps")
@@ -55,8 +53,7 @@ pub fn new<'a>() -> Command<'a> {
                 .long("exclude")
                 .help("Specify package to exclude from sources")
                 .takes_value(true)
-                .multiple_occurrences(true)
-                .number_of_values(1),
+                .multiple_occurrences(true),
         )
 }
 
