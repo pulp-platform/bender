@@ -36,6 +36,7 @@ pub fn new<'a>() -> Command<'a> {
                     "vcs",
                     "verilator",
                     "synopsys",
+                    "formality",
                     "riviera",
                     "genus",
                     "vivado",
@@ -176,6 +177,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "vcs" => vec!["vcs", "simulation"],
         "verilator" => vec!["verilator", "synthesis"],
         "synopsys" => vec!["synopsys", "synthesis"],
+        "formality" => vec!["synopsys", "synthesis", "formality"],
         "riviera" => vec!["riviera", "simulation"],
         "genus" => vec!["genus", "synthesis"],
         "vivado" => concat(vivado_targets, &["synthesis"]),
@@ -270,7 +272,22 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "vsim" => emit_vsim_tcl(sess, matches, targets, srcs, abort_on_error),
         "vcs" => emit_vcs_sh(sess, matches, targets, srcs),
         "verilator" => emit_verilator_sh(sess, matches, targets, srcs),
-        "synopsys" => emit_synopsys_tcl(sess, matches, targets, srcs, abort_on_error),
+        "synopsys" => emit_synopsys_tcl(
+            sess,
+            matches,
+            targets,
+            srcs,
+            abort_on_error,
+            synopsys_dc_cmd,
+        ),
+        "formality" => emit_synopsys_tcl(
+            sess,
+            matches,
+            targets,
+            srcs,
+            abort_on_error,
+            synopsys_formality_cmd,
+        ),
         "riviera" => emit_riviera_tcl(
             sess,
             matches,
@@ -368,6 +385,34 @@ fn tcl_catch_prefix(cmd: &str, do_prefix: bool) -> String {
 
 fn tcl_catch_postfix() -> &'static str {
     return "}]} {return 1}";
+}
+
+fn synopsys_dc_cmd(ty: SourceType) -> String {
+    format!(
+        "analyze -format {}",
+        match ty {
+            SourceType::Verilog => {
+                "sv"
+            }
+            SourceType::Vhdl => {
+                "vhdl"
+            }
+        }
+    )
+}
+
+fn synopsys_formality_cmd(ty: SourceType) -> String {
+    format!(
+        "{} -r",
+        match ty {
+            SourceType::Verilog => {
+                "read_sverilog"
+            }
+            SourceType::Vhdl => {
+                "read_vhdl"
+            }
+        }
+    )
 }
 
 fn add_defines_from_matches(defines: &mut Vec<(String, Option<String>)>, matches: &ArgMatches) {
@@ -678,6 +723,7 @@ fn emit_synopsys_tcl(
     targets: TargetSet,
     srcs: Vec<SourceGroup>,
     abort_on_error: bool,
+    cmd_str: fn(ty: SourceType) -> String,
 ) -> Result<()> {
     println!("{}", header_tcl(sess));
     println!("set search_path_initial $search_path");
@@ -703,23 +749,7 @@ fn emit_synopsys_tcl(
             },
             |src, ty, files| {
                 let mut lines = vec![];
-                lines.push(
-                    tcl_catch_prefix(
-                        &format!(
-                            "analyze -format {}",
-                            match ty {
-                                SourceType::Verilog => {
-                                    "sv"
-                                }
-                                SourceType::Vhdl => {
-                                    "vhdl"
-                                }
-                            }
-                        ),
-                        abort_on_error,
-                    )
-                    .to_owned(),
-                );
+                lines.push(tcl_catch_prefix(&cmd_str(ty), abort_on_error).to_owned());
 
                 // Add defines.
                 let mut defines: Vec<(String, Option<String>)> = vec![];
@@ -735,17 +765,20 @@ fn emit_synopsys_tcl(
                 );
                 add_defines_from_matches(&mut defines, matches);
                 defines.sort();
-                if !defines.is_empty() {
-                    lines.push("-define {".to_owned());
-                    for (k, v) in defines {
-                        let mut s = format!("    {}", k);
-                        if let Some(v) = v {
-                            s.push('=');
-                            s.push_str(&v);
+                // The `-define` flag is only specified for Verilog files.
+                if let SourceType::Verilog = ty {
+                    if !defines.is_empty() {
+                        lines.push("-define {".to_owned());
+                        for (k, v) in defines {
+                            let mut s = format!("    {}", k);
+                            if let Some(v) = v {
+                                s.push('=');
+                                s.push_str(&v);
+                            }
+                            lines.push(s);
                         }
-                        lines.push(s);
+                        lines.push("}".to_owned());
                     }
-                    lines.push("}".to_owned());
                 }
 
                 // Add files.
