@@ -42,6 +42,7 @@ pub fn new<'a>() -> Command<'a> {
                     "vivado",
                     "vivado-sim",
                     "precision",
+                    "jasper",
                 ]),
         )
         .arg(
@@ -183,6 +184,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "vivado" => concat(vivado_targets, &["synthesis"]),
         "vivado-sim" => concat(vivado_targets, &["simulation"]),
         "precision" => vec!["precision", "fpga", "synthesis"],
+        "jasper" => vec!["formal", "jasper"],
         _ => unreachable!(),
     };
 
@@ -300,6 +302,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "vivado" => emit_vivado_tcl(sess, matches, targets, srcs),
         "vivado-sim" => emit_vivado_tcl(sess, matches, targets, srcs),
         "precision" => emit_precision_tcl(sess, matches, targets, srcs, abort_on_error),
+        "jasper" => emit_jasper_tcl(sess, matches, targets, srcs),
         _ => unreachable!(),
     }
 }
@@ -1285,6 +1288,94 @@ fn emit_precision_tcl(
                 if abort_on_error {
                     println!("{}", tcl_catch_postfix());
                 }
+            },
+        );
+    }
+    Ok(())
+}
+
+/// Emit Cadence Jasper TCL script
+fn emit_jasper_tcl(
+    sess: &Session,
+    matches: &ArgMatches,
+    targets: TargetSet,
+    srcs: Vec<SourceGroup>,
+) -> Result<()> {
+    println!("# This script was generated automatically by bender.");
+    println!("set ROOT \"{}\"", sess.root.to_str().unwrap());
+    let relativize_path = |p: &std::path::Path| {
+        if p.starts_with(sess.root) {
+            format!(
+                "$ROOT/{}",
+                p.strip_prefix(sess.root).unwrap().to_str().unwrap()
+            )
+        } else {
+            format!("\"{}\"", p.to_str().unwrap())
+        }
+    };
+    for src in srcs {
+        // Emit analyze commands.
+        separate_files_in_group(
+            src,
+            |f| match f {
+                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
+                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
+                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
+                    _ => None,
+                },
+                _ => None,
+            },
+            |src, ty, files| {
+                let mut lines = vec![];
+                match ty {
+                    SourceType::Verilog => {
+                        lines.push("analyze -sv12".to_owned());
+                    }
+                    SourceType::Vhdl => {
+                        lines.push("analyze -vhdl".to_owned());
+                    }
+                }
+
+                // Add defines.
+                let mut defines: Vec<(String, Option<String>)> = vec![];
+                defines.extend(
+                    src.defines
+                        .iter()
+                        .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+                );
+                defines.extend(
+                    targets
+                        .iter()
+                        .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
+                );
+                add_defines_from_matches(&mut defines, matches);
+                defines.sort();
+                if !defines.is_empty() {
+                    for (k, v) in defines {
+                        let mut s = format!("+define+{}", k);
+                        if let Some(v) = v {
+                            s.push('=');
+                            s.push_str(&v);
+                        }
+                        s.push('+');
+                        lines.push(s);
+                    }
+                }
+                for i in src.clone().get_incdirs() {
+                    lines
+                        .push(format!("+incdir+{}", relativize_path(i)));
+                }
+
+                // Add files.
+                for file in files {
+                    let p = match file {
+                        SourceFile::File(p) => p,
+                        _ => continue,
+                    };
+                    lines.push(format!("{}", relativize_path(p)));
+                }
+                println!("");
+                println!("{}", lines.join(" \\\n    "));
             },
         );
     }
