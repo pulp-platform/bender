@@ -548,11 +548,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
     /// Determine the list of versions available for a git dependency.
     pub async fn git_versions_func(&'io self, git: Git<'sess, 'ctx>) -> Result<GitVersions<'ctx>> {
-        let versions_tmp = self
-            .git_versions
-            .lock()
-            .unwrap().clone();
-            
+        let versions_tmp = self.git_versions.lock().unwrap().clone();
+
         match versions_tmp.get(&git.path.to_path_buf()) {
             Some(result) => {
                 debugln!("sess: git_versions from stored");
