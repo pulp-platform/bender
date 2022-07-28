@@ -16,7 +16,7 @@ use crate::config::{Config, Locked, Manifest, Merge, PartialConfig, PrefixPaths,
 use crate::error::*;
 use crate::resolver::DependencyResolver;
 use crate::sess::{Session, SessionArenas, SessionIo};
-use tokio_core::reactor::Core;
+use tokio::runtime::Runtime;
 
 /// Inner main function which can return an error.
 pub fn main() -> Result<()> {
@@ -154,13 +154,13 @@ pub fn main() -> Result<()> {
 
     // Ensure the locally linked packages are up-to-date.
     {
-        let mut core = Core::new().unwrap();
-        let io = SessionIo::new(&sess, core.handle());
+        let rt = Runtime::new()?;
+        let io = SessionIo::new(&sess);
         for (path, pkg_name) in &sess.manifest.workspace.package_links {
             debugln!("main: maintaining link to {} at {:?}", pkg_name, path);
 
             // Determine the checkout path for this package.
-            let pkg_path = core.run(io.checkout(sess.dependency_with_name(pkg_name)?))?;
+            let pkg_path = rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?))?;
             let pkg_path = path
                 .parent()
                 .and_then(|path| pathdiff::diff_paths(pkg_path, path))
@@ -414,9 +414,9 @@ fn execute_plugin(sess: &Session, plugin: &str, matches: Option<OsValues>) -> Re
     debugln!("main: execute plugin `{}`", plugin);
 
     // Obtain a list of declared plugins.
-    let mut core = Core::new().unwrap();
-    let io = SessionIo::new(sess, core.handle());
-    let plugins = core.run(io.plugins())?;
+    let runtime = Runtime::new()?;
+    let io = SessionIo::new(sess);
+    let plugins = runtime.block_on(io.plugins())?;
 
     // Lookup the requested plugin and complain if it does not exist.
     let plugin = match plugins.get(plugin) {

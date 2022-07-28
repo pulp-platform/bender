@@ -4,7 +4,7 @@
 //! The `script` subcommand.
 
 use clap::{Arg, ArgMatches, Command};
-use tokio_core::reactor::Core;
+use tokio::runtime::Runtime;
 
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
@@ -161,9 +161,9 @@ where
 
 /// Execute the `script` subcommand.
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
-    let mut core = Core::new().unwrap();
-    let io = SessionIo::new(&sess, core.handle());
-    let mut srcs = core.run(io.sources())?;
+    let rt = Runtime::new()?;
+    let io = SessionIo::new(&sess);
+    let mut srcs = rt.block_on(io.sources())?;
 
     // Format-specific target specifiers.
     let vivado_targets = &["vivado", "fpga", "xilinx"];

@@ -7,7 +7,7 @@ use clap::{Arg, ArgMatches, Command};
 use std::collections::HashMap;
 use std::io::Write;
 use tabwriter::TabWriter;
-use tokio_core::reactor::Core;
+use tokio::runtime::Runtime;
 
 use crate::error::*;
 use crate::sess::{DependencyConstraint, DependencySource};
@@ -28,8 +28,8 @@ pub fn new<'a>() -> Command<'a> {
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let dep = &matches.value_of("name").unwrap().to_lowercase();
     sess.dependency_with_name(dep)?;
-    let mut core = Core::new().unwrap();
-    let io = SessionIo::new(&sess, core.handle());
+    let rt = Runtime::new()?;
+    let io = SessionIo::new(&sess);
 
     let parent_array = {
         let mut map = HashMap::<String, Vec<String>>::new();
@@ -52,7 +52,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             let all_deps = deps.iter().map(|&id| sess.dependency(id));
             for current_dep in all_deps {
                 if dep == current_dep.name.as_str() {
-                    let dep_manifest = core.run(io.dependency_manifest(pkg)).unwrap();
+                    let dep_manifest = rt.block_on(io.dependency_manifest(pkg)).unwrap();
                     // Filter out dependencies without a manifest
                     if dep_manifest.is_none() {
                         warnln!("{} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());

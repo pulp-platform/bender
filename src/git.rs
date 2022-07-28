@@ -7,30 +7,28 @@
 
 use std::ffi::OsStr;
 use std::path::Path;
-use std::process::Command;
 
-use futures::future;
-use futures::Future;
-use tokio_process::CommandExt;
+use futures::TryFutureExt;
+use tokio::process::Command;
 
 use crate::error::*;
-use crate::sess::SessionIo;
+use crate::sess::Session;
 
 /// A git repository.
 ///
 /// This struct is used to interact with git repositories on disk. It makes
 /// heavy use of futures to execute the different tasks.
 #[derive(Copy, Clone)]
-pub struct Git<'io, 'sess: 'io, 'ctx: 'sess> {
+pub struct Git<'sess, 'ctx: 'sess> {
     /// The path to the repository.
     pub path: &'ctx Path,
     /// The session within which commands will be executed.
-    pub sess: &'io SessionIo<'sess, 'ctx>,
+    pub sess: &'sess Session<'ctx>,
 }
 
-impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
+impl<'git, 'sess, 'ctx: 'sess> Git<'sess, 'ctx> {
     /// Create a new git context.
-    pub fn new(path: &'ctx Path, sess: &'io SessionIo<'sess, 'ctx>) -> Git<'io, 'sess, 'ctx> {
+    pub fn new(path: &'ctx Path, sess: &'sess Session<'ctx>) -> Git<'sess, 'ctx> {
         Git {
             path: path,
             sess: sess,
@@ -42,7 +40,7 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     /// The command will have the form `git <subcommand>` and be pre-configured
     /// to operate in the repository's path.
     pub fn command(self, subcommand: &str) -> Command {
-        let mut cmd = Command::new(&self.sess.sess.config.git);
+        let mut cmd = Command::new(&self.sess.config.git);
         cmd.arg(subcommand);
         cmd.current_dir(&self.path);
         cmd
@@ -58,8 +56,8 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
     ///
     /// If `check` is false, the stdout will be returned regardless of the
     /// command's exit code.
-    pub fn spawn(self, mut cmd: Command, check: bool) -> GitFuture<'io, String> {
-        let output = cmd.output_async(&self.sess.handle).map_err(|cause| {
+    pub async fn spawn(self, mut cmd: Command, check: bool) -> Result<String> {
+        let output = cmd.output().map_err(|cause| {
             if cause
                 .to_string()
                 .to_lowercase()
@@ -74,7 +72,7 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
                 Error::chain("Failed to spawn child process.", cause)
             }
         });
-        let result = output.and_then(move |output| {
+        let result = output.and_then(|output| async move {
             debugln!("git: {:?} in {:?}", cmd, self.path);
             if output.status.success() || !check {
                 String::from_utf8(output.stdout).map_err(|cause| {
@@ -102,131 +100,122 @@ impl<'git, 'io, 'sess: 'io, 'ctx: 'sess> Git<'io, 'sess, 'ctx> {
                 Err(Error::new(msg))
             }
         });
-        Box::new(result)
+        result.await
     }
 
     /// Assemble a command and schedule it for execution.
     ///
-    /// This is a convenience function that creates a command, passses it to the
+    /// This is a convenience function that creates a command, passes it to the
     /// closure `f` for configuration, then passes it to the `spawn` function
     /// and returns the future.
-    pub fn spawn_with<F>(self, f: F) -> GitFuture<'io, String>
+    pub async fn spawn_with<F>(self, f: F) -> Result<String>
     where
         F: FnOnce(&mut Command) -> &mut Command,
     {
-        let mut cmd = Command::new(&self.sess.sess.config.git);
+        let mut cmd = Command::new(&self.sess.config.git);
         cmd.current_dir(&self.path);
         f(&mut cmd);
-        self.spawn(cmd, true)
+        self.spawn(cmd, true).await
     }
 
     /// Assemble a command and schedule it for execution.
     ///
     /// This is the same as `spawn_with()`, but returns the stdout regardless of
     /// whether the command failed or not.
-    pub fn spawn_unchecked_with<F>(self, f: F) -> GitFuture<'io, String>
+    pub async fn spawn_unchecked_with<F>(self, f: F) -> Result<String>
     where
         F: FnOnce(&mut Command) -> &mut Command,
     {
-        let mut cmd = Command::new(&self.sess.sess.config.git);
+        let mut cmd = Command::new(&self.sess.config.git);
         cmd.current_dir(&self.path);
         f(&mut cmd);
-        self.spawn(cmd, false)
+        self.spawn(cmd, false).await
     }
 
     /// Fetch the tags and refs of a remote.
-    pub fn fetch(self, remote: &str) -> GitFuture<'io, ()> {
+    pub async fn fetch(self, remote: &str) -> Result<()> {
         let r1 = String::from(remote);
         let r2 = String::from(remote);
-        Box::new(
-            self.spawn_with(move |c| c.arg("fetch").arg("--prune").arg(r1))
-                .and_then(move |_| {
-                    self.spawn_with(|c| c.arg("fetch").arg("--tags").arg("--prune").arg(r2))
-                })
-                .map(|_| ()),
-        )
+        self.spawn_with(|c| c.arg("fetch").arg("--prune").arg(r1))
+            .and_then(|_| self.spawn_with(|c| c.arg("fetch").arg("--tags").arg("--prune").arg(r2)))
+            .await
+            .map(|_| ())
     }
 
     /// List all refs and their hashes.
-    pub fn list_refs(self) -> GitFuture<'io, Vec<(String, String)>> {
-        Box::new(
-            self.spawn_unchecked_with(|c| c.arg("show-ref").arg("--dereference"))
-                .and_then(move |raw| {
-                    let mut all_revs = raw
-                        .lines()
-                        .map(|line| {
-                            // Parse the line
-                            let mut fields = line.split_whitespace().map(String::from);
-                            let rev = fields.next().unwrap();
-                            let rf = fields.next().unwrap();
-                            (rev, rf)
-                        })
-                        .collect::<Vec<_>>();
-                    // Ensure only commit hashes are returned by using dereferenced values in case they exist
-                    let deref_revs = all_revs
-                        .clone()
-                        .into_iter()
-                        .filter(|tup| tup.1.ends_with("^{}"));
-                    for item in deref_revs {
-                        let index = all_revs
-                            .iter()
-                            .position(|x| *x.1 == item.1.replace("^{}", ""))
-                            .unwrap();
-                        all_revs.remove(index);
-                        let index = all_revs.iter().position(|x| *x.1 == item.1).unwrap();
-                        all_revs.remove(index);
-                        all_revs.push((item.0, item.1.replace("^{}", "")));
-                    }
-                    // Return future
-                    future::ok(all_revs)
-                }),
-        )
+    pub async fn list_refs(self) -> Result<Vec<(String, String)>> {
+        self.spawn_unchecked_with(|c| c.arg("show-ref").arg("--dereference"))
+            .and_then(|raw| async move {
+                let mut all_revs = raw
+                    .lines()
+                    .map(|line| {
+                        // Parse the line
+                        let mut fields = line.split_whitespace().map(String::from);
+                        let rev = fields.next().unwrap();
+                        let rf = fields.next().unwrap();
+                        (rev, rf)
+                    })
+                    .collect::<Vec<_>>();
+                // Ensure only commit hashes are returned by using dereferenced values in case they exist
+                let deref_revs = all_revs
+                    .clone()
+                    .into_iter()
+                    .filter(|tup| tup.1.ends_with("^{}"));
+                for item in deref_revs {
+                    let index = all_revs
+                        .iter()
+                        .position(|x| *x.1 == item.1.replace("^{}", ""))
+                        .unwrap();
+                    all_revs.remove(index);
+                    let index = all_revs.iter().position(|x| *x.1 == item.1).unwrap();
+                    all_revs.remove(index);
+                    all_revs.push((item.0, item.1.replace("^{}", "")));
+                }
+                // Return future
+                Ok(all_revs)
+            })
+            .await
     }
 
     /// List all revisions.
-    pub fn list_revs(self) -> GitFuture<'io, Vec<String>> {
-        Box::new(
-            self.spawn_with(|c| c.arg("rev-list").arg("--all").arg("--date-order"))
-                .map(|raw| raw.lines().map(String::from).collect()),
-        )
+    pub async fn list_revs(self) -> Result<Vec<String>> {
+        self.spawn_with(|c| c.arg("rev-list").arg("--all").arg("--date-order"))
+            .await
+            .map(|raw| raw.lines().map(String::from).collect())
     }
 
     /// Determine the currently checked out revision.
-    pub fn current_checkout(self) -> GitFuture<'io, Option<String>> {
-        Box::new(
-            self.spawn_with(|c| c.arg("rev-parse").arg("--revs-only").arg("HEAD^{commit}"))
-                .map(|raw| raw.lines().take(1).map(String::from).next()),
-        )
+    pub async fn current_checkout(self) -> Result<Option<String>> {
+        self.spawn_with(|c| c.arg("rev-parse").arg("--revs-only").arg("HEAD^{commit}"))
+            .await
+            .map(|raw| raw.lines().take(1).map(String::from).next())
     }
 
     /// List files in the directory.
     ///
     /// Calls `git ls-tree` under the hood.
-    pub fn list_files<R: AsRef<OsStr>, P: AsRef<OsStr>>(
+    pub async fn list_files<R: AsRef<OsStr>, P: AsRef<OsStr>>(
         self,
         rev: R,
         path: Option<P>,
-    ) -> GitFuture<'io, Vec<TreeEntry>> {
-        Box::new(
-            self.spawn_with(|c| {
-                c.arg("ls-tree").arg(rev);
-                if let Some(p) = path {
-                    c.arg(p);
-                }
-                c
-            })
-            .map(|raw| raw.lines().map(TreeEntry::parse).collect()),
-        )
+    ) -> Result<Vec<TreeEntry>> {
+        self.spawn_with(|c| {
+            c.arg("ls-tree").arg(rev);
+            if let Some(p) = path {
+                c.arg(p);
+            }
+            c
+        })
+        .await
+        .map(|raw| raw.lines().map(TreeEntry::parse).collect())
     }
 
     /// Read the content of a file.
-    pub fn cat_file<O: AsRef<OsStr>>(self, hash: O) -> GitFuture<'io, String> {
-        Box::new(self.spawn_with(|c| c.arg("cat-file").arg("blob").arg(hash)))
+    pub async fn cat_file<O: AsRef<OsStr>>(self, hash: O) -> Result<String> {
+        self.spawn_with(|c| c.arg("cat-file").arg("blob").arg(hash))
+            .await
     }
 }
-
-/// A future returned from any of the git functions.
-pub type GitFuture<'io, T> = Box<dyn Future<Item = T, Error = Error> + 'io>;
 
 /// A single entry in a git tree.
 ///

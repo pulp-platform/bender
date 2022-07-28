@@ -16,18 +16,15 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
+use crate::futures::{FutureExt, TryFutureExt};
 use futures::future::{self, join_all};
-use futures::Future;
-use semver;
-use serde_yaml;
-use tokio_core::reactor::Handle;
 use typed_arena::Arena;
 
 use crate::cli::read_manifest;
 use crate::config::Validate;
 use crate::config::{self, Config, Manifest};
 use crate::error::*;
-use crate::future_throttle::FutureThrottle;
+// use crate::future_throttle::FutureThrottle;
 use crate::git::Git;
 use crate::src::SourceGroup;
 use crate::target::TargetSpec;
@@ -69,8 +66,8 @@ pub struct Session<'ctx> {
     plugins: Mutex<Option<&'ctx Plugins>>,
     /// The session cache.
     pub cache: SessionCache<'ctx>,
-    /// A throttle for futures performing git network operations.
-    git_throttle: FutureThrottle,
+    // /// A throttle for futures performing git network operations.
+    // git_throttle: FutureThrottle,
     /// A toggle to disable remote fetches & clones
     pub local_only: bool,
 }
@@ -107,7 +104,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             sources: Mutex::new(None),
             plugins: Mutex::new(None),
             cache: Default::default(),
-            git_throttle: FutureThrottle::new(8),
+            // git_throttle: FutureThrottle::new(8),
             local_only: local_only,
         }
     }
@@ -409,39 +406,37 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
 pub struct SessionIo<'sess, 'ctx: 'sess> {
     /// The underlying session.
     pub sess: &'sess Session<'ctx>,
-    /// The event loop where IO will be run.
-    pub handle: Handle,
     git_versions: Mutex<HashMap<PathBuf, GitVersions<'ctx>>>,
 }
 
 impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     /// Create a new session wrapper.
-    pub fn new(sess: &'sess Session<'ctx>, handle: Handle) -> SessionIo<'sess, 'ctx> {
+    pub fn new(sess: &'sess Session<'ctx>) -> SessionIo<'sess, 'ctx> {
         SessionIo {
             sess: sess,
-            handle: handle,
             git_versions: Mutex::new(HashMap::new()),
         }
     }
 
     /// Determine the available versions for a dependency.
-    pub fn dependency_versions(
+    pub async fn dependency_versions(
         &'io self,
         dep_id: DependencyRef,
         force_fetch: bool,
-    ) -> Box<dyn Future<Item = DependencyVersions<'ctx>, Error = Error> + 'io> {
+    ) -> Result<DependencyVersions<'ctx>> {
         self.sess.stats.num_calls_dependency_versions.increment();
         let dep = self.sess.dependency(dep_id);
         match dep.source {
             DependencySource::Registry => {
                 unimplemented!("determine available versions of registry dependency");
             }
-            DependencySource::Path(_) => Box::new(future::ok(DependencyVersions::Path)),
-            DependencySource::Git(ref url) => Box::new(
-                self.git_database(&dep.name, url, force_fetch)
-                    .and_then(move |db| self.git_versions(db))
-                    .map(DependencyVersions::Git),
-            ),
+            DependencySource::Path(_) => Ok(DependencyVersions::Path),
+            DependencySource::Git(ref url) => {
+                let db = self.git_database(&dep.name, url, force_fetch).await?;
+                self.git_versions_func(db)
+                    .await
+                    .map(DependencyVersions::Git)
+            }
         }
     }
 
@@ -449,12 +444,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     ///
     /// If the database does not exist, it is created. If the database has not
     /// been updated recently, the remote is fetched.
-    fn git_database(
+    async fn git_database(
         &'io self,
         name: &str,
         url: &str,
         force_fetch: bool,
-    ) -> Box<dyn Future<Item = Git<'io, 'sess, 'ctx>, Error = Error> + 'io> {
+    ) -> Result<Git<'sess, 'ctx>> {
         // TODO: Make the assembled future shared and keep it in a lookup table.
         //       Then use that table to return the future if it already exists.
         //       This ensures that the gitdb is setup only once, and makes the
@@ -480,13 +475,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         match std::fs::create_dir_all(db_dir) {
             Ok(_) => (),
             Err(cause) => {
-                return Box::new(future::err(Error::chain(
+                return Err(Error::chain(
                     format!("Failed to create git database directory {:?}.", db_dir),
                     cause,
-                )))
+                ))
             }
         };
-        let git = Git::new(db_dir, self);
+        let git = Git::new(db_dir, self.sess);
         let name2 = String::from(name);
         let url = String::from(url);
         let url2 = url.clone();
@@ -495,103 +490,89 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // Either initialize the repository or update it if needed.
         if !db_dir.join("config").exists() {
             if self.sess.local_only {
-                return Box::new(future::err(Error::new(format!(
+                return Err(Error::new(format!(
                     "Bender --local argument set, unable to initialize git dependency. \n\
                     \tPlease update without --local, or provide a path to the missing dependency."
-                ))));
+                )));
             }
             // Initialize.
             self.sess.stats.num_database_init.increment();
-            Box::new(
-                self.sess.git_throttle.spawn(
-                    future::lazy(move || {
-                        stageln!("Cloning", "{} ({})", name2, url2);
-                        Ok(())
-                    })
-                    .and_then(move |_| git.spawn_with(|c| c.arg("init").arg("--bare")))
-                    .and_then(move |_| {
-                        git.spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url))
-                    })
-                    .and_then(move |_| git.fetch("origin"))
-                    .map_err(move |cause| {
-                        if url3.contains("git@") {
-                            warnln!(
-                                "Please ensure your public ssh key is added to the git server."
-                            );
-                        }
-                        warnln!("Please ensure the url is correct and you have access to the repository.");
-                        Error::chain(
-                            format!("Failed to initialize git database in {:?}.", db_dir),
-                            cause,
-                        )
-                    })
-                    .map(move |_| git),
-                ),
-            )
+            // TODO MICHAERO: May need throttle
+            future::lazy(|_| {
+                stageln!("Cloning", "{} ({})", name2, url2);
+                Ok(())
+            })
+            .and_then(|_| git.spawn_with(|c| c.arg("init").arg("--bare")))
+            .and_then(|_| git.spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url)))
+            .and_then(|_| git.fetch("origin"))
+            .await
+            .map_err(move |cause| {
+                if url3.contains("git@") {
+                    warnln!("Please ensure your public ssh key is added to the git server.");
+                }
+                warnln!("Please ensure the url is correct and you have access to the repository.");
+                Error::chain(
+                    format!("Failed to initialize git database in {:?}.", db_dir),
+                    cause,
+                )
+            })
+            .map(move |_| git)
         } else {
             // Update if the manifest has been modified since the last fetch.
             let db_mtime = try_modification_time(db_dir.join("FETCH_HEAD"));
             if (self.sess.manifest_mtime < db_mtime && !force_fetch) || self.sess.local_only {
                 debugln!("sess: skipping fetch of {:?}", db_dir);
-                return Box::new(future::ok(git));
+                return Ok(git);
             }
             self.sess.stats.num_database_fetch.increment();
-            Box::new(
-                self.sess.git_throttle.spawn(
-                    future::lazy(move || {
-                        stageln!("Fetching", "{} ({})", name2, url2);
-                        Ok(())
-                    })
-                    .and_then(move |_| git.fetch("origin"))
-                    .map_err(move |cause| {
-                        if url3.contains("git@") {
-                            warnln!(
-                                "Please ensure your public ssh key is added to the git server."
-                            );
-                        }
-                        warnln!("Please ensure the url is correct and you have access to the repository.");
-                        Error::chain(
-                            format!("Failed to update git database in {:?}.", db_dir),
-                            cause,
-                        )
-                    })
-                    .map(move |_| git),
-                ),
-            )
+            // TODO MICHAERO: May need throttle
+            future::lazy(|_| {
+                stageln!("Fetching", "{} ({})", name2, url2);
+                Ok(())
+            })
+            .and_then(|_| git.fetch("origin"))
+            .await
+            .map_err(move |cause| {
+                if url3.contains("git@") {
+                    warnln!("Please ensure your public ssh key is added to the git server.");
+                }
+                warnln!("Please ensure the url is correct and you have access to the repository.");
+                Error::chain(
+                    format!("Failed to update git database in {:?}.", db_dir),
+                    cause,
+                )
+            })
+            .map(move |_| git)
         }
     }
 
     /// Determine the list of versions available for a git dependency.
-    fn git_versions(
-        &'io self,
-        git: Git<'io, 'sess, 'ctx>,
-    ) -> Box<dyn Future<Item = GitVersions<'ctx>, Error = Error> + 'io> {
-        match self
+    pub async fn git_versions_func(&'io self, git: Git<'sess, 'ctx>) -> Result<GitVersions<'ctx>> {
+        let versions_tmp = self
             .git_versions
             .lock()
-            .unwrap()
-            .get(&git.path.to_path_buf())
-        {
+            .unwrap().clone();
+            
+        match versions_tmp.get(&git.path.to_path_buf()) {
             Some(result) => {
                 debugln!("sess: git_versions from stored");
-                Box::new(future::ok(GitVersions {
+                Ok(GitVersions {
                     versions: result.versions.clone(),
                     refs: result.refs.clone(),
                     revs: result.revs.clone(),
-                }))
+                })
             }
             None => {
                 debugln!("sess: git_versions get new");
-                let dep_refs = git.list_refs();
-                let dep_revs = git.list_revs();
-                let dep_refs_and_revs =
-                    dep_refs.and_then(|refs| -> Box<dyn Future<Item = _, Error = Error>> {
-                        if refs.is_empty() {
-                            Box::new(future::ok((refs, vec![])))
-                        } else {
-                            Box::new(dep_revs.map(move |revs| (refs, revs)))
-                        }
-                    });
+                let dep_refs = git.list_refs().await;
+                let dep_revs = git.list_revs().await;
+                let dep_refs_and_revs = dep_refs.and_then(|refs| -> Result<_> {
+                    if refs.is_empty() {
+                        Ok((refs, vec![]))
+                    } else {
+                        dep_revs.map(move |revs| (refs, revs))
+                    }
+                });
                 let out = dep_refs_and_revs.and_then(move |(refs, revs)| {
                     let refs: Vec<_> = refs
                         .into_iter()
@@ -667,7 +648,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         revs: revs,
                     })
                 });
-                Box::new(out)
+                out
             }
         }
     }
@@ -719,13 +700,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     }
 
     /// Ensure that a dependency is checked out and obtain its path.
-    pub fn checkout(
-        &'io self,
-        dep_id: DependencyRef,
-    ) -> Box<dyn Future<Item = &'ctx Path, Error = Error> + 'io> {
+    pub async fn checkout(&'io self, dep_id: DependencyRef) -> Result<&'ctx Path> {
         // Check if the checkout is already in the cache.
         if let Some(&cached) = self.sess.cache.checkout.lock().unwrap().get(&dep_id) {
-            return Box::new(future::ok(cached));
+            return Ok(cached);
         }
 
         self.sess.stats.num_calls_checkout.increment();
@@ -738,7 +716,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 let path = self
                     .sess
                     .intern_path(self.get_package_path(dep_id).as_path());
-                return Box::new(future::ok(path));
+                return Ok(path);
             }
         }
 
@@ -747,13 +725,14 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         match dep.source {
             DependencySource::Path(..) => unreachable!(),
             DependencySource::Registry => unimplemented!(),
-            DependencySource::Git(ref url) => Box::new(
-                self.checkout_git(
+            DependencySource::Git(ref url) => self
+                .checkout_git(
                     self.sess.intern_string(&dep.name),
                     checkout_dir,
                     self.sess.intern_string(url),
                     self.sess.intern_string(dep.revision.as_ref().unwrap()),
                 )
+                .await
                 .and_then(move |path| {
                     self.sess
                         .cache
@@ -763,7 +742,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         .insert(dep_id, path);
                     Ok(path)
                 }),
-            ),
         }
     }
 
@@ -771,49 +749,49 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     ///
     /// If the directory is not a proper git repository, it is deleted and
     /// re-created from scratch.
-    fn checkout_git(
+    async fn checkout_git(
         &'io self,
         name: &'ctx str,
         path: &'ctx Path,
         url: &'ctx str,
         revision: &'ctx str,
-    ) -> Box<dyn Future<Item = &'ctx Path, Error = Error> + 'io> {
+    ) -> Result<&'ctx Path> {
         // First check if we have to get rid of the current checkout. This is
         // the case if it either does not exist or the checked out revision does
         // not match what we expect.
-        let scrapped = future::lazy(move || future::ok(path.exists()))
-            .and_then(move |exists| -> Box<dyn Future<Item = _, Error = Error>> {
+        future::lazy(|_| Ok(path.exists()))
+            .and_then(|exists| async move {
                 if exists {
                     // Never scrap checkouts the user asked for explicitly in
                     // the workspace configuration.
                     if self.sess.manifest.workspace.checkout_dir.is_some() {
-                        return Box::new(future::ok(false));
+                        return Ok(false);
                     }
 
                     // Scrap checkouts with the wrong tag.
-                    Box::new(
-                        Git::new(path, self)
-                            .current_checkout()
-                            .then(move |current| {
-                                future::ok(match current {
-                                    Ok(Some(current)) => {
-                                        debugln!(
-                                            "checkout_git: currently `{}` (want `{}`)",
-                                            current,
-                                            revision
-                                        );
-                                        current != revision
-                                    }
-                                    _ => true,
-                                })
-                            }),
-                    )
+
+                    Git::new(path, self.sess)
+                        .current_checkout()
+                        .then(|current| async {
+                            Ok(match current {
+                                Ok(Some(current)) => {
+                                    debugln!(
+                                        "checkout_git: currently `{}` (want `{}`)",
+                                        current,
+                                        revision
+                                    );
+                                    current != revision
+                                }
+                                _ => true,
+                            })
+                        })
+                        .await
                 } else {
                     // Don't do anything if there is no checkout.
-                    Box::new(future::ok(false))
+                    Ok(false)
                 }
             })
-            .and_then(move |clear| {
+            .and_then(|clear| async move {
                 if clear {
                     debugln!("checkout_git: clear checkout {:?}", path);
                     std::fs::remove_dir_all(path)
@@ -825,59 +803,49 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         })
                         .into()
                 } else {
-                    future::ok(())
+                    Ok(())
                 }
-            });
+            })
+            .await?;
 
         // Perform the checkout if necessary.
-        let updated = scrapped.and_then(move |_| -> Box<dyn Future<Item = _, Error = Error>> {
-            if !path.exists() {
-                stageln!("Checkout", "{} ({})", name, url);
+        // TODO MICHAERO: May need proper chaining to previous future using and_then
+        if !path.exists() {
+            stageln!("Checkout", "{} ({})", name, url);
 
-                // First generate a tag to be cloned in the database. This is
-                // necessary since `git clone` does not accept commits, but only
-                // branches or tags for shallow clones.
-                let tag_name_0 = format!("bender-tmp-{}", revision);
-                let tag_name_1 = tag_name_0.clone();
-                let f = self
-                    .git_database(name, url, false)
-                    .and_then(move |git| {
-                        git.clone()
-                            .spawn_with(move |c| {
-                                c.arg("tag").arg(tag_name_0).arg(revision).arg("--force")
-                            })
-                            .map(move |_| git)
-                    })
-                    .and_then(move |git| {
-                        git.clone().spawn_with(move |c| {
-                            c.arg("clone")
-                                .arg(git.path)
-                                .arg(path)
-                                .arg("--recursive")
-                                .arg("--branch")
-                                .arg(tag_name_1)
-                        })
-                    })
-                    .map(|_| ());
-
-                Box::new(f)
-            } else {
-                Box::new(future::ok(()))
-            }
-        });
-
-        Box::new(updated.map(move |_| path))
+            // First generate a tag to be cloned in the database. This is
+            // necessary since `git clone` does not accept commits, but only
+            // branches or tags for shallow clones.
+            let tag_name_0 = format!("bender-tmp-{}", revision);
+            let tag_name_1 = tag_name_0.clone();
+            let git = self.git_database(name, url, false).await?;
+            // .and_then(move |git| {
+            git.clone()
+                .spawn_with(move |c| c.arg("tag").arg(tag_name_0).arg(revision).arg("--force"))
+                .await?;
+            git.clone()
+                .spawn_with(move |c| {
+                    c.arg("clone")
+                        .arg(git.path)
+                        .arg(path)
+                        .arg("--recursive")
+                        .arg("--branch")
+                        .arg(tag_name_1)
+                })
+                .await?;
+        }
+        Ok(path)
     }
 
     /// Load the manifest for a specific version of a dependency.
     ///
     /// Loads and returns the manifest for a dependency at a specific version.
     /// Returns `None` if the dependency has no manifest.
-    pub fn dependency_manifest_version(
+    pub async fn dependency_manifest_version(
         &'io self,
         dep_id: DependencyRef,
         version: DependencyVersion<'ctx>,
-    ) -> Box<dyn Future<Item = Option<&'ctx Manifest>, Error = Error> + 'io> {
+    ) -> Result<Option<&'ctx Manifest>> {
         // Check if the manifest is already in the cache.
         let cache_key = (dep_id, version.clone());
         if let Some(&cached) = self
@@ -888,7 +856,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .unwrap()
             .get(&cache_key)
         {
-            return Box::new(future::ok(cached));
+            return Ok(cached);
         }
 
         self.sess
@@ -911,12 +879,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 warnln!("Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
                                     dep.name, m.package.name); // TODO: This should be an error
                             }
-                            Box::new(future::ok(Some(self.sess.intern_manifest(m))))
+                            Ok(Some(self.sess.intern_manifest(m)))
                         }
-                        Err(e) => Box::new(future::err(e)),
+                        Err(e) => Err(e),
                     }
                 } else {
-                    Box::new(future::ok(None))
+                    Ok(None)
                 }
             }
             (&DepSrc::Registry, DepVer::Registry(_hash)) => {
@@ -924,81 +892,76 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             (&DepSrc::Git(ref url), DepVer::Git(rev)) => {
                 let dep_name = self.sess.intern_string(dep.name.as_str());
-                Box::new(
-                    self.git_database(&dep.name, url, false)
-                        .and_then(move |db| {
-                            db.list_files(rev, Some("Bender.yml")).and_then(
-                                move |entries| -> Box<dyn Future<Item = _, Error = _>> {
-                                    match entries.into_iter().next() {
-                                        None => Box::new(future::ok(None)),
-                                        Some(entry) => {
-                                            Box::new(db.cat_file(entry.hash).map(|f| Some(f)))
-                                        }
-                                    }
-                                },
+                // TODO MICHAERO: May need proper chaining using and_then
+                let db = self.git_database(&dep.name, url, false).await?;
+                let entries = db.list_files(rev, Some("Bender.yml")).await?;
+                let data = match entries.into_iter().next() {
+                    None => Ok(None),
+                    Some(entry) => db.cat_file(entry.hash).await.map(|f| Some(f)),
+                }?;
+                let manifest: Result<_> = match data {
+                    Some(data) => {
+                        let partial: config::PartialManifest = serde_yaml::from_str(&data)
+                            .map_err(|cause| {
+                                Error::chain(
+                                    format!(
+                                        "Syntax error in manifest of dependency `{}` at \
+                                             revision `{}`.",
+                                        dep_name, rev
+                                    ),
+                                    cause,
+                                )
+                            })?;
+                        let mut full = partial.validate().map_err(|cause| {
+                            Error::chain(
+                                format!(
+                                    "Error in manifest of dependency `{}` at revision \
+                                         `{}`.",
+                                    dep_name, rev
+                                ),
+                                cause,
                             )
-                        })
-                        .and_then(move |data| match data {
-                            Some(data) => {
-                                let partial: config::PartialManifest = serde_yaml::from_str(&data)
-                                    .map_err(|cause| {
-                                        Error::chain(
-                                            format!(
-                                                "Syntax error in manifest of dependency `{}` at \
-                                                 revision `{}`.",
-                                                dep_name, rev
-                                            ),
-                                            cause,
-                                        )
-                                    })?;
-                                let mut full = partial.validate().map_err(|cause| {
-                                    Error::chain(
-                                        format!(
-                                            "Error in manifest of dependency `{}` at revision \
-                                             `{}`.",
-                                            dep_name, rev
-                                        ),
-                                        cause,
-                                    )
-                                })?;
-                                // Add base path to path dependencies within git repositories
-                                for dep in full.dependencies.iter_mut() {
-                                    match dep {
-                                        (_, config::Dependency::Path(ref path)) => {
-                                            if !path.starts_with("/") {
-                                                if !self.get_package_path(dep_id).exists() {
-                                                    warnln!("Please note that dependencies for {:?} may not be available unless {:?} is properly checked out.\n         (to checkout run `bender sources` and then `bender update` again).", dep.0, full.package.name);
-                                                }
-                                                *dep.1 = config::Dependency::Path(self.get_package_path(dep_id).join(path).clone());
-                                            }
-                                        },
-                                        (_, _) => {},
+                        })?;
+                        // Add base path to path dependencies within git repositories
+                        for dep in full.dependencies.iter_mut() {
+                            match dep {
+                                (_, config::Dependency::Path(ref path)) => {
+                                    if !path.starts_with("/") {
+                                        if !self.get_package_path(dep_id).exists() {
+                                            warnln!("Please note that dependencies for {:?} may not be available unless {:?} is properly checked out.\n         (to checkout run `bender sources` and then `bender update` again).", dep.0, full.package.name);
+                                        }
+                                        *dep.1 = config::Dependency::Path(
+                                            self.get_package_path(dep_id).join(path).clone(),
+                                        );
                                     }
                                 }
-                                Ok(Some(self.sess.intern_manifest(full)))
+                                (_, _) => {}
                             }
-                            None => Ok(None),
-                        })
-                        .and_then(move |manifest| {
-                            self.sess
-                                .cache
-                                .dependency_manifest_version
-                                .lock()
-                                .unwrap()
-                                .insert(cache_key, manifest);
-                            if dep.name != match manifest {
+                        }
+                        Ok(Some(self.sess.intern_manifest(full)))
+                    }
+                    None => Ok(None),
+                };
+                let manifest = manifest?;
+                self.sess
+                    .cache
+                    .dependency_manifest_version
+                    .lock()
+                    .unwrap()
+                    .insert(cache_key, manifest);
+                if dep.name
+                    != match manifest {
+                        Some(x) => &x.package.name,
+                        None => "dead",
+                    }
+                {
+                    warnln!("Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
+                            dep.name, match manifest {
                                 Some(x) => &x.package.name,
                                 None => "dead"
-                            } {
-                                warnln!("Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
-                                    dep.name, match manifest {
-                                        Some(x) => &x.package.name,
-                                        None => "dead"
-                                    }); // TODO (micprog): This should be an error
-                            }
-                            Ok(manifest)
-                        }),
-                )
+                            }); // TODO (micprog): This should be an error
+                }
+                Ok(manifest)
             }
             _ => panic!(
                 "incompatible source {:?} and version {:?}",
@@ -1010,10 +973,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     /// Load the manifest for a dependency.
     ///
     /// Loads and returns the manifest for a dependency at the resolved version.
-    pub fn dependency_manifest(
+    pub async fn dependency_manifest(
         &'io self,
         dep_id: DependencyRef,
-    ) -> Box<dyn Future<Item = Option<&'ctx Manifest>, Error = Error> + 'io> {
+    ) -> Result<Option<&'ctx Manifest>> {
         // Check if the manifest is already in the cache.
         if let Some(&cached) = self
             .sess
@@ -1023,101 +986,99 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .unwrap()
             .get(&dep_id)
         {
-            return Box::new(future::ok(cached));
+            return Ok(cached);
         }
 
         // Otherwise ensure that there is a checkout of the dependency and read
         // the manifest there.
         self.sess.stats.num_calls_dependency_manifest.increment();
-        Box::new(
-            self.checkout(dep_id)
-                .and_then(move |path| {
-                    let manifest_path = path.join("Bender.yml");
-                    if manifest_path.exists() {
-                        match read_manifest(&manifest_path) {
-                            Ok(m) => Ok(Some(self.sess.intern_manifest(m))),
-                            Err(e) => Err(e),
-                        }
-                    } else {
-                        Ok(None)
+        self.checkout(dep_id)
+            .await
+            .and_then(move |path| {
+                let manifest_path = path.join("Bender.yml");
+                if manifest_path.exists() {
+                    match read_manifest(&manifest_path) {
+                        Ok(m) => Ok(Some(self.sess.intern_manifest(m))),
+                        Err(e) => Err(e),
                     }
-                })
-                .and_then(move |manifest| {
-                    self.sess
-                        .cache
-                        .dependency_manifest
-                        .lock()
-                        .unwrap()
-                        .insert(dep_id, manifest);
-                    Ok(manifest)
-                }),
-        )
+                } else {
+                    Ok(None)
+                }
+            })
+            .and_then(move |manifest| {
+                self.sess
+                    .cache
+                    .dependency_manifest
+                    .lock()
+                    .unwrap()
+                    .insert(dep_id, manifest);
+                Ok(manifest)
+            })
     }
 
     /// Load the source file manifest.
     ///
     /// Loads and returns the source file manifest for the root package and all
     /// its dependencies..
-    pub fn sources(&'io self) -> Box<dyn Future<Item = SourceGroup<'ctx>, Error = Error> + 'io> {
+    pub async fn sources(&'io self) -> Result<SourceGroup<'ctx>> {
         // Check if we already have the source manifest.
         if let Some(ref cached) = *self.sess.sources.lock().unwrap() {
-            return Box::new(future::ok((*cached).clone()));
+            return Ok((*cached).clone());
         }
 
         // Load the manifests of all packages.
-        let manifests = join_all(
+        let ranks = join_all(
             self.sess
                 .packages()
                 .iter()
-                .map(move |pkgs| {
+                .map(move |pkgs| async move {
                     join_all(
-                        pkgs.iter()
-                            .map(move |&pkg| self.dependency_manifest(pkg))
-                            .collect::<Vec<_>>(),
-                    )
+                            pkgs.iter()
+                                .map(move |&pkg| async move {
+                                    self.dependency_manifest(pkg).await.unwrap()
+                                })
+                                .collect::<Vec<_>>(),
+                        )
+                        .await
                 })
                 .collect::<Vec<_>>(),
-        );
+        )
+        .await;
 
         // Extract the sources of each package and concatenate them into a long
         // manifest.
-        Box::new(
-            manifests
-                .and_then(move |ranks| {
-                    use std::iter::once;
 
-                    // Create HashMap of the export_include_dirs for each package
-                    let mut all_export_include_dirs: HashMap<String, Vec<&Path>> = HashMap::new();
-                    let tmp_export_include_dirs: Vec<HashMap<_, _>> = ranks
-                        .clone()
-                        .into_iter()
-                        .chain(once(vec![Some(self.sess.manifest)]))
-                        .map(|manifests| {
-                            manifests
-                                .clone()
-                                .into_iter()
-                                .filter_map(|m| m)
-                                .map(|m| {
-                                    (
-                                        m.package.name.clone(),
-                                        m.export_include_dirs
-                                            .iter()
-                                            .map(PathBuf::as_path)
-                                            .collect(),
-                                    )
-                                })
-                                .collect()
-                        })
-                        .collect();
-                    for element in tmp_export_include_dirs {
-                        all_export_include_dirs.extend(element);
-                    }
-                    debugln!(
-                        "export_include_dirs for each package: {:?}",
-                        all_export_include_dirs
-                    );
+        use std::iter::once;
 
-                    let files = ranks
+        // Create HashMap of the export_include_dirs for each package
+        let mut all_export_include_dirs: HashMap<String, Vec<&Path>> = HashMap::new();
+        let tmp_export_include_dirs: Vec<HashMap<String, _>> = ranks
+            .clone()
+            .into_iter()
+            .chain(once(vec![Some(self.sess.manifest)]))
+            .map(|manifests| {
+                manifests
+                    .clone()
+                    .into_iter()
+                    .filter_map(|m| m)
+                    .map(|m| {
+                        (
+                            m.package.name.clone(),
+                            m.export_include_dirs.iter().map(PathBuf::as_path).collect(),
+                        )
+                    })
+                    .collect()
+            })
+            .collect();
+        for element in tmp_export_include_dirs {
+            all_export_include_dirs.extend(element);
+        }
+        debugln!(
+            "export_include_dirs for each package: {:?}",
+            all_export_include_dirs
+        );
+
+        let files = ranks
                         .into_iter()
                         .chain(once(vec![Some(self.sess.manifest)]))
                         .map(|manifests| {
@@ -1176,117 +1137,111 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         })
                         .collect();
 
-                    // Create a source group covering all ranks, i.e. the root
-                    // source group.
-                    Ok(SourceGroup {
-                        package: None,
-                        independent: false,
-                        target: TargetSpec::Wildcard,
-                        include_dirs: Vec::new(),
-                        export_incdirs: HashMap::new(),
-                        defines: HashMap::new(),
-                        files: files,
-                        dependencies: Vec::new(),
-                    }
-                    .simplify())
-                })
-                .and_then(move |sources| {
-                    *self.sess.sources.lock().unwrap() = Some(sources.clone());
-                    Ok(sources)
-                }),
-        )
+        // Create a source group covering all ranks, i.e. the root source group.
+        let sources = SourceGroup {
+            package: None,
+            independent: false,
+            target: TargetSpec::Wildcard,
+            include_dirs: Vec::new(),
+            export_incdirs: HashMap::new(),
+            defines: HashMap::new(),
+            files: files,
+            dependencies: Vec::new(),
+        }
+        .simplify();
+
+        *self.sess.sources.lock().unwrap() = Some(sources.clone());
+        Ok(sources)
     }
 
     /// Load the plugins declared by any of the dependencies.
-    pub fn plugins(&'io self) -> Box<dyn Future<Item = &'ctx Plugins, Error = Error> + 'io> {
+    pub async fn plugins(&'io self) -> Result<&'ctx Plugins> {
         // Check if we already have the list of plugins.
         if let Some(cached) = *self.sess.plugins.lock().unwrap() {
-            return Box::new(future::ok(cached));
+            return Ok(cached);
         }
 
         // Load the manifests of all packages.
-        let manifests = join_all(
+        let ranks = join_all(
             self.sess
                 .packages()
                 .iter()
-                .map(move |pkgs| {
+                .map(move |pkgs| async move {
                     join_all(
                         pkgs.iter()
-                            .map(move |&pkg| self.dependency_manifest(pkg).map(move |m| (pkg, m)))
+                            .map(move |&pkg| async move {
+                                self.dependency_manifest(pkg)
+                                    .await
+                                    .map(move |m| (pkg, m))
+                                    .unwrap()
+                            })
                             .collect::<Vec<_>>(),
                     )
+                    .await
                 })
                 .collect::<Vec<_>>(),
         )
-        .map(|ranks| {
-            ranks
-                .into_iter()
-                .flat_map(|manifests| {
-                    manifests
-                        .into_iter()
-                        .filter_map(|(pkg, m)| m.map(|m| (pkg, m)))
-                })
-                .collect::<Vec<_>>()
-        });
+        .await;
+
+        let manifests = ranks
+            .into_iter()
+            .flat_map(|manifests| {
+                manifests
+                    .into_iter()
+                    .filter_map(|(pkg, m)| m.map(|m| (pkg, m)))
+            })
+            .collect::<Vec<_>>();
 
         // Extract the plugins from the manifests.
-        Box::new(
-            manifests
-                .and_then(move |manifests| {
-                    let mut plugins = HashMap::new();
-                    for (package, manifest) in manifests {
-                        for (name, plugin) in &manifest.plugins {
-                            debugln!(
-                                "sess: plugin `{}` declared by package `{}`",
-                                name,
-                                manifest.package.name
-                            );
-                            let existing = plugins.insert(
-                                name.clone(),
-                                Plugin {
-                                    name: name.clone(),
-                                    package: package,
-                                    path: plugin.clone(),
-                                },
-                            );
-                            if let Some(existing) = existing {
-                                return Err(Error::new(format!(
-                                    "Plugin `{}` declared by multiple packages (`{}` and `{}`).",
-                                    name,
-                                    self.sess.dependency_name(existing.package),
-                                    self.sess.dependency_name(package),
-                                )));
-                            }
-                        }
-                    }
-                    let root_plugins = &self.sess.manifest.plugins;
-                    for (name, plugin) in root_plugins.into_iter() {
-                        debugln!("sess: plugin `{}` declared by root package", name);
-                        let existing = plugins.insert(
-                            name.clone(),
-                            Plugin {
-                                name: name.clone(),
-                                package: DependencyRef(0), // FIXME: unclean implementation
-                                path: plugin.clone(),
-                            },
-                        );
-                        if let Some(existing) = existing {
-                            return Err(Error::new(format!(
-                                "Plugin `{}` declared by multiple packages (`{}` and `{}`).",
-                                name,
-                                self.sess.dependency_name(existing.package),
-                                "root",
-                            )));
-                        }
-                    }
-                    Ok(plugins)
-                })
-                .and_then(move |plugins| {
-                    let allocd = self.sess.arenas.plugins.alloc(plugins) as &_;
-                    *self.sess.plugins.lock().unwrap() = Some(allocd);
-                    Ok(allocd)
-                }),
-        )
+        let mut plugins = HashMap::new();
+        for (package, manifest) in manifests {
+            for (name, plugin) in &manifest.plugins {
+                debugln!(
+                    "sess: plugin `{}` declared by package `{}`",
+                    name,
+                    manifest.package.name
+                );
+                let existing = plugins.insert(
+                    name.clone(),
+                    Plugin {
+                        name: name.clone(),
+                        package: package,
+                        path: plugin.clone(),
+                    },
+                );
+                if let Some(existing) = existing {
+                    return Err(Error::new(format!(
+                        "Plugin `{}` declared by multiple packages (`{}` and `{}`).",
+                        name,
+                        self.sess.dependency_name(existing.package),
+                        self.sess.dependency_name(package),
+                    )));
+                }
+            }
+        }
+        let root_plugins = &self.sess.manifest.plugins;
+        for (name, plugin) in root_plugins.into_iter() {
+            debugln!("sess: plugin `{}` declared by root package", name);
+            let existing = plugins.insert(
+                name.clone(),
+                Plugin {
+                    name: name.clone(),
+                    package: DependencyRef(0), // FIXME: unclean implementation
+                    path: plugin.clone(),
+                },
+            );
+            if let Some(existing) = existing {
+                return Err(Error::new(format!(
+                    "Plugin `{}` declared by multiple packages (`{}` and `{}`).",
+                    name,
+                    self.sess.dependency_name(existing.package),
+                    "root",
+                )));
+            }
+        }
+        let allocd = self.sess.arenas.plugins.alloc(plugins) as &_;
+        *self.sess.plugins.lock().unwrap() = Some(allocd);
+        Ok(allocd)
     }
 }
 
