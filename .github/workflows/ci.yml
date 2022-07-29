@@ -16,7 +16,7 @@ jobs:
           - stable
           - beta
           - nightly
-          - 1.54.0 # minimum supported version
+          - 1.57.0 # minimum supported version
     continue-on-error: ${{ matrix.rust == 'nightly' }}
     steps:
       - uses: actions/checkout@v2
