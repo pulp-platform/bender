@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Changed
 - Update dependencies, with slight restructuring updating `clap` to v3.1, bumps minimum rust to 1.54
 - Removed `defines` from VHDL in `synopsys` script.
+- Updated CI release OSs to currently supported releases, added debian
 
 ## 0.25.2 - 2022-04-13
 ### Added

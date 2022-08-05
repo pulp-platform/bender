@@ -21,10 +21,11 @@ jobs:
           - centos:7.9.2009
           - ubuntu:18.04
           - ubuntu:20.04
-          - ubuntu:21.04
-          - ubuntu:21.10
-          - fedora:34
+          - ubuntu:22.04
           - fedora:35
+          - fedora:36
+          - debian:10
+          - debian:11
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1

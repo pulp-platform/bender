@@ -10,10 +10,13 @@ if [ $(echo $full_tgtname | cut -d ':' -f 1) = "centos" ]; then
   echo 'RUN yum group install "Development Tools" -y && yum clean all' >> $filename
 fi
 if [ $(echo $full_tgtname | cut -d ':' -f 1) = "ubuntu" ]; then
-  echo 'RUN apt-get update && apt-get -y install build-essential curl' >> $filename
+  echo 'RUN apt update && apt -y install build-essential curl' >> $filename
 fi
 if [ $(echo $full_tgtname | cut -d ':' -f 1) = "fedora" ]; then
   echo 'RUN dnf -y update && dnf -y install @development-tools' >> $filename
+fi
+if [ $(echo $full_tgtname | cut -d ':' -f 1) = "debian" ]; then
+  echo 'RUN apt update && apt -y install build-essential curl gcc make' >> $filename
 fi
 echo >> $filename
 echo 'ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo' >> $filename
