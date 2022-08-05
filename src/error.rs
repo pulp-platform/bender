@@ -142,6 +142,12 @@ impl From<Error> for String {
     }
 }
 
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Error {
+        Error::chain(format!("Cannot startup runtime."), err)
+    }
+}
+
 /// Format and print stage progress.
 #[macro_export]
 macro_rules! stageln {
