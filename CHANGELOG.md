@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
+## 0.25.3 - 2022-08-05
 ### Added
 - Added `formality` script.
 
