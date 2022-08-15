@@ -738,6 +738,7 @@ pub struct LockedPackage {
     /// The version of the dependency.
     pub version: Option<String>,
     /// The source of the dependency.
+    #[serde(with = "serde_yaml::with::singleton_map")]
     pub source: LockedSource,
     /// Other packages this package depends on.
     pub dependencies: BTreeSet<String>,
