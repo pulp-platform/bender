@@ -42,6 +42,8 @@ pub struct Manifest {
     pub frozen: bool,
     /// The workspace configuration.
     pub workspace: Workspace,
+    /// Vendored dependencies
+    pub vendor: Vec<Vendor>,
 }
 
 impl PrefixPaths for Manifest {
@@ -58,6 +60,7 @@ impl PrefixPaths for Manifest {
             plugins: self.plugins.prefix_paths(prefix),
             frozen: self.frozen,
             workspace: self.workspace.prefix_paths(prefix),
+            vendor: self.vendor.prefix_paths(prefix),
         }
     }
 }
@@ -228,6 +231,22 @@ where
     }
 }
 
+impl<V> Validate for Vec<V>
+where
+    V: Validate<Error = Error>,
+{
+    type Output = Vec<V::Output>;
+    type Error = Error;
+    fn validate(self) -> std::result::Result<Self::Output, Self::Error> {
+        self.into_iter()
+            .map(|v| match v.validate() {
+                Ok(v) => Ok(v),
+                Err(e) => Err(e),
+            })
+            .collect()
+    }
+}
+
 // Implement `Validate` for `StringOrStruct` wrapped validatable values.
 impl<T> Validate for StringOrStruct<T>
 where
@@ -271,6 +290,8 @@ pub struct PartialManifest {
     pub frozen: Option<bool>,
     /// The workspace configuration.
     pub workspace: Option<PartialWorkspace>,
+    /// Vendored dependencies
+    pub vendor: Option<Vec<PartialVendor>>,
 }
 
 impl Validate for PartialManifest {
@@ -313,8 +334,14 @@ impl Validate for PartialManifest {
         let workspace = match self.workspace {
             Some(w) => w
                 .validate()
-                .map_err(|cause| Error::chain("In workspace configuration:".to_string(), cause))?,
+                .map_err(|cause| Error::chain("In workspace configuration:", cause))?,
             None => Workspace::default(),
+        };
+        let vendor = match self.vendor {
+            Some(vend) => vend
+                .validate()
+                .map_err(|cause| Error::chain("Unable to parse vendor", cause))?,
+            None => Vec::new(),
         };
         Ok(Manifest {
             package: pkg,
@@ -324,6 +351,7 @@ impl Validate for PartialManifest {
             plugins,
             frozen,
             workspace,
+            vendor,
         })
     }
 }
@@ -724,6 +752,121 @@ impl Validate for PartialConfig {
     }
 }
 
+/// A vendor dependency
+#[derive(Serialize, Debug)]
+pub struct Vendor {
+    /// Vendored dependency name
+    pub name: String,
+    /// Target folder for vendored dependency
+    pub target_dir: PathBuf,
+    /// Upstream dependency reference
+    pub upstream: Dependency,
+    /// Vendor mapping
+    pub mapping: Vec<FromToLink>,
+    /// Folder containing patch files
+    pub patch_dir: PathBuf,
+    // /// Dependency containing patches
+    // pub patch_repo: Option<Dependency>,
+    /// exclude from upstream
+    pub exclude_from_upstream: Vec<String>,
+}
+
+impl PrefixPaths for Vendor {
+    fn prefix_paths(self, prefix: &Path) -> Self {
+        let full_target = self.target_dir.prefix_paths(prefix);
+        let patch_root = self.patch_dir.prefix_paths(prefix);
+        Vendor {
+            name: self.name,
+            target_dir: full_target.clone(),
+            upstream: self.upstream,
+            mapping: self
+                .mapping
+                .into_iter()
+                .map(|ftl| FromToLink {
+                    from: ftl.from,
+                    to: ftl.to.prefix_paths(&full_target),
+                    patch_dir: ftl.patch_dir.map(|dir| dir.prefix_paths(&patch_root)),
+                })
+                .collect(),
+            patch_dir: patch_root,
+            // patch_repo: match self.patch_repo {
+            //     Some(repo) => Some(repo.prefix_paths(prefix)),
+            //     None => None,
+            // },
+            exclude_from_upstream: self.exclude_from_upstream,
+        }
+    }
+}
+
+/// A partial vendor dependency
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PartialVendor {
+    /// Vendored dependency name
+    pub name: Option<String>,
+    /// Target folder for vendored dependency
+    pub target_dir: Option<PathBuf>,
+    /// Upstream dependency reference
+    pub upstream: Option<PartialDependency>,
+    /// Vendor mapping
+    pub mapping: Option<Vec<FromToLink>>,
+    /// Folder containing patch files
+    pub patch_dir: Option<PathBuf>,
+    // /// Dependency containing patches
+    // pub patch_repo: Option<PartialDependency>,
+    /// exclude from upstream
+    pub exclude_from_upstream: Option<Vec<String>>,
+}
+
+impl Validate for PartialVendor {
+    type Output = Vendor;
+    type Error = Error;
+    fn validate(self) -> Result<Vendor> {
+        Ok(Vendor {
+            name: match self.name {
+                Some(name) => name,
+                None => return Err(Error::new("vendor name missing")),
+            },
+            target_dir: match self.target_dir {
+                Some(target_dir) => target_dir,
+                None => return Err(Error::new("vendor target dir missing")),
+            },
+            upstream: match self.upstream {
+                Some(upstream) => upstream
+                    .validate()
+                    .map_err(|cause| Error::chain("Unable to parse vendor upstream", cause))?,
+                None => return Err(Error::new("vendor upstream missing")),
+            },
+            mapping: match self.mapping {
+                Some(mapping) => mapping,
+                None => Vec::new(),
+            },
+            patch_dir: match self.patch_dir {
+                Some(patch_dir) => patch_dir,
+                None => PathBuf::new(),
+            },
+            // patch_repo: match self.patch_repo {
+            //     Some(patch_repo) => Some(patch_repo.validate().map_err(|cause| Error::chain(format!("Unable to parse vendor patch repo"), cause))?),
+            //     None => None,
+            // },
+            exclude_from_upstream: match self.exclude_from_upstream {
+                Some(exclude_from_upstream) => exclude_from_upstream,
+                None => Vec::new(),
+            },
+        })
+    }
+}
+
+/// A random type I'm testing
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct FromToLink {
+    /// from string
+    pub from: PathBuf,
+    /// to string
+    pub to: PathBuf,
+    /// directory
+    pub patch_dir: Option<PathBuf>,
+}
+
 /// A lock file.
 ///
 /// This struct encapsulates the result of dependency resolution. For every
@@ -759,4 +902,11 @@ pub enum LockedSource {
     Git(String),
     /// A registry.
     Registry(String),
+}
+
+/// A locked Vendor dependency
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct LockedVendor {
+    /// locked source for the locked dep
+    pub upstream: LockedSource,
 }
