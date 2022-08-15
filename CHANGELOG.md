@@ -7,7 +7,8 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 
 ### Changed
-- Update `tokio` dependency, update to `futures=0.3`, rewrite for `async/await`
+- Update `tokio` dependency, update to `futures=0.3`, rewrite for `async/await`. Bumps minimum rust to 1.57
+- Update `serde_yaml` dependency to `0.9`. Bumps minimum rust to 1.58
 
 ## 0.25.3 - 2022-08-05
 ### Added
