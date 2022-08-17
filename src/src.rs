@@ -70,10 +70,7 @@ impl<'ctx> SourceGroup<'ctx> {
                 other => Some(other),
             })
             .collect();
-        SourceGroup {
-            files: files,
-            ..self
-        }
+        SourceGroup { files, ..self }
     }
 
     /// Filter the sources, keeping only the ones that apply to a target.
@@ -99,7 +96,7 @@ impl<'ctx> SourceGroup<'ctx> {
                 include_dirs: self.include_dirs.clone(),
                 export_incdirs: self.export_incdirs.clone(),
                 defines: self.defines.clone(),
-                files: files,
+                files,
                 dependencies: self.dependencies.clone(),
             }
             .simplify(),
@@ -114,18 +111,15 @@ impl<'ctx> SourceGroup<'ctx> {
             Some(x) => {
                 if result.contains(x) {
                     result.extend(HashSet::<String>::from_iter(self.dependencies.clone()));
-                    result = &result - &excludes;
+                    result = &result - excludes;
                 }
             }
             None => {}
         }
 
         for file in &self.files {
-            match file {
-                SourceFile::Group(group) => {
-                    result.extend(group.get_deps(&result, excludes));
-                }
-                _ => {}
+            if let SourceFile::Group(group) = file {
+                result.extend(group.get_deps(&result, excludes));
             }
         }
 
@@ -148,7 +142,7 @@ impl<'ctx> SourceGroup<'ctx> {
             result.insert(sess.manifest.package.name.to_string());
         }
 
-        result = &result - &excludes;
+        result = &result - excludes;
 
         if !no_deps {
             let mut curr_length = 0;
@@ -186,9 +180,9 @@ impl<'ctx> SourceGroup<'ctx> {
                 independent: self.independent,
                 target: self.target.clone(),
                 include_dirs: self.include_dirs.clone(),
-                export_incdirs: export_incdirs,
+                export_incdirs,
                 defines: self.defines.clone(),
-                files: files,
+                files,
                 dependencies: self.dependencies.clone(),
             }
             .simplify(),
@@ -197,16 +191,10 @@ impl<'ctx> SourceGroup<'ctx> {
 
     /// Return list of unique include directories for the current src
     pub fn get_incdirs(self) -> Vec<&'ctx Path> {
-        let dep_incdirs: Vec<&Path> = self
-            .export_incdirs
-            .into_iter()
-            .map(|(_, v)| v)
-            .flat_map(|it| it.clone())
-            .collect();
         let incdirs = self
             .include_dirs
             .into_iter()
-            .chain(dep_incdirs.into_iter())
+            .chain(self.export_incdirs.into_iter().flat_map(|(_, v)| v))
             .fold(HashSet::new(), |mut acc, inc_dir| {
                 acc.insert(inc_dir);
                 acc
@@ -226,14 +214,14 @@ impl<'ctx> SourceGroup<'ctx> {
 
     fn flatten_into(mut self, into: &mut Vec<SourceGroup<'ctx>>) {
         let mut files = vec![];
-        let subfiles = std::mem::replace(&mut self.files, vec![]);
+        let subfiles = std::mem::take(&mut self.files);
         let flush_files = |files: &mut Vec<SourceFile<'ctx>>, into: &mut Vec<SourceGroup<'ctx>>| {
             if files.is_empty() {
                 return;
             }
-            let files = std::mem::replace(files, vec![]);
+            let files = std::mem::take(files);
             into.push(SourceGroup {
-                files: files,
+                files,
                 ..self.clone()
             });
         };
@@ -266,7 +254,7 @@ impl<'ctx> SourceGroup<'ctx> {
                     grp.defines = self
                         .defines
                         .iter()
-                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .map(|(k, v)| (*k, *v))
                         .chain(grp.defines.into_iter())
                         .collect();
                     grp.flatten_into(into);

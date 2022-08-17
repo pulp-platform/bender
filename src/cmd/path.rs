@@ -25,7 +25,7 @@ pub fn new<'a>() -> Command<'a> {
 /// Execute the `path` subcommand.
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let rt = Runtime::new()?;
-    let io = SessionIo::new(&sess);
+    let io = SessionIo::new(sess);
 
     let ids = matches
         .values_of("name")

@@ -29,10 +29,7 @@ pub struct Git<'sess, 'ctx: 'sess> {
 impl<'git, 'sess, 'ctx: 'sess> Git<'sess, 'ctx> {
     /// Create a new git context.
     pub fn new(path: &'ctx Path, sess: &'sess Session<'ctx>) -> Git<'sess, 'ctx> {
-        Git {
-            path: path,
-            sess: sess,
-        }
+        Git { path, sess }
     }
 
     /// Create a new git command.
@@ -56,6 +53,7 @@ impl<'git, 'sess, 'ctx: 'sess> Git<'sess, 'ctx> {
     ///
     /// If `check` is false, the stdout will be returned regardless of the
     /// command's exit code.
+    #[allow(clippy::format_push_string)]
     pub async fn spawn(self, mut cmd: Command, check: bool) -> Result<String> {
         let output = cmd.output().map_err(|cause| {
             if cause

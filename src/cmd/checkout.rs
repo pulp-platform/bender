@@ -17,7 +17,7 @@ pub fn new<'a>() -> Command<'a> {
 /// Execute the `checkout` subcommand.
 pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
     let rt = Runtime::new()?;
-    let io = SessionIo::new(&sess);
+    let io = SessionIo::new(sess);
     let _srcs = rt.block_on(io.sources())?;
 
     Ok(())

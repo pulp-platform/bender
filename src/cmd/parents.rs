@@ -29,7 +29,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let dep = &matches.value_of("name").unwrap().to_lowercase();
     sess.dependency_with_name(dep)?;
     let rt = Runtime::new()?;
-    let io = SessionIo::new(&sess);
+    let io = SessionIo::new(sess);
 
     let parent_array = {
         let mut map = HashMap::<String, Vec<String>>::new();
@@ -83,7 +83,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         map
     };
 
-    if parent_array.len() == 0 {
+    if parent_array.is_empty() {
         println!("No parents found for {}.", dep);
     } else {
         println!("Parents found:");

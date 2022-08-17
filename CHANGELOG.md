@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
+### Added
+- Add clippy to github CI and fix noted issues
+
 ### Changed
 - Update `tokio` dependency, update to `futures=0.3`, rewrite for `async/await`. Bumps minimum rust to 1.57
 - Update `serde_yaml` dependency to `0.9`. Bumps minimum rust to 1.58

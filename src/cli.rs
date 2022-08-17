@@ -77,16 +77,13 @@ pub fn main() -> Result<()> {
     }
 
     let mut force_fetch = false;
-    match matches.subcommand() {
-        Some(("update", intern_matches)) => {
-            force_fetch = intern_matches.is_present("fetch");
-            if matches.is_present("local") && intern_matches.is_present("fetch") {
-                warnln!(
-                    "As --local argument is set for bender command, no fetching will be performed."
-                );
-            }
+    if let Some(("update", intern_matches)) = matches.subcommand() {
+        force_fetch = intern_matches.is_present("fetch");
+        if matches.is_present("local") && intern_matches.is_present("fetch") {
+            warnln!(
+                "As --local argument is set for bender command, no fetching will be performed."
+            );
         }
-        _ => {}
     }
 
     // Determine the root working directory, which has either been provided via
@@ -147,7 +144,7 @@ pub fn main() -> Result<()> {
             }
         }
         None => {
-            return Err(Error::new(format!("Please specify a command.")));
+            return Err(Error::new("Please specify a command.".to_string()));
         }
     };
     sess.load_locked(&locked)?;
@@ -164,7 +161,7 @@ pub fn main() -> Result<()> {
             let pkg_path = path
                 .parent()
                 .and_then(|path| pathdiff::diff_paths(pkg_path, path))
-                .unwrap_or(pkg_path.into());
+                .unwrap_or_else(|| pkg_path.into());
 
             // Check if there is something at the destination path that needs to be
             // removed.

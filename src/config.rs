@@ -103,7 +103,7 @@ impl PrefixPaths for Dependency {
     }
 }
 
-impl<'ctx> Serialize for Dependency {
+impl Serialize for Dependency {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -304,7 +304,7 @@ impl Validate for PartialManifest {
             })?),
             None => None,
         };
-        let exp_inc_dirs = self.export_include_dirs.unwrap_or(Vec::new());
+        let exp_inc_dirs = self.export_include_dirs.unwrap_or_default();
         let plugins = match self.plugins {
             Some(s) => s,
             None => HashMap::new(),
@@ -313,7 +313,7 @@ impl Validate for PartialManifest {
         let workspace = match self.workspace {
             Some(w) => w
                 .validate()
-                .map_err(|cause| Error::chain(format!("In workspace configuration:"), cause))?,
+                .map_err(|cause| Error::chain("In workspace configuration:".to_string(), cause))?,
             None => Workspace::default(),
         };
         Ok(Manifest {
@@ -457,13 +457,13 @@ impl Validate for PartialSources {
     type Output = Sources;
     type Error = Error;
     fn validate(self) -> Result<Sources> {
-        let include_dirs = self.include_dirs.unwrap_or(Vec::new());
-        let defines = self.defines.unwrap_or(HashMap::new());
+        let include_dirs = self.include_dirs.unwrap_or_default();
+        let defines = self.defines.unwrap_or_default();
         let files: Result<Vec<_>> = self.files.into_iter().map(|f| f.validate()).collect();
         Ok(Sources {
             target: self.target.unwrap_or(TargetSpec::Wildcard),
-            include_dirs: include_dirs,
-            defines: defines,
+            include_dirs,
+            defines,
             files: files?,
         })
     }
@@ -557,7 +557,7 @@ impl Validate for PartialWorkspace {
     fn validate(self) -> Result<Workspace> {
         Ok(Workspace {
             checkout_dir: self.checkout_dir,
-            package_links: self.package_links.unwrap_or_else(Default::default),
+            package_links: self.package_links.unwrap_or_default(),
         })
     }
 }
@@ -650,6 +650,12 @@ impl PartialConfig {
             overrides: None,
             plugins: None,
         }
+    }
+}
+
+impl Default for PartialConfig {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

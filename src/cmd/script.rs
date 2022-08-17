@@ -162,7 +162,7 @@ where
 /// Execute the `script` subcommand.
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let rt = Runtime::new()?;
-    let io = SessionIo::new(&sess);
+    let io = SessionIo::new(sess);
     let mut srcs = rt.block_on(io.sources())?;
 
     // Format-specific target specifiers.
@@ -215,12 +215,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         sess,
         &matches
             .values_of("package")
-            .map(|p| get_package_strings(p))
-            .unwrap_or_else(|| HashSet::new()),
+            .map(get_package_strings)
+            .unwrap_or_default(),
         &matches
             .values_of("exclude")
-            .map(|p| get_package_strings(p))
-            .unwrap_or_else(|| HashSet::new()),
+            .map(get_package_strings)
+            .unwrap_or_default(),
         matches.is_present("no_deps"),
     );
 
@@ -229,7 +229,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         || matches.is_present("no_deps")
     {
         srcs = srcs
-            .filter_packages(&packages)
+            .filter_packages(packages)
             .unwrap_or_else(|| SourceGroup {
                 package: Default::default(),
                 independent: true,
@@ -318,19 +318,13 @@ where
 {
     let mut category = None;
     let mut files = vec![];
-    for file in std::mem::replace(&mut src.files, vec![]) {
+    for file in std::mem::take(&mut src.files) {
         let new_category = categorize(&file);
         if new_category.is_none() {
             continue;
         }
-        if category.is_some() && category != new_category {
-            if !files.is_empty() {
-                consume(
-                    &src,
-                    std::mem::replace(&mut category, None).unwrap(),
-                    std::mem::replace(&mut files, vec![]),
-                );
-            }
+        if category.is_some() && category != new_category && !files.is_empty() {
+            consume(&src, category.take().unwrap(), std::mem::take(&mut files));
         }
         files.push(file);
         category = new_category;
@@ -380,11 +374,11 @@ fn header_sh(sess: &Session) -> String {
 
 fn tcl_catch_prefix(cmd: &str, do_prefix: bool) -> String {
     let prefix = if do_prefix { "if {[catch {" } else { "" };
-    return format!("{}{}", prefix, cmd);
+    format!("{}{}", prefix, cmd)
 }
 
 fn tcl_catch_postfix() -> &'static str {
-    return "}]} {return 1}";
+    "}]} {return 1}"
 }
 
 fn synopsys_dc_cmd(ty: SourceType) -> String {
@@ -418,7 +412,7 @@ fn synopsys_formality_cmd(ty: SourceType) -> String {
 fn add_defines_from_matches(defines: &mut Vec<(String, Option<String>)>, matches: &ArgMatches) {
     if let Some(d) = matches.values_of("define") {
         defines.extend(d.map(|t| {
-            let mut parts = t.splitn(2, "=");
+            let mut parts = t.splitn(2, '=');
             let name = parts.next().unwrap().trim(); // split always has at least one element
             let value = parts.next().map(|v| v.trim().to_string());
             (name.to_string(), value)
@@ -450,7 +444,7 @@ fn emit_vsim_tcl(
                 let mut lines = vec![];
                 match ty {
                     SourceType::Verilog => {
-                        lines.push(tcl_catch_prefix("vlog -incr -sv", abort_on_error).to_owned());
+                        lines.push(tcl_catch_prefix("vlog -incr -sv", abort_on_error));
                         if let Some(args) = matches.values_of("vlog-arg") {
                             lines.extend(args.map(Into::into));
                         }
@@ -481,7 +475,7 @@ fn emit_vsim_tcl(
                         }
                     }
                     SourceType::Vhdl => {
-                        lines.push(tcl_catch_prefix("vcom -2008", abort_on_error).to_owned());
+                        lines.push(tcl_catch_prefix("vcom -2008", abort_on_error));
                         if let Some(args) = matches.values_of("vcom-arg") {
                             lines.extend(args.map(Into::into));
                         }
@@ -494,7 +488,7 @@ fn emit_vsim_tcl(
                     };
                     lines.push(quote(&relativize_path(p, sess.root)));
                 }
-                println!("");
+                println!();
                 println!("{}", lines.join(" \\\n    "));
                 if abort_on_error {
                     println!("{}", tcl_catch_postfix());
@@ -579,7 +573,7 @@ fn emit_vcs_sh(
                     };
                     lines.push(quote(&relativize_path(p, sess.root)));
                 }
-                println!("");
+                println!();
                 println!("{}", lines.join(" \\\n    "));
             },
         );
@@ -588,6 +582,7 @@ fn emit_vcs_sh(
 }
 
 /// Emit a verilator compilation script.
+#[allow(clippy::single_match)]
 fn emit_verilator_sh(
     sess: &Session,
     matches: &ArgMatches,
@@ -659,10 +654,10 @@ fn emit_verilator_sh(
                             p.strip_prefix(sess.root).unwrap().to_str().unwrap()
                         ));
                     } else {
-                        lines.push(format!("{}", p.to_str().unwrap()));
+                        lines.push(p.to_str().unwrap().to_string());
                     }
                 }
-                println!("");
+                println!();
                 println!("{}", lines.join("\n"));
             },
         );
@@ -709,7 +704,7 @@ fn emit_flist(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>) -> R
                 p.strip_prefix(sess.root).unwrap().to_str().unwrap()
             ));
         } else {
-            lines.push(format!("{}", p.to_str().unwrap()));
+            lines.push(p.to_str().unwrap().to_string());
         }
     }
     println!("{}", lines.join("\n"));
@@ -730,7 +725,7 @@ fn emit_synopsys_tcl(
     let relativize_path = |p: &std::path::Path| quote(&relativize_path(p, sess.root));
     for src in srcs {
         // Adjust the search path.
-        println!("");
+        println!();
         println!("set search_path $search_path_initial");
         for i in src.clone().get_incdirs() {
             println!("lappend search_path {}", relativize_path(i));
@@ -748,8 +743,7 @@ fn emit_synopsys_tcl(
                 _ => None,
             },
             |src, ty, files| {
-                let mut lines = vec![];
-                lines.push(tcl_catch_prefix(&cmd_str(ty), abort_on_error).to_owned());
+                let mut lines = vec![tcl_catch_prefix(&cmd_str(ty), abort_on_error)];
 
                 // Add defines.
                 let mut defines: Vec<(String, Option<String>)> = vec![];
@@ -791,7 +785,7 @@ fn emit_synopsys_tcl(
                     lines.push(format!("    {}", relativize_path(p)));
                 }
                 lines.push("]".to_owned());
-                println!("");
+                println!();
                 println!("{}", lines.join(" \\\n    "));
                 if abort_on_error {
                     println!("{}", tcl_catch_postfix());
@@ -799,7 +793,7 @@ fn emit_synopsys_tcl(
             },
         );
     }
-    println!("");
+    println!();
     println!("set search_path $search_path_initial");
     Ok(())
 }
@@ -830,7 +824,7 @@ fn emit_genus_tcl(
     };
     for src in srcs {
         // Adjust the search path.
-        println!("");
+        println!();
         println!("set search_path $search_path_initial");
         for i in src.clone().get_incdirs() {
             println!("lappend search_path {}", relativize_path(i));
@@ -897,12 +891,12 @@ fn emit_genus_tcl(
                     lines.push(format!("    {}", relativize_path(p)));
                 }
                 lines.push("]".to_owned());
-                println!("");
+                println!();
                 println!("{}", lines.join(" \\\n    "));
             },
         );
     }
-    println!("");
+    println!();
     println!("set search_path $search_path_initial");
     Ok(())
 }
@@ -967,8 +961,8 @@ fn emit_vivado_tcl(
                 _ => None,
             },
             |src, _ty, files| {
-                let mut lines = vec![];
-                lines.push("add_files -norecurse -fileset [current_fileset] [list".to_owned());
+                let mut lines =
+                    vec!["add_files -norecurse -fileset [current_fileset] [list".to_owned()];
                 for file in files {
                     let p = match file {
                         SourceFile::File(p) => p,
@@ -991,7 +985,7 @@ fn emit_vivado_tcl(
         include_dirs.sort();
         include_dirs.dedup();
         for arg in &filesets {
-            println!("");
+            println!();
             println!(
                 "set_property include_dirs [list \\\n    {} \\\n] [current_fileset{}]",
                 include_dirs.join(" \\\n    "),
@@ -1009,12 +1003,12 @@ fn emit_vivado_tcl(
         defines.sort();
         defines.dedup();
         for arg in &filesets {
-            println!("");
+            println!();
             println!("set_property verilog_define [list \\");
             for (k, v) in &defines {
                 let s = match v {
                     Some(s) => format!("{}={}", k, s),
-                    None => format!("{}", k),
+                    None => k.to_string(),
                 };
                 println!("    {} \\", s);
             }
@@ -1052,7 +1046,7 @@ fn emit_riviera_tcl(
                     let mut lines = vec![];
                     match ty {
                         SourceType::Verilog => {
-                            lines.push(tcl_catch_prefix("vlog -sv", abort_on_error).to_owned());
+                            lines.push(tcl_catch_prefix("vlog -sv", abort_on_error));
                             if let Some(args) = matches.values_of("vlog-arg") {
                                 lines.extend(args.map(Into::into));
                             }
@@ -1085,7 +1079,7 @@ fn emit_riviera_tcl(
                             }
                         }
                         SourceType::Vhdl => {
-                            lines.push(tcl_catch_prefix("vcom -2008", abort_on_error).to_owned());
+                            lines.push(tcl_catch_prefix("vcom -2008", abort_on_error));
                             if let Some(args) = matches.values_of("vcom-arg") {
                                 lines.extend(args.map(Into::into));
                             }
@@ -1098,7 +1092,7 @@ fn emit_riviera_tcl(
                         };
                         lines.push(quote(&relativize_path(p, sess.root)));
                     }
-                    println!("");
+                    println!();
                     println!("{}", lines.join(" \\\n    "));
                     if abort_on_error {
                         println!("{}", tcl_catch_postfix());
@@ -1139,7 +1133,7 @@ fn emit_riviera_tcl(
             file_lines.push(quote(&relativize_path(p, sess.root)));
         }
         if t {
-            lines.push(tcl_catch_prefix("vlog -sv", abort_on_error).to_owned());
+            lines.push(tcl_catch_prefix("vlog -sv", abort_on_error));
             if let Some(args) = matches.values_of("vlog-arg") {
                 lines.extend(args.map(Into::into));
             }
@@ -1163,7 +1157,7 @@ fn emit_riviera_tcl(
                 lines.push(quote(&format!("+incdir+{}", relativize_path(i, sess.root))));
             }
         } else {
-            lines.push(tcl_catch_prefix("vcom -2008", abort_on_error).to_owned());
+            lines.push(tcl_catch_prefix("vcom -2008", abort_on_error));
             if let Some(args) = matches.values_of("vcom-arg") {
                 lines.extend(args.map(Into::into));
             }
@@ -1199,7 +1193,7 @@ fn emit_precision_tcl(
     let root = common_path_all(file_paths).unwrap();
 
     // Print the script header
-    println!("{}", format!("# {}", HEADER_AUTOGEN));
+    println!("# {}", HEADER_AUTOGEN);
     println!("# Precision does not take relative paths into account when specifying include dirs.");
     println!("# Define the common ROOT anyway if needed for patching file paths. ");
     println!("set ROOT {}", root.to_str().unwrap());
@@ -1223,9 +1217,7 @@ fn emit_precision_tcl(
     add_defines_from_matches(&mut defines, matches);
     defines.sort();
     if !defines.is_empty() {
-        let mut lines = vec![];
-
-        lines.push("setup_design -defines { \\".to_owned());
+        let mut lines = vec!["setup_design -defines { \\".to_owned()];
         for (k, v) in defines {
             let mut s = format!("    +define+{}", k);
             if let Some(v) = v {
@@ -1256,7 +1248,7 @@ fn emit_precision_tcl(
                 let mut lines = vec![];
                 match ty {
                     SourceType::Verilog => {
-                        lines.push(tcl_catch_prefix("add_input_file", abort_on_error).to_owned());
+                        lines.push(tcl_catch_prefix("add_input_file", abort_on_error));
                         lines.push("-format SystemVerilog2012".to_owned());
                         if !src.clone().get_incdirs().is_empty() {
                             lines.push("-search_path {".to_owned());
@@ -1267,7 +1259,7 @@ fn emit_precision_tcl(
                         }
                     }
                     SourceType::Vhdl => {
-                        lines.push(tcl_catch_prefix("add_input_file", abort_on_error).to_owned());
+                        lines.push(tcl_catch_prefix("add_input_file", abort_on_error));
                         lines.push("-format vhdl_2008".to_owned());
                     }
                 }
@@ -1280,7 +1272,7 @@ fn emit_precision_tcl(
                     lines.push(format!("    {}", p.to_str().unwrap()));
                 }
                 lines.push("} \\".to_owned());
-                println!("");
+                println!();
                 println!("{}", lines.join(" \\\n    "));
                 if abort_on_error {
                     println!("{}", tcl_catch_postfix());

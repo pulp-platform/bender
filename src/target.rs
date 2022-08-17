@@ -74,7 +74,7 @@ impl FromStr for TargetSpec {
         let mut lexer = TargetLexer {
             inner: iter,
             partial: None,
-            next: next,
+            next,
         };
         parse(&mut lexer).map_err(|cause| {
             Error::chain(
@@ -119,10 +119,7 @@ impl TargetSpec {
 
     /// Check whether this specification is just a wildcard.
     pub fn is_wildcard(&self) -> bool {
-        match *self {
-            TargetSpec::Wildcard => true,
-            _ => false,
-        }
+        matches!(*self, TargetSpec::Wildcard)
     }
 }
 
