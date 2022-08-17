@@ -36,7 +36,7 @@ where
         None => return Some(buffer),
     };
     let mut had_separator = false;
-    while let Some(i) = iter.next() {
+    for i in iter {
         buffer.push_str(sep);
         buffer.push(' ');
         buffer.push_str(last.as_ref());

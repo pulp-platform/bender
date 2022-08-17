@@ -71,14 +71,14 @@ where
 /// Execute the `sources` subcommand.
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let rt = Runtime::new()?;
-    let io = SessionIo::new(&sess);
+    let io = SessionIo::new(sess);
     let mut srcs = rt.block_on(io.sources())?;
 
     // Filter the sources by target.
     let targets = matches
         .values_of("target")
-        .map(|t| TargetSet::new(t))
-        .unwrap_or_else(|| TargetSet::empty());
+        .map(TargetSet::new)
+        .unwrap_or_else(TargetSet::empty);
     srcs = srcs
         .filter_targets(&targets)
         .unwrap_or_else(|| SourceGroup {
@@ -97,12 +97,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         sess,
         &matches
             .values_of("package")
-            .map(|p| get_package_strings(p))
-            .unwrap_or_else(|| HashSet::new()),
+            .map(get_package_strings)
+            .unwrap_or_default(),
         &matches
             .values_of("exclude")
-            .map(|p| get_package_strings(p))
-            .unwrap_or_else(|| HashSet::new()),
+            .map(get_package_strings)
+            .unwrap_or_default(),
         matches.is_present("no_deps"),
     );
 
@@ -111,7 +111,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         || matches.is_present("no_deps")
     {
         srcs = srcs
-            .filter_packages(&packages)
+            .filter_packages(packages)
             .unwrap_or_else(|| SourceGroup {
                 package: Default::default(),
                 independent: true,
@@ -134,6 +134,6 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             serde_json::to_writer_pretty(handle, &srcs)
         }
     };
-    println!("");
+    println!();
     result.map_err(|cause| Error::chain("Failed to serialize source file manifest.", cause))
 }

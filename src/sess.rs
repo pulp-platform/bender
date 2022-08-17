@@ -83,10 +83,10 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         force_fetch: bool,
     ) -> Session<'ctx> {
         Session {
-            root: root,
-            manifest: manifest,
-            config: config,
-            arenas: arenas,
+            root,
+            manifest,
+            config,
+            arenas,
             manifest_mtime: {
                 if force_fetch {
                     Some(SystemTime::now())
@@ -105,7 +105,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             plugins: Mutex::new(None),
             cache: Default::default(),
             // git_throttle: FutureThrottle::new(8),
-            local_only: local_only,
+            local_only,
         }
     }
 
@@ -160,7 +160,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
                     version: pkg
                         .version
                         .as_ref()
-                        .map(|s| semver::Version::parse(&s).unwrap()),
+                        .map(|s| semver::Version::parse(s).unwrap()),
                 }),
             );
             graph_names.insert(id, &pkg.dependencies);
@@ -210,7 +210,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
                         cyclic = true;
                     }
                 }
-                if cyclic == true {
+                if cyclic {
                     let mut pend_str = vec![];
                     for element in pending.iter() {
                         pend_str.push(self.dependency_name(*element));
@@ -272,7 +272,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
     ///
     /// Returns an error if the dependency does not exist.
     pub fn dependency_with_name(&self, name: &str) -> Result<DependencyRef> {
-        let result = self.names.lock().unwrap().get(name).map(|id| *id);
+        let result = self.names.lock().unwrap().get(name).copied();
         match result {
             Some(id) => Ok(id),
             None => Err(Error::new(format!(
@@ -386,14 +386,14 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             })
             .collect();
         SourceGroup {
-            package: package,
+            package,
             independent: false,
             target: sources.target.clone(),
             include_dirs: include_dirs.into_iter().collect(),
             export_incdirs: dependency_export_includes.clone(),
-            defines: defines,
-            files: files,
-            dependencies: dependencies,
+            defines,
+            files,
+            dependencies,
         }
     }
 }
@@ -413,7 +413,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     /// Create a new session wrapper.
     pub fn new(sess: &'sess Session<'ctx>) -> SessionIo<'sess, 'ctx> {
         SessionIo {
-            sess: sess,
+            sess,
             git_versions: Mutex::new(HashMap::new()),
         }
     }
@@ -490,10 +490,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // Either initialize the repository or update it if needed.
         if !db_dir.join("config").exists() {
             if self.sess.local_only {
-                return Err(Error::new(format!(
+                return Err(Error::new(
                     "Bender --local argument set, unable to initialize git dependency. \n\
-                    \tPlease update without --local, or provide a path to the missing dependency."
-                )));
+                    \tPlease update without --local, or provide a path to the missing dependency.",
+                ));
             }
             // Initialize.
             self.sess.stats.num_database_init.increment();
@@ -570,7 +570,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         dep_revs.map(move |revs| (refs, revs))
                     }
                 });
-                let out = dep_refs_and_revs.and_then(move |(refs, revs)| {
+                dep_refs_and_revs.and_then(move |(refs, revs)| {
                     let refs: Vec<_> = refs
                         .into_iter()
                         .map(|(a, b)| (self.sess.intern_string(a), self.sess.intern_string(b)))
@@ -583,7 +583,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     let (tags, branches) = {
                         // Create a lookup table for the revisions. This will be used to
                         // only accept refs that point to actual revisions.
-                        let rev_ids: HashSet<&str> = revs.iter().map(|s| *s).collect();
+                        let rev_ids: HashSet<&str> = revs.iter().copied().collect();
 
                         // Split the refs into tags and branches, discard
                         // everything else.
@@ -595,10 +595,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             if !rev_ids.contains(hash) {
                                 continue;
                             }
-                            if rf.starts_with(tag_pfx) {
-                                tags.insert(rf[tag_pfx.len()..].into(), hash);
-                            } else if rf.starts_with(branch_pfx) {
-                                branches.insert(rf[branch_pfx.len()..].into(), hash);
+                            if let Some(stripped) = rf.strip_prefix(tag_pfx) {
+                                tags.insert(stripped, hash);
+                            } else if let Some(stripped) = rf.strip_prefix(branch_pfx) {
+                                branches.insert(stripped, hash);
                             }
                         }
                         (tags, branches)
@@ -608,8 +608,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     let mut versions: Vec<(semver::Version, &'ctx str)> = tags
                         .iter()
                         .filter_map(|(tag, &hash)| {
-                            if tag.starts_with("v") {
-                                match semver::Version::parse(&tag[1..]) {
+                            if let Some(stripped) = tag.strip_prefix('v') {
+                                match semver::Version::parse(stripped) {
                                     Ok(v) => Some((v, hash)),
                                     Err(_) => None,
                                 }
@@ -640,12 +640,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     *self.git_versions.lock().unwrap() = git_versions.clone();
 
                     Ok(GitVersions {
-                        versions: versions,
-                        refs: refs,
-                        revs: revs,
+                        versions,
+                        refs,
+                        revs,
                     })
-                });
-                out
+                })
             }
         }
     }
@@ -672,7 +671,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Ok(p) => p,
                         Err(_) => path,
                     };
-                    return path.to_path_buf();
+                    return path;
                 }
             }
             hasher.update(format!("{:?}", self.sess.root).as_bytes());
@@ -683,7 +682,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // Determine the location of the git checkout. If the workspace has an
         // explicit checkout directory, use that and do not append any hash to
         // the dependency name.
-        let checkout_dir = match self.sess.manifest.workspace.checkout_dir {
+        match self.sess.manifest.workspace.checkout_dir {
             Some(ref cd) => cd.join(&dep.name),
             None => self
                 .sess
@@ -692,8 +691,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .join("git")
                 .join("checkouts")
                 .join(checkout_name),
-        };
-        checkout_dir.to_path_buf()
+        }
     }
 
     /// Ensure that a dependency is checked out and obtain its path.
@@ -791,14 +789,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .and_then(|clear| async move {
                 if clear {
                     debugln!("checkout_git: clear checkout {:?}", path);
-                    std::fs::remove_dir_all(path)
-                        .map_err(|cause| {
-                            Error::chain(
-                                format!("Failed to remove checkout directory {:?}.", path),
-                                cause,
-                            )
-                        })
-                        .into()
+                    std::fs::remove_dir_all(path).map_err(|cause| {
+                        Error::chain(
+                            format!("Failed to remove checkout directory {:?}.", path),
+                            cause,
+                        )
+                    })
                 } else {
                     Ok(())
                 }
@@ -817,19 +813,17 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             let tag_name_1 = tag_name_0.clone();
             let git = self.git_database(name, url, false).await?;
             // .and_then(move |git| {
-            git.clone()
-                .spawn_with(move |c| c.arg("tag").arg(tag_name_0).arg(revision).arg("--force"))
+            git.spawn_with(move |c| c.arg("tag").arg(tag_name_0).arg(revision).arg("--force"))
                 .await?;
-            git.clone()
-                .spawn_with(move |c| {
-                    c.arg("clone")
-                        .arg(git.path)
-                        .arg(path)
-                        .arg("--recursive")
-                        .arg("--branch")
-                        .arg(tag_name_1)
-                })
-                .await?;
+            git.spawn_with(move |c| {
+                c.arg("clone")
+                    .arg(git.path)
+                    .arg(path)
+                    .arg("--recursive")
+                    .arg("--branch")
+                    .arg(tag_name_1)
+            })
+            .await?;
         }
         Ok(path)
     }
@@ -844,7 +838,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         version: DependencyVersion<'ctx>,
     ) -> Result<Option<&'ctx Manifest>> {
         // Check if the manifest is already in the cache.
-        let cache_key = (dep_id, version.clone());
+        let cache_key = (dep_id, version);
         if let Some(&cached) = self
             .sess
             .cache
@@ -894,7 +888,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 let entries = db.list_files(rev, Some("Bender.yml")).await?;
                 let data = match entries.into_iter().next() {
                     None => Ok(None),
-                    Some(entry) => db.cat_file(entry.hash).await.map(|f| Some(f)),
+                    Some(entry) => db.cat_file(entry.hash).await.map(Some),
                 }?;
                 let manifest: Result<_> = match data {
                     Some(data) => {
@@ -921,18 +915,15 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         })?;
                         // Add base path to path dependencies within git repositories
                         for dep in full.dependencies.iter_mut() {
-                            match dep {
-                                (_, config::Dependency::Path(ref path)) => {
-                                    if !path.starts_with("/") {
-                                        if !self.get_package_path(dep_id).exists() {
-                                            warnln!("Please note that dependencies for {:?} may not be available unless {:?} is properly checked out.\n         (to checkout run `bender sources` and then `bender update` again).", dep.0, full.package.name);
-                                        }
-                                        *dep.1 = config::Dependency::Path(
-                                            self.get_package_path(dep_id).join(path).clone(),
-                                        );
+                            if let (_, config::Dependency::Path(ref path)) = dep {
+                                if !path.starts_with("/") {
+                                    if !self.get_package_path(dep_id).exists() {
+                                        warnln!("Please note that dependencies for {:?} may not be available unless {:?} is properly checked out.\n         (to checkout run `bender sources` and then `bender update` again).", dep.0, full.package.name);
                                     }
+                                    *dep.1 = config::Dependency::Path(
+                                        self.get_package_path(dep_id).join(path).clone(),
+                                    );
                                 }
-                                (_, _) => {}
                             }
                         }
                         Ok(Some(self.sess.intern_manifest(full)))
@@ -1057,7 +1048,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 manifests
                     .clone()
                     .into_iter()
-                    .filter_map(|m| m)
+                    .flatten()
                     .map(|m| {
                         (
                             m.package.name.clone(),
@@ -1081,7 +1072,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         .map(|manifests| {
                             let files = manifests
                                 .into_iter()
-                                .filter_map(|m| m)
+                                .flatten()
                                 .filter_map(|m| {
                                     m.sources.as_ref().map(|s| {
                                         // Collect include dirs from export_include_dirs of package and direct dependencies
@@ -1127,7 +1118,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 include_dirs: Vec::new(),
                                 export_incdirs: HashMap::new(),
                                 defines: HashMap::new(),
-                                files: files,
+                                files,
                                 dependencies: Vec::new(),
                             }
                             .into()
@@ -1142,7 +1133,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             include_dirs: Vec::new(),
             export_incdirs: HashMap::new(),
             defines: HashMap::new(),
-            files: files,
+            files,
             dependencies: Vec::new(),
         }
         .simplify();
@@ -1202,7 +1193,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     name.clone(),
                     Plugin {
                         name: name.clone(),
-                        package: package,
+                        package,
                         path: plugin.clone(),
                     },
                 );
@@ -1217,7 +1208,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
         }
         let root_plugins = &self.sess.manifest.plugins;
-        for (name, plugin) in root_plugins.into_iter() {
+        for (name, plugin) in root_plugins.iter() {
             debugln!("sess: plugin `{}` declared by root package", name);
             let existing = plugins.insert(
                 name.clone(),
@@ -1269,6 +1260,12 @@ impl SessionArenas {
     }
 }
 
+impl Default for SessionArenas {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl fmt::Debug for SessionArenas {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "SessionArenas")
@@ -1309,7 +1306,7 @@ pub struct DependencyEntry {
 
 impl DependencyEntry {
     /// Obtain the dependency version for this entry.
-    pub fn version<'a>(&'a self) -> DependencyVersion<'a> {
+    pub fn version(&self) -> DependencyVersion {
         match self.source {
             DependencySource::Registry => unimplemented!(),
             DependencySource::Path(_) => DependencyVersion::Path,
@@ -1357,7 +1354,7 @@ impl DependencySource {
         match *self {
             DependencySource::Registry => "registry".to_string(),
             DependencySource::Path(ref path) => format!("{:?}", path),
-            DependencySource::Git(ref url) => format!("{}", url),
+            DependencySource::Git(ref url) => url.to_string(),
         }
     }
 }
@@ -1451,8 +1448,8 @@ impl<'ctx> DependencyVersion<'ctx> {
     pub fn to_str(&self) -> String {
         match *self {
             DependencyVersion::Path => "path".to_string(),
-            DependencyVersion::Registry(ref v) => format!("{}", v),
-            DependencyVersion::Git(ref r) => format!("{}", r),
+            DependencyVersion::Registry(ref v) => v.to_string(),
+            DependencyVersion::Git(ref r) => r.to_string(),
         }
     }
 }
@@ -1506,7 +1503,7 @@ pub struct SessionStatistics {
     num_database_fetch: StatisticCounter,
 }
 
-impl<'ctx> Drop for SessionStatistics {
+impl Drop for SessionStatistics {
     fn drop(&mut self) {
         debugln!("{:#?}", self);
     }

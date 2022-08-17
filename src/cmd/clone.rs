@@ -37,7 +37,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     let dep = &matches.value_of("name").unwrap().to_lowercase();
     sess.dependency_with_name(dep)?;
 
-    let path_mod = matches.value_of("path").unwrap_or_else(|| "working_dir"); // TODO make this option for config in the Bender.yml file?
+    let path_mod = matches.value_of("path").unwrap_or("working_dir"); // TODO make this option for config in the Bender.yml file?
 
     // Check current config for matches
     if sess.config.overrides.contains_key(dep) {
@@ -56,16 +56,15 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     }
 
     // Create dir
-    if !path.join(path_mod).exists() {
-        if !SysCommand::new("mkdir")
+    if !path.join(path_mod).exists()
+        && !SysCommand::new("mkdir")
             .arg(path_mod)
             .current_dir(path)
             .status()
             .unwrap()
             .success()
-        {
-            Err(Error::new(format!("Creating dir {} failed", path_mod,)))?;
-        }
+    {
+        Err(Error::new(format!("Creating dir {} failed", path_mod,)))?;
     }
 
     // Copy dependency to dir for proper workflow
@@ -74,7 +73,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         println!("Please manually ensure the correct checkout.");
     } else {
         let rt = Runtime::new()?;
-        let io = SessionIo::new(&sess);
+        let io = SessionIo::new(sess);
 
         let ids = matches
             .values_of("name")
@@ -116,7 +115,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
             .unwrap()
             .success()
         {
-            Err(Error::new(format!("git renaming remote origin failed")))?;
+            Err(Error::new("git renaming remote origin failed".to_string()))?;
         }
 
         if !SysCommand::new(&sess.config.git)
@@ -134,7 +133,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
             .unwrap()
             .success()
         {
-            Err(Error::new(format!("git adding remote failed")))?;
+            Err(Error::new("git adding remote failed".to_string()))?;
         }
 
         if !sess.local_only {
@@ -146,7 +145,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
                 .unwrap()
                 .success()
             {
-                Err(Error::new(format!("git fetch failed")))?;
+                Err(Error::new("git fetch failed".to_string()))?;
             }
         } else {
             warnln!("fetch not performed due to --local argument.");
@@ -175,14 +174,14 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         };
         let mut new_str = String::new();
         if local_file_str.contains("overrides:") {
-            let split = local_file_str.split("\n");
+            let split = local_file_str.split('\n');
             let test = split.clone().last().unwrap().is_empty();
             for i in split {
                 if i.contains(dep) {
                     new_str.push('#');
                 }
                 new_str.push_str(i);
-                new_str.push_str("\n");
+                new_str.push('\n');
                 if i.contains("overrides:") {
                     new_str.push_str(&dep_str);
                 }
@@ -192,25 +191,22 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
                 new_str.pop();
             }
         } else {
-            new_str.push_str(&format!("overrides:\n{}", dep_str));
+            new_str.push_str("overrides:\n");
+            new_str.push_str(&dep_str);
             new_str.push_str(&local_file_str);
         }
-        match std::fs::write(local_path, new_str) {
-            Err(why) => Err(Error::new(format!(
+        if let Err(why) = std::fs::write(local_path, new_str) {
+            Err(Error::new(format!(
                 "Writing new Bender.local failed with msg:\n\t{}",
                 why
-            )))?,
-            Ok(_) => (),
+            )))?
         }
-    } else {
-        match std::fs::write(local_path, format!("overrides:\n{}", dep_str)) {
-            Err(why) => Err(Error::new(format!(
-                "Writing new Bender.local failed with msg:\n\t{}",
-                why
-            )))?,
-            Ok(_) => (),
-        };
-    }
+    } else if let Err(why) = std::fs::write(local_path, format!("overrides:\n{}", dep_str)) {
+        Err(Error::new(format!(
+            "Writing new Bender.local failed with msg:\n\t{}",
+            why
+        )))?
+    };
 
     println!("{} dependency added to Bender.local", dep);
 

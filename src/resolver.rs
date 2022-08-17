@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::fmt::Write as _;
 use std::fs;
 use std::mem;
 
@@ -45,7 +46,7 @@ impl<'ctx> DependencyResolver<'ctx> {
     pub fn new(sess: &'ctx Session<'ctx>) -> DependencyResolver<'ctx> {
         // TODO: Populate the table with the contents of the lock file.
         DependencyResolver {
-            sess: sess,
+            sess,
             table: HashMap::new(),
             decisions: HashMap::new(),
             checked_out: HashMap::new(),
@@ -54,10 +55,9 @@ impl<'ctx> DependencyResolver<'ctx> {
 
     fn any_open(&self) -> bool {
         self.table.values().any(|dep| {
-            dep.sources.values().any(|src| match src.state {
-                State::Open => true,
-                _ => false,
-            })
+            dep.sources
+                .values()
+                .any(|src| matches!(src.state, State::Open))
         })
     }
 
@@ -136,7 +136,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             .into_iter()
             .map(|(name, dep)| {
                 let deps = match dep.manifest {
-                    Some(ref manifest) => manifest.dependencies.keys().cloned().collect(),
+                    Some(manifest) => manifest.dependencies.keys().cloned().collect(),
                     None => Default::default(),
                 };
                 let src = dep.source();
@@ -166,17 +166,17 @@ impl<'ctx> DependencyResolver<'ctx> {
                             _ => unreachable!(),
                         };
                         let pick = src.state.pick().unwrap();
-                        let rev = gv.revs[pick].clone();
+                        let rev = gv.revs[pick];
                         let version = gv
                             .versions
                             .iter()
-                            .filter(|&&(_, ref r)| *r == rev)
+                            .filter(|&&(_, r)| r == rev)
                             .map(|&(ref v, _)| v)
                             .max()
                             .map(|v| v.to_string());
                         config::LockedPackage {
                             revision: Some(String::from(rev)),
-                            version: version,
+                            version,
                             source: config::LockedSource::Git(url),
                             dependencies: deps,
                         }
@@ -185,7 +185,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 Ok((name.to_string(), pkg))
             })
             .collect::<Result<_>>()?;
-        Ok(config::Locked { packages: packages })
+        Ok(config::Locked { packages })
     }
 
     fn register_dependency(
@@ -315,7 +315,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     )
                 });
             for (name, pkg_name, dep) in dep_iter {
-                let v = map.entry(name.as_str()).or_insert_with(|| Vec::new());
+                let v = map.entry(name.as_str()).or_insert(Vec::new());
                 v.push((pkg_name, DependencyConstraint::from(dep)));
             }
             map
@@ -339,12 +339,12 @@ impl<'ctx> DependencyResolver<'ctx> {
         );
 
         // Impose the constraints on the dependencies.
-        let mut table = mem::replace(&mut self.table, HashMap::new());
+        let mut table = mem::take(&mut self.table);
         for (name, cons) in cons_map {
             for &(_, ref con) in &cons {
                 debugln!("resolve: impose `{}` on `{}`", con, name);
                 for src in table.get_mut(name).unwrap().sources.values_mut() {
-                    self.impose(name, &con, src, &cons, rt, io)?;
+                    self.impose(name, con, src, &cons, rt, io)?;
                 }
             }
         }
@@ -362,7 +362,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         use self::DependencyConstraint as DepCon;
         use self::DependencyVersions as DepVer;
         match (con, &src.versions) {
-            (&DepCon::Path, &DepVer::Path) => return Ok(None),
+            (&DepCon::Path, &DepVer::Path) => Ok(None),
             (&DepCon::Version(ref con), &DepVer::Git(ref gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
                 let hash_ids: HashMap<&str, usize> = gv
@@ -388,7 +388,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 revs_tmp.reverse();
                 let revs: IndexSet<usize> = revs_tmp
                     .iter()
-                    .filter_map(|(ref v, h)| {
+                    .filter_map(|(v, h)| {
                         if con.matches(v) {
                             Some(hash_ids[h])
                         } else {
@@ -424,33 +424,25 @@ impl<'ctx> DependencyResolver<'ctx> {
                 // debugln!("resolve: `{}` matches revision `{}` for revs {:?}", name, con, revs);
                 Ok(Some(revs))
             }
-            (&DepCon::Version(ref _con), &DepVer::Registry(ref _rv)) => {
-                return Err(Error::new(format!(
-                    "Constraints on registry dependency `{}` not implemented",
-                    name
-                )));
-            }
+            (&DepCon::Version(ref _con), &DepVer::Registry(ref _rv)) => Err(Error::new(format!(
+                "Constraints on registry dependency `{}` not implemented",
+                name
+            ))),
 
             // Handle the error cases.
             // TODO: These need to improve a lot!
-            (con, &DepVer::Git(..)) => {
-                return Err(Error::new(format!(
-                    "Requirement `{}` cannot be applied to git dependency `{}`",
-                    con, name
-                )));
-            }
-            (con, &DepVer::Registry(..)) => {
-                return Err(Error::new(format!(
-                    "Requirement `{}` cannot be applied to registry dependency `{}`",
-                    con, name
-                )));
-            }
-            (_, &DepVer::Path) => {
-                return Err(Error::new(format!(
-                    "`{}` is not declared as a path dependency everywhere.",
-                    name
-                )));
-            }
+            (con, &DepVer::Git(..)) => Err(Error::new(format!(
+                "Requirement `{}` cannot be applied to git dependency `{}`",
+                con, name
+            ))),
+            (con, &DepVer::Registry(..)) => Err(Error::new(format!(
+                "Requirement `{}` cannot be applied to registry dependency `{}`",
+                con, name
+            ))),
+            (_, &DepVer::Path) => Err(Error::new(format!(
+                "`{}` is not declared as a path dependency everywhere.",
+                name
+            ))),
         }
     }
 
@@ -499,8 +491,8 @@ impl<'ctx> DependencyResolver<'ctx> {
             State::Locked(_) => unreachable!(), // TODO: This needs to do something.
             State::Constrained(ref ids) | State::Picked(_, ref ids) => {
                 let is_ids = indices
-                    .intersection(&ids)
-                    .map(|i| *i)
+                    .intersection(ids)
+                    .copied()
                     .collect::<IndexSet<usize>>();
                 if is_ids.is_empty() {
                     let mut msg = format!(
@@ -509,7 +501,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     );
                     let mut cons = Vec::new();
                     for &(pkg_name, ref con) in all_cons {
-                        msg.push_str(&format!("\n- package `{}` requires `{}`", pkg_name, con));
+                        let _ = write!(msg, "\n- package `{}` requires `{}`", pkg_name, con);
                         cons.push(con);
                     }
                     cons = cons.into_iter().unique().collect();
@@ -531,7 +523,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                                 io::stdout().flush().unwrap();
                                 let mut buffer = String::new();
                                 io::stdin().read_line(&mut buffer).unwrap();
-                                if buffer.starts_with("\n") {
+                                if buffer.starts_with('\n') {
                                     break Err(Error::new(msg));
                                 }
                                 let choice = match buffer.trim().parse::<usize>() {
@@ -548,8 +540,8 @@ impl<'ctx> DependencyResolver<'ctx> {
                                         continue;
                                     }
                                 };
-                                self.decisions.insert(name, decision.clone().clone());
-                                break Ok(decision.clone().clone());
+                                self.decisions.insert(name, (*decision).clone());
+                                break Ok((*decision).clone());
                             }?
                         };
                         match self.req_indices(name, &decision, src) {
@@ -602,7 +594,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                             }
                             DependencyVersions::Git(..) => {
                                 debugln!("resolve: picking version for `{}[{}]`", dep.name, src.id);
-                                State::Picked(ids.first().map(|i| *i).unwrap(), ids.clone())
+                                State::Picked(ids.first().copied().unwrap(), ids.clone())
                             }
                             DependencyVersions::Registry(..) => {
                                 return Err(Error::new(format!("Version picking for registry dependency `{}` not yet imlemented", dep.name)));
@@ -616,7 +608,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                                 dep.name,
                                 src.id
                             );
-                            if let Some(ref manifest) = dep.manifest {
+                            if let Some(manifest) = dep.manifest {
                                 open_pending
                                     .extend(manifest.dependencies.keys().map(String::as_str));
                             }
@@ -641,7 +633,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 for src in dep.sources.values_mut() {
                     if !src.state.is_open() {
                         any_changes = true;
-                        if let Some(ref manifest) = dep.manifest {
+                        if let Some(manifest) = dep.manifest {
                             open_pending.extend(manifest.dependencies.keys().map(String::as_str));
                         }
                         src.state = State::Open;
@@ -676,7 +668,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 debugln!("resolve: for `{}` loaded manifest {:#?}", name, m);
                 self.register_dependencies_in_manifest(&m.dependencies, m, rt, io)?;
             }
-            let ref mut existing = self.table.get_mut(name).unwrap().manifest;
+            let existing = &mut self.table.get_mut(name).unwrap().manifest;
             *existing = manifest;
         }
         Ok(())
@@ -715,7 +707,7 @@ impl<'ctx> Dependency<'ctx> {
     /// Create a new dependency.
     fn new(name: &'ctx str) -> Dependency<'ctx> {
         Dependency {
-            name: name,
+            name,
             sources: HashMap::new(),
             manifest: None,
         }
@@ -752,8 +744,8 @@ impl<'ctx> DependencySource<'ctx> {
     /// Create a new dependency source.
     fn new(id: DependencyRef, versions: DependencyVersions<'ctx>) -> DependencySource<'ctx> {
         DependencySource {
-            id: id,
-            versions: versions,
+            id,
+            versions,
             pick: None,
             options: None,
             state: State::Open,
@@ -777,10 +769,7 @@ impl<'ctx> DependencySource<'ctx> {
 
     /// Check whether this is a path dependency.
     fn is_path(&self) -> bool {
-        match self.versions {
-            DependencyVersions::Path => true,
-            _ => false,
-        }
+        matches!(self.versions, DependencyVersions::Path)
     }
 }
 
@@ -799,10 +788,7 @@ enum State {
 impl State {
     /// Check whether the state is `Open`.
     fn is_open(&self) -> bool {
-        match *self {
-            State::Open => true,
-            _ => false,
-        }
+        matches!(*self, State::Open)
     }
 
     /// Return the index of the picked version, if any.
