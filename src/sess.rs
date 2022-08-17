@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use crate::futures::{FutureExt, TryFutureExt};
+use async_recursion::async_recursion;
 use futures::future::{self, join_all};
 use typed_arena::Arena;
 
@@ -830,11 +831,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     }
 
     /// Checkout only git dependency's path sub-dependency Bender.yml files
+    #[async_recursion(?Send)]
     async fn sub_dependency_fixing(
         &'io self,
         dep_iter_mut: &mut HashMap<String, config::Dependency>,
         top_package_name: String,
-        top_dep_id: DependencyRef,
+        reference_path: &Path,
         db: Git<'sess, 'ctx>,
         used_git_rev: &str,
     ) -> Result<()> {
@@ -851,9 +853,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Some(sub_entry) => db.cat_file(sub_entry.hash).await.map(Some),
                     }?;
 
-                    let sub_dep_path = self.get_package_path(top_dep_id).join(path).clone();
+                    let sub_dep_path = reference_path.join(path).clone();
 
-                    if let Some(full_sub_data) = sub_data {
+                    if let Some(full_sub_data) = sub_data.clone() {
                         if !sub_dep_path.exists() {
                             std::fs::create_dir_all(sub_dep_path.clone())?;
                         }
@@ -866,11 +868,45 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         sub_file.flush()?;
                     }
 
-                    *dep.1 = config::Dependency::Path(
-                        self.get_package_path(top_dep_id).join(path).clone(),
-                    );
+                    *dep.1 = config::Dependency::Path(sub_dep_path.clone());
 
-                    // TODO: fix possible recursion for further path dependencies
+                    // Further dependencies
+                    let _manifest: Result<_> = match sub_data {
+                        Some(data) => {
+                            let partial: config::PartialManifest = serde_yaml::from_str(&data)
+                                .map_err(|cause| {
+                                    Error::chain(
+                                        format!(
+                                            "Syntax error in manifest of dependency `{}` at \
+                                                 revision `{}`.",
+                                            dep.0, used_git_rev
+                                        ),
+                                        cause,
+                                    )
+                                })?;
+                            let mut full = partial.validate().map_err(|cause| {
+                                Error::chain(
+                                    format!(
+                                        "Error in manifest of dependency `{}` at revision \
+                                             `{}`.",
+                                        dep.0, used_git_rev
+                                    ),
+                                    cause,
+                                )
+                            })?;
+                            self.sub_dependency_fixing(
+                                &mut full.dependencies,
+                                full.package.name.clone(),
+                                &sub_dep_path,
+                                db,
+                                used_git_rev,
+                            )
+                            .await?;
+
+                            Ok(())
+                        }
+                        None => Ok(()),
+                    };
                 }
             }
         }
@@ -968,7 +1004,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         self.sub_dependency_fixing(
                             &mut full.dependencies,
                             full.package.name.clone(),
-                            dep_id,
+                            &self.get_package_path(dep_id),
                             db,
                             rev,
                         )
