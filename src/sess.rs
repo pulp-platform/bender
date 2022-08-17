@@ -855,15 +855,17 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
                     let sub_dep_path = reference_path.join(path).clone();
 
+                    let tmp_path = self.sess.root.join(".bender").join("tmp");
+
                     if let Some(full_sub_data) = sub_data.clone() {
-                        if !sub_dep_path.exists() {
-                            std::fs::create_dir_all(sub_dep_path.clone())?;
+                        if !tmp_path.exists() {
+                            std::fs::create_dir_all(tmp_path.clone())?;
                         }
                         let mut sub_file = std::fs::OpenOptions::new()
                             .write(true)
                             .truncate(true)
                             .create(true)
-                            .open(sub_dep_path.clone().join("Bender.yml"))?;
+                            .open(tmp_path.join(format!("{}_manifest.yml", dep.0)))?;
                         writeln!(&mut sub_file, "{}", full_sub_data)?;
                         sub_file.flush()?;
                     }
@@ -950,6 +952,31 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 let manifest_path = path.join("Bender.yml");
                 if manifest_path.exists() {
                     match read_manifest(&manifest_path) {
+                        Ok(m) => {
+                            if dep.name != m.package.name {
+                                warnln!("Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
+                                    dep.name, m.package.name); // TODO: This should be an error
+                            }
+                            Ok(Some(self.sess.intern_manifest(m)))
+                        }
+                        Err(e) => Err(e),
+                    }
+                } else if self
+                    .sess
+                    .root
+                    .join(".bender")
+                    .join("tmp")
+                    .join(format!("{}_manifest.yml", dep.name))
+                    .exists()
+                {
+                    match read_manifest(
+                        &self
+                            .sess
+                            .root
+                            .join(".bender")
+                            .join("tmp")
+                            .join(format!("{}_manifest.yml", dep.name)),
+                    ) {
                         Ok(m) => {
                             if dep.name != m.package.name {
                                 warnln!("Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
