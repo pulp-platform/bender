@@ -15,6 +15,7 @@ extern crate tokio;
 extern crate blake2;
 extern crate clap;
 extern crate dirs;
+extern crate glob;
 extern crate pathdiff;
 extern crate semver;
 extern crate tempdir;

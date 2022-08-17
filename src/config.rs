@@ -765,8 +765,6 @@ pub struct Vendor {
     pub mapping: Vec<FromToLink>,
     /// Folder containing patch files
     pub patch_dir: PathBuf,
-    // /// Dependency containing patches
-    // pub patch_repo: Option<Dependency>,
     /// exclude from upstream
     pub exclude_from_upstream: Vec<String>,
 }
@@ -789,10 +787,6 @@ impl PrefixPaths for Vendor {
                 })
                 .collect(),
             patch_dir: patch_root,
-            // patch_repo: match self.patch_repo {
-            //     Some(repo) => Some(repo.prefix_paths(prefix)),
-            //     None => None,
-            // },
             exclude_from_upstream: self.exclude_from_upstream,
         }
     }
@@ -844,10 +838,6 @@ impl Validate for PartialVendor {
                 Some(patch_dir) => patch_dir,
                 None => PathBuf::new(),
             },
-            // patch_repo: match self.patch_repo {
-            //     Some(patch_repo) => Some(patch_repo.validate().map_err(|cause| Error::chain(format!("Unable to parse vendor patch repo"), cause))?),
-            //     None => None,
-            // },
             exclude_from_upstream: match self.exclude_from_upstream {
                 Some(exclude_from_upstream) => exclude_from_upstream,
                 None => Vec::new(),

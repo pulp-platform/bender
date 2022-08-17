@@ -184,6 +184,9 @@ vendor:
     target_dir: vendor/lowrisc_opentitan
     # upstream dependency (i.e. git repository similar to dependencies)
     upstream: { git: "https://github.com/lowRISC/opentitan.git", rev: "47a0f4798febd9e53dd131ef8c8c2b0255d8c139" }
+    # paths to exclude from upstream dependency
+    exclude_from_upstream:
+      - "ci/*"
     # directory containing patch files
     patch_dir: "vendor/patches"
     # file mapping from remote repository to local repository, with optional patch_dir containing patches

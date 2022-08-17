@@ -13,6 +13,7 @@ use crate::config;
 use crate::error::*;
 use crate::git::Git;
 use crate::sess::{DependencySource, Session};
+use glob::Pattern;
 use std::path::Path;
 use tempdir::TempDir;
 
@@ -25,7 +26,6 @@ pub fn new<'a>() -> Command<'a> {
 /// Execute the `vendor` subcommand.
 pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
     let rt = Runtime::new()?;
-    println!("{:?}", sess.manifest.vendor);
 
     for vendor_package in &sess.manifest.vendor {
         // Clone upstream into a temporary directory (or make use of .bender/db?)
@@ -79,12 +79,18 @@ pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
                 // Make sure the target directory actually exists
                 std::fs::create_dir_all(&link.to.parent().unwrap())?;
 
-                // Copy src to dst recursively. For directories, we can use
-                // shutil.copytree. This doesn't support files, though, so we have to
-                // check for them first.
-                // Also set patch path here as parent directory iff dst is a file.
+                // Copy src to dst recursively.
                 match &link.from.clone().prefix_paths(&dep_path).is_dir() {
-                    true => copy_recursively(&link.from.prefix_paths(&dep_path), &link.to)?,
+                    true => copy_recursively(
+                        &link.from.prefix_paths(&dep_path),
+                        &link.to,
+                        &vendor_package
+                            .exclude_from_upstream
+                            .clone()
+                            .into_iter()
+                            .map(|excl| format!("{}/{}", &dep_path.to_str().unwrap(), &excl))
+                            .collect(),
+                    )?,
                     false => {
                         std::fs::copy(&link.from.prefix_paths(&dep_path), &link.to)?;
                     }
@@ -108,7 +114,7 @@ pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
                             .collect::<Vec<_>>();
 
                         // for all patches in this directory, git apply them to the to directory
-                        let git = Git::new(&sess.root, &sess.config.git);
+                        let git = Git::new(sess.root, &sess.config.git);
                         let to_link = link
                             .to
                             .strip_prefix(sess.root)
@@ -150,10 +156,7 @@ pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
                 Ok(())
             })?;
 
-        // Update lockfile
-
-        println!("{:?}", tmp_path);
-        // tmp_dir.close()?;
+        // TODO: Update lockfile
     }
 
     Ok(())
@@ -163,13 +166,27 @@ pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
 pub fn copy_recursively(
     source: impl AsRef<Path>,
     destination: impl AsRef<Path>,
-) -> std::io::Result<()> {
+    ignore: &Vec<String>,
+) -> Result<()> {
     std::fs::create_dir_all(&destination)?;
     for entry in std::fs::read_dir(source)? {
         let entry = entry?;
+
+        if ignore.iter().any(|ignore_path| {
+            Pattern::new(ignore_path)
+                .unwrap()
+                .matches_path(&entry.path())
+        }) {
+            continue;
+        }
+
         let filetype = entry.file_type()?;
         if filetype.is_dir() {
-            copy_recursively(entry.path(), destination.as_ref().join(entry.file_name()))?;
+            copy_recursively(
+                entry.path(),
+                destination.as_ref().join(entry.file_name()),
+                ignore,
+            )?;
         } else {
             std::fs::copy(entry.path(), destination.as_ref().join(entry.file_name()))?;
         }
