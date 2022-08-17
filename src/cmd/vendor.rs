@@ -99,8 +99,10 @@ pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
             .try_for_each::<_, Result<_>>(|link| {
                 match link.patch_dir {
                     Some(patch) => {
-                        let patches = std::fs::read_dir(patch)
-                            .unwrap()
+                        // Create directory in case it does not already exist
+                        std::fs::create_dir_all(patch.clone())?;
+
+                        let patches = std::fs::read_dir(patch)?
                             .map(move |f| f.unwrap().path())
                             .filter(|f| f.extension().unwrap() == "patch")
                             .collect::<Vec<_>>();
