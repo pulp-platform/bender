@@ -93,7 +93,56 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             DependencySource::Registry => unimplemented!(),
         };
 
-        if matches.is_present("refetch") {
+        if !matches.is_present("refetch") {
+            // Copy files from local to temporary repo
+            vendor_package
+                .mapping
+                .clone()
+                .into_iter()
+                .try_for_each::<_, Result<_>>(|link| {
+
+                    let link_from = link.from.clone().prefix_paths(&dep_path);
+
+                    // Copy src to dst recursively.
+                    match &link.to.is_dir() {
+                        true => copy_recursively(
+                            &link.to,
+                            &link_from,
+                            &vendor_package
+                                .exclude_from_upstream
+                                .clone()
+                                .into_iter()
+                                .map(|excl| format!("{}/{}", &vendor_package.target_dir.to_str().unwrap(), &excl))
+                                .collect(),
+                        )?,
+                        false => {
+                            std::fs::copy(&link.to, &link_from)?;
+                        }
+                    };
+                    Ok(())
+                })?;
+
+            for link in vendor_package.mapping.clone() {
+
+                let git = Git::new(tmp_path, &sess.config.git);
+                let get_diff = rt.block_on(async {
+                    git.spawn_with(|c| c.arg("diff").arg(format!("--relative={}", link.from.to_str().unwrap()))).await
+                })?;
+
+                if !get_diff.is_empty() {
+                    if matches.is_present("gen_patch") {
+                        if let Some(patch_dir) = link.patch_dir {
+                            // TODO: generate patch
+                        } else {
+                            Err(Error::new(format!("Please ensure a patch_dir is defined for {}: {:?}", vendor_package.name, link.from)))?;
+                        }
+                    } else {
+                        println!("In {}: {:?}:", vendor_package.name, link.from);
+                        println!("{}", get_diff);
+                    }
+                }
+            }
+        } else {
             // import necessary files from upstream, apply patches
             stageln!("Copying", "{} files from upstream", vendor_package.name);
             // Remove existing directories before importing them again
