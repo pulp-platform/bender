@@ -79,7 +79,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                             config::Dependency::GitRevision(_, ref rev) => rev,
                             _ => unimplemented!(),
                         };
-                        if *rev_hash != git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{}^{{commit}}", rev_hash))).await?.trim_end_matches("\n") {
+                        if *rev_hash != git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{}^{{commit}}", rev_hash))).await?.trim_end_matches('\n') {
                             Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout"))
                         } else {
                             Ok(())
@@ -101,62 +101,68 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     .clone()
                     .into_iter()
                     .try_for_each::<_, Result<_>>(|link| {
-                        match link.patch_dir {
-                            Some(patch) => {
-                                // Create directory in case it does not already exist
-                                std::fs::create_dir_all(patch.clone())?;
+                        if let Some(patch) = link.patch_dir {
+                            // Create directory in case it does not already exist
+                            std::fs::create_dir_all(patch.clone())?;
 
-                                let mut patches = std::fs::read_dir(patch)?
-                                    .map(move |f| f.unwrap().path())
-                                    .filter(|f| f.extension().unwrap() == "patch")
-                                    .collect::<Vec<_>>();
-                                patches.sort_by_key(|patch_path| {
-                                    patch_path.to_str().unwrap().to_lowercase()
-                                });
+                            let mut patches = std::fs::read_dir(patch)?
+                                .map(move |f| f.unwrap().path())
+                                .filter(|f| f.extension().unwrap() == "patch")
+                                .collect::<Vec<_>>();
+                            patches.sort_by_key(|patch_path| {
+                                patch_path.to_str().unwrap().to_lowercase()
+                            });
 
-                                // for all patches in this directory, git apply them to the to directory
-                                let to_link = link.from;
-                                for patch in patches {
-                                    rt.block_on(async {
-                                        // TODO MICHAERO: May need throttle
-                                        future::lazy(|_| {
-                                            stageln!(
-                                                "Patching",
-                                                "{} with {}",
-                                                vendor_package.name,
-                                                patch.file_name().unwrap().to_str().unwrap()
-                                            );
-                                            Ok(())
+                            // for all patches in this directory, git apply them to the to directory
+                            let to_link = link.from;
+                            for patch in patches {
+                                rt.block_on(async {
+                                    // TODO MICHAERO: May need throttle
+                                    future::lazy(|_| {
+                                        stageln!(
+                                            "Patching",
+                                            "{} with {}",
+                                            vendor_package.name,
+                                            patch.file_name().unwrap().to_str().unwrap()
+                                        );
+                                        Ok(())
+                                    })
+                                    .and_then(|_| {
+                                        git.spawn_with(|c| {
+                                            c.arg("apply")
+                                                .arg("--directory")
+                                                .arg(&to_link)
+                                                .arg("-p1")
+                                                .arg(&patch)
                                         })
-                                        .and_then(|_| {
-                                            git.spawn_with(|c| {
-                                                c.arg("apply")
-                                                    .arg("--directory")
-                                                    .arg(&to_link)
-                                                    .arg("-p1")
-                                                    .arg(&patch)
-                                            })
-                                        })
-                                        .await
-                                        .map_err(move |cause| {
-                                            Error::chain(
-                                                format!("Failed to apply patch {:?}.", patch),
-                                                cause,
-                                            )
-                                        })
-                                        .map(move |_| git)
-                                    })?;
-                                }
+                                    })
+                                    .await
+                                    .map_err(move |cause| {
+                                        Error::chain(
+                                            format!("Failed to apply patch {:?}.", patch),
+                                            cause,
+                                        )
+                                    })
+                                    .map(move |_| git)
+                                })?;
                             }
-                            None => {}
                         };
                         Ok(())
                     })?;
                 rt.block_on(async {
-                    if !git.spawn_with(|c| c.arg("status").arg("--short")).await?.is_empty() {
+                    // Temporarily commit the changes to have a proper comparison
+                    if !git
+                        .spawn_with(|c| c.arg("status").arg("--short"))
+                        .await?
+                        .is_empty()
+                    {
                         git.spawn_with(|c| c.arg("add").arg("-A")).await?;
 
-                        git.spawn_with(|c| c.arg("commit").arg("-m \"Temporary commit for bender vendor\"")).await?;
+                        git.spawn_with(|c| {
+                            c.arg("commit")
+                                .arg("-m \"Temporary commit for bender vendor\"")
+                        })
+                        .await?;
                     }
                     Ok::<(), Error>(())
                 })?;
@@ -168,7 +174,6 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 .clone()
                 .into_iter()
                 .try_for_each::<_, Result<_>>(|link| {
-
                     let link_from = link.from.clone().prefix_paths(&dep_path);
 
                     // Copy src to dst recursively.
@@ -180,7 +185,13 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                                 .exclude_from_upstream
                                 .clone()
                                 .into_iter()
-                                .map(|excl| format!("{}/{}", &vendor_package.target_dir.to_str().unwrap(), &excl))
+                                .map(|excl| {
+                                    format!(
+                                        "{}/{}",
+                                        &vendor_package.target_dir.to_str().unwrap(),
+                                        &excl
+                                    )
+                                })
                                 .collect(),
                         )?,
                         false => {
@@ -191,17 +202,64 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 })?;
 
             for link in vendor_package.mapping.clone() {
-
                 let get_diff = rt.block_on(async {
-                    git.spawn_with(|c| c.arg("diff").arg(format!("--relative={}", link.from.to_str().unwrap()))).await
+                    git.spawn_with(|c| {
+                        c.arg("diff")
+                            .arg(format!("--relative={}", link.from.to_str().unwrap()))
+                    })
+                    .await
                 })?;
 
                 if !get_diff.is_empty() {
                     if matches.is_present("gen_patch") {
-                        if let Some(patch_dir) = link.patch_dir {
-                            // TODO: generate patch
+                        if let Some(patch) = link.patch_dir {
+                            // Create directory in case it does not already exist
+                            std::fs::create_dir_all(patch.clone())?;
+
+                            let mut patches = std::fs::read_dir(patch.clone())?
+                                .map(move |f| f.unwrap().path())
+                                .filter(|f| f.extension().unwrap() == "patch")
+                                .collect::<Vec<_>>();
+                            patches.sort_by_key(|patch_path| {
+                                patch_path.to_str().unwrap().to_lowercase()
+                            });
+
+                            let new_patch = if matches.is_present("no_patch") {
+                                // Remove all old patches
+                                for patch_file in patches {
+                                    std::fs::remove_file(patch_file)?;
+                                }
+                                "0001-bender-vendor.patch".to_string()
+                            } else {
+                                // Get all patch leading numeric keys (0001, ...) and generate new name
+                                let leading_numbers = patches
+                                    .iter()
+                                    .map(|file_path| {
+                                        file_path.file_name().unwrap().to_str().unwrap()
+                                    })
+                                    .map(|s| &s[..4])
+                                    .collect::<Vec<_>>();
+                                if !leading_numbers
+                                    .iter()
+                                    .all(|s| s.chars().all(char::is_numeric))
+                                {
+                                    Err(Error::new(format!("Please ensure all patches start with four numbers for proper ordering in {}:{:?}", vendor_package.name, link.from)))?;
+                                }
+                                let max_number = leading_numbers
+                                    .iter()
+                                    .map(|s| s.parse::<i32>().unwrap())
+                                    .max()
+                                    .unwrap();
+                                format!("{:04}-bender-vendor.patch", max_number + 1)
+                            };
+
+                            // write patch
+                            std::fs::write(patch.join(new_patch), get_diff)?;
                         } else {
-                            Err(Error::new(format!("Please ensure a patch_dir is defined for {}: {:?}", vendor_package.name, link.from)))?;
+                            Err(Error::new(format!(
+                                "Please ensure a patch_dir is defined for {}: {:?}",
+                                vendor_package.name, link.from
+                            )))?;
                         }
                     } else {
                         println!("In {}: {:?}:", vendor_package.name, link.from);
