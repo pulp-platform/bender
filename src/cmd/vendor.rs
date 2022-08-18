@@ -94,6 +94,74 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         };
 
         if !matches.is_present("refetch") {
+            let git = Git::new(tmp_path, &sess.config.git);
+            if !matches.is_present("no_patch") {
+                vendor_package
+                    .mapping
+                    .clone()
+                    .into_iter()
+                    .try_for_each::<_, Result<_>>(|link| {
+                        match link.patch_dir {
+                            Some(patch) => {
+                                // Create directory in case it does not already exist
+                                std::fs::create_dir_all(patch.clone())?;
+
+                                let mut patches = std::fs::read_dir(patch)?
+                                    .map(move |f| f.unwrap().path())
+                                    .filter(|f| f.extension().unwrap() == "patch")
+                                    .collect::<Vec<_>>();
+                                patches.sort_by_key(|patch_path| {
+                                    patch_path.to_str().unwrap().to_lowercase()
+                                });
+
+                                // for all patches in this directory, git apply them to the to directory
+                                let to_link = link.from;
+                                for patch in patches {
+                                    rt.block_on(async {
+                                        // TODO MICHAERO: May need throttle
+                                        future::lazy(|_| {
+                                            stageln!(
+                                                "Patching",
+                                                "{} with {}",
+                                                vendor_package.name,
+                                                patch.file_name().unwrap().to_str().unwrap()
+                                            );
+                                            Ok(())
+                                        })
+                                        .and_then(|_| {
+                                            git.spawn_with(|c| {
+                                                c.arg("apply")
+                                                    .arg("--directory")
+                                                    .arg(&to_link)
+                                                    .arg("-p1")
+                                                    .arg(&patch)
+                                            })
+                                        })
+                                        .await
+                                        .map_err(move |cause| {
+                                            Error::chain(
+                                                format!("Failed to apply patch {:?}.", patch),
+                                                cause,
+                                            )
+                                        })
+                                        .map(move |_| git)
+                                    })?;
+                                }
+                            }
+                            None => {}
+                        };
+                        Ok(())
+                    })?;
+                rt.block_on(async {
+                    if !git.spawn_with(|c| c.arg("status").arg("--short")).await?.is_empty() {
+                        git.spawn_with(|c| c.arg("add").arg("-A")).await?;
+
+                        git.spawn_with(|c| c.arg("commit").arg("-m \"Temporary commit for bender vendor\"")).await?;
+                    }
+                    Ok::<(), Error>(())
+                })?;
+            }
+
             // Copy files from local to temporary repo
             vendor_package
                 .mapping
@@ -124,7 +192,6 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
             for link in vendor_package.mapping.clone() {
 
-                let git = Git::new(tmp_path, &sess.config.git);
                 let get_diff = rt.block_on(async {
                     git.spawn_with(|c| c.arg("diff").arg(format!("--relative={}", link.from.to_str().unwrap()))).await
                 })?;
