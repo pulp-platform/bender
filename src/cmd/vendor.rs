@@ -108,10 +108,11 @@ pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
                         // Create directory in case it does not already exist
                         std::fs::create_dir_all(patch.clone())?;
 
-                        let patches = std::fs::read_dir(patch)?
+                        let mut patches = std::fs::read_dir(patch)?
                             .map(move |f| f.unwrap().path())
                             .filter(|f| f.extension().unwrap() == "patch")
                             .collect::<Vec<_>>();
+                        patches.sort_by_key(|patch_path| patch_path.to_str().unwrap().to_lowercase());
 
                         // for all patches in this directory, git apply them to the to directory
                         let git = Git::new(sess.root, &sess.config.git);
