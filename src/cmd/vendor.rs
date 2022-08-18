@@ -43,12 +43,6 @@ pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
                         Ok(())
                     })
                     .and_then(|_| git.spawn_with(|c| c.arg("clone").arg(url).arg(".")))
-                    .and_then(|_| git.spawn_with(|c| c.arg("checkout").arg(match vendor_package.upstream {
-                        config::Dependency::GitRevision(_, ref rev) => rev,
-                        // config::Dependency::GitVersion(_, ref ver) => ver.to_str(),
-                        _ => unimplemented!(),
-                    })))
-                    .await
                     .map_err(move |cause| {
                         if url.contains("git@") {
                             warnln!("Please ensure your public ssh key is added to the git server.");
@@ -59,8 +53,25 @@ pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
                             cause,
                         )
                     })
-                    .map(move |_| git)
+                    .and_then(|_| git.spawn_with(|c| c.arg("checkout").arg(match vendor_package.upstream {
+                        config::Dependency::GitRevision(_, ref rev) => rev,
+                        // config::Dependency::GitVersion(_, ref ver) => ver.to_str(),
+                        _ => unimplemented!(),
+                    })))
+                    .and_then(|_| async {
+                        let rev_hash = match vendor_package.upstream {
+                            config::Dependency::GitRevision(_, ref rev) => rev,
+                            _ => unimplemented!(),
+                        };
+                        if *rev_hash != git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{}^{{commit}}", rev_hash))).await?.trim_end_matches("\n") {
+                            Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout"))
+                        } else {
+                            Ok(())
+                        }
+                    })
+                    .await
                 })?;
+
                 tmp_path.to_path_buf()
             }
             DependencySource::Registry => unimplemented!(),
