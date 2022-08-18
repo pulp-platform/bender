@@ -150,19 +150,13 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                         Ok(())
                     })?;
                 rt.block_on(async {
-                    // Temporarily commit the changes to have a proper comparison
+                    // Add the changes to have a proper comparison
                     if !git
                         .spawn_with(|c| c.arg("status").arg("--short"))
                         .await?
                         .is_empty()
                     {
                         git.spawn_with(|c| c.arg("add").arg("-A")).await?;
-
-                        git.spawn_with(|c| {
-                            c.arg("commit")
-                                .arg("-m \"Temporary commit for bender vendor\"")
-                        })
-                        .await?;
                     }
                     Ok::<(), Error>(())
                 })?;
