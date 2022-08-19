@@ -451,7 +451,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         name: &str,
         url: &str,
         force_fetch: bool,
-    ) -> Result<Git<'sess, 'ctx>> {
+    ) -> Result<Git<'ctx>> {
         // TODO: Make the assembled future shared and keep it in a lookup table.
         //       Then use that table to return the future if it already exists.
         //       This ensures that the gitdb is setup only once, and makes the
@@ -483,7 +483,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 ))
             }
         };
-        let git = Git::new(db_dir, self.sess);
+        let git = Git::new(db_dir, &self.sess.config.git);
         let name2 = String::from(name);
         let url = String::from(url);
         let url2 = url.clone();
@@ -549,7 +549,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     }
 
     /// Determine the list of versions available for a git dependency.
-    pub async fn git_versions_func(&'io self, git: Git<'sess, 'ctx>) -> Result<GitVersions<'ctx>> {
+    pub async fn git_versions_func(&'io self, git: Git<'ctx>) -> Result<GitVersions<'ctx>> {
         let versions_tmp = self.git_versions.lock().unwrap().clone();
 
         match versions_tmp.get(&git.path.to_path_buf()) {
@@ -767,7 +767,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
                     // Scrap checkouts with the wrong tag.
 
-                    Git::new(path, self.sess)
+                    Git::new(path, &self.sess.config.git)
                         .current_checkout()
                         .then(|current| async {
                             Ok(match current {
@@ -838,7 +838,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         top_package_name: String,
         reference_path: &Path,
         dep_base_path: &Path,
-        db: Git<'sess, 'ctx>,
+        db: Git<'ctx>,
         used_git_rev: &str,
     ) -> Result<()> {
         for dep in (dep_iter_mut).iter_mut() {
