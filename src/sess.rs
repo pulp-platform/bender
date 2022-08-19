@@ -837,6 +837,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         dep_iter_mut: &mut HashMap<String, config::Dependency>,
         top_package_name: String,
         reference_path: &Path,
+        dep_base_path: &Path,
         db: Git<'sess, 'ctx>,
         used_git_rev: &str,
     ) -> Result<()> {
@@ -846,7 +847,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     warnln!("Path dependencies ({:?}) in git dependencies ({:?}) currently not fully supported. Your mileage may vary.", dep.0, top_package_name);
 
                     let sub_entries = db
-                        .list_files(used_git_rev, Some(path.join("Bender.yml")))
+                        .list_files(
+                            used_git_rev,
+                            Some(
+                                reference_path
+                                    .strip_prefix(dep_base_path)
+                                    .unwrap()
+                                    .join(path)
+                                    .join("Bender.yml"),
+                            ),
+                        )
                         .await?;
                     let sub_data = match sub_entries.into_iter().next() {
                         None => Ok(None),
@@ -900,6 +910,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 &mut full.dependencies,
                                 full.package.name.clone(),
                                 &sub_dep_path,
+                                &dep_base_path,
                                 db,
                                 used_git_rev,
                             )
@@ -1031,6 +1042,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         self.sub_dependency_fixing(
                             &mut full.dependencies,
                             full.package.name.clone(),
+                            &self.get_package_path(dep_id),
                             &self.get_package_path(dep_id),
                             db,
                             rev,
