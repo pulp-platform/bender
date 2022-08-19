@@ -177,7 +177,7 @@ plugins:
   hello: scripts/hello.sh
 
 # List of imported files from external repositories not supporting bender. Optional
-vendor:
+external_import:
     # package name
   - name: lowrisc_opentitan
     # target directory
@@ -454,10 +454,13 @@ The `bender parents <PKG>` command lists all packages calling the `PKG` package.
 
 This command will ensure all dependencies are downloaded from remote repositories. This is usually automatically executed by other commands, such as `sources` and `script`.
 
-### `vendor` --- Copy files from dependencies that do not support bender
+### `import` --- Copy files from dependencies that do not support bender
 
-This command will update the dependencies listed in the `vendor` section of the `Bender.yml` file, fetching the files from the remote repositories and applying the necessary patch files.
-This command will only refetch and patch the files in the top-level Bender.yml file.
+This command will update the dependencies listed in the `external_import` section of the `Bender.yml` file, fetching the files from the remote repositories and applying the necessary patch files.
+This command will print a diff to the patched remote repository.
+If the `--refetch` argument is passed, it will refetch the upstream and apply patched.
+If the `--gen_patch` argument is passed, it will generate additional new patches from the current diff.
+If the `-n/--no_patch` argument is passed, any application of current patches will be suppressed, with `--gen_patch` any existing patch files will be deleted and a new patch created.
 Please make sure you manage the includes and sources required for these files separately, as this command only fetches the files and patches them.
 This is in part based on [lowRISC's `vendor.py` script](https://github.com/lowRISC/opentitan/blob/master/util/vendor.py).
 

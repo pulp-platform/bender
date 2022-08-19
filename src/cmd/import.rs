@@ -19,12 +19,12 @@ use tempdir::TempDir;
 
 /// Assemble the `vendor` subcommand.
 pub fn new<'a>() -> Command<'a> {
-    Command::new("vendor")
-        .about("Copy source code from upstream vendor repositories into this repository")
+    Command::new("import")
+        .about("Copy source code from upstream external repositories into this repository. Functions similar to the lowrisc vendor.py script")
         .arg(
             Arg::new("refetch")
                 .long("refetch")
-                .help("Replace the vendored files from upstream and apply the patches"),
+                .help("Replace the external files from upstream and apply the patches"),
         )
         .arg(
             Arg::new("no_patch")
@@ -43,7 +43,7 @@ pub fn new<'a>() -> Command<'a> {
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let rt = Runtime::new()?;
 
-    for vendor_package in &sess.manifest.vendor {
+    for vendor_package in &sess.manifest.external_import {
         // Clone upstream into a temporary directory (or make use of .bender/db?)
         let dep_src = DependencySource::from(&vendor_package.upstream);
         let tmp_dir = TempDir::new(&vendor_package.name)?;

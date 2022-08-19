@@ -42,8 +42,8 @@ pub struct Manifest {
     pub frozen: bool,
     /// The workspace configuration.
     pub workspace: Workspace,
-    /// Vendored dependencies
-    pub vendor: Vec<Vendor>,
+    /// External Import dependencies
+    pub external_import: Vec<ExternalImport>,
 }
 
 impl PrefixPaths for Manifest {
@@ -60,7 +60,7 @@ impl PrefixPaths for Manifest {
             plugins: self.plugins.prefix_paths(prefix),
             frozen: self.frozen,
             workspace: self.workspace.prefix_paths(prefix),
-            vendor: self.vendor.prefix_paths(prefix),
+            external_import: self.external_import.prefix_paths(prefix),
         }
     }
 }
@@ -290,8 +290,8 @@ pub struct PartialManifest {
     pub frozen: Option<bool>,
     /// The workspace configuration.
     pub workspace: Option<PartialWorkspace>,
-    /// Vendored dependencies
-    pub vendor: Option<Vec<PartialVendor>>,
+    /// External Import dependencies
+    pub external_import: Option<Vec<PartialExternalImport>>,
 }
 
 impl Validate for PartialManifest {
@@ -337,10 +337,10 @@ impl Validate for PartialManifest {
                 .map_err(|cause| Error::chain("In workspace configuration:", cause))?,
             None => Workspace::default(),
         };
-        let vendor = match self.vendor {
+        let external_import = match self.external_import {
             Some(vend) => vend
                 .validate()
-                .map_err(|cause| Error::chain("Unable to parse vendor", cause))?,
+                .map_err(|cause| Error::chain("Unable to parse external_import", cause))?,
             None => Vec::new(),
         };
         Ok(Manifest {
@@ -351,7 +351,7 @@ impl Validate for PartialManifest {
             plugins,
             frozen,
             workspace,
-            vendor,
+            external_import,
         })
     }
 }
@@ -752,16 +752,16 @@ impl Validate for PartialConfig {
     }
 }
 
-/// A vendor dependency
+/// An external import dependency
 #[derive(Serialize, Debug)]
-pub struct Vendor {
-    /// Vendored dependency name
+pub struct ExternalImport {
+    /// External dependency name
     pub name: String,
-    /// Target folder for vendored dependency
+    /// Target folder for imported dependency
     pub target_dir: PathBuf,
     /// Upstream dependency reference
     pub upstream: Dependency,
-    /// Vendor mapping
+    /// Import mapping
     pub mapping: Vec<FromToLink>,
     /// Folder containing patch files
     pub patch_dir: PathBuf,
@@ -769,11 +769,11 @@ pub struct Vendor {
     pub exclude_from_upstream: Vec<String>,
 }
 
-impl PrefixPaths for Vendor {
+impl PrefixPaths for ExternalImport {
     fn prefix_paths(self, prefix: &Path) -> Self {
         let full_target = self.target_dir.prefix_paths(prefix);
         let patch_root = self.patch_dir.prefix_paths(prefix);
-        Vendor {
+        ExternalImport {
             name: self.name,
             target_dir: full_target.clone(),
             upstream: self.upstream,
@@ -792,16 +792,16 @@ impl PrefixPaths for Vendor {
     }
 }
 
-/// A partial vendor dependency
+/// A partial external import dependency
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PartialVendor {
-    /// Vendored dependency name
+pub struct PartialExternalImport {
+    /// External dependency name
     pub name: Option<String>,
-    /// Target folder for vendored dependency
+    /// Target folder for imported dependency
     pub target_dir: Option<PathBuf>,
     /// Upstream dependency reference
     pub upstream: Option<PartialDependency>,
-    /// Vendor mapping
+    /// Import mapping
     pub mapping: Option<Vec<FromToLink>>,
     /// Folder containing patch files
     pub patch_dir: Option<PathBuf>,
@@ -811,24 +811,24 @@ pub struct PartialVendor {
     pub exclude_from_upstream: Option<Vec<String>>,
 }
 
-impl Validate for PartialVendor {
-    type Output = Vendor;
+impl Validate for PartialExternalImport {
+    type Output = ExternalImport;
     type Error = Error;
-    fn validate(self) -> Result<Vendor> {
-        Ok(Vendor {
+    fn validate(self) -> Result<ExternalImport> {
+        Ok(ExternalImport {
             name: match self.name {
                 Some(name) => name,
-                None => return Err(Error::new("vendor name missing")),
+                None => return Err(Error::new("external import name missing")),
             },
             target_dir: match self.target_dir {
                 Some(target_dir) => target_dir,
-                None => return Err(Error::new("vendor target dir missing")),
+                None => return Err(Error::new("external import target dir missing")),
             },
             upstream: match self.upstream {
                 Some(upstream) => upstream
                     .validate()
-                    .map_err(|cause| Error::chain("Unable to parse vendor upstream", cause))?,
-                None => return Err(Error::new("vendor upstream missing")),
+                    .map_err(|cause| Error::chain("Unable to parse external import upstream", cause))?,
+                None => return Err(Error::new("external import upstream missing")),
             },
             mapping: match self.mapping {
                 Some(mapping) => mapping,
@@ -846,7 +846,7 @@ impl Validate for PartialVendor {
     }
 }
 
-/// A random type I'm testing
+/// An external import linkage
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct FromToLink {
     /// from string
@@ -892,11 +892,4 @@ pub enum LockedSource {
     Git(String),
     /// A registry.
     Registry(String),
-}
-
-/// A locked Vendor dependency
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct LockedVendor {
-    /// locked source for the locked dep
-    pub upstream: LockedSource,
 }

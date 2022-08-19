@@ -15,4 +15,4 @@ pub mod parents;
 pub mod path;
 pub mod script;
 pub mod sources;
-pub mod vendor;
+pub mod import;
