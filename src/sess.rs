@@ -910,7 +910,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 &mut full.dependencies,
                                 full.package.name.clone(),
                                 &sub_dep_path,
-                                &dep_base_path,
+                                dep_base_path,
                                 db,
                                 used_git_rev,
                             )

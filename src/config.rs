@@ -825,9 +825,9 @@ impl Validate for PartialExternalImport {
                 None => return Err(Error::new("external import target dir missing")),
             },
             upstream: match self.upstream {
-                Some(upstream) => upstream
-                    .validate()
-                    .map_err(|cause| Error::chain("Unable to parse external import upstream", cause))?,
+                Some(upstream) => upstream.validate().map_err(|cause| {
+                    Error::chain("Unable to parse external import upstream", cause)
+                })?,
                 None => return Err(Error::new("external import upstream missing")),
             },
             mapping: match self.mapping {
