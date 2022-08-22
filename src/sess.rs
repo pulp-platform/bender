@@ -9,6 +9,7 @@ use std;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::canonicalize;
+use std::io::Write;
 use std::iter::FromIterator;
 use std::mem::swap;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use crate::futures::{FutureExt, TryFutureExt};
+use async_recursion::async_recursion;
 use futures::future::{self, join_all};
 use typed_arena::Arena;
 
@@ -828,6 +830,102 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         Ok(path)
     }
 
+    /// Checkout only git dependency's path sub-dependency Bender.yml files
+    #[async_recursion(?Send)]
+    async fn sub_dependency_fixing(
+        &'io self,
+        dep_iter_mut: &mut HashMap<String, config::Dependency>,
+        top_package_name: String,
+        reference_path: &Path,
+        dep_base_path: &Path,
+        db: Git<'sess, 'ctx>,
+        used_git_rev: &str,
+    ) -> Result<()> {
+        for dep in (dep_iter_mut).iter_mut() {
+            if let (_, config::Dependency::Path(ref path)) = dep {
+                if !path.starts_with("/") {
+                    warnln!("Path dependencies ({:?}) in git dependencies ({:?}) currently not fully supported. Your mileage may vary.", dep.0, top_package_name);
+
+                    let sub_entries = db
+                        .list_files(
+                            used_git_rev,
+                            Some(
+                                reference_path
+                                    .strip_prefix(dep_base_path)
+                                    .unwrap()
+                                    .join(path)
+                                    .join("Bender.yml"),
+                            ),
+                        )
+                        .await?;
+                    let sub_data = match sub_entries.into_iter().next() {
+                        None => Ok(None),
+                        Some(sub_entry) => db.cat_file(sub_entry.hash).await.map(Some),
+                    }?;
+
+                    let sub_dep_path = reference_path.join(path).clone();
+
+                    let tmp_path = self.sess.root.join(".bender").join("tmp");
+
+                    if let Some(full_sub_data) = sub_data.clone() {
+                        if !tmp_path.exists() {
+                            std::fs::create_dir_all(tmp_path.clone())?;
+                        }
+                        let mut sub_file = std::fs::OpenOptions::new()
+                            .write(true)
+                            .truncate(true)
+                            .create(true)
+                            .open(tmp_path.join(format!("{}_manifest.yml", dep.0)))?;
+                        writeln!(&mut sub_file, "{}", full_sub_data)?;
+                        sub_file.flush()?;
+                    }
+
+                    *dep.1 = config::Dependency::Path(sub_dep_path.clone());
+
+                    // Further dependencies
+                    let _manifest: Result<_> = match sub_data {
+                        Some(data) => {
+                            let partial: config::PartialManifest = serde_yaml::from_str(&data)
+                                .map_err(|cause| {
+                                    Error::chain(
+                                        format!(
+                                            "Syntax error in manifest of dependency `{}` at \
+                                                 revision `{}`.",
+                                            dep.0, used_git_rev
+                                        ),
+                                        cause,
+                                    )
+                                })?;
+                            let mut full = partial.validate().map_err(|cause| {
+                                Error::chain(
+                                    format!(
+                                        "Error in manifest of dependency `{}` at revision \
+                                             `{}`.",
+                                        dep.0, used_git_rev
+                                    ),
+                                    cause,
+                                )
+                            })?;
+                            self.sub_dependency_fixing(
+                                &mut full.dependencies,
+                                full.package.name.clone(),
+                                &sub_dep_path,
+                                &dep_base_path,
+                                db,
+                                used_git_rev,
+                            )
+                            .await?;
+
+                            Ok(())
+                        }
+                        None => Ok(()),
+                    };
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Load the manifest for a specific version of a dependency.
     ///
     /// Loads and returns the manifest for a dependency at a specific version.
@@ -874,7 +972,33 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         }
                         Err(e) => Err(e),
                     }
+                } else if self
+                    .sess
+                    .root
+                    .join(".bender")
+                    .join("tmp")
+                    .join(format!("{}_manifest.yml", dep.name))
+                    .exists()
+                {
+                    match read_manifest(
+                        &self
+                            .sess
+                            .root
+                            .join(".bender")
+                            .join("tmp")
+                            .join(format!("{}_manifest.yml", dep.name)),
+                    ) {
+                        Ok(m) => {
+                            if dep.name != m.package.name {
+                                warnln!("Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
+                                    dep.name, m.package.name); // TODO: This should be an error
+                            }
+                            Ok(Some(self.sess.intern_manifest(m)))
+                        }
+                        Err(e) => Err(e),
+                    }
                 } else {
+                    warnln!("Manifest not found for {:?}", dep.name);
                     Ok(None)
                 }
             }
@@ -913,22 +1037,24 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 cause,
                             )
                         })?;
+
                         // Add base path to path dependencies within git repositories
-                        for dep in full.dependencies.iter_mut() {
-                            if let (_, config::Dependency::Path(ref path)) = dep {
-                                if !path.starts_with("/") {
-                                    if !self.get_package_path(dep_id).exists() {
-                                        warnln!("Please note that dependencies for {:?} may not be available unless {:?} is properly checked out.\n         (to checkout run `bender sources` and then `bender update` again).", dep.0, full.package.name);
-                                    }
-                                    *dep.1 = config::Dependency::Path(
-                                        self.get_package_path(dep_id).join(path).clone(),
-                                    );
-                                }
-                            }
-                        }
+                        self.sub_dependency_fixing(
+                            &mut full.dependencies,
+                            full.package.name.clone(),
+                            &self.get_package_path(dep_id),
+                            &self.get_package_path(dep_id),
+                            db,
+                            rev,
+                        )
+                        .await?;
+
                         Ok(Some(self.sess.intern_manifest(full)))
                     }
-                    None => Ok(None),
+                    None => {
+                        warnln!("Manifest not found for {:?}", dep.name);
+                        Ok(None)
+                    }
                 };
                 let manifest = manifest?;
                 self.sess
