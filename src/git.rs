@@ -12,24 +12,23 @@ use futures::TryFutureExt;
 use tokio::process::Command;
 
 use crate::error::*;
-use crate::sess::Session;
 
 /// A git repository.
 ///
 /// This struct is used to interact with git repositories on disk. It makes
 /// heavy use of futures to execute the different tasks.
 #[derive(Copy, Clone)]
-pub struct Git<'sess, 'ctx: 'sess> {
+pub struct Git<'ctx> {
     /// The path to the repository.
     pub path: &'ctx Path,
     /// The session within which commands will be executed.
-    pub sess: &'sess Session<'ctx>,
+    pub git: &'ctx String,
 }
 
-impl<'git, 'sess, 'ctx: 'sess> Git<'sess, 'ctx> {
+impl<'git, 'ctx> Git<'ctx> {
     /// Create a new git context.
-    pub fn new(path: &'ctx Path, sess: &'sess Session<'ctx>) -> Git<'sess, 'ctx> {
-        Git { path, sess }
+    pub fn new(path: &'ctx Path, git: &'ctx String) -> Git<'ctx> {
+        Git { path, git }
     }
 
     /// Create a new git command.
@@ -37,7 +36,7 @@ impl<'git, 'sess, 'ctx: 'sess> Git<'sess, 'ctx> {
     /// The command will have the form `git <subcommand>` and be pre-configured
     /// to operate in the repository's path.
     pub fn command(self, subcommand: &str) -> Command {
-        let mut cmd = Command::new(&self.sess.config.git);
+        let mut cmd = Command::new(&self.git);
         cmd.arg(subcommand);
         cmd.current_dir(&self.path);
         cmd
@@ -110,7 +109,7 @@ impl<'git, 'sess, 'ctx: 'sess> Git<'sess, 'ctx> {
     where
         F: FnOnce(&mut Command) -> &mut Command,
     {
-        let mut cmd = Command::new(&self.sess.config.git);
+        let mut cmd = Command::new(&self.git);
         cmd.current_dir(&self.path);
         f(&mut cmd);
         self.spawn(cmd, true).await
@@ -124,7 +123,7 @@ impl<'git, 'sess, 'ctx: 'sess> Git<'sess, 'ctx> {
     where
         F: FnOnce(&mut Command) -> &mut Command,
     {
-        let mut cmd = Command::new(&self.sess.config.git);
+        let mut cmd = Command::new(&self.git);
         cmd.current_dir(&self.path);
         f(&mut cmd);
         self.spawn(cmd, false).await

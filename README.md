@@ -175,6 +175,26 @@ workspace:
 # Optional. Only available in dependent packages.
 plugins:
   hello: scripts/hello.sh
+
+# List of imported files from external repositories not supporting bender. Optional
+external_import:
+    # package name
+  - name: lowrisc_opentitan
+    # target directory
+    target_dir: vendor/lowrisc_opentitan
+    # upstream dependency (i.e. git repository similar to dependencies)
+    upstream: { git: "https://github.com/lowRISC/opentitan.git", rev: "47a0f4798febd9e53dd131ef8c8c2b0255d8c139" }
+    # paths to exclude from upstream dependency
+    exclude_from_upstream:
+      - "ci/*"
+    # directory containing patch files
+    patch_dir: "vendor/patches"
+    # file mapping from remote repository to local repository, with optional patch_dir containing patches
+    mapping: 
+      - {from: 'hw/ip/prim/rtl/prim_subreg.sv', to: 'src/prim_subreg.sv' }
+      - {from: 'hw/ip/prim/rtl/prim_subreg_arb.sv', to: 'src/prim_subreg_arb.sv' }
+      - {from: 'hw/ip/prim/rtl/prim_subreg_ext.sv', to: 'src/prim_subreg_ext.sv', patch_dir: 'lowrisc_opentitan' }
+      - {from: 'hw/ip/prim/rtl/prim_subreg_shadow.sv', to: 'src/prim_subreg_shadow.sv' }
 ```
 
 [Relevant code](https://github.com/pulp-platform/bender/blob/master/src/config.rs)
@@ -290,6 +310,11 @@ Additionally, we suggest to use the following targets to identify source code an
 - `gate` for gate-level netlists
 
 [Relevant code](https://github.com/pulp-platform/bender/blob/master/src/target.rs)
+
+### Vendor
+
+Section to list files and directories copied and patched within this repository from external repositories not supporting bender.
+To update, see below `vendor` command.
 
 
 ## Configuration Format (`bender.yml`, `Bender.local`)
@@ -428,6 +453,16 @@ The `bender parents <PKG>` command lists all packages calling the `PKG` package.
 ### `checkout` --- Checkout all dependencies referenced in the Lock file
 
 This command will ensure all dependencies are downloaded from remote repositories. This is usually automatically executed by other commands, such as `sources` and `script`.
+
+### `import` --- Copy files from dependencies that do not support bender
+
+This command will update the dependencies listed in the `external_import` section of the `Bender.yml` file, fetching the files from the remote repositories and applying the necessary patch files.
+This command will print a diff to the patched remote repository.
+If the `--refetch` argument is passed, it will refetch the upstream and apply patched.
+If the `--gen_patch` argument is passed, it will generate additional new patches from the current diff.
+If the `-n/--no_patch` argument is passed, any application of current patches will be suppressed, with `--gen_patch` any existing patch files will be deleted and a new patch created.
+Please make sure you manage the includes and sources required for these files separately, as this command only fetches the files and patches them.
+This is in part based on [lowRISC's `vendor.py` script](https://github.com/lowRISC/opentitan/blob/master/util/vendor.py).
 
 [aur-bender]: https://aur.archlinux.org/packages/bender
 [releases]: https://github.com/pulp-platform/bender/releases
