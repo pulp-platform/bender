@@ -172,8 +172,7 @@ impl<'ctx> SourceGroup<'ctx> {
                 .collect();
         }
 
-        let mut export_incdirs = self.export_incdirs.clone();
-        export_incdirs.retain(|k, _| packages.contains(k));
+        let export_incdirs = self.export_incdirs.clone();
         Some(
             SourceGroup {
                 package: self.package,
