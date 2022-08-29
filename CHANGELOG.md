@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
+## 0.26.1 - 2022-08-29
+### Fixed
+- Keep `export_incdirs` from excluded dependencies in sources and scripts
+
 ## 0.26.0 - 2022-08-26
 ### Added
 - Add clippy to github CI and fix noted issues
