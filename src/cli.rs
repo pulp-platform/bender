@@ -88,6 +88,9 @@ pub fn main() -> Result<()> {
         .subcommand(cmd::fusesoc::new())
         .subcommand(cmd::init::new());
 
+    #[cfg(feature = "pickle")]
+    let app = app.subcommand(cmd::pickle::new());
+
     // Add the `--debug` option in debug builds.
     let app = if cfg!(debug_assertions) {
         app.arg(
@@ -303,6 +306,10 @@ pub fn main() -> Result<()> {
         }
         Some(("vendor", matches)) => cmd::vendor::run(&sess, matches),
         Some(("fusesoc", matches)) => cmd::fusesoc::run(&sess, matches),
+
+        #[cfg(feature = "pickle")]
+        Some(("pickle", matches)) => cmd::pickle::run(&sess, matches),
+
         Some((plugin, matches)) => execute_plugin(&sess, plugin, matches.get_many::<OsString>("")),
         _ => Ok(()),
     }

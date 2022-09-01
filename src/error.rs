@@ -9,6 +9,9 @@ use std::fmt;
 use std::sync::atomic::{AtomicBool, ATOMIC_BOOL_INIT};
 use std::sync::Arc;
 
+#[cfg(feature = "pickle")]
+use anyhow::Error as AnyErr;
+
 #[allow(deprecated)]
 pub static ENABLE_DEBUG: AtomicBool = ATOMIC_BOOL_INIT;
 
@@ -133,6 +136,16 @@ impl fmt::Display for Error {
             write!(f, " {}", c)?
         }
         Ok(())
+    }
+}
+
+#[cfg(feature = "pickle")]
+impl From<AnyErr> for Error {
+    fn from(any_err: AnyErr) -> Error {
+        Error {
+            msg: any_err.to_string(),
+            cause: None,
+        }
     }
 }
 
