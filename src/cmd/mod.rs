@@ -19,3 +19,6 @@ pub mod path;
 pub mod script;
 pub mod sources;
 pub mod vendor;
+
+#[cfg(feature = "pickle")]
+pub mod pickle;

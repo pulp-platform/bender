@@ -27,6 +27,10 @@ extern crate typed_arena;
 #[cfg(windows)]
 extern crate dunce;
 
+#[cfg(feature = "pickle")]
+#[macro_use]
+extern crate log;
+
 #[macro_use]
 pub mod error;
 pub mod cli;
