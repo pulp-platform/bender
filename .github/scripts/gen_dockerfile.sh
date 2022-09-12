@@ -18,13 +18,17 @@ fi
 if [ $(echo $full_tgtname | cut -d ':' -f 1) = "debian" ]; then
   echo 'RUN apt update && apt -y install build-essential curl gcc make' >> $filename
 fi
-echo >> $filename
-echo 'ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo' >> $filename
-echo 'ENV PATH $CARGO_HOME/bin:$PATH' >> $filename
-echo >> $filename
-echo 'RUN mkdir -p "$CARGO_HOME" && mkdir -p "$RUSTUP_HOME" && \' >> $filename
-echo '    curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable && \' >> $filename
-echo '    chmod -R a=rwX $CARGO_HOME' >> $filename
-echo >> $filename
+if [[ $(echo $full_tgtname | cut -d ':' -f 1) == "redhat"* ]]; then
+  echo 'RUN yum install cargo -y' >> $filename
+else
+  echo >> $filename
+  echo 'ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo' >> $filename
+  echo 'ENV PATH $CARGO_HOME/bin:$PATH' >> $filename
+  echo >> $filename
+  echo 'RUN mkdir -p "$CARGO_HOME" && mkdir -p "$RUSTUP_HOME" && \' >> $filename
+  echo '    curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable && \' >> $filename
+  echo '    chmod -R a=rwX $CARGO_HOME' >> $filename
+  echo >> $filename
+fi
 echo 'WORKDIR /source' >> $filename
 
