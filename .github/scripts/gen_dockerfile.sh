@@ -19,10 +19,10 @@ if [ $(echo $full_tgtname | cut -d ':' -f 1) = "debian" ]; then
   echo 'RUN apt update && apt -y install build-essential curl gcc make' >> $filename
 fi
 if [ $(echo $full_tgtname | cut -d ':' -f 1) = "almalinux" ]; then
-  echo 'RUN dnf -y update && dnf -y group install "Development Tools"'
+  echo 'RUN dnf -y update && dnf -y group install "Development Tools"' >> $filename
 fi
 if [[ $(echo $full_tgtname | cut -d ':' -f 1) == "redhat"* ]]; then
-  echo 'RUN dnf -y install gcc'
+  echo 'RUN dnf -y install gcc' >> $filename
 fi
 echo >> $filename
 echo 'ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo' >> $filename
