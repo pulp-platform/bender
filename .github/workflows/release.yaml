@@ -29,6 +29,7 @@ jobs:
           - debian:11
           - redhatenterprise:8.6
           - redhatenterprise:9.0.0
+          - almalinux:8.6
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
