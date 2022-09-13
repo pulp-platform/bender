@@ -27,9 +27,10 @@ jobs:
           - fedora:36
           - debian:10
           - debian:11
-          - redhatenterprise:8.6
-          - redhatenterprise:9.0.0
+          - rhel:8.6
+          - rhel:9.0
           - almalinux:8.6
+          - almalinux:9.0
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
@@ -45,10 +46,6 @@ jobs:
         if: matrix.os != 'gnu'
         run: |
           export full_tgtname=${{ matrix.os }}
-          if [ $(echo ${{ matrix.os }} | cut -d ':' -f 1) = "redhatenterprise" ]; then
-            export maj_version=$(echo ${{ matrix.os }} | cut -d ':' -f 2)
-            export full_tgtname=redhat/ubi${maj_version:0:1}:$(echo ${{ matrix.os }} | cut -d ':' -f 2)
-          fi
           export tgtname=$(echo ${{ matrix.os }} | tr -d ':')
           .github/scripts/gen_dockerfile.sh
           docker build ./ -t $tgtname

@@ -4,6 +4,14 @@ export filename="Dockerfile"
 rm -f $filename
 touch $filename
 
+if [ $(echo $full_tgtname | cut -d ':' -f 1) = "rhel" ]; then
+  export maj_version=$(echo $full_tgtname | cut -d ':' -f 2)
+  export full_tgtname=redhat/ubi${maj_version:0:1}:$(echo $full_tgtname | cut -d ':' -f 2)
+  if [ $(echo $full_tgtname | cut -d ':' -f 2) = '9.0' ]; then
+    export full_tgtname=$full_tgtname.0
+  fi
+fi
+
 echo "FROM $full_tgtname" >> $filename
 echo >> $filename
 if [ $(echo $full_tgtname | cut -d ':' -f 1) = "centos" ]; then
