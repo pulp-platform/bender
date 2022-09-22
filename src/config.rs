@@ -28,7 +28,7 @@ use crate::util::*;
 /// A package manifest.
 ///
 /// This is usually called `Bender.yml` in the root directory of the package.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Manifest {
     /// The package definition.
     pub package: Package,
@@ -138,7 +138,7 @@ impl Serialize for Dependency {
 }
 
 /// A group of source files.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Sources {
     /// The targets for which the sources should be considered.
     pub target: TargetSpec,
@@ -187,8 +187,20 @@ impl PrefixPaths for SourceFile {
     }
 }
 
+impl Serialize for SourceFile {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            SourceFile::File(path) => path.serialize(serializer),
+            SourceFile::Group(group) => group.serialize(serializer),
+        }
+    }
+}
+
 /// A workspace configuration.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct Workspace {
     /// The directory which will contain working copies of the dependencies.
     pub checkout_dir: Option<PathBuf>,
