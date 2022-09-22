@@ -86,7 +86,8 @@ pub fn main() -> Result<()> {
         .subcommand(cmd::checkout::new())
         .subcommand(cmd::vendor::new())
         .subcommand(cmd::fusesoc::new())
-        .subcommand(cmd::init::new());
+        .subcommand(cmd::init::new())
+        .subcommand(cmd::translate::new());
 
     // Add the `--debug` option in debug builds.
     let app = if cfg!(debug_assertions) {
@@ -117,6 +118,10 @@ pub fn main() -> Result<()> {
     if let Some(("completion", matches)) = matches.subcommand() {
         let mut app = app;
         return cmd::completion::run(matches, &mut app);
+    }
+
+    if let Some(("translate", intern_matches)) = matches.subcommand() {
+        return cmd::translate::run(intern_matches);
     }
 
     let mut force_fetch = false;
@@ -321,7 +326,7 @@ fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
 /// Find the root directory of a package.
 ///
 /// Traverses the directory hierarchy upwards until a `Bender.yml` file is found.
-fn find_package_root(from: &Path) -> Result<PathBuf> {
+pub fn find_package_root(from: &Path) -> Result<PathBuf> {
     #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
 

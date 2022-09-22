@@ -91,7 +91,17 @@ impl Serialize for TargetSpec {
     where
         S: Serializer,
     {
-        format!("{}", self).serialize(serializer)
+        match *self {
+            TargetSpec::Wildcard => None::<String>.serialize(serializer),
+            TargetSpec::Name(ref name) => name.to_string().serialize(serializer),
+            TargetSpec::All(ref specs) => {
+                format!("all({})", SpecsWriter(specs.iter())).serialize(serializer)
+            }
+            TargetSpec::Any(ref specs) => {
+                format!("any({})", SpecsWriter(specs.iter())).serialize(serializer)
+            }
+            TargetSpec::Not(ref spec) => format!("not({})", spec).serialize(serializer),
+        }
     }
 }
 

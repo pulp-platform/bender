@@ -18,4 +18,5 @@ pub mod parents;
 pub mod path;
 pub mod script;
 pub mod sources;
+pub mod translate;
 pub mod vendor;
