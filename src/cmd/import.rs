@@ -97,6 +97,9 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             let git = Git::new(tmp_path, &sess.config.git);
 
             for link in vendor_package.mapping.clone() {
+                if !link.to.clone().is_dir() {
+                    Err(Error::new(format!("Could not find target directory {:?}. Please initialize the external dependency with \"bender import --refetch\".", link.to.clone())))?;
+                }
                 // Apply patches
                 if !matches.is_present("no_patch") {
                     if let Some(patch) = link.patch_dir.clone() {
@@ -212,7 +215,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                                 patch_path.to_str().unwrap().to_lowercase()
                             });
 
-                            let new_patch = if matches.is_present("no_patch") {
+                            let new_patch = if matches.is_present("no_patch") || patches.is_empty()
+                            {
                                 // Remove all old patches
                                 for patch_file in patches {
                                     std::fs::remove_file(patch_file)?;
