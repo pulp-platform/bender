@@ -129,6 +129,21 @@ impl<'git, 'ctx> Git<'ctx> {
         self.spawn(cmd, false).await
     }
 
+    /// Assemble a command and execute it interactively.
+    ///
+    /// This is the same as `spawn_with()`, but inherits stdin, stdout, and stderr
+    /// from the caller.
+    pub async fn spawn_interactive_with<F>(self, f: F) -> Result<()>
+    where
+        F: FnOnce(&mut Command) -> &mut Command,
+    {
+        let mut cmd = Command::new(&self.git);
+        cmd.current_dir(&self.path);
+        f(&mut cmd);
+        cmd.spawn()?.wait().await?;
+        Ok(())
+    }
+
     /// Fetch the tags and refs of a remote.
     pub async fn fetch(self, remote: &str) -> Result<()> {
         let r1 = String::from(remote);
@@ -137,6 +152,36 @@ impl<'git, 'ctx> Git<'ctx> {
             .and_then(|_| self.spawn_with(|c| c.arg("fetch").arg("--tags").arg("--prune").arg(r2)))
             .await
             .map(|_| ())
+    }
+
+    /// Stage all local changes.
+    pub async fn add_all(self) -> Result<()> {
+        self.spawn_with(|c| c.arg("add").arg("--all")).await.map(|_| ())
+    }
+
+    /// Commit the staged changes.
+    ///
+    /// If message is None, this starts an interactive commit session.
+    pub async fn commit(self, message: Option<&str>) -> Result<()> {
+        match message {
+            Some(msg) => {
+                self.spawn_with(|c| {
+                   c.arg("-c")
+                    .arg("commit.gpgsign=false")
+                    .arg("commit")
+                    .arg("-m")
+                    .arg(msg)
+                }).await.map(|_| ())
+            },
+
+            None => {
+                self.spawn_interactive_with(|c| {
+                    c.arg("-c")
+                    .arg("commit.gpgsign=false")
+                    .arg("commit")
+                }).await.map(|_| ())
+            },
+        }
     }
 
     /// List all refs and their hashes.

@@ -235,7 +235,7 @@ pub fn main() -> Result<()> {
         Some(("script", matches)) => cmd::script::run(&sess, matches),
         Some(("checkout", matches)) => cmd::checkout::run(&sess, matches),
         Some(("update", _)) => Ok(()),
-        Some(("import", matches)) => cmd::import::run(&sess, matches),
+        Some(("vendor", matches)) => cmd::import::run(&sess, matches),
         Some((plugin, matches)) => execute_plugin(&sess, plugin, matches.values_of_os("")),
         _ => Ok(()),
     }

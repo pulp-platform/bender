@@ -764,29 +764,31 @@ pub struct ExternalImport {
     /// Import mapping
     pub mapping: Vec<FromToLink>,
     /// Folder containing patch files
-    pub patch_dir: PathBuf,
+    pub patch_dir: Option<PathBuf>,
+    /// include from upstream
+    pub include_from_upstream: Vec<String>,
     /// exclude from upstream
     pub exclude_from_upstream: Vec<String>,
 }
 
 impl PrefixPaths for ExternalImport {
     fn prefix_paths(self, prefix: &Path) -> Self {
-        let full_target = self.target_dir.prefix_paths(prefix);
         let patch_root = self.patch_dir.prefix_paths(prefix);
         ExternalImport {
             name: self.name,
-            target_dir: full_target.clone(),
+            target_dir: self.target_dir,
             upstream: self.upstream,
             mapping: self
                 .mapping
                 .into_iter()
                 .map(|ftl| FromToLink {
                     from: ftl.from,
-                    to: ftl.to.prefix_paths(&full_target),
-                    patch_dir: ftl.patch_dir.map(|dir| dir.prefix_paths(&patch_root)),
+                    to: ftl.to,
+                    patch_dir: ftl.patch_dir.map(|dir| dir.prefix_paths(&patch_root.clone().expect("A mapping has a local patch_dir, but no global patch_dir is defined."))),
                 })
                 .collect(),
             patch_dir: patch_root,
+            include_from_upstream: self.include_from_upstream,
             exclude_from_upstream: self.exclude_from_upstream,
         }
     }
@@ -807,6 +809,8 @@ pub struct PartialExternalImport {
     pub patch_dir: Option<PathBuf>,
     // /// Dependency containing patches
     // pub patch_repo: Option<PartialDependency>,
+    /// include from upstream
+    pub include_from_upstream: Option<Vec<String>>,
     /// exclude from upstream
     pub exclude_from_upstream: Option<Vec<String>>,
 }
@@ -834,9 +838,10 @@ impl Validate for PartialExternalImport {
                 Some(mapping) => mapping,
                 None => Vec::new(),
             },
-            patch_dir: match self.patch_dir {
-                Some(patch_dir) => patch_dir,
-                None => PathBuf::new(),
+            patch_dir: self.patch_dir,
+            include_from_upstream: match self.include_from_upstream{
+                Some(include_from_upstream) => include_from_upstream,
+                None => vec![String::from("**")],
             },
             exclude_from_upstream: match self.exclude_from_upstream {
                 Some(exclude_from_upstream) => exclude_from_upstream,

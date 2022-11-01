@@ -1,11 +1,12 @@
 // Copyright (c) 2022 ETH Zurich
 // Michael Rogenmoser <michaero@iis.ee.ethz.ch>
+// Nils Wistoff <nwistoff@iis.ee.ethz.ch>
 
 //! The `vendor` subcommand.
 
 use crate::config::PrefixPaths;
 use crate::futures::TryFutureExt;
-use clap::{Arg, ArgMatches, Command};
+use clap::{Arg, ArgMatches, Command, AppSettings};
 use futures::future::{self};
 use tokio::runtime::Runtime;
 
@@ -15,27 +16,44 @@ use crate::git::Git;
 use crate::sess::{DependencySource, Session};
 use glob::Pattern;
 use std::path::Path;
+use std::path::PathBuf;
 use tempdir::TempDir;
+
+/// A patch linkage
+#[derive(Clone)]
+pub struct PatchLink {
+    /// directory
+    pub patch_dir: Option<PathBuf>,
+    /// prefix for upstream
+    pub from_prefix: PathBuf,
+    /// prefix for local
+    pub to_prefix: PathBuf,
+}
 
 /// Assemble the `vendor` subcommand.
 pub fn new<'a>() -> Command<'a> {
-    Command::new("import")
-        .about("Copy source code from upstream external repositories into this repository. Functions similar to the lowrisc vendor.py script")
-        .arg(
-            Arg::new("refetch")
-                .long("refetch")
-                .help("Replace the external files from upstream and apply the patches"),
+    Command::new("vendor")
+        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .about("Copy source code from upstream external repositories into this repository. Functions similar to the lowrisc vendor.py script. Type bender import <SUBCOMMAND> --help for more information about the subcommands.")
+        .subcommand(Command::new("diff")
+            .about("Display a diff of the local tree and the upstream tree with patches applied.")
         )
-        .arg(
-            Arg::new("no_patch")
-                .short('n')
-                .long("no_patch")
-                .help("Do not apply patches when refetching dependencies"),
+        .subcommand(Command::new("init")
+            .about("(Re-)initialize the external dependencies. Copies the upstream files into the target directories and applies existing patches.")
+            .arg(
+                Arg::new("no_patch")
+                    .short('n')
+                    .long("no_patch")
+                    .help("Do not apply patches when refetching dependencies"),
+            )
         )
-        .arg(
-            Arg::new("gen_patch")
-                .long("gen_patch")
-                .help("Generate Patch file from changes to the upstream"),
+        .subcommand(Command::new("patch")
+            .about("Generate a patch file from staged local changes")
+            .arg(
+                Arg::new("plain")
+                .long("plain")
+                .help("Generate a plain diff instead of a format-patch. Includes all local changes (not only the staged ones)."),
+            )
         )
 }
 
@@ -93,288 +111,435 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             DependencySource::Registry => unimplemented!(),
         };
 
-        if !matches.is_present("refetch") {
-            let git = Git::new(tmp_path, &sess.config.git);
-
-            for link in vendor_package.mapping.clone() {
-                if !link.to.clone().is_dir() {
-                    Err(Error::new(format!("Could not find target directory {:?}. Please initialize the external dependency with \"bender import --refetch\".", link.to.clone())))?;
+        // Extract patch dirs of links
+        let mut patch_links: Vec<PatchLink> = Vec::new();
+        for link in vendor_package.mapping.clone() {
+            patch_links.push(
+                PatchLink {
+                    patch_dir: link.patch_dir,
+                    from_prefix: link.from,
+                    to_prefix: link.to,
                 }
-                // Apply patches
-                if !matches.is_present("no_patch") {
-                    if let Some(patch) = link.patch_dir.clone() {
-                        // Create directory in case it does not already exist
-                        std::fs::create_dir_all(patch.clone())?;
+            )
+        }
 
-                        let mut patches = std::fs::read_dir(patch)?
-                            .map(move |f| f.unwrap().path())
-                            .filter(|f| f.extension().unwrap() == "patch")
-                            .collect::<Vec<_>>();
-                        patches
-                            .sort_by_key(|patch_path| patch_path.to_str().unwrap().to_lowercase());
-
-                        // for all patches in this directory, git apply them to the to directory
-                        let to_link = if tmp_path.join(link.from.clone()).is_dir() {
-                            link.from.clone()
-                        } else {
-                            link.from.parent().unwrap().to_path_buf()
-                        };
-                        for patch in patches {
-                            rt.block_on(async {
-                                // TODO MICHAERO: May need throttle
-                                future::lazy(|_| {
-                                    stageln!(
-                                        "Patching",
-                                        "{} with {}",
-                                        vendor_package.name,
-                                        patch.file_name().unwrap().to_str().unwrap()
-                                    );
-                                    Ok(())
-                                })
-                                .and_then(|_| {
-                                    git.spawn_with(|c| {
-                                        c.arg("apply")
-                                            .arg("--directory")
-                                            .arg(&to_link)
-                                            .arg("-p1")
-                                            .arg(&patch)
-                                    })
-                                })
-                                .await
-                                .map_err(move |cause| {
-                                    Error::chain(
-                                        format!("Failed to apply patch {:?}.", patch),
-                                        cause,
-                                    )
-                                })
-                                .map(move |_| git)
-                            })?;
-                        }
-                    };
-                }
-
-                // Apply any open changes
-                rt.block_on(async {
-                    // Add the changes to have a proper comparison
-                    if !git
-                        .spawn_with(|c| c.arg("status").arg("--short"))
-                        .await?
-                        .is_empty()
-                    {
-                        git.spawn_with(|c| c.arg("add").arg("-A")).await?;
-                    }
-                    Ok::<(), Error>(())
-                })?;
-
-                // Copy files from local to temporary repo
-                let link_from = link.from.clone().prefix_paths(&dep_path);
-                // Copy src to dst recursively.
-                match &link.to.is_dir() {
-                    true => copy_recursively(
-                        &link.to,
-                        &link_from,
-                        &vendor_package
-                            .exclude_from_upstream
-                            .clone()
-                            .into_iter()
-                            .map(|excl| {
-                                format!(
-                                    "{}/{}",
-                                    &vendor_package.target_dir.to_str().unwrap(),
-                                    &excl
-                                )
-                            })
-                            .collect(),
-                    )?,
-                    false => {
-                        std::fs::copy(&link.to, &link_from)?;
-                    }
-                };
-
-                let get_diff = rt.block_on(async {
-                    let link_from = if tmp_path.join(link.from.clone()).is_dir() {
-                        link.from.to_str().unwrap()
-                    } else {
-                        link.from.parent().unwrap().to_str().unwrap()
-                    };
-                    git.spawn_with(|c| c.arg("diff").arg(format!("--relative={}", link_from)))
-                        .await
-                })?;
-
-                if !get_diff.is_empty() {
-                    if matches.is_present("gen_patch") {
-                        if let Some(patch) = link.patch_dir.clone() {
-                            // Create directory in case it does not already exist
-                            std::fs::create_dir_all(patch.clone())?;
-
-                            let mut patches = std::fs::read_dir(patch.clone())?
-                                .map(move |f| f.unwrap().path())
-                                .filter(|f| f.extension().unwrap() == "patch")
-                                .collect::<Vec<_>>();
-                            patches.sort_by_key(|patch_path| {
-                                patch_path.to_str().unwrap().to_lowercase()
-                            });
-
-                            let new_patch = if matches.is_present("no_patch") || patches.is_empty()
-                            {
-                                // Remove all old patches
-                                for patch_file in patches {
-                                    std::fs::remove_file(patch_file)?;
-                                }
-                                "0001-bender-import.patch".to_string()
-                            } else {
-                                // Get all patch leading numeric keys (0001, ...) and generate new name
-                                let leading_numbers = patches
-                                    .iter()
-                                    .map(|file_path| {
-                                        file_path.file_name().unwrap().to_str().unwrap()
-                                    })
-                                    .map(|s| &s[..4])
-                                    .collect::<Vec<_>>();
-                                if !leading_numbers
-                                    .iter()
-                                    .all(|s| s.chars().all(char::is_numeric))
-                                {
-                                    Err(Error::new(format!("Please ensure all patches start with four numbers for proper ordering in {}:{:?}", vendor_package.name, link.from)))?;
-                                }
-                                let max_number = leading_numbers
-                                    .iter()
-                                    .map(|s| s.parse::<i32>().unwrap())
-                                    .max()
-                                    .unwrap();
-                                format!("{:04}-bender-import.patch", max_number + 1)
-                            };
-
-                            // write patch
-                            std::fs::write(patch.join(new_patch), get_diff)?;
-                        } else {
-                            Err(Error::new(format!(
-                                "Please ensure a patch_dir is defined for {}: {:?}",
-                                vendor_package.name, link.from
-                            )))?;
-                        }
-                    } else {
-                        println!("In {}: {:?}:", vendor_package.name, link.from);
-                        println!("{}", get_diff);
-                    }
-                }
+        // If links do not specify patch dirs, use package-wide patch dir
+        let  patch_links = {
+            match patch_links[..] {
+                [] => vec![PatchLink {
+                    patch_dir: vendor_package.patch_dir.clone(),
+                    from_prefix: PathBuf::from(""),
+                    to_prefix: PathBuf::from(""),
+                }],
+                _ => patch_links,
             }
-        } else {
-            // import necessary files from upstream, apply patches
-            stageln!("Copying", "{} files from upstream", vendor_package.name);
-            // Remove existing directories before importing them again
-            std::fs::remove_dir_all(vendor_package.target_dir.clone()).unwrap_or(());
+        };
 
-            vendor_package
-                .mapping
+        let git = Git::new(tmp_path, &sess.config.git);
+
+        match matches.subcommand() {
+            Some(("diff", _)) => {
+                // Apply patches
+                patch_links.clone().into_iter().try_for_each( |patch_link| {
+                    apply_patches(&rt, git, vendor_package.name.clone(), patch_link).map(|_| ())
+                })?;
+
+                // Stage applied patches to clean working tree
+                rt.block_on(git.add_all())?;
+
+                patch_links.into_iter().try_for_each( |patch_link| {
+                    let get_diff = diff(&rt,
+                                        git,
+                                        vendor_package,
+                                        patch_link,
+                                        dep_path.clone())
+                                   .expect("failed to get diff");
+                    if !get_diff.is_empty() {
+                        print!("{}", get_diff);
+                    }
+                    Ok(())
+                })
+            },
+
+            Some(("init", matches)) => {
+                patch_links.clone().into_iter().try_for_each( |patch_link| {
+                    stageln!("Copying", "{} files from upstream", vendor_package.name);
+                    // Remove existing directories before importing them again
+                    // DOES NOT WORK FOR MAPPINGS!
+                    std::fs::remove_dir_all(patch_link.clone().to_prefix.prefix_paths(&vendor_package.target_dir)).unwrap_or(());
+                    // Refetch
+                    refetch(&rt, git, vendor_package, patch_link, dep_path.clone(), matches)
+                })
+            },
+
+            Some(("patch", matches)) => {
+                // Apply patches
+                let mut num_patches = 0;
+                patch_links.clone().into_iter().try_for_each( |patch_link| {
+                    apply_patches(&rt, git, vendor_package.name.clone(), patch_link).map(|num| num_patches += num)
+                })?;
+
+                // Commit applied patches to clean working tree
+                if num_patches > 0 {
+                    rt.block_on(git.add_all())?;
+                    rt.block_on(git.commit(Some("pre-patch")))?;
+                }
+
+                // Generate patch
+                patch_links.clone().into_iter().try_for_each( |patch_link| {
+                    match patch_link.patch_dir.clone() {
+                        Some(patch_dir) => {
+                            if matches.is_present("plain") {
+                                let get_diff = diff(&rt,
+                                                    git,
+                                                    vendor_package,
+                                                    patch_link.clone(),
+                                                    dep_path.clone())
+                                            .expect("failed to get diff");
+                                gen_patch(get_diff, patch_dir, false)
+                            } else {
+                                gen_format_patch(&rt, &sess, git, patch_link, vendor_package.target_dir.clone())
+                            }
+                        },
+                        None => {
+                            warnln!("No patch directory specified for package {}, mapping {} => {}. Skipping patch generation.", vendor_package.name.clone(), patch_link.from_prefix.to_str().unwrap(), patch_link.to_prefix.to_str().unwrap());
+                            Ok(())
+                        },
+                    }
+                })
+            },
+            _ => Ok(()),
+        }?;
+    };
+
+    Ok(())
+}
+
+/// refetch the external dependency
+pub fn refetch(
+    rt: &Runtime,
+    git: Git,
+    vendor_package: &config::ExternalImport,
+    patch_link: PatchLink,
+    dep_path: impl AsRef<Path>,
+    matches: &ArgMatches,
+) -> Result<()> {
+    // import necessary files from upstream, apply patches
+    let dep_path = dep_path.as_ref();
+
+    // Make sure the target directory actually exists
+    let link_to = patch_link.to_prefix.clone().prefix_paths(&vendor_package.target_dir);
+    let link_from = patch_link.from_prefix.clone().prefix_paths(&dep_path);
+    std::fs::create_dir_all(&link_to.parent().unwrap())?;
+
+    if !matches.is_present("no_patch") {
+        apply_patches(
+            &rt,
+            git,
+            vendor_package.name.clone(),
+            patch_link.clone()
+        )?;
+    }
+
+    // Copy src to dst recursively.
+    match &patch_link.from_prefix.clone().prefix_paths(&dep_path).is_dir() {
+        true => copy_recursively(
+            &link_from,
+            &link_to,
+            &extend_paths(&vendor_package.include_from_upstream, dep_path),
+            &vendor_package
+                .exclude_from_upstream
                 .clone()
                 .into_iter()
-                .try_for_each::<_, Result<_>>(|link| {
-                    // Make sure the target directory actually exists
-                    std::fs::create_dir_all(&link.to.parent().unwrap())?;
+                .map(|excl| format!("{}/{}", &dep_path.to_str().unwrap(), &excl))
+                .collect(),
+        )?,
+        false => {
+            std::fs::copy(&link_from, &link_to)?;
+        }
+    };
 
-                    // Copy src to dst recursively.
-                    match &link.from.clone().prefix_paths(&dep_path).is_dir() {
-                        true => copy_recursively(
-                            &link.from.prefix_paths(&dep_path),
-                            &link.to,
-                            &vendor_package
-                                .exclude_from_upstream
-                                .clone()
-                                .into_iter()
-                                .map(|excl| format!("{}/{}", &dep_path.to_str().unwrap(), &excl))
-                                .collect(),
-                        )?,
-                        false => {
-                            std::fs::copy(&link.from.prefix_paths(&dep_path), &link.to)?;
-                        }
-                    };
+    Ok(())
+}
+
+/// apply existing patches
+pub fn apply_patches(
+    rt: &Runtime,
+    git: Git,
+    package_name: String,
+    patch_link: PatchLink,
+) -> Result<usize> {
+    if let Some(patch_dir) = patch_link.patch_dir.clone() {
+        // Create directory in case it does not already exist
+        std::fs::create_dir_all(patch_dir.clone())?;
+
+        let mut patches = std::fs::read_dir(patch_dir.clone())?
+            .map(move |f| f.unwrap().path())
+            .filter(|f| f.extension().is_some())
+            .filter(|f| f.extension().unwrap() == "patch")
+            .collect::<Vec<_>>();
+        patches.sort_by_key(|patch_path| {
+            patch_path.to_str().unwrap().to_lowercase()
+        });
+
+        for patch in patches.clone() {
+            rt.block_on(async {
+                // TODO MICHAERO: May need throttle
+                future::lazy(|_| {
+                    stageln!(
+                        "Patching",
+                        "{} with {}",
+                        package_name,
+                        patch.file_name().unwrap().to_str().unwrap()
+                    );
                     Ok(())
-                })?;
+                })
+                .and_then(|_| {
+                    git.spawn_with(|c| {
+                        c.arg("apply")
+                            .arg("--directory")
+                            .arg(patch_link.from_prefix.clone().to_str().unwrap())
+                            .arg("-p1")
+                            .arg(&patch)
+                    })
+                })
+                .await
+                .map_err(move |cause| {
+                    Error::chain(
+                        format!("Failed to apply patch {:?}.", patch),
+                        cause,
+                    )
+                })
+                .map(move |_| git)
+            })?;
+        }
+        Ok(patches.len())
+    } else {
+        Ok(0)
+    }
+}
 
-            if !matches.is_present("no_patch") {
-                vendor_package
-                    .mapping
+/// Generate diff
+pub fn diff(
+    rt: &Runtime,
+    git: Git,
+    vendor_package: &config::ExternalImport,
+    patch_link: PatchLink,
+    dep_path: impl AsRef<Path>
+
+) -> Result<String> {
+        // Copy files from local to temporary repo
+        let link_from = patch_link.from_prefix.clone().prefix_paths(dep_path.as_ref()); // dep_path: path to temporary clone. link_to: targetdir/link.to
+        let link_to = patch_link.to_prefix.clone().prefix_paths(vendor_package.target_dir.as_ref());
+        // Copy src to dst recursively.
+        match &link_to.is_dir() {
+            true => copy_recursively(
+                &link_to,
+                &link_from,
+                &extend_paths(&vendor_package.include_from_upstream, &vendor_package.target_dir),
+                &vendor_package
+                    .exclude_from_upstream
                     .clone()
                     .into_iter()
-                    .try_for_each::<_, Result<_>>(|link| {
-                        match link.patch_dir {
-                            Some(patch) => {
-                                // Create directory in case it does not already exist
-                                std::fs::create_dir_all(patch.clone())?;
-
-                                let mut patches = std::fs::read_dir(patch)?
-                                    .map(move |f| f.unwrap().path())
-                                    .filter(|f| f.extension().unwrap() == "patch")
-                                    .collect::<Vec<_>>();
-                                patches.sort_by_key(|patch_path| {
-                                    patch_path.to_str().unwrap().to_lowercase()
-                                });
-
-                                // for all patches in this directory, git apply them to the to directory
-                                let git = Git::new(sess.root, &sess.config.git);
-                                let to_link = link.to.strip_prefix(sess.root).map_err(|cause| {
-                                    Error::chain("Failed to strip path.", cause)
-                                })?;
-                                let to_link = if link.to.is_dir() {
-                                    to_link
-                                } else {
-                                    to_link.parent().unwrap()
-                                };
-                                for patch in patches {
-                                    rt.block_on(async {
-                                        // TODO MICHAERO: May need throttle
-                                        future::lazy(|_| {
-                                            stageln!(
-                                                "Patching",
-                                                "{} with {}",
-                                                vendor_package.name,
-                                                patch.file_name().unwrap().to_str().unwrap()
-                                            );
-                                            Ok(())
-                                        })
-                                        .and_then(|_| {
-                                            git.spawn_with(|c| {
-                                                c.arg("apply")
-                                                    .arg("--directory")
-                                                    .arg(&to_link)
-                                                    .arg("-p1")
-                                                    .arg(&patch)
-                                            })
-                                        })
-                                        .await
-                                        .map_err(move |cause| {
-                                            Error::chain(
-                                                format!("Failed to apply patch {:?}.", patch),
-                                                cause,
-                                            )
-                                        })
-                                        .map(move |_| git)
-                                    })?;
-                                }
-                            }
-                            None => {}
-                        };
-                        Ok(())
-                    })?;
+                    .map(|excl| {
+                        format!(
+                            "{}/{}",
+                            &vendor_package.target_dir.to_str().unwrap(),
+                            &excl
+                        )
+                    })
+                    .collect(),
+            )?,
+            false => {
+                std::fs::copy(&link_to, &link_from)?;
             }
-        }
+        };
+
+        rt.block_on(async {
+            git.spawn_with(|c| c.arg("diff").arg(format!("--relative={}", patch_link.from_prefix.to_str().expect("Failed to convert from_prefix to string."))))
+                .await
+        })
+}
+
+/// Generate a conventional patch from a diff
+pub fn gen_patch(
+    diff: String,
+    patch_dir: impl AsRef<Path>,
+    no_patch: bool,
+) -> Result<()> {
+    if !diff.is_empty() {
+        // if let Some(patch) = patch_dir {
+        // Create directory in case it does not already exist
+        std::fs::create_dir_all(patch_dir.as_ref().clone())?;
+
+        let mut patches = std::fs::read_dir(patch_dir.as_ref())?
+            .map(move |f| f.unwrap().path())
+            .filter(|f| f.extension().unwrap() == "patch")
+            .collect::<Vec<_>>();
+        patches.sort_by_key(|patch_path| {
+            patch_path.to_str().unwrap().to_lowercase()
+        });
+
+        let new_patch = if no_patch || patches.is_empty()
+        {
+            // Remove all old patches
+            for patch_file in patches {
+                std::fs::remove_file(patch_file)?;
+            }
+            "0001-bender-import.patch".to_string()
+        } else {
+            // Get all patch leading numeric keys (0001, ...) and generate new name
+            let leading_numbers = patches
+                .iter()
+                .map(|file_path| {
+                    file_path.file_name().unwrap().to_str().unwrap()
+                })
+                .map(|s| &s[..4])
+                .collect::<Vec<_>>();
+            if !leading_numbers
+                .iter()
+                .all(|s| s.chars().all(char::is_numeric))
+            {
+                Err(Error::new(format!("Please ensure all patches start with four numbers for proper ordering in {}", patch_dir.as_ref().to_str().unwrap())))?;
+            }
+            let max_number = leading_numbers
+                .iter()
+                .map(|s| s.parse::<i32>().unwrap())
+                .max()
+                .unwrap();
+            format!("{:04}-bender-import.patch", max_number + 1)
+        };
+
+        // write patch
+        std::fs::write(patch_dir.as_ref().join(new_patch), diff)?;
+        // }
     }
 
     Ok(())
 }
 
+/// Commit changes staged in ghost repo and generate format patch
+pub fn gen_format_patch(
+    rt: &Runtime,
+    sess: &Session,
+    git: Git,
+    patch_link: PatchLink,
+    target_dir: impl AsRef<Path>,
+) -> Result<()> {
+    // Local git
+    let git_parent = Git::new(sess.root, &sess.config.git);
+
+    // We assume that patch_dir matches Some() was checked outside this function.
+    let patch_dir = patch_link.patch_dir.clone().unwrap();
+
+    // Get staged changes in dependency
+    let get_diff_cached = rt.block_on(async {
+        git_parent.spawn_with(|c| c.arg("diff").arg(format!("--relative={}", patch_link.to_prefix.clone().prefix_paths(target_dir.as_ref()).to_str().unwrap())).arg("--cached"))
+        .await
+    })?;
+
+    if !get_diff_cached.is_empty()
+    {
+        // Write diff into new temp dir. TODO: pipe directly to "git apply"
+        let tmp_format_dir = TempDir::new(".bender.format.tmp")?;
+        let tmp_format_path = tmp_format_dir.path();
+        let diff_cached_path = tmp_format_path.join("staged.diff");
+        std::fs::write(diff_cached_path.clone(), get_diff_cached.clone())?;
+
+        // Apply diff and stage changes in ghost repo
+        rt.block_on(async {
+            git.spawn_with(|c| {
+                c.arg("apply")
+                    .arg("--directory")
+                    .arg(&patch_link.from_prefix)
+                    .arg("-p1")
+                    .arg(&diff_cached_path)
+            })
+            .and_then(|_| {
+                git.spawn_with (|c| {
+                    c.arg("add")
+                    .arg("--all")
+                })
+            })
+            .await
+        })?;
+
+        // Commit all staged changes in ghost repo
+        rt.block_on(git.commit(None))?;
+
+        // Create directory in case it does not already exist
+        std::fs::create_dir_all(patch_dir.clone())?;
+
+        let mut patches = std::fs::read_dir(patch_dir.clone())?
+            .map(move |f| f.unwrap().path())
+            .filter(|f| f.extension().is_some())
+            .filter(|f| f.extension().unwrap() == "patch")
+            .collect::<Vec<_>>();
+        patches.sort_by_key(|patch_path| {
+            patch_path.to_str().unwrap().to_lowercase()
+        });
+
+        // Determine max number
+        let max_number = if patches.is_empty() {
+            0
+        } else {
+            let leading_numbers = patches
+                .iter()
+                .map(|file_path| {
+                    file_path.file_name().unwrap().to_str().unwrap()
+                })
+                .map(|s| &s[..4])
+                .collect::<Vec<_>>();
+            if !leading_numbers
+                .iter()
+                .all(|s| s.chars().all(char::is_numeric))
+            {
+                Err(Error::new(format!("Please ensure all patches start with four numbers for proper ordering in {}", patch_dir.to_str().unwrap())))?;
+            }
+            leading_numbers
+                .iter()
+                .map(|s| s.parse::<i32>().unwrap())
+                .max()
+                .unwrap()
+        };
+
+        // Generate format-patch
+        rt.block_on(async {
+            git.spawn_with(|c| {
+                c.arg("format-patch")
+                    .arg("-o")
+                    .arg(patch_dir.to_str().unwrap())
+                    .arg("-1")
+                    .arg(format!("--start-number={}", max_number + 1))
+                    .arg(format!("--relative={}", patch_link.from_prefix.to_str().unwrap()))
+                    .arg("HEAD")
+            })
+            .await
+        })?;
+    }
+    Ok(())
+}
+
+
 /// recursive copy function
 pub fn copy_recursively(
     source: impl AsRef<Path>,
     destination: impl AsRef<Path>,
+    includes: &Vec<String>,
     ignore: &Vec<String>,
 ) -> Result<()> {
     std::fs::create_dir_all(&destination)?;
     for entry in std::fs::read_dir(source)? {
         let entry = entry?;
 
-        if ignore.iter().any(|ignore_path| {
+        if !includes.iter().any(|include| {
+            PathBuf::from(include).ancestors().any(|include_path| {
+                Pattern::new(include_path.to_str().unwrap())
+                    .unwrap()
+                    .matches_path(&entry.path())
+            })
+        })
+        || ignore.iter().any(|ignore_path| {
             Pattern::new(ignore_path)
                 .unwrap()
                 .matches_path(&entry.path())
@@ -387,6 +552,7 @@ pub fn copy_recursively(
             copy_recursively(
                 entry.path(),
                 destination.as_ref().join(entry.file_name()),
+                includes,
                 ignore,
             )?;
         } else {
@@ -394,4 +560,19 @@ pub fn copy_recursively(
         }
     }
     Ok(())
+}
+
+/// Prefix paths with prefix. Append ** to directories.
+pub fn extend_paths(
+    include_from_upstream: &Vec<String>,
+    prefix: impl AsRef<Path>,
+) -> Vec<String> {
+    include_from_upstream.into_iter().map(|pattern| {
+        let pattern_long = PathBuf::from(pattern).prefix_paths(prefix.as_ref());
+        if pattern_long.is_dir() {
+            String::from(pattern_long.join("**").to_str().unwrap())
+        } else {
+            String::from(pattern_long.to_str().unwrap())
+        }
+    }).collect()
 }
