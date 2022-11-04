@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/bash
 
 # Copyright (c) 2019 ETH Zurich
 # SPDX-License-Identifier: Apache-2.0 OR MIT
