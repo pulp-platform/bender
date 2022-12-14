@@ -176,21 +176,24 @@ workspace:
 plugins:
   hello: scripts/hello.sh
 
-# List of imported files from external repositories not supporting bender. Optional
-external_import:
+# List of vendorized files from external repositories not supporting bender. Optional.
+vendor_package:
     # package name
   - name: lowrisc_opentitan
     # target directory
     target_dir: vendor/lowrisc_opentitan
     # upstream dependency (i.e. git repository similar to dependencies)
     upstream: { git: "https://github.com/lowRISC/opentitan.git", rev: "47a0f4798febd9e53dd131ef8c8c2b0255d8c139" }
-    # paths to exclude from upstream dependency
+    # paths to include from upstream dependency. Per default, all paths are included. Optional.
+    include_from_upstream:
+      - "src/*"
+    # paths to exclude from upstream dependency. Paths that also match a pattern in include_from_upstream are excluded. Optional.
     exclude_from_upstream:
       - "ci/*"
-    # directory containing patch files
+    # directory containing patch files. Optional.
     patch_dir: "vendor/patches"
-    # file mapping from remote repository to local repository, with optional patch_dir containing patches
-    mapping: 
+    # custom file mapping from remote repository to local repository, with optional patch_dir containing patches. Optional. Note: mappings make upstreaming patches slightly more complicated. Avoid if not necessary.
+    mapping:
       - {from: 'hw/ip/prim/rtl/prim_subreg.sv', to: 'src/prim_subreg.sv' }
       - {from: 'hw/ip/prim/rtl/prim_subreg_arb.sv', to: 'src/prim_subreg_arb.sv' }
       - {from: 'hw/ip/prim/rtl/prim_subreg_ext.sv', to: 'src/prim_subreg_ext.sv', patch_dir: 'lowrisc_opentitan' }
@@ -454,15 +457,63 @@ The `bender parents <PKG>` command lists all packages calling the `PKG` package.
 
 This command will ensure all dependencies are downloaded from remote repositories. This is usually automatically executed by other commands, such as `sources` and `script`.
 
-### `import` --- Copy files from dependencies that do not support bender
+### `vendor` --- Copy files from dependencies that do not support bender
 
-This command will update the dependencies listed in the `external_import` section of the `Bender.yml` file, fetching the files from the remote repositories and applying the necessary patch files.
-This command will print a diff to the patched remote repository.
-If the `--refetch` argument is passed, it will refetch the upstream and apply patched.
-If the `--gen_patch` argument is passed, it will generate additional new patches from the current diff.
-If the `-n/--no_patch` argument is passed, any application of current patches will be suppressed, with `--gen_patch` any existing patch files will be deleted and a new patch created.
+Collection of commands to manage monorepos. Requires a subcommand.
+
 Please make sure you manage the includes and sources required for these files separately, as this command only fetches the files and patches them.
 This is in part based on [lowRISC's `vendor.py` script](https://github.com/lowRISC/opentitan/blob/master/util/vendor.py).
+
+#### `vendor init` --- (Re-)initialize the vendorized dependencies
+
+This command will (re-)initialize the dependencies listed in the `vendor_package` section of the `Bender.yml` file, fetching the files from the remote repositories, applying the necessary patch files, and writing them to the respective `target_dir`.
+
+If the `-n/--no_patch` argument is passed, the dependency is initialized without applying any patches.
+
+#### `vendor diff` --- Print a diff of local, unpatched changes
+
+This command will print a diff to the remote repository with the patches in `patch_dir` applied.
+
+#### `vendor patch` --- Generate a patch file from local changes
+
+If there are local, *staged* changes in a vendored dependency, this command prompts for a commit message and generates a patch for that dependency. The patch is written into `patch_dir`.
+
+If the `--plain` argument is passed, this command will *not* prompt for a commit message and generate a patch of *all* (staged and unstaged) local changes of the vendored dependency.
+
+#### Example workflow
+
+Let's assume we would like to vendor a dependency `my_ip` into a project `monorepo`.
+A simple configuration ind `Bender.yml` could look as follows (see the `Bender.yml` description above for more information on this):
+
+```yaml
+vendor_package:
+  - name: my_ip
+    target_dir: deps/my_ip
+    upstream: { git: "<url>", rev: "<commit-hash>" }
+    patch_dir: "deps/patches/my_ip"
+```
+
+Executing `bender vendor init` will now clone this dependency from `upstream` and place it in `target_dir`.
+
+Next, let's assume that we edit two files within the dependency, `deps/my_ip/a` and `deps/my_ip/b`.
+We can print these changes with the command `bender vendor diff`.
+
+Now, we would like to generate a patch with the changes in `deps/my_ip/a` (but not those in `deps/my_ip/b`).
+We stage the desired changes using `git add deps/my_ip/a` (of course, you can also just stage parts of a file using `git add --patch`).
+The command `bender vendor patch` will now ask for a commit message that will be associated with this patch.
+Then, it will place a patch that contains our changes in `deps/my_ip/a` into `deps/patches/my_ip/0001-commit-message.patch`
+
+We can easily create a corresponding commit in the monorepo.
+`deps/my_ip/a` is still staged from the previous step.
+We only have to `git add deps/patches/my_ip/0001-commit-message.patch` and `git commit` for an atomic commit in the monorepo that contains both our changes to `deps/my_ip/a` and the corresponding patch.
+
+Upstreaming patches to the dependency is easy as well.
+We clone the dependencies' repository, check out `<commit-hash>` and create a new branch.
+Now, `git am /path/to/monorepo/deps/patches/my_ip/0001-commit-message.patch` will create a commit out of this patch -- including all metadata such as commit message, author(s), and timestamp.
+This branch can then be rebased and a pull request can be opened from it as usual.
+
+Note: when using mappings in your `vendor_package`, the patches will be relative to the mapped directory.
+Hence, for upstreaming, you might need to use `git am --directory=<mapping.from>` instead of plain `git am`.
 
 [aur-bender]: https://aur.archlinux.org/packages/bender
 [releases]: https://github.com/pulp-platform/bender/releases
