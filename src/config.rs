@@ -42,8 +42,8 @@ pub struct Manifest {
     pub frozen: bool,
     /// The workspace configuration.
     pub workspace: Workspace,
-    /// External Import dependencies
-    pub external_import: Vec<ExternalImport>,
+    /// Vendorized dependencies
+    pub vendor_package: Vec<VendorPackage>,
 }
 
 impl PrefixPaths for Manifest {
@@ -60,7 +60,7 @@ impl PrefixPaths for Manifest {
             plugins: self.plugins.prefix_paths(prefix),
             frozen: self.frozen,
             workspace: self.workspace.prefix_paths(prefix),
-            external_import: self.external_import.prefix_paths(prefix),
+            vendor_package: self.vendor_package.prefix_paths(prefix),
         }
     }
 }
@@ -291,7 +291,7 @@ pub struct PartialManifest {
     /// The workspace configuration.
     pub workspace: Option<PartialWorkspace>,
     /// External Import dependencies
-    pub external_import: Option<Vec<PartialExternalImport>>,
+    pub vendor_package: Option<Vec<PartialVendorPackage>>,
 }
 
 impl Validate for PartialManifest {
@@ -337,10 +337,10 @@ impl Validate for PartialManifest {
                 .map_err(|cause| Error::chain("In workspace configuration:", cause))?,
             None => Workspace::default(),
         };
-        let external_import = match self.external_import {
+        let vendor_package = match self.vendor_package {
             Some(vend) => vend
                 .validate()
-                .map_err(|cause| Error::chain("Unable to parse external_import", cause))?,
+                .map_err(|cause| Error::chain("Unable to parse vendor_package", cause))?,
             None => Vec::new(),
         };
         Ok(Manifest {
@@ -351,7 +351,7 @@ impl Validate for PartialManifest {
             plugins,
             frozen,
             workspace,
-            external_import,
+            vendor_package,
         })
     }
 }
@@ -754,7 +754,7 @@ impl Validate for PartialConfig {
 
 /// An external import dependency
 #[derive(Serialize, Debug)]
-pub struct ExternalImport {
+pub struct VendorPackage {
     /// External dependency name
     pub name: String,
     /// Target folder for imported dependency
@@ -771,10 +771,10 @@ pub struct ExternalImport {
     pub exclude_from_upstream: Vec<String>,
 }
 
-impl PrefixPaths for ExternalImport {
+impl PrefixPaths for VendorPackage {
     fn prefix_paths(self, prefix: &Path) -> Self {
         let patch_root = self.patch_dir.prefix_paths(prefix);
-        ExternalImport {
+        VendorPackage {
             name: self.name,
             target_dir: self.target_dir,
             upstream: self.upstream,
@@ -796,7 +796,7 @@ impl PrefixPaths for ExternalImport {
 
 /// A partial external import dependency
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PartialExternalImport {
+pub struct PartialVendorPackage {
     /// External dependency name
     pub name: Option<String>,
     /// Target folder for imported dependency
@@ -815,11 +815,11 @@ pub struct PartialExternalImport {
     pub exclude_from_upstream: Option<Vec<String>>,
 }
 
-impl Validate for PartialExternalImport {
-    type Output = ExternalImport;
+impl Validate for PartialVendorPackage {
+    type Output = VendorPackage;
     type Error = Error;
-    fn validate(self) -> Result<ExternalImport> {
-        Ok(ExternalImport {
+    fn validate(self) -> Result<VendorPackage> {
+        Ok(VendorPackage {
             name: match self.name {
                 Some(name) => name,
                 None => return Err(Error::new("external import name missing")),

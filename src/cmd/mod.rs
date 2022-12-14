@@ -10,7 +10,7 @@
 pub mod checkout;
 pub mod clone;
 pub mod config;
-pub mod import;
+pub mod vendor;
 pub mod packages;
 pub mod parents;
 pub mod path;

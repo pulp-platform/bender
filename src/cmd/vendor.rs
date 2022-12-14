@@ -34,7 +34,7 @@ pub struct PatchLink {
 pub fn new<'a>() -> Command<'a> {
     Command::new("vendor")
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .about("Copy source code from upstream external repositories into this repository. Functions similar to the lowrisc vendor.py script. Type bender import <SUBCOMMAND> --help for more information about the subcommands.")
+        .about("Copy source code from upstream external repositories into this repository. Functions similar to the lowrisc vendor.py script. Type bender vendor <SUBCOMMAND> --help for more information about the subcommands.")
         .subcommand(Command::new("diff")
             .about("Display a diff of the local tree and the upstream tree with patches applied.")
         )
@@ -44,7 +44,7 @@ pub fn new<'a>() -> Command<'a> {
                 Arg::new("no_patch")
                     .short('n')
                     .long("no_patch")
-                    .help("Do not apply patches when refetching dependencies"),
+                    .help("Do not apply patches when initializing dependencies"),
             )
         )
         .subcommand(Command::new("patch")
@@ -61,7 +61,7 @@ pub fn new<'a>() -> Command<'a> {
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let rt = Runtime::new()?;
 
-    for vendor_package in &sess.manifest.external_import {
+    for vendor_package in &sess.manifest.vendor_package {
         // Clone upstream into a temporary directory (or make use of .bender/db?)
         let dep_src = DependencySource::from(&vendor_package.upstream);
         let tmp_dir = TempDir::new(&vendor_package.name)?;
@@ -124,7 +124,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         }
 
         // If links do not specify patch dirs, use package-wide patch dir
-        let  patch_links = {
+        let patch_links = {
             match patch_links[..] {
                 [] => vec![PatchLink {
                     patch_dir: vendor_package.patch_dir.clone(),
@@ -147,6 +147,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 // Stage applied patches to clean working tree
                 rt.block_on(git.add_all())?;
 
+                // Print diff for each link
                 patch_links.into_iter().try_for_each( |patch_link| {
                     let get_diff = diff(&rt,
                                         git,
@@ -165,10 +166,9 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 patch_links.clone().into_iter().try_for_each( |patch_link| {
                     stageln!("Copying", "{} files from upstream", vendor_package.name);
                     // Remove existing directories before importing them again
-                    // DOES NOT WORK FOR MAPPINGS!
                     std::fs::remove_dir_all(patch_link.clone().to_prefix.prefix_paths(&vendor_package.target_dir)).unwrap_or(());
-                    // Refetch
-                    refetch(&rt, git, vendor_package, patch_link, dep_path.clone(), matches)
+                    // init
+                    init(&rt, git, vendor_package, patch_link, dep_path.clone(), matches)
                 })
             },
 
@@ -196,7 +196,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                                                     patch_link.clone(),
                                                     dep_path.clone())
                                             .expect("failed to get diff");
-                                gen_patch(get_diff, patch_dir, false)
+                                gen_plain_patch(get_diff, patch_dir, false)
                             } else {
                                 gen_format_patch(&rt, &sess, git, patch_link, vendor_package.target_dir.clone())
                             }
@@ -215,11 +215,11 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
-/// refetch the external dependency
-pub fn refetch(
+/// initialize the external dependency
+pub fn init(
     rt: &Runtime,
     git: Git,
-    vendor_package: &config::ExternalImport,
+    vendor_package: &config::VendorPackage,
     patch_link: PatchLink,
     dep_path: impl AsRef<Path>,
     matches: &ArgMatches,
@@ -323,7 +323,7 @@ pub fn apply_patches(
 pub fn diff(
     rt: &Runtime,
     git: Git,
-    vendor_package: &config::ExternalImport,
+    vendor_package: &config::VendorPackage,
     patch_link: PatchLink,
     dep_path: impl AsRef<Path>
 
@@ -354,15 +354,15 @@ pub fn diff(
                 std::fs::copy(&link_to, &link_from)?;
             }
         };
-
+        // Get diff
         rt.block_on(async {
             git.spawn_with(|c| c.arg("diff").arg(format!("--relative={}", patch_link.from_prefix.to_str().expect("Failed to convert from_prefix to string."))))
                 .await
         })
 }
 
-/// Generate a conventional patch from a diff
-pub fn gen_patch(
+/// Generate a plain patch from a diff
+pub fn gen_plain_patch(
     diff: String,
     patch_dir: impl AsRef<Path>,
     no_patch: bool,
