@@ -248,11 +248,7 @@ pub fn init(
     }
 
     // Copy src to dst recursively.
-    match &patch_link
-        .from_prefix
-        .prefix_paths(dep_path)
-        .is_dir()
-    {
+    match &patch_link.from_prefix.prefix_paths(dep_path).is_dir() {
         true => copy_recursively(
             &link_from,
             &link_to,
