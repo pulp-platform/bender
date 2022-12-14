@@ -156,7 +156,9 @@ impl<'git, 'ctx> Git<'ctx> {
 
     /// Stage all local changes.
     pub async fn add_all(self) -> Result<()> {
-        self.spawn_with(|c| c.arg("add").arg("--all")).await.map(|_| ())
+        self.spawn_with(|c| c.arg("add").arg("--all"))
+            .await
+            .map(|_| ())
     }
 
     /// Commit the staged changes.
@@ -164,23 +166,21 @@ impl<'git, 'ctx> Git<'ctx> {
     /// If message is None, this starts an interactive commit session.
     pub async fn commit(self, message: Option<&str>) -> Result<()> {
         match message {
-            Some(msg) => {
-                self.spawn_with(|c| {
-                   c.arg("-c")
-                    .arg("commit.gpgsign=false")
-                    .arg("commit")
-                    .arg("-m")
-                    .arg(msg)
-                }).await.map(|_| ())
-            },
-
-            None => {
-                self.spawn_interactive_with(|c| {
+            Some(msg) => self
+                .spawn_with(|c| {
                     c.arg("-c")
-                    .arg("commit.gpgsign=false")
-                    .arg("commit")
-                }).await.map(|_| ())
-            },
+                        .arg("commit.gpgsign=false")
+                        .arg("commit")
+                        .arg("-m")
+                        .arg(msg)
+                })
+                .await
+                .map(|_| ()),
+
+            None => self
+                .spawn_interactive_with(|c| c.arg("-c").arg("commit.gpgsign=false").arg("commit"))
+                .await
+                .map(|_| ()),
         }
     }
 

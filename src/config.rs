@@ -784,7 +784,11 @@ impl PrefixPaths for VendorPackage {
                 .map(|ftl| FromToLink {
                     from: ftl.from,
                     to: ftl.to,
-                    patch_dir: ftl.patch_dir.map(|dir| dir.prefix_paths(&patch_root.clone().expect("A mapping has a local patch_dir, but no global patch_dir is defined."))),
+                    patch_dir: ftl.patch_dir.map(|dir| {
+                        dir.prefix_paths(&patch_root.clone().expect(
+                            "A mapping has a local patch_dir, but no global patch_dir is defined.",
+                        ))
+                    }),
                 })
                 .collect(),
             patch_dir: patch_root,
@@ -839,7 +843,7 @@ impl Validate for PartialVendorPackage {
                 None => Vec::new(),
             },
             patch_dir: self.patch_dir,
-            include_from_upstream: match self.include_from_upstream{
+            include_from_upstream: match self.include_from_upstream {
                 Some(include_from_upstream) => include_from_upstream,
                 None => vec![String::from("**")],
             },

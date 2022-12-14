@@ -6,7 +6,7 @@
 
 use crate::config::PrefixPaths;
 use crate::futures::TryFutureExt;
-use clap::{Arg, ArgMatches, Command, AppSettings};
+use clap::{AppSettings, Arg, ArgMatches, Command};
 use futures::future::{self};
 use tokio::runtime::Runtime;
 
@@ -114,13 +114,11 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         // Extract patch dirs of links
         let mut patch_links: Vec<PatchLink> = Vec::new();
         for link in vendor_package.mapping.clone() {
-            patch_links.push(
-                PatchLink {
-                    patch_dir: link.patch_dir,
-                    from_prefix: link.from,
-                    to_prefix: link.to,
-                }
-            )
+            patch_links.push(PatchLink {
+                patch_dir: link.patch_dir,
+                from_prefix: link.from,
+                to_prefix: link.to,
+            })
         }
 
         // If links do not specify patch dirs, use package-wide patch dir
@@ -140,7 +138,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         match matches.subcommand() {
             Some(("diff", _)) => {
                 // Apply patches
-                patch_links.clone().into_iter().try_for_each( |patch_link| {
+                patch_links.clone().into_iter().try_for_each(|patch_link| {
                     apply_patches(&rt, git, vendor_package.name.clone(), patch_link).map(|_| ())
                 })?;
 
@@ -148,35 +146,45 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 rt.block_on(git.add_all())?;
 
                 // Print diff for each link
-                patch_links.into_iter().try_for_each( |patch_link| {
-                    let get_diff = diff(&rt,
-                                        git,
-                                        vendor_package,
-                                        patch_link,
-                                        dep_path.clone())
-                                   .expect("failed to get diff");
+                patch_links.into_iter().try_for_each(|patch_link| {
+                    let get_diff = diff(&rt, git, vendor_package, patch_link, dep_path.clone())
+                        .expect("failed to get diff");
                     if !get_diff.is_empty() {
                         print!("{}", get_diff);
                     }
                     Ok(())
                 })
-            },
+            }
 
             Some(("init", matches)) => {
-                patch_links.clone().into_iter().try_for_each( |patch_link| {
+                patch_links.clone().into_iter().try_for_each(|patch_link| {
                     stageln!("Copying", "{} files from upstream", vendor_package.name);
                     // Remove existing directories before importing them again
-                    std::fs::remove_dir_all(patch_link.clone().to_prefix.prefix_paths(&vendor_package.target_dir)).unwrap_or(());
+                    std::fs::remove_dir_all(
+                        patch_link
+                            .clone()
+                            .to_prefix
+                            .prefix_paths(&vendor_package.target_dir),
+                    )
+                    .unwrap_or(());
                     // init
-                    init(&rt, git, vendor_package, patch_link, dep_path.clone(), matches)
+                    init(
+                        &rt,
+                        git,
+                        vendor_package,
+                        patch_link,
+                        dep_path.clone(),
+                        matches,
+                    )
                 })
-            },
+            }
 
             Some(("patch", matches)) => {
                 // Apply patches
                 let mut num_patches = 0;
-                patch_links.clone().into_iter().try_for_each( |patch_link| {
-                    apply_patches(&rt, git, vendor_package.name.clone(), patch_link).map(|num| num_patches += num)
+                patch_links.clone().into_iter().try_for_each(|patch_link| {
+                    apply_patches(&rt, git, vendor_package.name.clone(), patch_link)
+                        .map(|num| num_patches += num)
                 })?;
 
                 // Commit applied patches to clean working tree
@@ -207,10 +215,10 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                         },
                     }
                 })
-            },
+            }
             _ => Ok(()),
         }?;
-    };
+    }
 
     Ok(())
 }
@@ -228,21 +236,24 @@ pub fn init(
     let dep_path = dep_path.as_ref();
 
     // Make sure the target directory actually exists
-    let link_to = patch_link.to_prefix.clone().prefix_paths(&vendor_package.target_dir);
+    let link_to = patch_link
+        .to_prefix
+        .clone()
+        .prefix_paths(&vendor_package.target_dir);
     let link_from = patch_link.from_prefix.clone().prefix_paths(&dep_path);
     std::fs::create_dir_all(&link_to.parent().unwrap())?;
 
     if !matches.is_present("no_patch") {
-        apply_patches(
-            &rt,
-            git,
-            vendor_package.name.clone(),
-            patch_link.clone()
-        )?;
+        apply_patches(&rt, git, vendor_package.name.clone(), patch_link.clone())?;
     }
 
     // Copy src to dst recursively.
-    match &patch_link.from_prefix.clone().prefix_paths(&dep_path).is_dir() {
+    match &patch_link
+        .from_prefix
+        .clone()
+        .prefix_paths(&dep_path)
+        .is_dir()
+    {
         true => copy_recursively(
             &link_from,
             &link_to,
@@ -278,9 +289,7 @@ pub fn apply_patches(
             .filter(|f| f.extension().is_some())
             .filter(|f| f.extension().unwrap() == "patch")
             .collect::<Vec<_>>();
-        patches.sort_by_key(|patch_path| {
-            patch_path.to_str().unwrap().to_lowercase()
-        });
+        patches.sort_by_key(|patch_path| patch_path.to_str().unwrap().to_lowercase());
 
         for patch in patches.clone() {
             rt.block_on(async {
@@ -305,10 +314,7 @@ pub fn apply_patches(
                 })
                 .await
                 .map_err(move |cause| {
-                    Error::chain(
-                        format!("Failed to apply patch {:?}.", patch),
-                        cause,
-                    )
+                    Error::chain(format!("Failed to apply patch {:?}.", patch), cause)
                 })
                 .map(move |_| git)
             })?;
@@ -325,48 +331,54 @@ pub fn diff(
     git: Git,
     vendor_package: &config::VendorPackage,
     patch_link: PatchLink,
-    dep_path: impl AsRef<Path>
-
+    dep_path: impl AsRef<Path>,
 ) -> Result<String> {
-        // Copy files from local to temporary repo
-        let link_from = patch_link.from_prefix.clone().prefix_paths(dep_path.as_ref()); // dep_path: path to temporary clone. link_to: targetdir/link.to
-        let link_to = patch_link.to_prefix.clone().prefix_paths(vendor_package.target_dir.as_ref());
-        // Copy src to dst recursively.
-        match &link_to.is_dir() {
-            true => copy_recursively(
-                &link_to,
-                &link_from,
-                &extend_paths(&vendor_package.include_from_upstream, &vendor_package.target_dir),
-                &vendor_package
-                    .exclude_from_upstream
-                    .clone()
-                    .into_iter()
-                    .map(|excl| {
-                        format!(
-                            "{}/{}",
-                            &vendor_package.target_dir.to_str().unwrap(),
-                            &excl
-                        )
-                    })
-                    .collect(),
-            )?,
-            false => {
-                std::fs::copy(&link_to, &link_from)?;
-            }
-        };
-        // Get diff
-        rt.block_on(async {
-            git.spawn_with(|c| c.arg("diff").arg(format!("--relative={}", patch_link.from_prefix.to_str().expect("Failed to convert from_prefix to string."))))
-                .await
+    // Copy files from local to temporary repo
+    let link_from = patch_link
+        .from_prefix
+        .clone()
+        .prefix_paths(dep_path.as_ref()); // dep_path: path to temporary clone. link_to: targetdir/link.to
+    let link_to = patch_link
+        .to_prefix
+        .clone()
+        .prefix_paths(vendor_package.target_dir.as_ref());
+    // Copy src to dst recursively.
+    match &link_to.is_dir() {
+        true => copy_recursively(
+            &link_to,
+            &link_from,
+            &extend_paths(
+                &vendor_package.include_from_upstream,
+                &vendor_package.target_dir,
+            ),
+            &vendor_package
+                .exclude_from_upstream
+                .clone()
+                .into_iter()
+                .map(|excl| format!("{}/{}", &vendor_package.target_dir.to_str().unwrap(), &excl))
+                .collect(),
+        )?,
+        false => {
+            std::fs::copy(&link_to, &link_from)?;
+        }
+    };
+    // Get diff
+    rt.block_on(async {
+        git.spawn_with(|c| {
+            c.arg("diff").arg(format!(
+                "--relative={}",
+                patch_link
+                    .from_prefix
+                    .to_str()
+                    .expect("Failed to convert from_prefix to string.")
+            ))
         })
+        .await
+    })
 }
 
 /// Generate a plain patch from a diff
-pub fn gen_plain_patch(
-    diff: String,
-    patch_dir: impl AsRef<Path>,
-    no_patch: bool,
-) -> Result<()> {
+pub fn gen_plain_patch(diff: String, patch_dir: impl AsRef<Path>, no_patch: bool) -> Result<()> {
     if !diff.is_empty() {
         // if let Some(patch) = patch_dir {
         // Create directory in case it does not already exist
@@ -376,12 +388,9 @@ pub fn gen_plain_patch(
             .map(move |f| f.unwrap().path())
             .filter(|f| f.extension().unwrap() == "patch")
             .collect::<Vec<_>>();
-        patches.sort_by_key(|patch_path| {
-            patch_path.to_str().unwrap().to_lowercase()
-        });
+        patches.sort_by_key(|patch_path| patch_path.to_str().unwrap().to_lowercase());
 
-        let new_patch = if no_patch || patches.is_empty()
-        {
+        let new_patch = if no_patch || patches.is_empty() {
             // Remove all old patches
             for patch_file in patches {
                 std::fs::remove_file(patch_file)?;
@@ -391,16 +400,17 @@ pub fn gen_plain_patch(
             // Get all patch leading numeric keys (0001, ...) and generate new name
             let leading_numbers = patches
                 .iter()
-                .map(|file_path| {
-                    file_path.file_name().unwrap().to_str().unwrap()
-                })
+                .map(|file_path| file_path.file_name().unwrap().to_str().unwrap())
                 .map(|s| &s[..4])
                 .collect::<Vec<_>>();
             if !leading_numbers
                 .iter()
                 .all(|s| s.chars().all(char::is_numeric))
             {
-                Err(Error::new(format!("Please ensure all patches start with four numbers for proper ordering in {}", patch_dir.as_ref().to_str().unwrap())))?;
+                Err(Error::new(format!(
+                    "Please ensure all patches start with four numbers for proper ordering in {}",
+                    patch_dir.as_ref().to_str().unwrap()
+                )))?;
             }
             let max_number = leading_numbers
                 .iter()
@@ -434,12 +444,24 @@ pub fn gen_format_patch(
 
     // Get staged changes in dependency
     let get_diff_cached = rt.block_on(async {
-        git_parent.spawn_with(|c| c.arg("diff").arg(format!("--relative={}", patch_link.to_prefix.clone().prefix_paths(target_dir.as_ref()).to_str().unwrap())).arg("--cached"))
-        .await
+        git_parent
+            .spawn_with(|c| {
+                c.arg("diff")
+                    .arg(format!(
+                        "--relative={}",
+                        patch_link
+                            .to_prefix
+                            .clone()
+                            .prefix_paths(target_dir.as_ref())
+                            .to_str()
+                            .unwrap()
+                    ))
+                    .arg("--cached")
+            })
+            .await
     })?;
 
-    if !get_diff_cached.is_empty()
-    {
+    if !get_diff_cached.is_empty() {
         // Write diff into new temp dir. TODO: pipe directly to "git apply"
         let tmp_format_dir = TempDir::new(".bender.format.tmp")?;
         let tmp_format_path = tmp_format_dir.path();
@@ -455,12 +477,7 @@ pub fn gen_format_patch(
                     .arg("-p1")
                     .arg(&diff_cached_path)
             })
-            .and_then(|_| {
-                git.spawn_with (|c| {
-                    c.arg("add")
-                    .arg("--all")
-                })
-            })
+            .and_then(|_| git.spawn_with(|c| c.arg("add").arg("--all")))
             .await
         })?;
 
@@ -475,9 +492,7 @@ pub fn gen_format_patch(
             .filter(|f| f.extension().is_some())
             .filter(|f| f.extension().unwrap() == "patch")
             .collect::<Vec<_>>();
-        patches.sort_by_key(|patch_path| {
-            patch_path.to_str().unwrap().to_lowercase()
-        });
+        patches.sort_by_key(|patch_path| patch_path.to_str().unwrap().to_lowercase());
 
         // Determine max number
         let max_number = if patches.is_empty() {
@@ -485,16 +500,17 @@ pub fn gen_format_patch(
         } else {
             let leading_numbers = patches
                 .iter()
-                .map(|file_path| {
-                    file_path.file_name().unwrap().to_str().unwrap()
-                })
+                .map(|file_path| file_path.file_name().unwrap().to_str().unwrap())
                 .map(|s| &s[..4])
                 .collect::<Vec<_>>();
             if !leading_numbers
                 .iter()
                 .all(|s| s.chars().all(char::is_numeric))
             {
-                Err(Error::new(format!("Please ensure all patches start with four numbers for proper ordering in {}", patch_dir.to_str().unwrap())))?;
+                Err(Error::new(format!(
+                    "Please ensure all patches start with four numbers for proper ordering in {}",
+                    patch_dir.to_str().unwrap()
+                )))?;
             }
             leading_numbers
                 .iter()
@@ -511,7 +527,10 @@ pub fn gen_format_patch(
                     .arg(patch_dir.to_str().unwrap())
                     .arg("-1")
                     .arg(format!("--start-number={}", max_number + 1))
-                    .arg(format!("--relative={}", patch_link.from_prefix.to_str().unwrap()))
+                    .arg(format!(
+                        "--relative={}",
+                        patch_link.from_prefix.to_str().unwrap()
+                    ))
                     .arg("HEAD")
             })
             .await
@@ -519,7 +538,6 @@ pub fn gen_format_patch(
     }
     Ok(())
 }
-
 
 /// recursive copy function
 pub fn copy_recursively(
@@ -538,8 +556,7 @@ pub fn copy_recursively(
                     .unwrap()
                     .matches_path(&entry.path())
             })
-        })
-        || ignore.iter().any(|ignore_path| {
+        }) || ignore.iter().any(|ignore_path| {
             Pattern::new(ignore_path)
                 .unwrap()
                 .matches_path(&entry.path())
@@ -563,16 +580,16 @@ pub fn copy_recursively(
 }
 
 /// Prefix paths with prefix. Append ** to directories.
-pub fn extend_paths(
-    include_from_upstream: &Vec<String>,
-    prefix: impl AsRef<Path>,
-) -> Vec<String> {
-    include_from_upstream.into_iter().map(|pattern| {
-        let pattern_long = PathBuf::from(pattern).prefix_paths(prefix.as_ref());
-        if pattern_long.is_dir() {
-            String::from(pattern_long.join("**").to_str().unwrap())
-        } else {
-            String::from(pattern_long.to_str().unwrap())
-        }
-    }).collect()
+pub fn extend_paths(include_from_upstream: &Vec<String>, prefix: impl AsRef<Path>) -> Vec<String> {
+    include_from_upstream
+        .into_iter()
+        .map(|pattern| {
+            let pattern_long = PathBuf::from(pattern).prefix_paths(prefix.as_ref());
+            if pattern_long.is_dir() {
+                String::from(pattern_long.join("**").to_str().unwrap())
+            } else {
+                String::from(pattern_long.to_str().unwrap())
+            }
+        })
+        .collect()
 }
