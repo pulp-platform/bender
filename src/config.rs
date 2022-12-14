@@ -843,9 +843,13 @@ impl Validate for PartialVendorPackage {
                 Some(include_from_upstream) => include_from_upstream,
                 None => vec![String::from("**")],
             },
-            exclude_from_upstream: match self.exclude_from_upstream {
-                Some(exclude_from_upstream) => exclude_from_upstream,
-                None => Vec::new(),
+            exclude_from_upstream: {
+                let mut excl = match self.exclude_from_upstream {
+                    Some(exclude_from_upstream) => exclude_from_upstream,
+                    None => Vec::new(),
+                };
+                excl.push(String::from(".git"));
+                excl
             },
         })
     }
