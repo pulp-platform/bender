@@ -201,12 +201,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                                 let get_diff = diff(&rt,
                                                     git,
                                                     vendor_package,
-                                                    patch_link.clone(),
+                                                    patch_link,
                                                     dep_path.clone())
                                             .expect("failed to get diff");
                                 gen_plain_patch(get_diff, patch_dir, false)
                             } else {
-                                gen_format_patch(&rt, &sess, git, patch_link, vendor_package.target_dir.clone())
+                                gen_format_patch(&rt, sess, git, patch_link, vendor_package.target_dir.clone())
                             }
                         },
                         None => {
@@ -240,18 +240,17 @@ pub fn init(
         .to_prefix
         .clone()
         .prefix_paths(&vendor_package.target_dir);
-    let link_from = patch_link.from_prefix.clone().prefix_paths(&dep_path);
+    let link_from = patch_link.from_prefix.clone().prefix_paths(dep_path);
     std::fs::create_dir_all(&link_to.parent().unwrap())?;
 
     if !matches.is_present("no_patch") {
-        apply_patches(&rt, git, vendor_package.name.clone(), patch_link.clone())?;
+        apply_patches(rt, git, vendor_package.name.clone(), patch_link.clone())?;
     }
 
     // Copy src to dst recursively.
     match &patch_link
         .from_prefix
-        .clone()
-        .prefix_paths(&dep_path)
+        .prefix_paths(dep_path)
         .is_dir()
     {
         true => copy_recursively(
@@ -284,7 +283,7 @@ pub fn apply_patches(
         // Create directory in case it does not already exist
         std::fs::create_dir_all(patch_dir.clone())?;
 
-        let mut patches = std::fs::read_dir(patch_dir.clone())?
+        let mut patches = std::fs::read_dir(patch_dir)?
             .map(move |f| f.unwrap().path())
             .filter(|f| f.extension().is_some())
             .filter(|f| f.extension().unwrap() == "patch")
@@ -382,7 +381,7 @@ pub fn gen_plain_patch(diff: String, patch_dir: impl AsRef<Path>, no_patch: bool
     if !diff.is_empty() {
         // if let Some(patch) = patch_dir {
         // Create directory in case it does not already exist
-        std::fs::create_dir_all(patch_dir.as_ref().clone())?;
+        std::fs::create_dir_all(patch_dir.as_ref())?;
 
         let mut patches = std::fs::read_dir(patch_dir.as_ref())?
             .map(move |f| f.unwrap().path())
@@ -466,7 +465,7 @@ pub fn gen_format_patch(
         let tmp_format_dir = TempDir::new(".bender.format.tmp")?;
         let tmp_format_path = tmp_format_dir.path();
         let diff_cached_path = tmp_format_path.join("staged.diff");
-        std::fs::write(diff_cached_path.clone(), get_diff_cached.clone())?;
+        std::fs::write(diff_cached_path.clone(), get_diff_cached)?;
 
         // Apply diff and stage changes in ghost repo
         rt.block_on(async {
@@ -580,9 +579,9 @@ pub fn copy_recursively(
 }
 
 /// Prefix paths with prefix. Append ** to directories.
-pub fn extend_paths(include_from_upstream: &Vec<String>, prefix: impl AsRef<Path>) -> Vec<String> {
+pub fn extend_paths(include_from_upstream: &[String], prefix: impl AsRef<Path>) -> Vec<String> {
     include_from_upstream
-        .into_iter()
+        .iter()
         .map(|pattern| {
             let pattern_long = PathBuf::from(pattern).prefix_paths(prefix.as_ref());
             if pattern_long.is_dir() {
