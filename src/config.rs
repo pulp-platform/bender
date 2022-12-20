@@ -776,7 +776,7 @@ impl PrefixPaths for VendorPackage {
         let patch_root = self.patch_dir.prefix_paths(prefix);
         VendorPackage {
             name: self.name,
-            target_dir: self.target_dir,
+            target_dir: self.target_dir.prefix_paths(prefix),
             upstream: self.upstream,
             mapping: self
                 .mapping
