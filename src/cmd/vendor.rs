@@ -579,6 +579,12 @@ pub fn copy_recursively(
                 includes,
                 ignore,
             )?;
+        } else if filetype.is_symlink() {
+            let orig = std::fs::read_link(entry.path());
+            std::os::unix::fs::symlink(
+                orig.unwrap(),
+                destination.as_ref().join(entry.file_name()),
+            )?;
         } else {
             std::fs::copy(entry.path(), destination.as_ref().join(entry.file_name()))?;
         }
