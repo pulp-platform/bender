@@ -462,7 +462,11 @@ pub fn gen_format_patch(
     target_dir: impl AsRef<Path>,
 ) -> Result<()> {
     // Local git
-    let git_parent = Git::new(sess.root, &sess.config.git);
+    let to_path = patch_link
+        .to_prefix
+        .clone()
+        .prefix_paths(target_dir.as_ref());
+    let git_parent = Git::new(&to_path, &sess.config.git);
 
     // We assume that patch_dir matches Some() was checked outside this function.
     let patch_dir = patch_link.patch_dir.clone().unwrap();
@@ -470,19 +474,7 @@ pub fn gen_format_patch(
     // Get staged changes in dependency
     let get_diff_cached = rt.block_on(async {
         git_parent
-            .spawn_with(|c| {
-                c.arg("diff")
-                    .arg(format!(
-                        "--relative={}",
-                        patch_link
-                            .to_prefix
-                            .clone()
-                            .prefix_paths(target_dir.as_ref())
-                            .to_str()
-                            .unwrap()
-                    ))
-                    .arg("--cached")
-            })
+            .spawn_with(|c| c.arg("diff").arg("--relative").arg("--cached"))
             .await
     })?;
 
