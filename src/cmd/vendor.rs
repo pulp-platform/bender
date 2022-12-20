@@ -303,7 +303,7 @@ pub fn apply_patches(
                         let current_patch_target = if !patch_link
                             .from_prefix
                             .clone()
-                            .prefix_paths(git.path.clone())
+                            .prefix_paths(git.path)
                             .is_file()
                         {
                             patch_link.from_prefix.as_path()
