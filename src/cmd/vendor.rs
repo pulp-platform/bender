@@ -148,7 +148,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 // Print diff for each link
                 patch_links.into_iter().try_for_each(|patch_link| {
                     let get_diff = diff(&rt, git, vendor_package, patch_link, dep_path.clone())
-                        .expect("failed to get diff");
+                        .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
                     if !get_diff.is_empty() {
                         print!("{}", get_diff);
                     }
@@ -166,7 +166,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                             .to_prefix
                             .prefix_paths(&vendor_package.target_dir),
                     )
-                    .unwrap_or(());
+                    .unwrap();
                     // init
                     init(
                         &rt,
@@ -203,7 +203,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                                                     vendor_package,
                                                     patch_link,
                                                     dep_path.clone())
-                                            .expect("failed to get diff");
+                                            .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
                                 gen_plain_patch(get_diff, patch_dir, false)
                             } else {
                                 gen_format_patch(&rt, sess, git, patch_link, vendor_package.target_dir.clone())
@@ -261,7 +261,16 @@ pub fn init(
                 .collect(),
         )?,
         false => {
-            std::fs::copy(&link_from, &link_to)?;
+            std::fs::copy(&link_from, &link_to).map_err(|cause| {
+                Error::chain(
+                    format!(
+                        "Failed to copy {} to {}.",
+                        link_to.to_str().unwrap(),
+                        link_from.to_str().unwrap()
+                    ),
+                    cause,
+                )
+            })?;
         }
     };
 
@@ -366,7 +375,16 @@ pub fn diff(
                 .collect(),
         )?,
         false => {
-            std::fs::copy(&link_to, &link_from)?;
+            std::fs::copy(&link_to, &link_from).map_err(|cause| {
+                Error::chain(
+                    format!(
+                        "Failed to copy {} to {}.",
+                        link_to.to_str().unwrap(),
+                        link_from.to_str().unwrap(),
+                    ),
+                    cause,
+                )
+            })?;
         }
     };
     // Get diff
@@ -586,7 +604,22 @@ pub fn copy_recursively(
                 destination.as_ref().join(entry.file_name()),
             )?;
         } else {
-            std::fs::copy(entry.path(), destination.as_ref().join(entry.file_name()))?;
+            std::fs::copy(entry.path(), destination.as_ref().join(entry.file_name())).map_err(
+                |cause| {
+                    Error::chain(
+                        format!(
+                            "Failed to copy {} to {}.",
+                            entry.path().to_str().unwrap(),
+                            destination
+                                .as_ref()
+                                .join(entry.file_name())
+                                .to_str()
+                                .unwrap()
+                        ),
+                        cause,
+                    )
+                },
+            )?;
         }
     }
     Ok(())
