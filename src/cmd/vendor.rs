@@ -358,6 +358,12 @@ pub fn diff(
         .to_prefix
         .clone()
         .prefix_paths(vendor_package.target_dir.as_ref());
+    if !&link_to.exists() {
+        return Err(Error::new(format!(
+            "Could not find {}. Did you run bender vendor init?",
+            link_to.to_str().unwrap()
+        )));
+    }
     // Copy src to dst recursively.
     match &link_to.is_dir() {
         true => copy_recursively(
@@ -466,6 +472,12 @@ pub fn gen_format_patch(
         .to_prefix
         .clone()
         .prefix_paths(target_dir.as_ref());
+    if !&to_path.exists() {
+        return Err(Error::new(format!(
+            "Could not find {}. Did you run bender vendor init?",
+            to_path.to_str().unwrap()
+        )));
+    }
     let git_parent = Git::new(&to_path, &sess.config.git);
 
     // We assume that patch_dir matches Some() was checked outside this function.
@@ -496,7 +508,7 @@ pub fn gen_format_patch(
             })
             .and_then(|_| git.spawn_with(|c| c.arg("add").arg("--all")))
             .await
-        })?;
+        }).map_err(|cause| Error::chain("Could not apply staged changes on top of patched upstream repository. Did you commit all previously patched modifications?", cause))?;
 
         // Commit all staged changes in ghost repo
         rt.block_on(git.commit(None))?;
