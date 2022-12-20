@@ -300,9 +300,21 @@ pub fn apply_patches(
                 })
                 .and_then(|_| {
                     git.spawn_with(|c| {
+                        let current_patch_target = if !patch_link
+                            .from_prefix
+                            .clone()
+                            .prefix_paths(git.path.clone())
+                            .is_file()
+                        {
+                            patch_link.from_prefix.as_path()
+                        } else {
+                            patch_link.from_prefix.parent().unwrap()
+                        }
+                        .to_str()
+                        .unwrap();
                         c.arg("apply")
                             .arg("--directory")
-                            .arg(patch_link.from_prefix.clone().to_str().unwrap())
+                            .arg(current_patch_target)
                             .arg("-p1")
                             .arg(&patch)
                     })
