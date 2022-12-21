@@ -164,7 +164,7 @@ impl<'git, 'ctx> Git<'ctx> {
     /// Commit the staged changes.
     ///
     /// If message is None, this starts an interactive commit session.
-    pub async fn commit(self, message: Option<&str>) -> Result<()> {
+    pub async fn commit(self, message: Option<&String>) -> Result<()> {
         match message {
             Some(msg) => self
                 .spawn_with(|c| {

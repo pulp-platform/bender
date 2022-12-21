@@ -54,6 +54,11 @@ pub fn new<'a>() -> Command<'a> {
                 .long("plain")
                 .help("Generate a plain diff instead of a format-patch. Includes all local changes (not only the staged ones)."),
             )
+            .arg(
+                Arg::new("message")
+                .short('m')
+                .help("The message to be associated with the format-patch."),
+            )
         )
 }
 
@@ -190,7 +195,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 // Commit applied patches to clean working tree
                 if num_patches > 0 {
                     rt.block_on(git.add_all())?;
-                    rt.block_on(git.commit(Some("pre-patch")))?;
+                    rt.block_on(git.commit(Some(&"pre-patch".to_string())))?;
                 }
 
                 // Generate patch
@@ -206,7 +211,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                                             .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
                                 gen_plain_patch(get_diff, patch_dir, false)
                             } else {
-                                gen_format_patch(&rt, sess, git, patch_link, vendor_package.target_dir.clone())
+                                gen_format_patch(&rt, sess, git, patch_link, vendor_package.target_dir.clone(), matches.get_one("message"))
                             }
                         },
                         None => {
@@ -466,6 +471,7 @@ pub fn gen_format_patch(
     git: Git,
     patch_link: PatchLink,
     target_dir: impl AsRef<Path>,
+    message: Option<&String>,
 ) -> Result<()> {
     // Local git
     let to_path = patch_link
@@ -511,7 +517,7 @@ pub fn gen_format_patch(
         }).map_err(|cause| Error::chain("Could not apply staged changes on top of patched upstream repository. Did you commit all previously patched modifications?", cause))?;
 
         // Commit all staged changes in ghost repo
-        rt.block_on(git.commit(None))?;
+        rt.block_on(git.commit(message))?;
 
         // Create directory in case it does not already exist
         std::fs::create_dir_all(patch_dir.clone())?;
