@@ -483,7 +483,7 @@ If the `--plain` argument is passed, this command will *not* prompt for a commit
 #### Example workflow
 
 Let's assume we would like to vendor a dependency `my_ip` into a project `monorepo`.
-A simple configuration ind `Bender.yml` could look as follows (see the `Bender.yml` description above for more information on this):
+A simple configuration in a `Bender.yml` could look as follows (see the `Bender.yml` description above for more information on this):
 
 ```yaml
 vendor_package:
@@ -501,7 +501,7 @@ We can print these changes with the command `bender vendor diff`.
 Now, we would like to generate a patch with the changes in `deps/my_ip/a` (but not those in `deps/my_ip/b`).
 We stage the desired changes using `git add deps/my_ip/a` (of course, you can also just stage parts of a file using `git add --patch`).
 The command `bender vendor patch` will now ask for a commit message that will be associated with this patch.
-Then, it will place a patch that contains our changes in `deps/my_ip/a` into `deps/patches/my_ip/0001-commit-message.patch`
+Then, it will place a patch that contains our changes in `deps/my_ip/a` into `deps/patches/my_ip/0001-commit-message.patch` (the number will increment if a numbered patch is already present).
 
 We can easily create a corresponding commit in the monorepo.
 `deps/my_ip/a` is still staged from the previous step.
