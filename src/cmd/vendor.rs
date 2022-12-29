@@ -455,7 +455,7 @@ pub fn gen_plain_patch(diff: String, patch_dir: impl AsRef<Path>, no_patch: bool
             for patch_file in patches {
                 std::fs::remove_file(patch_file)?;
             }
-            "0001-bender-import.patch".to_string()
+            "0001-bender-vendor.patch".to_string()
         } else {
             // Get all patch leading numeric keys (0001, ...) and generate new name
             let leading_numbers = patches
@@ -477,7 +477,7 @@ pub fn gen_plain_patch(diff: String, patch_dir: impl AsRef<Path>, no_patch: bool
                 .map(|s| s.parse::<i32>().unwrap())
                 .max()
                 .unwrap();
-            format!("{:04}-bender-import.patch", max_number + 1)
+            format!("{:04}-bender-vendor.patch", max_number + 1)
         };
 
         // write patch
