@@ -165,13 +165,18 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 patch_links.clone().into_iter().try_for_each(|patch_link| {
                     stageln!("Copying", "{} files from upstream", vendor_package.name);
                     // Remove existing directories before importing them again
-                    std::fs::remove_dir_all(
-                        patch_link
-                            .clone()
-                            .to_prefix
-                            .prefix_paths(&vendor_package.target_dir),
-                    )
-                    .unwrap();
+                    let target_path = patch_link
+                        .clone()
+                        .to_prefix
+                        .prefix_paths(&vendor_package.target_dir);
+                    if target_path.is_dir() {
+                        std::fs::remove_dir_all(target_path.clone())
+                    } else {
+                        std::fs::remove_file(target_path.clone())
+                    }
+                    .map_err(|cause| {
+                        Error::chain(format!("Failed to remove {:?}", target_path), cause)
+                    })?;
                     // init
                     init(
                         &rt,
@@ -187,10 +192,14 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             Some(("patch", matches)) => {
                 // Apply patches
                 let mut num_patches = 0;
-                patch_links.clone().into_iter().try_for_each(|patch_link| {
-                    apply_patches(&rt, git, vendor_package.name.clone(), patch_link)
-                        .map(|num| num_patches += num)
-                })?;
+                patch_links
+                    .clone()
+                    .into_iter()
+                    .try_for_each(|patch_link| {
+                        apply_patches(&rt, git, vendor_package.name.clone(), patch_link)
+                            .map(|num| num_patches += num)
+                    })
+                    .map_err(|cause| Error::chain("Failed to apply patch.", cause))?;
 
                 // Commit applied patches to clean working tree
                 if num_patches > 0 {
@@ -484,17 +493,26 @@ pub fn gen_format_patch(
             to_path.to_str().unwrap()
         )));
     }
-    let git_parent = Git::new(&to_path, &sess.config.git);
+    let git_parent = Git::new(
+        if to_path.is_dir() {
+            &to_path
+        } else {
+            &to_path.parent().unwrap()
+        },
+        &sess.config.git,
+    );
 
     // We assume that patch_dir matches Some() was checked outside this function.
     let patch_dir = patch_link.patch_dir.clone().unwrap();
 
     // Get staged changes in dependency
-    let get_diff_cached = rt.block_on(async {
-        git_parent
-            .spawn_with(|c| c.arg("diff").arg("--relative").arg("--cached"))
-            .await
-    })?;
+    let get_diff_cached = rt
+        .block_on(async {
+            git_parent
+                .spawn_with(|c| c.arg("diff").arg("--relative").arg("--cached"))
+                .await
+        })
+        .map_err(|cause| Error::chain("Failed to generate diff", cause))?;
 
     if !get_diff_cached.is_empty() {
         // Write diff into new temp dir. TODO: pipe directly to "git apply"
