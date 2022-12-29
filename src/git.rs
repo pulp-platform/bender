@@ -36,9 +36,9 @@ impl<'git, 'ctx> Git<'ctx> {
     /// The command will have the form `git <subcommand>` and be pre-configured
     /// to operate in the repository's path.
     pub fn command(self, subcommand: &str) -> Command {
-        let mut cmd = Command::new(&self.git);
+        let mut cmd = Command::new(self.git);
         cmd.arg(subcommand);
-        cmd.current_dir(&self.path);
+        cmd.current_dir(self.path);
         cmd
     }
 
@@ -109,8 +109,8 @@ impl<'git, 'ctx> Git<'ctx> {
     where
         F: FnOnce(&mut Command) -> &mut Command,
     {
-        let mut cmd = Command::new(&self.git);
-        cmd.current_dir(&self.path);
+        let mut cmd = Command::new(self.git);
+        cmd.current_dir(self.path);
         f(&mut cmd);
         self.spawn(cmd, true).await
     }
@@ -123,8 +123,8 @@ impl<'git, 'ctx> Git<'ctx> {
     where
         F: FnOnce(&mut Command) -> &mut Command,
     {
-        let mut cmd = Command::new(&self.git);
-        cmd.current_dir(&self.path);
+        let mut cmd = Command::new(self.git);
+        cmd.current_dir(self.path);
         f(&mut cmd);
         self.spawn(cmd, false).await
     }
@@ -137,8 +137,8 @@ impl<'git, 'ctx> Git<'ctx> {
     where
         F: FnOnce(&mut Command) -> &mut Command,
     {
-        let mut cmd = Command::new(&self.git);
-        cmd.current_dir(&self.path);
+        let mut cmd = Command::new(self.git);
+        cmd.current_dir(self.path);
         f(&mut cmd);
         cmd.spawn()?.wait().await?;
         Ok(())

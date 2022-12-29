@@ -255,7 +255,12 @@ pub fn init(
         .clone()
         .prefix_paths(&vendor_package.target_dir);
     let link_from = patch_link.from_prefix.clone().prefix_paths(dep_path);
-    std::fs::create_dir_all(&link_to.parent().unwrap())?;
+    std::fs::create_dir_all(link_to.parent().unwrap()).map_err(|cause| {
+        Error::chain(
+            format!("Failed to create directory {:?}", link_to.parent()),
+            cause,
+        )
+    })?;
 
     if !matches.is_present("no_patch") {
         apply_patches(rt, git, vendor_package.name.clone(), patch_link.clone())?;
@@ -300,7 +305,12 @@ pub fn apply_patches(
 ) -> Result<usize> {
     if let Some(patch_dir) = patch_link.patch_dir.clone() {
         // Create directory in case it does not already exist
-        std::fs::create_dir_all(patch_dir.clone())?;
+        std::fs::create_dir_all(patch_dir.clone()).map_err(|cause| {
+            Error::chain(
+                format!("Failed to create directory {:?}", patch_dir.clone()),
+                cause,
+            )
+        })?;
 
         let mut patches = std::fs::read_dir(patch_dir)?
             .map(move |f| f.unwrap().path())
@@ -427,7 +437,12 @@ pub fn gen_plain_patch(diff: String, patch_dir: impl AsRef<Path>, no_patch: bool
     if !diff.is_empty() {
         // if let Some(patch) = patch_dir {
         // Create directory in case it does not already exist
-        std::fs::create_dir_all(patch_dir.as_ref())?;
+        std::fs::create_dir_all(patch_dir.as_ref()).map_err(|cause| {
+            Error::chain(
+                format!("Failed to create directory {:?}", patch_dir.as_ref()),
+                cause,
+            )
+        })?;
 
         let mut patches = std::fs::read_dir(patch_dir.as_ref())?
             .map(move |f| f.unwrap().path())
@@ -497,7 +512,7 @@ pub fn gen_format_patch(
         if to_path.is_dir() {
             &to_path
         } else {
-            &to_path.parent().unwrap()
+            to_path.parent().unwrap()
         },
         &sess.config.git,
     );
@@ -538,7 +553,12 @@ pub fn gen_format_patch(
         rt.block_on(git.commit(message))?;
 
         // Create directory in case it does not already exist
-        std::fs::create_dir_all(patch_dir.clone())?;
+        std::fs::create_dir_all(patch_dir.clone()).map_err(|cause| {
+            Error::chain(
+                format!("Failed to create directory {:?}", patch_dir.clone()),
+                cause,
+            )
+        })?;
 
         let mut patches = std::fs::read_dir(patch_dir.clone())?
             .map(move |f| f.unwrap().path())
@@ -594,12 +614,17 @@ pub fn gen_format_patch(
 
 /// recursive copy function
 pub fn copy_recursively(
-    source: impl AsRef<Path>,
-    destination: impl AsRef<Path>,
+    source: impl AsRef<Path> + std::fmt::Debug,
+    destination: impl AsRef<Path> + std::fmt::Debug,
     includes: &Vec<String>,
     ignore: &Vec<String>,
 ) -> Result<()> {
-    std::fs::create_dir_all(&destination)?;
+    std::fs::create_dir_all(&destination).map_err(|cause| {
+        Error::chain(
+            format!("Failed to create directory {:?}", &destination),
+            cause,
+        )
+    })?;
     for entry in std::fs::read_dir(source)? {
         let entry = entry?;
 
