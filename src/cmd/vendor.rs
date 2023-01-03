@@ -56,7 +56,9 @@ pub fn new<'a>() -> Command<'a> {
             )
             .arg(
                 Arg::new("message")
+                .long("message")
                 .short('m')
+                .takes_value(true)
                 .help("The message to be associated with the format-patch."),
             )
         )
