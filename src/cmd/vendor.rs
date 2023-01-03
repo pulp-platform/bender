@@ -169,12 +169,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                         .clone()
                         .to_prefix
                         .prefix_paths(&vendor_package.target_dir);
-                    if target_path.try_exists().map_err(|cause| {
-                        Error::chain(
-                            format!("Failed to check if {:?} already exists.", target_path),
-                            cause,
-                        )
-                    })? {
+                    if target_path.exists() {
                         if target_path.is_dir() {
                             std::fs::remove_dir_all(target_path.clone())
                         } else {
