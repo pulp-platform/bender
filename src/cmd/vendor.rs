@@ -525,6 +525,13 @@ pub fn gen_format_patch(
         &sess.config.git,
     );
 
+    // If the patch link maps a file, use the parent directory for the following git operations.
+    let from_path_relative = if to_path.is_dir() {
+        patch_link.from_prefix.clone()
+    } else {
+        patch_link.from_prefix.parent().unwrap().to_path_buf()
+    };
+
     // We assume that patch_dir matches Some() was checked outside this function.
     let patch_dir = patch_link.patch_dir.clone().unwrap();
 
@@ -532,7 +539,18 @@ pub fn gen_format_patch(
     let get_diff_cached = rt
         .block_on(async {
             git_parent
-                .spawn_with(|c| c.arg("diff").arg("--relative").arg("--cached"))
+                .spawn_with(|c| {
+                    c.arg("diff")
+                        .arg("--relative")
+                        .arg("--cached")
+                        .arg(if !to_path.is_dir() {
+                            // If the patch link maps a file, we operate in the file's parent
+                            // directory. Therefore, only get the diff for that file.
+                            patch_link.to_prefix.file_name().unwrap().to_str().unwrap()
+                        } else {
+                            "."
+                        })
+                })
                 .await
         })
         .map_err(|cause| Error::chain("Failed to generate diff", cause))?;
@@ -549,7 +567,7 @@ pub fn gen_format_patch(
             git.spawn_with(|c| {
                 c.arg("apply")
                     .arg("--directory")
-                    .arg(&patch_link.from_prefix)
+                    .arg(&from_path_relative)
                     .arg("-p1")
                     .arg(&diff_cached_path)
             })
@@ -610,7 +628,7 @@ pub fn gen_format_patch(
                     .arg(format!("--start-number={}", max_number + 1))
                     .arg(format!(
                         "--relative={}",
-                        patch_link.from_prefix.to_str().unwrap()
+                        from_path_relative.to_str().unwrap()
                     ))
                     .arg("HEAD")
             })
