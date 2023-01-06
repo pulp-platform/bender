@@ -37,6 +37,15 @@ pub fn new<'a>() -> Command<'a> {
         .about("Copy source code from upstream external repositories into this repository. Functions similar to the lowrisc vendor.py script. Type bender vendor <SUBCOMMAND> --help for more information about the subcommands.")
         .subcommand(Command::new("diff")
             .about("Display a diff of the local tree and the upstream tree with patches applied.")
+            .arg(
+                Arg::new("err_on_diff")
+                    .long("err_on_diff")
+                    .short('e')
+                    .takes_value(true)
+                    .min_values(0)
+                    .max_values(1)
+                    .help("Return error code 1 when a diff is encountered. (Optional) override the error message by providing a value."),
+            )
         )
         .subcommand(Command::new("init")
             .about("(Re-)initialize the external dependencies. Copies the upstream files into the target directories and applies existing patches.")
@@ -143,7 +152,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         let git = Git::new(tmp_path, &sess.config.git);
 
         match matches.subcommand() {
-            Some(("diff", _)) => {
+            Some(("diff", matches)) => {
                 // Apply patches
                 patch_links.clone().into_iter().try_for_each(|patch_link| {
                     apply_patches(&rt, git, vendor_package.name.clone(), patch_link).map(|_| ())
@@ -158,6 +167,15 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                         .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
                     if !get_diff.is_empty() {
                         print!("{}", get_diff);
+                        // If desired, return an error (e.g. for CI)
+                        if matches.is_present("err_on_diff") {
+                            let err_msg : Option<&String> = matches.get_one("err_on_diff");
+                            let err_msg = match err_msg {
+                                Some(err_msg) => err_msg.to_string(),
+                                _ => "Found differences, please patch (e.g. using bender vendor patch).".to_string()
+                            };
+                            return Err(Error::new(err_msg))
+                        }
                     }
                     Ok(())
                 })
