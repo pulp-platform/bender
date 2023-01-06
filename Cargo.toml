@@ -17,7 +17,7 @@ futures = "0.3"
 tokio = { version = "1.20", features = ["full"] }
 async-recursion = "1.0"
 
-clap = { version = "3.1", features = ["derive"] }
+clap = { version = "4.0", features = ["derive"] }
 semver = "1.0"
 blake2 = "0.10"
 typed-arena = "2"

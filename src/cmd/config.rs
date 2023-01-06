@@ -12,7 +12,7 @@ use crate::error::*;
 use crate::sess::Session;
 
 /// Assemble the `config` subcommand.
-pub fn new<'a>() -> Command<'a> {
+pub fn new() -> Command {
     Command::new("config").about("Emit the configuration")
 }
 

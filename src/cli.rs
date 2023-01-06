@@ -8,7 +8,8 @@ use std::fs::{canonicalize, metadata};
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 
-use clap::{Arg, Command, OsValues};
+use clap::parser::ValuesRef;
+use clap::{Arg, ArgAction, Command};
 use serde_yaml;
 
 use crate::cmd;
@@ -29,7 +30,7 @@ pub fn main() -> Result<()> {
             Arg::new("dir")
                 .short('d')
                 .long("dir")
-                .takes_value(true)
+                .num_args(1)
                 .global(true)
                 .help("Sets a custom root working directory"),
         )
@@ -37,6 +38,8 @@ pub fn main() -> Result<()> {
             Arg::new("local")
                 .long("local")
                 .global(true)
+                .num_args(0)
+                .action(ArgAction::SetTrue)
                 .help("Disables fetching of remotes (e.g. for air-gapped computers)"),
         )
         .subcommand(
@@ -44,6 +47,8 @@ pub fn main() -> Result<()> {
                 Arg::new("fetch")
                     .short('f')
                     .long("fetch")
+                    .num_args(0)
+                    .action(ArgAction::SetTrue)
                     .help("forces fetch of git dependencies"),
             ),
         )
@@ -63,6 +68,8 @@ pub fn main() -> Result<()> {
             Arg::new("debug")
                 .long("debug")
                 .global(true)
+                .num_args(0)
+                .action(ArgAction::SetTrue)
                 .help("Print additional debug information"),
         )
     } else {
@@ -73,14 +80,14 @@ pub fn main() -> Result<()> {
     let matches = app.get_matches();
 
     // Enable debug outputs if needed.
-    if matches.is_present("debug") {
+    if matches.contains_id("debug") && matches.get_flag("debug") {
         ENABLE_DEBUG.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     let mut force_fetch = false;
     if let Some(("update", intern_matches)) = matches.subcommand() {
-        force_fetch = intern_matches.is_present("fetch");
-        if matches.is_present("local") && intern_matches.is_present("fetch") {
+        force_fetch = intern_matches.get_flag("fetch");
+        if matches.get_flag("local") && intern_matches.get_flag("fetch") {
             warnln!(
                 "As --local argument is set for bender command, no fetching will be performed."
             );
@@ -90,7 +97,7 @@ pub fn main() -> Result<()> {
     // Determine the root working directory, which has either been provided via
     // the -d/--dir switch, or by searching upwards in the file system
     // hierarchy.
-    let root_dir: PathBuf = match matches.value_of("dir") {
+    let root_dir: PathBuf = match matches.get_one::<String>("dir") {
         Some(d) => canonicalize(d).map_err(|cause| {
             Error::chain(format!("Failed to canonicalize path {:?}.", d), cause)
         })?,
@@ -115,7 +122,7 @@ pub fn main() -> Result<()> {
         &manifest,
         &config,
         &sess_arenas,
-        matches.is_present("local"),
+        matches.get_flag("local"),
         force_fetch,
     );
 
@@ -236,7 +243,7 @@ pub fn main() -> Result<()> {
         Some(("checkout", matches)) => cmd::checkout::run(&sess, matches),
         Some(("update", _)) => Ok(()),
         Some(("vendor", matches)) => cmd::vendor::run(&sess, matches),
-        Some((plugin, matches)) => execute_plugin(&sess, plugin, matches.values_of_os("")),
+        Some((plugin, matches)) => execute_plugin(&sess, plugin, matches.get_many("")),
         _ => Ok(()),
     }
 }
@@ -409,7 +416,7 @@ fn write_lockfile(locked: &Locked, path: &Path) -> Result<()> {
 }
 
 /// Execute a plugin.
-fn execute_plugin(sess: &Session, plugin: &str, matches: Option<OsValues>) -> Result<()> {
+fn execute_plugin(sess: &Session, plugin: &str, matches: Option<ValuesRef<String>>) -> Result<()> {
     debugln!("main: execute plugin `{}`", plugin);
 
     // Obtain a list of declared plugins.

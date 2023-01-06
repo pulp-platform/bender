@@ -15,12 +15,13 @@ use crate::error::*;
 use crate::sess::{Session, SessionIo};
 
 /// Assemble the `clone` subcommand.
-pub fn new<'a>() -> Command<'a> {
+pub fn new() -> Command {
     Command::new("clone")
         .about("Clone dependency to a working directory")
         .arg(
             Arg::new("name")
                 .required(true)
+                .num_args(1)
                 .help("Package name to clone to a working directory"),
         )
         .arg(
@@ -28,16 +29,17 @@ pub fn new<'a>() -> Command<'a> {
                 .short('p')
                 .long("path")
                 .help("Relative directory to clone PKG into (default: working_dir)")
-                .takes_value(true),
+                .num_args(1)
+                .default_value("working_dir"),
         )
 }
 
 /// Execute the `clone` subcommand.
 pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
-    let dep = &matches.value_of("name").unwrap().to_lowercase();
+    let dep = &matches.get_one::<String>("name").unwrap().to_lowercase();
     sess.dependency_with_name(dep)?;
 
-    let path_mod = matches.value_of("path").unwrap_or("working_dir"); // TODO make this option for config in the Bender.yml file?
+    let path_mod = matches.get_one::<String>("path").unwrap(); // TODO make this option for config in the Bender.yml file?
 
     // Check current config for matches
     if sess.config.overrides.contains_key(dep) {
@@ -76,7 +78,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         let io = SessionIo::new(sess);
 
         let ids = matches
-            .values_of("name")
+            .get_many::<String>("name")
             .unwrap()
             .map(|n| Ok((n, sess.dependency_with_name(n)?)))
             .collect::<Result<Vec<_>>>()?;
