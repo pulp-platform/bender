@@ -4,6 +4,7 @@
 //! Main command line tool implementation.
 
 use std;
+use std::ffi::OsString;
 use std::fs::{canonicalize, metadata};
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
@@ -22,6 +23,8 @@ use tokio::runtime::Runtime;
 /// Inner main function which can return an error.
 pub fn main() -> Result<()> {
     let app = Command::new(env!("CARGO_PKG_NAME"))
+        .subcommand_required(true)
+        .arg_required_else_help(true)
         .allow_external_subcommands(true)
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
@@ -243,7 +246,7 @@ pub fn main() -> Result<()> {
         Some(("checkout", matches)) => cmd::checkout::run(&sess, matches),
         Some(("update", _)) => Ok(()),
         Some(("vendor", matches)) => cmd::vendor::run(&sess, matches),
-        Some((plugin, matches)) => execute_plugin(&sess, plugin, matches.get_many("")),
+        Some((plugin, matches)) => execute_plugin(&sess, plugin, matches.get_many::<OsString>("")),
         _ => Ok(()),
     }
 }
@@ -416,7 +419,11 @@ fn write_lockfile(locked: &Locked, path: &Path) -> Result<()> {
 }
 
 /// Execute a plugin.
-fn execute_plugin(sess: &Session, plugin: &str, matches: Option<ValuesRef<String>>) -> Result<()> {
+fn execute_plugin(
+    sess: &Session,
+    plugin: &str,
+    matches: Option<ValuesRef<OsString>>,
+) -> Result<()> {
     debugln!("main: execute plugin `{}`", plugin);
 
     // Obtain a list of declared plugins.
