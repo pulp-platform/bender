@@ -42,8 +42,8 @@ pub struct Manifest {
     pub frozen: bool,
     /// The workspace configuration.
     pub workspace: Workspace,
-    /// External Import dependencies
-    pub external_import: Vec<ExternalImport>,
+    /// Vendorized dependencies
+    pub vendor_package: Vec<VendorPackage>,
 }
 
 impl PrefixPaths for Manifest {
@@ -60,7 +60,7 @@ impl PrefixPaths for Manifest {
             plugins: self.plugins.prefix_paths(prefix),
             frozen: self.frozen,
             workspace: self.workspace.prefix_paths(prefix),
-            external_import: self.external_import.prefix_paths(prefix),
+            vendor_package: self.vendor_package.prefix_paths(prefix),
         }
     }
 }
@@ -291,7 +291,7 @@ pub struct PartialManifest {
     /// The workspace configuration.
     pub workspace: Option<PartialWorkspace>,
     /// External Import dependencies
-    pub external_import: Option<Vec<PartialExternalImport>>,
+    pub vendor_package: Option<Vec<PartialVendorPackage>>,
 }
 
 impl Validate for PartialManifest {
@@ -337,10 +337,10 @@ impl Validate for PartialManifest {
                 .map_err(|cause| Error::chain("In workspace configuration:", cause))?,
             None => Workspace::default(),
         };
-        let external_import = match self.external_import {
+        let vendor_package = match self.vendor_package {
             Some(vend) => vend
                 .validate()
-                .map_err(|cause| Error::chain("Unable to parse external_import", cause))?,
+                .map_err(|cause| Error::chain("Unable to parse vendor_package", cause))?,
             None => Vec::new(),
         };
         Ok(Manifest {
@@ -351,7 +351,7 @@ impl Validate for PartialManifest {
             plugins,
             frozen,
             workspace,
-            external_import,
+            vendor_package,
         })
     }
 }
@@ -754,7 +754,7 @@ impl Validate for PartialConfig {
 
 /// An external import dependency
 #[derive(Serialize, Debug)]
-pub struct ExternalImport {
+pub struct VendorPackage {
     /// External dependency name
     pub name: String,
     /// Target folder for imported dependency
@@ -764,29 +764,35 @@ pub struct ExternalImport {
     /// Import mapping
     pub mapping: Vec<FromToLink>,
     /// Folder containing patch files
-    pub patch_dir: PathBuf,
+    pub patch_dir: Option<PathBuf>,
+    /// include from upstream
+    pub include_from_upstream: Vec<String>,
     /// exclude from upstream
     pub exclude_from_upstream: Vec<String>,
 }
 
-impl PrefixPaths for ExternalImport {
+impl PrefixPaths for VendorPackage {
     fn prefix_paths(self, prefix: &Path) -> Self {
-        let full_target = self.target_dir.prefix_paths(prefix);
         let patch_root = self.patch_dir.prefix_paths(prefix);
-        ExternalImport {
+        VendorPackage {
             name: self.name,
-            target_dir: full_target.clone(),
+            target_dir: self.target_dir.prefix_paths(prefix),
             upstream: self.upstream,
             mapping: self
                 .mapping
                 .into_iter()
                 .map(|ftl| FromToLink {
                     from: ftl.from,
-                    to: ftl.to.prefix_paths(&full_target),
-                    patch_dir: ftl.patch_dir.map(|dir| dir.prefix_paths(&patch_root)),
+                    to: ftl.to,
+                    patch_dir: ftl.patch_dir.map(|dir| {
+                        dir.prefix_paths(&patch_root.clone().expect(
+                            "A mapping has a local patch_dir, but no global patch_dir is defined.",
+                        ))
+                    }),
                 })
                 .collect(),
             patch_dir: patch_root,
+            include_from_upstream: self.include_from_upstream,
             exclude_from_upstream: self.exclude_from_upstream,
         }
     }
@@ -794,7 +800,7 @@ impl PrefixPaths for ExternalImport {
 
 /// A partial external import dependency
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PartialExternalImport {
+pub struct PartialVendorPackage {
     /// External dependency name
     pub name: Option<String>,
     /// Target folder for imported dependency
@@ -807,15 +813,17 @@ pub struct PartialExternalImport {
     pub patch_dir: Option<PathBuf>,
     // /// Dependency containing patches
     // pub patch_repo: Option<PartialDependency>,
+    /// include from upstream
+    pub include_from_upstream: Option<Vec<String>>,
     /// exclude from upstream
     pub exclude_from_upstream: Option<Vec<String>>,
 }
 
-impl Validate for PartialExternalImport {
-    type Output = ExternalImport;
+impl Validate for PartialVendorPackage {
+    type Output = VendorPackage;
     type Error = Error;
-    fn validate(self) -> Result<ExternalImport> {
-        Ok(ExternalImport {
+    fn validate(self) -> Result<VendorPackage> {
+        Ok(VendorPackage {
             name: match self.name {
                 Some(name) => name,
                 None => return Err(Error::new("external import name missing")),
@@ -834,13 +842,18 @@ impl Validate for PartialExternalImport {
                 Some(mapping) => mapping,
                 None => Vec::new(),
             },
-            patch_dir: match self.patch_dir {
-                Some(patch_dir) => patch_dir,
-                None => PathBuf::new(),
+            patch_dir: self.patch_dir,
+            include_from_upstream: match self.include_from_upstream {
+                Some(include_from_upstream) => include_from_upstream,
+                None => vec![String::from("**")],
             },
-            exclude_from_upstream: match self.exclude_from_upstream {
-                Some(exclude_from_upstream) => exclude_from_upstream,
-                None => Vec::new(),
+            exclude_from_upstream: {
+                let mut excl = match self.exclude_from_upstream {
+                    Some(exclude_from_upstream) => exclude_from_upstream,
+                    None => Vec::new(),
+                };
+                excl.push(String::from(".git"));
+                excl
             },
         })
     }

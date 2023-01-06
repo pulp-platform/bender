@@ -36,9 +36,9 @@ impl<'git, 'ctx> Git<'ctx> {
     /// The command will have the form `git <subcommand>` and be pre-configured
     /// to operate in the repository's path.
     pub fn command(self, subcommand: &str) -> Command {
-        let mut cmd = Command::new(&self.git);
+        let mut cmd = Command::new(self.git);
         cmd.arg(subcommand);
-        cmd.current_dir(&self.path);
+        cmd.current_dir(self.path);
         cmd
     }
 
@@ -109,8 +109,8 @@ impl<'git, 'ctx> Git<'ctx> {
     where
         F: FnOnce(&mut Command) -> &mut Command,
     {
-        let mut cmd = Command::new(&self.git);
-        cmd.current_dir(&self.path);
+        let mut cmd = Command::new(self.git);
+        cmd.current_dir(self.path);
         f(&mut cmd);
         self.spawn(cmd, true).await
     }
@@ -123,10 +123,25 @@ impl<'git, 'ctx> Git<'ctx> {
     where
         F: FnOnce(&mut Command) -> &mut Command,
     {
-        let mut cmd = Command::new(&self.git);
-        cmd.current_dir(&self.path);
+        let mut cmd = Command::new(self.git);
+        cmd.current_dir(self.path);
         f(&mut cmd);
         self.spawn(cmd, false).await
+    }
+
+    /// Assemble a command and execute it interactively.
+    ///
+    /// This is the same as `spawn_with()`, but inherits stdin, stdout, and stderr
+    /// from the caller.
+    pub async fn spawn_interactive_with<F>(self, f: F) -> Result<()>
+    where
+        F: FnOnce(&mut Command) -> &mut Command,
+    {
+        let mut cmd = Command::new(self.git);
+        cmd.current_dir(self.path);
+        f(&mut cmd);
+        cmd.spawn()?.wait().await?;
+        Ok(())
     }
 
     /// Fetch the tags and refs of a remote.
@@ -137,6 +152,36 @@ impl<'git, 'ctx> Git<'ctx> {
             .and_then(|_| self.spawn_with(|c| c.arg("fetch").arg("--tags").arg("--prune").arg(r2)))
             .await
             .map(|_| ())
+    }
+
+    /// Stage all local changes.
+    pub async fn add_all(self) -> Result<()> {
+        self.spawn_with(|c| c.arg("add").arg("--all"))
+            .await
+            .map(|_| ())
+    }
+
+    /// Commit the staged changes.
+    ///
+    /// If message is None, this starts an interactive commit session.
+    pub async fn commit(self, message: Option<&String>) -> Result<()> {
+        match message {
+            Some(msg) => self
+                .spawn_with(|c| {
+                    c.arg("-c")
+                        .arg("commit.gpgsign=false")
+                        .arg("commit")
+                        .arg("-m")
+                        .arg(msg)
+                })
+                .await
+                .map(|_| ()),
+
+            None => self
+                .spawn_interactive_with(|c| c.arg("-c").arg("commit.gpgsign=false").arg("commit"))
+                .await
+                .map(|_| ()),
+        }
     }
 
     /// List all refs and their hashes.
