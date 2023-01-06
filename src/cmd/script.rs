@@ -272,7 +272,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let srcs = srcs.flatten();
 
     // Validate format-specific options.
-    if (matches.get_flag("vcom-arg") || matches.get_flag("vlog-arg"))
+    if (matches.contains_id("vcom-arg") || matches.contains_id("vlog-arg"))
         && format != "vsim"
         && format != "vcs"
         && format != "riviera"
