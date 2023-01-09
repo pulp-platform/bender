@@ -62,6 +62,13 @@ pub fn new() -> Command {
                 .action(ArgAction::Append)
                 .value_parser(value_parser!(String)),
         )
+        .arg(
+            Arg::new("raw")
+                .long("raw")
+                .help("Esports the raw internal source tree.")
+                .num_args(0)
+                .action(ArgAction::SetTrue),
+        )
 }
 
 fn get_package_strings<I>(packages: I) -> HashSet<String>
@@ -81,6 +88,13 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let io = SessionIo::new(sess);
     let mut srcs = rt.block_on(io.sources())?;
 
+    if matches.get_flag("raw") {
+        let stdout = std::io::stdout();
+        let handle = stdout.lock();
+        return serde_json::to_writer_pretty(handle, &srcs.flatten())
+            .map_err(|err| Error::chain("Failed to serialize source file manifest.", err));
+    }
+
     // Filter the sources by target.
     let targets = matches
         .get_many::<String>("target")
@@ -97,6 +111,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             defines: Default::default(),
             files: Default::default(),
             dependencies: Default::default(),
+            version: None,
         });
 
     // Filter the sources by specified packages.
@@ -130,6 +145,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 defines: Default::default(),
                 files: Default::default(),
                 dependencies: Default::default(),
+                version: None,
             });
     }
 
