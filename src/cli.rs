@@ -66,7 +66,8 @@ pub fn main() -> Result<()> {
         .subcommand(cmd::config::new())
         .subcommand(cmd::script::new())
         .subcommand(cmd::checkout::new())
-        .subcommand(cmd::vendor::new());
+        .subcommand(cmd::vendor::new())
+        .subcommand(cmd::fusesoc::new());
 
     // Add the `--debug` option in debug builds.
     let app = if cfg!(debug_assertions) {
@@ -251,6 +252,7 @@ pub fn main() -> Result<()> {
         Some(("checkout", matches)) => cmd::checkout::run(&sess, matches),
         Some(("update", _)) => Ok(()),
         Some(("vendor", matches)) => cmd::vendor::run(&sess, matches),
+        Some(("fusesoc", matches)) => cmd::fusesoc::run(&sess, matches),
         Some((plugin, matches)) => execute_plugin(&sess, plugin, matches.get_many::<OsString>("")),
         _ => Ok(()),
     }

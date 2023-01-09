@@ -656,7 +656,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     }
 
     /// Get the path of a dependency
-    fn get_package_path(&'io self, dep_id: DependencyRef) -> PathBuf {
+    pub fn get_package_path(&'io self, dep_id: DependencyRef) -> PathBuf {
         let dep = self.sess.dependency(dep_id);
 
         // Determine the name of the checkout as the given name and the first
