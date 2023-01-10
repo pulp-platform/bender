@@ -37,12 +37,23 @@ pub fn new() -> Command {
                 .action(ArgAction::Append)
                 .value_parser(value_parser!(String)),
         )
+        .arg(
+            Arg::new("vendor")
+                .long("vendor")
+                .help("Vendor string to add for generated `.core` files")
+                .num_args(1)
+                .value_parser(value_parser!(String)),
+        )
 }
 
 /// Execute the `fusesoc` subcommand.
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let bender_generate_flag = "Created by bender from the available manifest file.";
     let lic_string = matches.get_many::<String>("license").unwrap_or_default();
+    let vendor_string = match matches.get_one::<String>("vendor") {
+        Some(vendor) => vendor,
+        None => "",
+    };
 
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
@@ -94,33 +105,10 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     .clone()
                     .join(format!("{}.core", pkg)),
             );
-            let src_packages = &srcs
-                .filter_packages(&vec![pkg.to_string()].into_iter().collect())
-                .unwrap_or(SourceGroup {
-                    package: Default::default(),
-                    independent: true,
-                    target: TargetSpec::Wildcard,
-                    include_dirs: Default::default(),
-                    export_incdirs: Default::default(),
-                    defines: Default::default(),
-                    files: Default::default(),
-                    dependencies: Default::default(),
-                    version: None,
-                })
-                .flatten();
 
             fuse_depend_string.insert(
                 pkg.to_string(),
-                format!(
-                    "{}:{}:{}:{}",
-                    "",
-                    "",
-                    pkg,
-                    match &src_packages.clone()[0].version {
-                        Some(version) => format!("{}", version),
-                        None => "".to_string(),
-                    }
-                ),
+                get_fuse_depend_string(pkg.to_string(), &srcs, vendor_string.to_string()),
             );
         } else {
             if present_core_files[pkg].len() > 1 {
@@ -135,33 +123,10 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
             if file_str.contains(bender_generate_flag) {
                 generate_files.insert(pkg.to_string(), present_core_files[pkg][0].clone());
-                let src_packages = &srcs
-                    .filter_packages(&vec![pkg.to_string()].into_iter().collect())
-                    .unwrap_or(SourceGroup {
-                        package: Default::default(),
-                        independent: true,
-                        target: TargetSpec::Wildcard,
-                        include_dirs: Default::default(),
-                        export_incdirs: Default::default(),
-                        defines: Default::default(),
-                        files: Default::default(),
-                        dependencies: Default::default(),
-                        version: None,
-                    })
-                    .flatten();
 
                 fuse_depend_string.insert(
                     pkg.to_string(),
-                    format!(
-                        "{}:{}:{}:{}",
-                        "",
-                        "",
-                        pkg,
-                        match &src_packages.clone()[0].version {
-                            Some(version) => format!("{}", version),
-                            None => "".to_string(),
-                        }
-                    ),
+                    get_fuse_depend_string(pkg.to_string(), &srcs, vendor_string.to_string()),
                 );
             } else {
                 let fuse_core: FuseSoCCAPI2 = serde_yaml::from_str(&file_str).map_err(|cause| {
@@ -336,6 +301,34 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
+fn get_fuse_depend_string(pkg: String, srcs: &SourceGroup, vendor_string: String) -> String {
+    let src_packages = srcs
+        .filter_packages(&vec![pkg.to_string()].into_iter().collect())
+        .unwrap_or(SourceGroup {
+            package: Default::default(),
+            independent: true,
+            target: TargetSpec::Wildcard,
+            include_dirs: Default::default(),
+            export_incdirs: Default::default(),
+            defines: Default::default(),
+            files: Default::default(),
+            dependencies: Default::default(),
+            version: None,
+        })
+        .flatten();
+
+    format!(
+        "{}:{}:{}:{}", // VLNV
+        vendor_string, // Vendor
+        "",            // Library
+        pkg,           // Name
+        match &src_packages.clone()[0].version {
+            Some(version) => format!("{}", version),
+            None => "".to_string(),
+        }  // Version
+    )
+}
+
 fn get_fileset_name(spec: &TargetSpec, top: bool) -> String {
     let tmp_str = match spec {
         TargetSpec::Wildcard => "".to_string(),
@@ -452,7 +445,7 @@ fn get_include_files(dir: &PathBuf, base_path: PathBuf) -> Vec<FuseFileType> {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct FuseSoCCAPI2 {
     name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     description: Option<String>,
     filesets: HashMap<String, FuseSoCFileSet>,
     targets: HashMap<String, HashMap<String, Vec<String>>>,
