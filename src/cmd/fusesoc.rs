@@ -9,6 +9,7 @@ use crate::target::TargetSpec;
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 use itertools::Itertools;
 use std::collections::HashMap;
+use walkdir::{DirEntry, WalkDir};
 
 use std::ffi::OsStr;
 use std::fs::read_to_string;
@@ -305,32 +306,37 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 }
                 custom_sets
             },
-            targets: HashMap::from([(
-                "default".to_string(),
-                HashMap::from([(
-                    "filesets".to_string(),
-                    src_packages
-                        .iter()
-                        .filter(|pack| pack.target.matches(&TargetSet::empty()))
-                        .map(|pack| get_fileset_name(&pack.target, true))
-                        // .chain(vec!["files_rtl".to_string()])
-                        .unique()
-                        .collect(),
-                )]),
-            ),
-            (
-                "simulation".to_string(),
-                HashMap::from([(
-                    "filesets".to_string(),
-                    src_packages
-                        .iter()
-                        .filter(|pack| pack.target.matches(&TargetSet::new(vec!["simulation", "test"])))
-                        .map(|pack| get_fileset_name(&pack.target, true))
-                        // .chain(vec!["files_rtl".to_string()])
-                        .unique()
-                        .collect(),
-                )]),
-            )]),
+            targets: HashMap::from([
+                (
+                    "default".to_string(),
+                    HashMap::from([(
+                        "filesets".to_string(),
+                        src_packages
+                            .iter()
+                            .filter(|pack| pack.target.matches(&TargetSet::empty()))
+                            .map(|pack| get_fileset_name(&pack.target, true))
+                            // .chain(vec!["files_rtl".to_string()])
+                            .unique()
+                            .collect(),
+                    )]),
+                ),
+                (
+                    "simulation".to_string(),
+                    HashMap::from([(
+                        "filesets".to_string(),
+                        src_packages
+                            .iter()
+                            .filter(|pack| {
+                                pack.target
+                                    .matches(&TargetSet::new(vec!["simulation", "test"]))
+                            })
+                            .map(|pack| get_fileset_name(&pack.target, true))
+                            // .chain(vec!["files_rtl".to_string()])
+                            .unique()
+                            .collect(),
+                    )]),
+                ),
+            ]),
         };
 
         fuse_str.push('\n');
@@ -425,22 +431,26 @@ fn get_fileset_files(file_pkg: &SourceGroup, root_dir: PathBuf) -> Vec<FuseFileT
         .collect::<Vec<_>>()
 }
 
+fn is_not_hidden(entry: &DirEntry) -> bool {
+    entry
+         .file_name()
+         .to_str()
+         .map(|s| entry.depth() == 0 || !s.starts_with('.'))
+         .unwrap_or(false)
+}
+
 fn get_include_files(dir: &PathBuf, base_path: PathBuf) -> Vec<FuseFileType> {
-    let incdir_files = match fs::read_dir(dir) {
-        Err(err) => {
-            warnln!("Unable to read include directory {:?}. {}", dir, err);
-            Vec::new()
-        }
-        Ok(incdir_entries) => incdir_entries
-            .filter(|path| {
-                path.as_ref().unwrap().path().extension() == Some(OsStr::new("svh"))
-                    || path.as_ref().unwrap().path().extension() == Some(OsStr::new("vh"))
-            })
-            .map(|path| path.unwrap().path())
-            .collect(),
-    };
-    incdir_files
+    let incdir_files = WalkDir::new(dir)
+        .follow_links(true)
         .into_iter()
+        .filter_entry(is_not_hidden)
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path().extension() == Some(OsStr::new("svh"))
+                || e.path().extension() == Some(OsStr::new("vh"))
+        })
+        .map(|e| e.path().to_path_buf());
+    incdir_files
         .map(|incdir_file| {
             FuseFileType::HashMap(HashMap::from([(
                 incdir_file
@@ -449,7 +459,7 @@ fn get_include_files(dir: &PathBuf, base_path: PathBuf) -> Vec<FuseFileType> {
                     .to_path_buf(),
                 FuseSoCFile {
                     is_include_file: Some(true),
-                    include_path: None,
+                    include_path: Some(dir.strip_prefix(base_path.clone()).unwrap().to_path_buf()),
                     file_type: None,
                 },
             )]))
@@ -490,7 +500,7 @@ struct FuseSoCFile {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     is_include_file: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    include_path: Option<String>,
+    include_path: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     file_type: Option<String>,
 }
