@@ -79,10 +79,13 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         })
         .collect::<Result<HashMap<String, _>>>()?;
 
+    // List of files to generate
     let mut generate_files: HashMap<String, _> = HashMap::new();
 
+    // FuseSoC `name` and `depend` strings
     let mut fuse_depend_string: HashMap<String, String> = HashMap::new();
 
+    // Determine `.core` file names and locations
     for pkg in present_core_files.keys() {
         if present_core_files[pkg].is_empty() {
             generate_files.insert(
@@ -175,6 +178,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         }
     }
 
+    // Generate new `.core` files
     for pkg in generate_files.keys() {
         let src_packages = &srcs
             .filter_packages(&vec![pkg.to_string()].into_iter().collect())
@@ -204,79 +208,52 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             name: fuse_depend_string[&pkg.to_string()].clone(),
             description: None,
             filesets: {
-                let mut files_rtl_set = FuseSoCFileSet {
-                    file_type: Some("systemVerilogSource".to_string()),
-                    logical_name: None,
-                    files: {
-                        if src_packages[0]
-                            .export_incdirs
-                            .get(pkg)
-                            .unwrap_or(&Vec::new())
-                            .is_empty()
-                        {
-                            Vec::new()
-                        } else {
-                            src_packages[0]
-                                .export_incdirs
-                                .get(pkg)
-                                .unwrap_or(&Vec::new())
-                                .iter()
-                                .flat_map(|incdir| {
-                                    get_include_files(
-                                        &incdir.to_path_buf(),
-                                        pkg_manifest_paths[pkg].clone(),
-                                    )
-                                })
-                                .collect()
-                        }
-                    },
-                    depend: src_packages[0]
-                        .dependencies
-                        .iter()
-                        .map(|dep| fuse_depend_string[dep].clone())
-                        .collect(),
-                };
-                let mut custom_sets = src_packages
+                src_packages
                     .iter()
-                    .filter_map(|file_pkg| {
-                        match get_fileset_name(&file_pkg.target, true).as_str() {
-                            "files_rtl" => {
-                                let src_files =
-                                    get_fileset_files(file_pkg, pkg_manifest_paths[pkg].clone());
-                                let incdirs = file_pkg
-                                    .include_dirs
-                                    .iter()
-                                    .flat_map(|incdir| {
-                                        get_include_files(
-                                            &incdir.to_path_buf(),
-                                            pkg_manifest_paths[pkg].clone(),
-                                        )
-                                    })
-                                    .collect::<Vec<_>>();
-                                for src_file in src_files {
-                                    files_rtl_set.files.push(src_file);
-                                }
-                                for incdir in incdirs {
-                                    files_rtl_set.files.push(incdir);
-                                }
-                                None
-                            }
-                            _ => Some((
-                                {
-                                    // println!("{:?}", file_pkg.target);
-                                    get_fileset_name(&file_pkg.target, true)
+                    .map(|file_pkg| {
+                        (
+                            get_fileset_name(&file_pkg.target, true),
+                            FuseSoCFileSet {
+                                file_type: Some("systemVerilogSource".to_string()),
+                                // logical_name: None,
+                                files: {
+                                    get_fileset_files(file_pkg, pkg_manifest_paths[pkg].clone())
+                                        .into_iter()
+                                        .chain(file_pkg.include_dirs.iter().flat_map(|incdir| {
+                                            get_include_files(
+                                                &incdir.to_path_buf(),
+                                                pkg_manifest_paths[pkg].clone(),
+                                            )
+                                        }))
+                                        .collect()
                                 },
-                                FuseSoCFileSet {
-                                    file_type: Some("systemVerilogSource".to_string()),
-                                    logical_name: None,
-                                    files: {
-                                        let mut base_files = get_fileset_files(
-                                            file_pkg,
-                                            pkg_manifest_paths[pkg].clone(),
-                                        );
-
-                                        let incdirs = file_pkg
-                                            .include_dirs
+                                depend: file_pkg
+                                    .dependencies
+                                    .iter()
+                                    .map(|dep| fuse_depend_string[dep].clone())
+                                    .collect(),
+                            },
+                        )
+                    })
+                    .chain(
+                        vec![(
+                            "files_rtl".to_string(),
+                            FuseSoCFileSet {
+                                file_type: Some("systemVerilogSource".to_string()),
+                                // logical_name: None,
+                                files: {
+                                    if src_packages[0]
+                                        .export_incdirs
+                                        .get(pkg)
+                                        .unwrap_or(&Vec::new())
+                                        .is_empty()
+                                    {
+                                        Vec::new()
+                                    } else {
+                                        src_packages[0]
+                                            .export_incdirs
+                                            .get(pkg)
+                                            .unwrap_or(&Vec::new())
                                             .iter()
                                             .flat_map(|incdir| {
                                                 get_include_files(
@@ -284,27 +261,32 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                                                     pkg_manifest_paths[pkg].clone(),
                                                 )
                                             })
-                                            .collect::<Vec<_>>();
-                                        for incdir in incdirs {
-                                            base_files.push(incdir);
-                                        }
-                                        base_files
-                                        // TODO: add include files
-                                    },
-                                    depend: file_pkg
-                                        .dependencies
-                                        .iter()
-                                        .map(|dep| fuse_depend_string[dep].clone())
-                                        .collect(),
+                                            .collect()
+                                    }
                                 },
-                            )),
-                        }
+                                depend: src_packages[0]
+                                    .dependencies
+                                    .iter()
+                                    .map(|dep| fuse_depend_string[dep].clone())
+                                    .collect(),
+                            },
+                        )]
+                        .into_iter(),
+                    )
+                    .into_group_map()
+                    .into_iter()
+                    .map(|(k, v)| {
+                        (
+                            k,
+                            FuseSoCFileSet {
+                                file_type: v[0].file_type.clone(),
+                                // logical_name: None,
+                                files: v.iter().flat_map(|e| e.files.clone()).collect(),
+                                depend: v.iter().flat_map(|e| e.depend.clone()).unique().collect(),
+                            },
+                        )
                     })
-                    .collect::<HashMap<_, _>>();
-                if !files_rtl_set.files.is_empty() {
-                    custom_sets.insert("files_rtl".to_string(), files_rtl_set);
-                }
-                custom_sets
+                    .collect::<HashMap<_, _>>()
             },
             targets: HashMap::from([
                 (
@@ -433,10 +415,10 @@ fn get_fileset_files(file_pkg: &SourceGroup, root_dir: PathBuf) -> Vec<FuseFileT
 
 fn is_not_hidden(entry: &DirEntry) -> bool {
     entry
-         .file_name()
-         .to_str()
-         .map(|s| entry.depth() == 0 || !s.starts_with('.'))
-         .unwrap_or(false)
+        .file_name()
+        .to_str()
+        .map(|s| entry.depth() == 0 || !s.starts_with('.'))
+        .unwrap_or(false)
 }
 
 fn get_include_files(dir: &PathBuf, base_path: PathBuf) -> Vec<FuseFileType> {
@@ -467,7 +449,7 @@ fn get_include_files(dir: &PathBuf, base_path: PathBuf) -> Vec<FuseFileType> {
         .collect()
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct FuseSoCCAPI2 {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -476,26 +458,26 @@ struct FuseSoCCAPI2 {
     targets: HashMap<String, HashMap<String, Vec<String>>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 enum FuseFileType {
     PathBuf(PathBuf),
     HashMap(HashMap<PathBuf, FuseSoCFile>),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct FuseSoCFileSet {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     file_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    logical_name: Option<String>,
+    // #[serde(skip_serializing_if = "Option::is_none", default)]
+    // logical_name: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     files: Vec<FuseFileType>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     depend: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct FuseSoCFile {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     is_include_file: Option<bool>,
