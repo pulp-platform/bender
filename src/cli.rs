@@ -143,12 +143,18 @@ pub fn main() -> Result<()> {
 
     // Resolve the dependencies if the lockfile does not exist or is outdated.
     let locked = match matches.subcommand() {
-        Some((command, _)) =>
-        {
+        Some((command, matches)) => {
             #[allow(clippy::unnecessary_unwrap)]
-            if command == "update" || locked_existing.is_none() {
+            // execute pre-dependency-fetch commands
+            if command == "fusesoc" && matches.get_flag("single") {
+                return cmd::fusesoc::run_single(&sess, matches);
+            } else if command == "update" || locked_existing.is_none() {
                 if manifest.frozen {
-                    return Err(Error::new(format!("Refusing to update dependencies because the package is frozen. Remove the `frozen: true` from {:?} to proceed; there be dragons.", manifest_path)));
+                    return Err(Error::new(format!(
+                        "Refusing to update dependencies because the package is frozen.
+                        Remove the `frozen: true` from {:?} to proceed; there be dragons.",
+                        manifest_path
+                    )));
                 }
                 debugln!("main: lockfile {:?} outdated", lock_path);
                 let res = DependencyResolver::new(&sess);

@@ -1238,9 +1238,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     m.dependencies.keys().cloned().collect(),
                                     export_include_dirs,
                                     match self.sess.dependency_with_name(m.package.name.as_str()) {
-                                Ok(dep_id) => self.sess.dependency(dep_id).version.clone(),
-                                Err(_) => None,
-                            },
+                                        Ok(dep_id) => self.sess.dependency(dep_id).version.clone(),
+                                        Err(_) => None,
+                                    },
                                 )
                                 .into()
                         })

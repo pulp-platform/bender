@@ -3,30 +3,34 @@
 
 //! The `fusesoc` subcommand.
 
-use crate::src::{SourceFile, SourceGroup};
-use crate::target::TargetSet;
-use crate::target::TargetSpec;
-use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
-use itertools::Itertools;
 use std::collections::HashMap;
-use walkdir::{DirEntry, WalkDir};
-
 use std::ffi::OsStr;
+use std::fs;
 use std::fs::read_to_string;
-
 use std::path::PathBuf;
 
+use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
+use itertools::Itertools;
 use tokio::runtime::Runtime;
-
-use std::fs;
+use walkdir::{DirEntry, WalkDir};
 
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
+use crate::src::{SourceFile, SourceGroup};
+use crate::target::TargetSet;
+use crate::target::TargetSpec;
 
 /// Assemble the `fusesoc` subcommand.
 pub fn new() -> Command {
     Command::new("fusesoc")
         .about("Creates a FuseSoC `.core` file for all dependencies where none is present.")
+        .arg(
+            Arg::new("single")
+                .long("single")
+                .help("Only create a `.core` file for the top package, based directly on the `Bender.yml`.")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
+        )
         .arg(
             Arg::new("license")
                 .long("license")
@@ -39,20 +43,135 @@ pub fn new() -> Command {
         )
         .arg(
             Arg::new("vendor")
-                .long("vendor")
+                .long("fuse_vendor")
                 .help("Vendor string to add for generated `.core` files")
                 .num_args(1)
                 .value_parser(value_parser!(String)),
         )
+        .arg(
+            Arg::new("version")
+                .long("fuse_version")
+                .help("Version string for the top package to add for generated `.core` file.")
+                .num_args(1)
+                .value_parser(value_parser!(String)),
+        )
+}
+
+/// Execute the `fusesoc --single` subcomand.
+pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
+    let bender_generate_flag = "Created by bender from the available manifest file.";
+    let lic_string = matches.get_many::<String>("license").unwrap_or_default();
+    let mut lic_vec: Vec<&String> = Vec::new();
+    for line in lic_string.clone() {
+        lic_vec.push(line);
+    }
+    let vendor_string = match matches.get_one::<String>("vendor") {
+        Some(vendor) => vendor,
+        None => "",
+    };
+    let version_string = match matches.get_one::<String>("version") {
+        Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
+            Error::chain(format!("Unable to parse version {}.", version), cause)
+        })?),
+        None => None,
+    };
+
+    println!("Running single");
+
+    let name = &sess.manifest.package.name;
+
+    let srcs = match &sess.manifest.sources {
+        Some(sources) => Ok(sess
+            .load_sources(
+                sources,
+                Some(name.as_str()),
+                sess.manifest.dependencies.keys().cloned().collect(),
+                HashMap::new(),
+                version_string.clone(),
+            )
+            .flatten()),
+        None => Err(Error::new("Error in loading sources")),
+    }?;
+
+    let core_path = &sess.root.join(format!("{}.core", name));
+
+    let file_str = match read_to_string(core_path) {
+        Ok(file_str) => file_str,
+        Err(_) => bender_generate_flag.to_string(),
+    };
+
+    if !file_str.contains(bender_generate_flag) {
+        Err(Error::new(format!(
+            "{}.core already exists, please delete to generate.",
+            name
+        )))?
+    }
+
+    let fuse_depend_string = sess
+        .manifest
+        .dependencies
+        .keys()
+        .map(|dep| {
+            (
+                dep.to_string(),
+                format!(
+                    "{}:{}:{}:{}", // VLNV
+                    vendor_string, // Vendor
+                    "",            // Library
+                    dep,           // Name
+                    "",            // Version
+                ),
+            )
+        })
+        .chain([(
+            name.to_string(),
+            format!(
+                "{}:{}:{}:{}", // VLNV
+                vendor_string, // Vendor
+                "",            // Library
+                name,          // Name
+                match &version_string {
+                    Some(version) => format!("{}", version),
+                    None => "".to_string(),
+                }  // Version
+            ),
+        )])
+        .collect();
+
+    let pkg_manifest_paths = HashMap::from([(name.to_string(), sess.root.to_path_buf())]);
+
+    let fuse_str = get_fuse_file_str(
+        name,
+        &srcs,
+        &fuse_depend_string,
+        &pkg_manifest_paths,
+        bender_generate_flag.to_string(),
+        lic_vec.clone(),
+    )?;
+
+    fs::write(core_path, fuse_str).map_err(|cause| {
+        Error::chain(format!("Unable to write corefile for {:?}.", &name), cause)
+    })?;
+    Ok(())
 }
 
 /// Execute the `fusesoc` subcommand.
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let bender_generate_flag = "Created by bender from the available manifest file.";
     let lic_string = matches.get_many::<String>("license").unwrap_or_default();
+    let mut lic_vec: Vec<&String> = Vec::new();
+    for line in lic_string.clone() {
+        lic_vec.push(line);
+    }
     let vendor_string = match matches.get_one::<String>("vendor") {
         Some(vendor) => vendor,
         None => "",
+    };
+    let version_string = match matches.get_one::<String>("version") {
+        Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
+            Error::chain(format!("Unable to parse version {}.", version), cause)
+        })?),
+        None => None,
     };
 
     let rt = Runtime::new()?;
@@ -95,6 +214,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     // FuseSoC `name` and `depend` strings
     let mut fuse_depend_string: HashMap<String, String> = HashMap::new();
+    let top = &sess.manifest.package.name;
 
     // Determine `.core` file names and locations
     for pkg in present_core_files.keys() {
@@ -108,7 +228,13 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
             fuse_depend_string.insert(
                 pkg.to_string(),
-                get_fuse_depend_string(pkg.to_string(), &srcs, vendor_string.to_string()),
+                get_fuse_depend_string(
+                    pkg,
+                    &srcs,
+                    vendor_string.to_string(),
+                    top,
+                    version_string.clone(),
+                ),
             );
         } else {
             if present_core_files[pkg].len() > 1 {
@@ -126,7 +252,13 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
                 fuse_depend_string.insert(
                     pkg.to_string(),
-                    get_fuse_depend_string(pkg.to_string(), &srcs, vendor_string.to_string()),
+                    get_fuse_depend_string(
+                        pkg,
+                        &srcs,
+                        vendor_string.to_string(),
+                        top,
+                        version_string.clone(),
+                    ),
                 );
             } else {
                 let fuse_core: FuseSoCCAPI2 = serde_yaml::from_str(&file_str).map_err(|cause| {
@@ -160,137 +292,14 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             })
             .flatten();
 
-        let mut fuse_str = "CAPI=2:\n".to_string();
-        fuse_str.push_str(&format!("# {}\n\n", bender_generate_flag));
-
-        for line in lic_string.clone() {
-            fuse_str.push_str("# ");
-            fuse_str.push_str(line);
-            fuse_str.push('\n');
-        }
-
-        let fuse_pkg = FuseSoCCAPI2 {
-            name: fuse_depend_string[&pkg.to_string()].clone(),
-            description: None,
-            filesets: {
-                src_packages
-                    .iter()
-                    .map(|file_pkg| {
-                        (
-                            get_fileset_name(&file_pkg.target, true),
-                            FuseSoCFileSet {
-                                file_type: Some("systemVerilogSource".to_string()),
-                                // logical_name: None,
-                                files: {
-                                    get_fileset_files(file_pkg, pkg_manifest_paths[pkg].clone())
-                                        .into_iter()
-                                        .chain(file_pkg.include_dirs.iter().flat_map(|incdir| {
-                                            get_include_files(
-                                                &incdir.to_path_buf(),
-                                                pkg_manifest_paths[pkg].clone(),
-                                            )
-                                        }))
-                                        .collect()
-                                },
-                                depend: file_pkg
-                                    .dependencies
-                                    .iter()
-                                    .map(|dep| fuse_depend_string[dep].clone())
-                                    .collect(),
-                            },
-                        )
-                    })
-                    .chain(
-                        vec![(
-                            "files_rtl".to_string(),
-                            FuseSoCFileSet {
-                                file_type: Some("systemVerilogSource".to_string()),
-                                // logical_name: None,
-                                files: {
-                                    if src_packages[0]
-                                        .export_incdirs
-                                        .get(pkg)
-                                        .unwrap_or(&Vec::new())
-                                        .is_empty()
-                                    {
-                                        Vec::new()
-                                    } else {
-                                        src_packages[0]
-                                            .export_incdirs
-                                            .get(pkg)
-                                            .unwrap_or(&Vec::new())
-                                            .iter()
-                                            .flat_map(|incdir| {
-                                                get_include_files(
-                                                    &incdir.to_path_buf(),
-                                                    pkg_manifest_paths[pkg].clone(),
-                                                )
-                                            })
-                                            .collect()
-                                    }
-                                },
-                                depend: src_packages[0]
-                                    .dependencies
-                                    .iter()
-                                    .map(|dep| fuse_depend_string[dep].clone())
-                                    .collect(),
-                            },
-                        )]
-                        .into_iter(),
-                    )
-                    .into_group_map()
-                    .into_iter()
-                    .map(|(k, v)| {
-                        (
-                            k,
-                            FuseSoCFileSet {
-                                file_type: v[0].file_type.clone(),
-                                // logical_name: None,
-                                files: v.iter().flat_map(|e| e.files.clone()).collect(),
-                                depend: v.iter().flat_map(|e| e.depend.clone()).unique().collect(),
-                            },
-                        )
-                    })
-                    .collect::<HashMap<_, _>>()
-            },
-            targets: HashMap::from([
-                (
-                    "default".to_string(),
-                    HashMap::from([(
-                        "filesets".to_string(),
-                        src_packages
-                            .iter()
-                            .filter(|pack| pack.target.matches(&TargetSet::empty()))
-                            .map(|pack| get_fileset_name(&pack.target, true))
-                            // .chain(vec!["files_rtl".to_string()])
-                            .unique()
-                            .collect(),
-                    )]),
-                ),
-                (
-                    "simulation".to_string(),
-                    HashMap::from([(
-                        "filesets".to_string(),
-                        src_packages
-                            .iter()
-                            .filter(|pack| {
-                                pack.target
-                                    .matches(&TargetSet::new(vec!["simulation", "test"]))
-                            })
-                            .map(|pack| get_fileset_name(&pack.target, true))
-                            // .chain(vec!["files_rtl".to_string()])
-                            .unique()
-                            .collect(),
-                    )]),
-                ),
-            ]),
-        };
-
-        fuse_str.push('\n');
-        fuse_str.push_str(
-            &serde_yaml::to_string(&fuse_pkg)
-                .map_err(|err| Error::chain("Failed to serialize.", err))?,
-        );
+        let fuse_str = get_fuse_file_str(
+            pkg,
+            src_packages,
+            &fuse_depend_string,
+            &pkg_manifest_paths,
+            bender_generate_flag.to_string(),
+            lic_vec.clone(),
+        )?;
 
         // println!("{}", fuse_str);
         fs::write(&generate_files[pkg], fuse_str).map_err(|cause| {
@@ -301,7 +310,155 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
-fn get_fuse_depend_string(pkg: String, srcs: &SourceGroup, vendor_string: String) -> String {
+fn get_fuse_file_str(
+    pkg: &String,
+    src_packages: &[SourceGroup],
+    fuse_depend_string: &HashMap<String, String>,
+    pkg_manifest_paths: &HashMap<String, PathBuf>,
+    bender_generate_flag: String,
+    lic_string: Vec<&String>,
+) -> Result<String> {
+    let mut fuse_str = "CAPI=2:\n".to_string();
+    fuse_str.push_str(&format!("# {}\n\n", bender_generate_flag));
+
+    for line in lic_string.clone() {
+        fuse_str.push_str("# ");
+        fuse_str.push_str(line);
+        fuse_str.push('\n');
+    }
+
+    let fuse_pkg = FuseSoCCAPI2 {
+        name: fuse_depend_string[&pkg.to_string()].clone(),
+        description: None,
+        filesets: {
+            src_packages
+                .iter()
+                .map(|file_pkg| {
+                    (
+                        get_fileset_name(&file_pkg.target, true),
+                        FuseSoCFileSet {
+                            file_type: Some("systemVerilogSource".to_string()),
+                            // logical_name: None,
+                            files: {
+                                get_fileset_files(file_pkg, pkg_manifest_paths[pkg].clone())
+                                    .into_iter()
+                                    .chain(file_pkg.include_dirs.iter().flat_map(|incdir| {
+                                        get_include_files(
+                                            &incdir.to_path_buf(),
+                                            pkg_manifest_paths[pkg].clone(),
+                                        )
+                                    }))
+                                    .collect()
+                            },
+                            depend: file_pkg
+                                .dependencies
+                                .iter()
+                                .map(|dep| fuse_depend_string[dep].clone())
+                                .collect(),
+                        },
+                    )
+                })
+                .chain(
+                    vec![(
+                        "files_rtl".to_string(),
+                        FuseSoCFileSet {
+                            file_type: Some("systemVerilogSource".to_string()),
+                            // logical_name: None,
+                            files: {
+                                if src_packages[0]
+                                    .export_incdirs
+                                    .get(pkg)
+                                    .unwrap_or(&Vec::new())
+                                    .is_empty()
+                                {
+                                    Vec::new()
+                                } else {
+                                    src_packages[0]
+                                        .export_incdirs
+                                        .get(pkg)
+                                        .unwrap_or(&Vec::new())
+                                        .iter()
+                                        .flat_map(|incdir| {
+                                            get_include_files(
+                                                &incdir.to_path_buf(),
+                                                pkg_manifest_paths[pkg].clone(),
+                                            )
+                                        })
+                                        .collect()
+                                }
+                            },
+                            depend: src_packages[0]
+                                .dependencies
+                                .iter()
+                                .map(|dep| fuse_depend_string[dep].clone())
+                                .collect(),
+                        },
+                    )]
+                    .into_iter(),
+                )
+                .into_group_map()
+                .into_iter()
+                .map(|(k, v)| {
+                    (
+                        k,
+                        FuseSoCFileSet {
+                            file_type: v[0].file_type.clone(),
+                            // logical_name: None,
+                            files: v.iter().flat_map(|e| e.files.clone()).collect(),
+                            depend: v.iter().flat_map(|e| e.depend.clone()).unique().collect(),
+                        },
+                    )
+                })
+                .collect::<HashMap<_, _>>()
+        },
+        targets: HashMap::from([
+            (
+                "default".to_string(),
+                HashMap::from([(
+                    "filesets".to_string(),
+                    src_packages
+                        .iter()
+                        .filter(|pack| pack.target.matches(&TargetSet::empty()))
+                        .map(|pack| get_fileset_name(&pack.target, true))
+                        // .chain(vec!["files_rtl".to_string()])
+                        .unique()
+                        .collect(),
+                )]),
+            ),
+            (
+                "simulation".to_string(),
+                HashMap::from([(
+                    "filesets".to_string(),
+                    src_packages
+                        .iter()
+                        .filter(|pack| {
+                            pack.target
+                                .matches(&TargetSet::new(vec!["simulation", "test"]))
+                        })
+                        .map(|pack| get_fileset_name(&pack.target, true))
+                        // .chain(vec!["files_rtl".to_string()])
+                        .unique()
+                        .collect(),
+                )]),
+            ),
+        ]),
+    };
+
+    fuse_str.push('\n');
+    fuse_str.push_str(
+        &serde_yaml::to_string(&fuse_pkg)
+            .map_err(|err| Error::chain("Failed to serialize.", err))?,
+    );
+    Ok(fuse_str)
+}
+
+fn get_fuse_depend_string(
+    pkg: &String,
+    srcs: &SourceGroup,
+    vendor_string: String,
+    top: &String,
+    version_string: Option<semver::Version>,
+) -> String {
     let src_packages = srcs
         .filter_packages(&vec![pkg.to_string()].into_iter().collect())
         .unwrap_or(SourceGroup {
@@ -316,6 +473,25 @@ fn get_fuse_depend_string(pkg: String, srcs: &SourceGroup, vendor_string: String
             version: None,
         })
         .flatten();
+
+    let src_packages = if pkg == top {
+        src_packages
+            .iter()
+            .map(|group| SourceGroup {
+                package: group.package,
+                independent: group.independent,
+                target: group.target.clone(),
+                include_dirs: group.include_dirs.clone(),
+                export_incdirs: group.export_incdirs.clone(),
+                defines: group.defines.clone(),
+                files: group.files.clone(),
+                dependencies: group.dependencies.clone(),
+                version: version_string.clone(),
+            })
+            .collect()
+    } else {
+        src_packages.clone()
+    };
 
     format!(
         "{}:{}:{}:{}", // VLNV
