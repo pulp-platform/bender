@@ -5,7 +5,6 @@
 
 #![deny(missing_docs)]
 
-use semver::Version;
 use std;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -21,6 +20,7 @@ use std::time::SystemTime;
 use crate::futures::{FutureExt, TryFutureExt};
 use async_recursion::async_recursion;
 use futures::future::{self, join_all};
+use semver::Version;
 use typed_arena::Arena;
 
 use crate::cli::read_manifest;

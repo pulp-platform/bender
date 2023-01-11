@@ -3,10 +3,13 @@
 
 //! The `fusesoc` subcommand.
 
+use serde_yaml::Value;
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::fmt::Write as _;
 use std::fs;
 use std::fs::read_to_string;
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
@@ -75,8 +78,6 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
         })?),
         None => None,
     };
-
-    println!("Running single");
 
     let name = &sess.manifest.package.name;
 
@@ -152,6 +153,11 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
     fs::write(core_path, fuse_str).map_err(|cause| {
         Error::chain(format!("Unable to write corefile for {:?}.", &name), cause)
     })?;
+
+    if fuse_depend_string.len() > 1 {
+        warnln!("Depend strings may be wrong for the included dependencies!");
+    }
+
     Ok(())
 }
 
@@ -237,18 +243,83 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 ),
             );
         } else {
+            let mut index = 0;
             if present_core_files[pkg].len() > 1 {
-                unimplemented!("Multiple core files present!");
+                let mut msg = format!("Multiple `.core` files already present for {}.\n", pkg);
+                writeln!(
+                    msg,
+                    "Please pick a `.core` file to use for this dependency.\n"
+                )
+                .unwrap();
+                for i in 0..present_core_files[pkg].len() {
+                    let file_str =
+                        read_to_string(&present_core_files[pkg][index]).map_err(|cause| {
+                            Error::chain(
+                                format!(
+                                    "Cannot open .core file {:?}.",
+                                    &present_core_files[pkg][index]
+                                ),
+                                cause,
+                            )
+                        })?;
+
+                    let fuse_core = parse_fuse_file(
+                        file_str,
+                        present_core_files[pkg][i].display().to_string(),
+                    )?;
+                    writeln!(
+                        msg,
+                        "{}) {} : {}",
+                        i,
+                        present_core_files[pkg][i]
+                            .as_path()
+                            .strip_prefix(&pkg_manifest_paths[pkg])
+                            .unwrap()
+                            .display(),
+                        fuse_core.name
+                    )
+                    .unwrap();
+                }
+                println!("{}", msg);
+                // Let user resolve conflict if both stderr and stdin go to a TTY.
+                if atty::is(atty::Stream::Stderr) && atty::is(atty::Stream::Stdin) {
+                    index = {
+                        loop {
+                            eprint!("Enter a number or hit enter to abort: ");
+                            io::stdout().flush().unwrap();
+                            let mut buffer = String::new();
+                            io::stdin().read_line(&mut buffer).unwrap();
+                            if buffer.starts_with('\n') {
+                                break Err(Error::new(msg));
+                            }
+                            let choice = match buffer.trim().parse::<usize>() {
+                                Ok(u) => u,
+                                Err(_) => {
+                                    eprintln!("Invalid input!");
+                                    continue;
+                                }
+                            };
+                            if choice > present_core_files[pkg].len() {
+                                eprintln!("Choice out of bounds!");
+                                continue;
+                            }
+                            break Ok(choice);
+                        }?
+                    };
+                }
             }
-            let file_str = read_to_string(&present_core_files[pkg][0]).map_err(|cause| {
+            let file_str = read_to_string(&present_core_files[pkg][index]).map_err(|cause| {
                 Error::chain(
-                    format!("Cannot open .core file {:?}.", &present_core_files[pkg][0]),
+                    format!(
+                        "Cannot open .core file {:?}.",
+                        &present_core_files[pkg][index]
+                    ),
                     cause,
                 )
             })?;
 
             if file_str.contains(bender_generate_flag) {
-                generate_files.insert(pkg.to_string(), present_core_files[pkg][0].clone());
+                generate_files.insert(pkg.to_string(), present_core_files[pkg][index].clone());
 
                 fuse_depend_string.insert(
                     pkg.to_string(),
@@ -261,15 +332,10 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     ),
                 );
             } else {
-                let fuse_core: FuseSoCCAPI2 = serde_yaml::from_str(&file_str).map_err(|cause| {
-                    Error::chain(
-                        format!(
-                            "Unable to parse core file {:?}.",
-                            &present_core_files[pkg][0]
-                        ),
-                        cause,
-                    )
-                })?;
+                let fuse_core = parse_fuse_file(
+                    file_str,
+                    present_core_files[pkg][index].display().to_string(),
+                )?;
                 fuse_depend_string.insert(pkg.to_string(), fuse_core.name.clone());
             }
         }
@@ -416,29 +482,33 @@ fn get_fuse_file_str(
                 "default".to_string(),
                 HashMap::from([(
                     "filesets".to_string(),
-                    src_packages
-                        .iter()
-                        .filter(|pack| pack.target.matches(&TargetSet::empty()))
-                        .map(|pack| get_fileset_name(&pack.target, true))
-                        // .chain(vec!["files_rtl".to_string()])
-                        .unique()
-                        .collect(),
+                    StringOrVec::Vec(
+                        src_packages
+                            .iter()
+                            .filter(|pack| pack.target.matches(&TargetSet::empty()))
+                            .map(|pack| get_fileset_name(&pack.target, true))
+                            // .chain(vec!["files_rtl".to_string()])
+                            .unique()
+                            .collect(),
+                    ),
                 )]),
             ),
             (
                 "simulation".to_string(),
                 HashMap::from([(
                     "filesets".to_string(),
-                    src_packages
-                        .iter()
-                        .filter(|pack| {
-                            pack.target
-                                .matches(&TargetSet::new(vec!["simulation", "test"]))
-                        })
-                        .map(|pack| get_fileset_name(&pack.target, true))
-                        // .chain(vec!["files_rtl".to_string()])
-                        .unique()
-                        .collect(),
+                    StringOrVec::Vec(
+                        src_packages
+                            .iter()
+                            .filter(|pack| {
+                                pack.target
+                                    .matches(&TargetSet::new(vec!["simulation", "test"]))
+                            })
+                            .map(|pack| get_fileset_name(&pack.target, true))
+                            // .chain(vec!["files_rtl".to_string()])
+                            .unique()
+                            .collect(),
+                    ),
                 )]),
             ),
         ]),
@@ -450,6 +520,25 @@ fn get_fuse_file_str(
             .map_err(|err| Error::chain("Failed to serialize.", err))?,
     );
     Ok(fuse_str)
+}
+
+fn parse_fuse_file(file_str: String, filename: String) -> Result<FuseSoCCAPI2> {
+    serde_yaml::from_value({
+        let mut value = serde_yaml::from_str::<Value>(&file_str).map_err(|cause| {
+            Error::chain(
+                format!("Unable to parse core file to value {:?}.", &filename),
+                cause,
+            )
+        })?;
+        value.apply_merge().map_err(|cause| {
+            Error::chain(
+                format!("Unable to apply merge to file {:?}.", &filename),
+                cause,
+            )
+        })?;
+        value
+    })
+    .map_err(|cause| Error::chain(format!("Unable to parse core file {:?}.", &filename), cause))
 }
 
 fn get_fuse_depend_string(
@@ -624,7 +713,7 @@ struct FuseSoCCAPI2 {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     description: Option<String>,
     filesets: HashMap<String, FuseSoCFileSet>,
-    targets: HashMap<String, HashMap<String, Vec<String>>>,
+    targets: HashMap<String, HashMap<String, StringOrVec>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -632,6 +721,13 @@ struct FuseSoCCAPI2 {
 enum FuseFileType {
     PathBuf(PathBuf),
     HashMap(HashMap<PathBuf, FuseSoCFile>),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged)]
+enum StringOrVec {
+    Value(Value),
+    Vec(Vec<String>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
