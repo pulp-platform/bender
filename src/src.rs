@@ -16,6 +16,7 @@ use serde::ser::{Serialize, Serializer};
 
 use crate::sess::Session;
 use crate::target::{TargetSet, TargetSpec};
+use semver;
 
 /// A source file group.
 #[derive(Serialize, Clone, Debug)]
@@ -36,6 +37,8 @@ pub struct SourceGroup<'ctx> {
     pub files: Vec<SourceFile<'ctx>>,
     /// Package dependencies of this source group
     pub dependencies: Vec<String>,
+    /// Version information of the package
+    pub version: Option<semver::Version>,
 }
 
 impl<'ctx> SourceGroup<'ctx> {
@@ -98,6 +101,7 @@ impl<'ctx> SourceGroup<'ctx> {
                 defines: self.defines.clone(),
                 files,
                 dependencies: self.dependencies.clone(),
+                version: self.version.clone(),
             }
             .simplify(),
         )
@@ -180,6 +184,7 @@ impl<'ctx> SourceGroup<'ctx> {
                 defines: self.defines.clone(),
                 files,
                 dependencies: self.dependencies.clone(),
+                version: self.version.clone(),
             }
             .simplify(),
         )

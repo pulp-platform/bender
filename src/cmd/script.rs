@@ -245,6 +245,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             defines: Default::default(),
             files: Default::default(),
             dependencies: Default::default(),
+            version: None,
         });
 
     // Filter the sources by specified packages.
@@ -276,6 +277,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 defines: Default::default(),
                 files: Default::default(),
                 dependencies: Default::default(),
+                version: None,
             });
     }
 

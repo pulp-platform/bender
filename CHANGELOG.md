@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Added
 - Add `--no-default-target` flag to `script` command to remove default targets
+- Add `fusesoc` command to generate FuseSoC `.core` files.
 
 ### Changed
 - Reworked `import` command to `vendor`, refactor corresponding Manifest entry

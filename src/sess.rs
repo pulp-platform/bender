@@ -20,6 +20,7 @@ use std::time::SystemTime;
 use crate::futures::{FutureExt, TryFutureExt};
 use async_recursion::async_recursion;
 use futures::future::{self, join_all};
+use semver::Version;
 use typed_arena::Arena;
 
 use crate::cli::read_manifest;
@@ -359,6 +360,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         package: Option<&'ctx str>,
         dependencies: Vec<String>,
         dependency_export_includes: HashMap<String, Vec<&'ctx Path>>,
+        version: Option<Version>,
     ) -> SourceGroup<'ctx> {
         let include_dirs: HashSet<&Path> =
             HashSet::from_iter(sources.include_dirs.iter().map(|d| self.intern_path(d)));
@@ -383,6 +385,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
                         None,
                         dependencies.clone(),
                         dependency_export_includes.clone(),
+                        version.clone(),
                     )
                     .into(),
             })
@@ -396,6 +399,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             defines,
             files,
             dependencies,
+            version,
         }
     }
 }
@@ -652,7 +656,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     }
 
     /// Get the path of a dependency
-    fn get_package_path(&'io self, dep_id: DependencyRef) -> PathBuf {
+    pub fn get_package_path(&'io self, dep_id: DependencyRef) -> PathBuf {
         let dep = self.sess.dependency(dep_id);
 
         // Determine the name of the checkout as the given name and the first
@@ -1196,63 +1200,68 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         );
 
         let files = ranks
-                        .into_iter()
-                        .chain(once(vec![Some(self.sess.manifest)]))
-                        .map(|manifests| {
-                            let files = manifests
-                                .into_iter()
-                                .flatten()
-                                .filter_map(|m| {
-                                    m.sources.as_ref().map(|s| {
-                                        // Collect include dirs from export_include_dirs of package and direct dependencies
-                                        let mut export_include_dirs: HashMap<String, Vec<&Path>> =
-                                            HashMap::new();
+            .into_iter()
+            .chain(once(vec![Some(self.sess.manifest)]))
+            .map(|manifests| {
+                let files = manifests
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|m| {
+                        m.sources.as_ref().map(|s| {
+                            // Collect include dirs from export_include_dirs of package and direct dependencies
+                            let mut export_include_dirs: HashMap<String, Vec<&Path>> =
+                                HashMap::new();
+                            export_include_dirs.insert(
+                                m.package.name.clone(),
+                                m.export_include_dirs
+                                    .iter()
+                                    .map(PathBuf::as_path)
+                                    .collect(),
+                            );
+                            if !m.dependencies.is_empty() {
+                                for i in m.dependencies.keys() {
+                                    if !all_export_include_dirs.contains_key(i) {
+                                        warnln!("Name issue with {:?}, `export_include_dirs` not handled\n\tCould relate to name mismatch, see `bender update`", i);
+                                        export_include_dirs.insert(i.clone(), Vec::new());
+                                    } else {
                                         export_include_dirs.insert(
-                                            m.package.name.clone(),
-                                            m.export_include_dirs
-                                                .iter()
-                                                .map(PathBuf::as_path)
-                                                .collect(),
+                                            i.clone(),
+                                            all_export_include_dirs[i].clone(),
                                         );
-                                        if !m.dependencies.is_empty() {
-                                            for i in m.dependencies.keys() {
-                                                if !all_export_include_dirs.contains_key(i) {
-                                                    warnln!("Name issue with {:?}, `export_include_dirs` not handled\n\tCould relate to name mismatch, see `bender update`", i);
-                                                    export_include_dirs.insert(i.clone(), Vec::new());
-                                                } else {
-                                                    export_include_dirs.insert(
-                                                        i.clone(),
-                                                        all_export_include_dirs[i].clone(),
-                                                    );
-                                                }
-                                            }
-                                        }
-                                        self.sess
-                                            .load_sources(
-                                                s,
-                                                Some(m.package.name.as_str()),
-                                                m.dependencies.keys().cloned().collect(),
-                                                export_include_dirs,
-                                            )
-                                            .into()
-                                    })
-                                })
-                                .collect();
-
-                            // Create a source group for this rank.
-                            SourceGroup {
-                                package: None,
-                                independent: true,
-                                target: TargetSpec::Wildcard,
-                                include_dirs: Vec::new(),
-                                export_incdirs: HashMap::new(),
-                                defines: HashMap::new(),
-                                files,
-                                dependencies: Vec::new(),
+                                    }
+                                }
                             }
-                            .into()
+                            self.sess
+                                .load_sources(
+                                    s,
+                                    Some(m.package.name.as_str()),
+                                    m.dependencies.keys().cloned().collect(),
+                                    export_include_dirs,
+                                    match self.sess.dependency_with_name(m.package.name.as_str()) {
+                                        Ok(dep_id) => self.sess.dependency(dep_id).version.clone(),
+                                        Err(_) => None,
+                                    },
+                                )
+                                .into()
                         })
-                        .collect();
+                    })
+                    .collect();
+
+                // Create a source group for this rank.
+                SourceGroup {
+                    package: None,
+                    independent: true,
+                    target: TargetSpec::Wildcard,
+                    include_dirs: Vec::new(),
+                    export_incdirs: HashMap::new(),
+                    defines: HashMap::new(),
+                    files,
+                    dependencies: Vec::new(),
+                    version: None,
+                }
+                .into()
+            })
+            .collect();
 
         // Create a source group covering all ranks, i.e. the root source group.
         let sources = SourceGroup {
@@ -1264,6 +1273,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             defines: HashMap::new(),
             files,
             dependencies: Vec::new(),
+            version: None,
         }
         .simplify();
 
