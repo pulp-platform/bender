@@ -67,25 +67,22 @@ impl<'ctx> DependencyResolver<'ctx> {
         let io = SessionIo::new(self.sess);
 
         // Store path dependencies already in checkout_dir
-        match self.sess.manifest.workspace.checkout_dir.clone() {
-            Some(checkout) => {
-                if checkout.exists() {
-                    for dir in fs::read_dir(checkout).unwrap() {
-                        self.checked_out.insert(
-                            dir.as_ref()
-                                .unwrap()
-                                .path()
-                                .file_name()
-                                .unwrap()
-                                .to_str()
-                                .unwrap()
-                                .to_string(),
-                            config::Dependency::Path(dir.unwrap().path()),
-                        );
-                    }
+        if let Some(checkout) = self.sess.manifest.workspace.checkout_dir.clone() {
+            if checkout.exists() {
+                for dir in fs::read_dir(checkout).unwrap() {
+                    self.checked_out.insert(
+                        dir.as_ref()
+                            .unwrap()
+                            .path()
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .to_string(),
+                        config::Dependency::Path(dir.unwrap().path()),
+                    );
                 }
             }
-            None => {}
         }
 
         // Load the plugin dependencies.
@@ -315,7 +312,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     )
                 });
             for (name, pkg_name, dep) in dep_iter {
-                let v = map.entry(name.as_str()).or_insert(Vec::new());
+                let v = map.entry(name.as_str()).or_default();
                 v.push((pkg_name, DependencyConstraint::from(dep)));
             }
             map

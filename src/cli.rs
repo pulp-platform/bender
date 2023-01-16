@@ -139,7 +139,9 @@ pub fn main() -> Result<()> {
 
     // Resolve the dependencies if the lockfile does not exist or is outdated.
     let locked = match matches.subcommand() {
-        Some((command, _)) => {
+        Some((command, _)) =>
+        {
+            #[allow(clippy::unnecessary_unwrap)]
             if command == "update" || locked_existing.is_none() {
                 if manifest.frozen {
                     return Err(Error::new(format!("Refusing to update dependencies because the package is frozen. Remove the `frozen: true` from {:?} to proceed; there be dragons.", manifest_path)));
@@ -452,7 +454,7 @@ fn execute_plugin(
             .map_err(|cause| Error::chain("Failed to determine current directory.", cause))?,
     );
     cmd.env("BENDER_MANIFEST_DIR", sess.root);
-    cmd.current_dir(&sess.root);
+    cmd.current_dir(sess.root);
     if let Some(args) = matches {
         cmd.args(args);
     }
