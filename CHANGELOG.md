@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Changed
 - Reworked `import` command to `vendor`, refactor corresponding Manifest entry
 - Update `clap` to v4
+- Use relative paths in Lockfile if path dependency is in a subdirectory
 
 ### Fixed
 - Streamline `import` command for initializing a repository
