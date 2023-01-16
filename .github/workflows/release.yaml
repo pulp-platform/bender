@@ -28,9 +28,13 @@ jobs:
           - debian:10
           - debian:11
           - rhel:8.6
+          - rhel:8.7
           - rhel:9.0
+          - rhel:9.1
           - almalinux:8.6
+          - almalinux:8.7
           - almalinux:9.0
+          - almalinux:9.1
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
