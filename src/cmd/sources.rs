@@ -65,7 +65,7 @@ pub fn new() -> Command {
         .arg(
             Arg::new("raw")
                 .long("raw")
-                .help("Esports the raw internal source tree.")
+                .help("Exports the raw internal source tree.")
                 .num_args(0)
                 .action(ArgAction::SetTrue),
         )

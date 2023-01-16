@@ -457,6 +457,20 @@ The `bender parents <PKG>` command lists all packages calling the `PKG` package.
 
 This command will ensure all dependencies are downloaded from remote repositories. This is usually automatically executed by other commands, such as `sources` and `script`.
 
+### `fusesoc` --- Create FuseSoC `.core` files
+
+This command will generate FuseSoC `.core` files from the bender representation for open-source compatibility to the FuseSoC tool. It is intended to provide a basic manifest file in a compatible format, such that any project wanting to include a bender package can do so without much overhead.
+
+If the `--single` argument is provided, only to top-level `Bender.yml` file will be parsed and a `.core` file generated.
+
+If the `--single` argument is *not* provided, bender will walk through all the dependencies and generate a FuseSoC `.core` file where none is present. If a `.core` file is already present in the same directory as the `Bender.yml` for the corresponding dependency, this will be used to link dependencies (if multiple are available, the user will be prompted to select one). Previously generated `.core` files will be overwritten, based on the included `Created by bender from the available manifest file.` comment in the `.core` file.
+
+The `--license` argument will allow you to add multiple comment lines at the top of the generated `.core` files, e.g. a License header string.
+
+The `--fuse_vendor` argument will assign a vendor string to all generated `.core` dependencies for the VLNV name.
+
+The `--fuse_version` argument will assign a version to the top package being handled for the VLNV name.
+
 ### `vendor` --- Copy files from dependencies that do not support bender
 
 Collection of commands to manage monorepos. Requires a subcommand.
