@@ -36,7 +36,7 @@ main() {
     fi
 
     downloader --check
-    need_cmd lsb_release
+    # need_cmd lsb_release
     need_cmd grep
     need_cmd mktemp
     need_cmd tar
@@ -271,11 +271,21 @@ get_architecture() {
 }
 
 get_distribution() {
-    local _vendor=$(lsb_release -i | cut -f 2 | tr '[:upper:]' '[:lower:]')
-    local _release=$(lsb_release -r | cut -f 2)
+    local _vendor=""
+    local _release=""
+    if check_cmd lsb_release; then
+        _vendor=$(lsb_release -i | cut -f 2 | tr '[:upper:]' '[:lower:]')
+        _release=$(lsb_release -r | cut -f 2)
+    else
+        _vendor=$(cat /etc/os-release | sed -n -e "s/^ID=\(.*\)$/\1/p" | sed "s/\"//g")
+        _release=$(cat /etc/os-release | sed -n -e "s/^VERSION_ID=\(.*\)$/\1/p" | sed "s/\"//g")
+    fi
     if [ "$_vendor" = "centos" ] && [ "$(echo "$_release" | cut -d. -f3)" -lt 1708 ]; then
         say "Warning: CentOS older than 7.4.1708 detected, falling back to the latter."
         _release="7.4.1708"
+    fi
+    if [ "$_vendor" = "redhatenterprise" ]; then
+        _vendor="rhel"
     fi
     RETVAL="$_vendor$_release"
 }
