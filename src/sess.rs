@@ -1147,17 +1147,20 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .iter()
                 .map(move |pkgs| async move {
                     join_all(
-                            pkgs.iter()
-                                .map(move |&pkg| async move {
-                                    self.dependency_manifest(pkg).await.unwrap()
-                                })
-                                .collect::<Vec<_>>(),
-                        )
-                        .await
+                        pkgs.iter()
+                            .map(move |&pkg| async move { self.dependency_manifest(pkg).await })
+                            .collect::<Vec<_>>(),
+                    )
+                    .await
                 })
                 .collect::<Vec<_>>(),
         )
         .await;
+
+        let ranks = ranks
+            .into_iter()
+            .map(|pkgs| pkgs.into_iter().collect::<Result<Vec<_>>>())
+            .collect::<Result<Vec<_>>>()?;
 
         // Extract the sources of each package and concatenate them into a long
         // manifest.
@@ -1284,10 +1287,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     join_all(
                         pkgs.iter()
                             .map(move |&pkg| async move {
-                                self.dependency_manifest(pkg)
-                                    .await
-                                    .map(move |m| (pkg, m))
-                                    .unwrap()
+                                self.dependency_manifest(pkg).await.map(move |m| (pkg, m))
                             })
                             .collect::<Vec<_>>(),
                     )
@@ -1296,6 +1296,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .collect::<Vec<_>>(),
         )
         .await;
+
+        let ranks = ranks
+            .into_iter()
+            .map(|pkgs| pkgs.into_iter().collect::<Result<Vec<_>>>())
+            .collect::<Result<Vec<_>>>()?;
 
         let manifests = ranks
             .into_iter()

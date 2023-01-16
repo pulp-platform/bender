@@ -5,7 +5,7 @@
 
 use std;
 
-use clap::{Arg, ArgMatches, Command};
+use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 use serde_json;
 use std::collections::HashSet;
 use tokio::runtime::Runtime;
@@ -16,7 +16,7 @@ use crate::src::SourceGroup;
 use crate::target::{TargetSet, TargetSpec};
 
 /// Assemble the `sources` subcommand.
-pub fn new<'a>() -> Command<'a> {
+pub fn new() -> Command {
     Command::new("sources")
         .about("Emit the source file manifest for the package")
         .arg(
@@ -24,27 +24,33 @@ pub fn new<'a>() -> Command<'a> {
                 .short('t')
                 .long("target")
                 .help("Filter sources by target")
-                .takes_value(true)
-                .multiple_occurrences(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("flatten")
                 .short('f')
                 .long("flatten")
-                .help("Flatten JSON struct"),
+                .help("Flatten JSON struct")
+                .num_args(0)
+                .action(ArgAction::SetTrue),
         )
         .arg(
             Arg::new("package")
                 .short('p')
                 .long("package")
                 .help("Specify package to show sources for")
-                .takes_value(true)
-                .multiple_occurrences(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("no_deps")
                 .short('n')
                 .long("no-deps")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
                 .help("Exclude all dependencies, i.e. only top level or specified package(s)"),
         )
         .arg(
@@ -52,8 +58,9 @@ pub fn new<'a>() -> Command<'a> {
                 .short('e')
                 .long("exclude")
                 .help("Specify package to exclude from sources")
-                .takes_value(true)
-                .multiple_occurrences(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
 }
 
@@ -76,7 +83,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     // Filter the sources by target.
     let targets = matches
-        .values_of("target")
+        .get_many::<String>("target")
         .map(TargetSet::new)
         .unwrap_or_else(TargetSet::empty);
     srcs = srcs
@@ -96,19 +103,21 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let packages = &srcs.get_package_list(
         sess,
         &matches
-            .values_of("package")
+            .get_many::<String>("package")
             .map(get_package_strings)
             .unwrap_or_default(),
         &matches
-            .values_of("exclude")
+            .get_many::<String>("exclude")
             .map(get_package_strings)
             .unwrap_or_default(),
-        matches.is_present("no_deps"),
+        matches.get_flag("no_deps"),
     );
 
-    if matches.is_present("package")
-        || matches.is_present("exclude")
-        || matches.is_present("no_deps")
+    println!("{:?}", matches.contains_id("package"));
+
+    if matches.contains_id("package")
+        || matches.contains_id("exclude")
+        || matches.get_flag("no_deps")
     {
         srcs = srcs
             .filter_packages(packages)
@@ -127,7 +136,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let result = {
         let stdout = std::io::stdout();
         let handle = stdout.lock();
-        if matches.is_present("flatten") {
+        if matches.get_flag("flatten") {
             let srcs = srcs.flatten();
             serde_json::to_writer_pretty(handle, &srcs)
         } else {

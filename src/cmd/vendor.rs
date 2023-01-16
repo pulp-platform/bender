@@ -6,7 +6,7 @@
 
 use crate::config::PrefixPaths;
 use crate::futures::TryFutureExt;
-use clap::{AppSettings, Arg, ArgMatches, Command};
+use clap::{Arg, ArgAction, ArgMatches, Command};
 use futures::future::{self};
 use tokio::runtime::Runtime;
 
@@ -31,9 +31,9 @@ pub struct PatchLink {
 }
 
 /// Assemble the `vendor` subcommand.
-pub fn new<'a>() -> Command<'a> {
+pub fn new() -> Command {
     Command::new("vendor")
-        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .subcommand_required(true).arg_required_else_help(true)
         .about("Copy source code from upstream external repositories into this repository. Functions similar to the lowrisc vendor.py script. Type bender vendor <SUBCOMMAND> --help for more information about the subcommands.")
         .subcommand(Command::new("diff")
             .about("Display a diff of the local tree and the upstream tree with patches applied.")
@@ -41,9 +41,7 @@ pub fn new<'a>() -> Command<'a> {
                 Arg::new("err_on_diff")
                     .long("err_on_diff")
                     .short('e')
-                    .takes_value(true)
-                    .min_values(0)
-                    .max_values(1)
+                    .num_args(0..=1)
                     .help("Return error code 1 when a diff is encountered. (Optional) override the error message by providing a value."),
             )
         )
@@ -52,6 +50,7 @@ pub fn new<'a>() -> Command<'a> {
             .arg(
                 Arg::new("no_patch")
                     .short('n')
+                    .action(ArgAction::SetTrue)
                     .long("no_patch")
                     .help("Do not apply patches when initializing dependencies"),
             )
@@ -60,6 +59,7 @@ pub fn new<'a>() -> Command<'a> {
             .about("Generate a patch file from staged local changes")
             .arg(
                 Arg::new("plain")
+                .action(ArgAction::SetTrue)
                 .long("plain")
                 .help("Generate a plain diff instead of a format-patch. Includes all local changes (not only the staged ones)."),
             )
@@ -67,7 +67,8 @@ pub fn new<'a>() -> Command<'a> {
                 Arg::new("message")
                 .long("message")
                 .short('m')
-                .takes_value(true)
+                .num_args(1)
+                .action(ArgAction::Append)
                 .help("The message to be associated with the format-patch."),
             )
         )
@@ -168,7 +169,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     if !get_diff.is_empty() {
                         print!("{}", get_diff);
                         // If desired, return an error (e.g. for CI)
-                        if matches.is_present("err_on_diff") {
+                        if matches.contains_id("err_on_diff") {
                             let err_msg : Option<&String> = matches.get_one("err_on_diff");
                             let err_msg = match err_msg {
                                 Some(err_msg) => err_msg.to_string(),
@@ -234,7 +235,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 patch_links.clone().into_iter().try_for_each( |patch_link| {
                     match patch_link.patch_dir.clone() {
                         Some(patch_dir) => {
-                            if matches.is_present("plain") {
+                            if matches.get_flag("plain") {
                                 let get_diff = diff(&rt,
                                                     git,
                                                     vendor_package,
@@ -285,7 +286,7 @@ pub fn init(
         )
     })?;
 
-    if !matches.is_present("no_patch") {
+    if !matches.get_flag("no_patch") {
         apply_patches(rt, git, vendor_package.name.clone(), patch_link.clone())?;
     }
 

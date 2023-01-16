@@ -14,19 +14,20 @@ use crate::sess::{DependencyConstraint, DependencySource};
 use crate::sess::{Session, SessionIo};
 
 /// Assemble the `parents` subcommand.
-pub fn new<'a>() -> Command<'a> {
+pub fn new() -> Command {
     Command::new("parents")
         .about("List packages calling this dependency")
         .arg(
             Arg::new("name")
                 .required(true)
+                .num_args(1)
                 .help("Package names to get the parents for"),
         )
 }
 
 /// Execute the `parents` subcommand.
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
-    let dep = &matches.value_of("name").unwrap().to_lowercase();
+    let dep = &matches.get_one::<String>("name").unwrap().to_lowercase();
     sess.dependency_with_name(dep)?;
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);

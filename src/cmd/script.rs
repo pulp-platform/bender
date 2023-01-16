@@ -3,7 +3,8 @@
 
 //! The `script` subcommand.
 
-use clap::{Arg, ArgMatches, Command};
+use clap::builder::PossibleValue;
+use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 use tokio::runtime::Runtime;
 
 use crate::error::*;
@@ -15,7 +16,7 @@ use common_path::common_path_all;
 use std::collections::HashSet;
 
 /// Assemble the `script` subcommand.
-pub fn new<'a>() -> Command<'a> {
+pub fn new() -> Command {
     Command::new("script")
         .about("Emit tool scripts for the package")
         .arg(
@@ -23,30 +24,34 @@ pub fn new<'a>() -> Command<'a> {
                 .short('t')
                 .long("target")
                 .help("Only include sources that match the given target")
-                .takes_value(true)
-                .multiple_occurrences(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("format")
                 .help("Format of the generated script")
                 .required(true)
-                .possible_values(&[
-                    "flist",
-                    "vsim",
-                    "vcs",
-                    "verilator",
-                    "synopsys",
-                    "formality",
-                    "riviera",
-                    "genus",
-                    "vivado",
-                    "vivado-sim",
-                    "precision",
+                .num_args(1)
+                .value_parser([
+                    PossibleValue::new("flist"),
+                    PossibleValue::new("vsim"),
+                    PossibleValue::new("vcs"),
+                    PossibleValue::new("verilator"),
+                    PossibleValue::new("synopsys"),
+                    PossibleValue::new("formality"),
+                    PossibleValue::new("riviera"),
+                    PossibleValue::new("genus"),
+                    PossibleValue::new("vivado"),
+                    PossibleValue::new("vivado-sim"),
+                    PossibleValue::new("precision"),
                 ]),
         )
         .arg(
             Arg::new("relative-path")
                 .long("relative-path")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
                 .help("Use relative paths (flist generation only)"),
         )
         .arg(
@@ -54,74 +59,86 @@ pub fn new<'a>() -> Command<'a> {
                 .short('D')
                 .long("define")
                 .help("Pass an additional define to all source files")
-                .takes_value(true)
-                .multiple_values(true)
-                .multiple_occurrences(true),
+                .num_args(1..)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("vcom-arg")
                 .long("vcom-arg")
                 .help("Pass an argument to vcom calls (vsim/vhdlan/riviera only)")
-                .takes_value(true)
-                .multiple_values(true)
-                .multiple_occurrences(true),
+                .num_args(1..)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("vlog-arg")
                 .long("vlog-arg")
                 .help("Pass an argument to vlog calls (vsim/vlogan/riviera only)")
-                .takes_value(true)
-                .multiple_values(true)
-                .multiple_occurrences(true),
+                .num_args(1..)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("only-defines")
                 .long("only-defines")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
                 .help("Only output commands to define macros (Vivado only)"),
         )
         .arg(
             Arg::new("only-includes")
                 .long("only-includes")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
                 .help("Only output commands to define include directories (Vivado only)"),
         )
         .arg(
             Arg::new("only-sources")
                 .long("only-sources")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
                 .help("Only output commands to define source files (Vivado only)"),
         )
         .arg(
             Arg::new("no-simset")
                 .long("no-simset")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
                 .help("Do not change `simset` fileset (Vivado only)"),
         )
         .arg(
             Arg::new("vlogan-bin")
                 .long("vlogan-bin")
                 .help("Specify a `vlogan` command")
-                .takes_value(true)
-                .default_value("vlogan"),
+                .num_args(1)
+                .default_value("vlogan")
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("vhdlan-bin")
                 .long("vhdlan-bin")
                 .help("Specify a `vhdlan` command")
-                .takes_value(true)
-                .default_value("vhdlan"),
+                .num_args(1)
+                .default_value("vhdlan")
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("no-abort-on-error")
                 .long("no-abort-on-error")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
                 .help("Do not abort analysis/compilation on first caught error (only for programs that support early aborting)")
         )
         .arg(
             Arg::new("compilation_mode")
                 .long("compilation-mode")
                 .help("Choose compilation mode for Riviera-PRO option: separate/common (Riviera-PRO only)")
-                .takes_value(true)
+                .num_args(1)
                 .default_value("common")
-                .possible_values(&[
-                    "separate",
-                    "common",
+                .value_parser([
+                    PossibleValue::new("separate"),
+                    PossibleValue::new("common"),
                 ])
         )
         .arg(
@@ -129,13 +146,16 @@ pub fn new<'a>() -> Command<'a> {
                 .short('p')
                 .long("package")
                 .help("Specify package to show sources for")
-                .takes_value(true)
-                .multiple_occurrences(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("no_deps")
                 .short('n')
                 .long("no-deps")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
                 .help("Exclude all dependencies, i.e. only top level or specified package(s)"),
         )
         .arg(
@@ -143,8 +163,9 @@ pub fn new<'a>() -> Command<'a> {
                 .short('e')
                 .long("exclude")
                 .help("Specify package to exclude from sources")
-                .takes_value(true)
-                .multiple_occurrences(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
 }
 
@@ -170,8 +191,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     fn concat<T: Clone>(a: &[T], b: &[T]) -> Vec<T> {
         a.iter().chain(b).cloned().collect()
     }
-    let format = matches.value_of("format").unwrap();
-    let format_targets: Vec<&str> = match format {
+    let format = matches.get_one::<String>("format").unwrap();
+    let format_targets: Vec<&str> = match format.as_str() {
         "flist" => vec!["flist"],
         "vsim" => vec!["vsim", "simulation"],
         "vcs" => vec!["vcs", "simulation"],
@@ -186,16 +207,21 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         _ => unreachable!(),
     };
 
-    let abort_on_error = !matches.is_present("no-abort-on-error");
+    let abort_on_error = !matches.get_flag("no-abort-on-error");
     //////riviera compilation mode
     let mut riviera_separate_compilation_mode = false;
-    if matches.value_of("compilation_mode").unwrap() == "separate" {
+    if matches.get_one::<String>("compilation_mode").unwrap() == "separate" {
         riviera_separate_compilation_mode = true;
     }
     // Filter the sources by target.
     let targets = matches
-        .values_of("target")
-        .map(|t| TargetSet::new(t.chain(format_targets.clone())))
+        .get_many::<String>("target")
+        .map(|t| {
+            TargetSet::new(
+                t.map(|element| element.as_str())
+                    .chain(format_targets.clone()),
+            )
+        })
         .unwrap_or_else(|| TargetSet::new(format_targets));
     srcs = srcs
         .filter_targets(&targets)
@@ -214,19 +240,19 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let packages = &srcs.get_package_list(
         sess,
         &matches
-            .values_of("package")
+            .get_many::<String>("package")
             .map(get_package_strings)
             .unwrap_or_default(),
         &matches
-            .values_of("exclude")
+            .get_many::<String>("exclude")
             .map(get_package_strings)
             .unwrap_or_default(),
-        matches.is_present("no_deps"),
+        matches.get_flag("no_deps"),
     );
 
-    if matches.is_present("package")
-        || matches.is_present("exclude")
-        || matches.is_present("no_deps")
+    if matches.contains_id("package")
+        || matches.contains_id("exclude")
+        || matches.get_flag("no_deps")
     {
         srcs = srcs
             .filter_packages(packages)
@@ -246,7 +272,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let srcs = srcs.flatten();
 
     // Validate format-specific options.
-    if (matches.is_present("vcom-arg") || matches.is_present("vlog-arg"))
+    if (matches.contains_id("vcom-arg") || matches.contains_id("vlog-arg"))
         && format != "vsim"
         && format != "vcs"
         && format != "riviera"
@@ -255,10 +281,10 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             "vsim/vcs-only options can only be used for 'vcs', 'vsim' or 'riviera' format!",
         ));
     }
-    if (matches.is_present("only-defines")
-        || matches.is_present("only-includes")
-        || matches.is_present("only-sources")
-        || matches.is_present("no-simset"))
+    if (matches.get_flag("only-defines")
+        || matches.get_flag("only-includes")
+        || matches.get_flag("only-sources")
+        || matches.get_flag("no-simset"))
         && !format.starts_with("vivado")
     {
         return Err(Error::new(
@@ -267,7 +293,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     }
 
     // Generate the corresponding output.
-    match format {
+    match format.as_str() {
         "flist" => emit_flist(sess, matches, srcs),
         "vsim" => emit_vsim_tcl(sess, matches, targets, srcs, abort_on_error),
         "vcs" => emit_vcs_sh(sess, matches, targets, srcs),
@@ -410,7 +436,7 @@ fn synopsys_formality_cmd(ty: SourceType) -> String {
 }
 
 fn add_defines_from_matches(defines: &mut Vec<(String, Option<String>)>, matches: &ArgMatches) {
-    if let Some(d) = matches.values_of("define") {
+    if let Some(d) = matches.get_many::<String>("define") {
         defines.extend(d.map(|t| {
             let mut parts = t.splitn(2, '=');
             let name = parts.next().unwrap().trim(); // split always has at least one element
@@ -445,7 +471,7 @@ fn emit_vsim_tcl(
                 match ty {
                     SourceType::Verilog => {
                         lines.push(tcl_catch_prefix("vlog -incr -sv", abort_on_error));
-                        if let Some(args) = matches.values_of("vlog-arg") {
+                        if let Some(args) = matches.get_many::<String>("vlog-arg") {
                             lines.extend(args.map(Into::into));
                         }
                         let mut defines: Vec<(String, Option<String>)> = vec![];
@@ -476,7 +502,7 @@ fn emit_vsim_tcl(
                     }
                     SourceType::Vhdl => {
                         lines.push(tcl_catch_prefix("vcom -2008", abort_on_error));
-                        if let Some(args) = matches.values_of("vcom-arg") {
+                        if let Some(args) = matches.get_many::<String>("vcom-arg") {
                             lines.extend(args.map(Into::into));
                         }
                     }
@@ -524,11 +550,11 @@ fn emit_vcs_sh(
                     SourceType::Verilog => {
                         lines.push(format!(
                             "{} -sverilog",
-                            matches.value_of("vlogan-bin").unwrap()
+                            matches.get_one::<String>("vlogan-bin").unwrap()
                         ));
                         // Default flags
                         lines.push("-full64".to_owned());
-                        if let Some(args) = matches.values_of("vlog-arg") {
+                        if let Some(args) = matches.get_many::<String>("vlog-arg") {
                             lines.extend(args.map(Into::into));
                         }
                         let mut defines: Vec<(String, Option<String>)> = vec![];
@@ -560,8 +586,8 @@ fn emit_vcs_sh(
                         }
                     }
                     SourceType::Vhdl => {
-                        lines.push(matches.value_of("vhdlan-bin").unwrap().to_owned());
-                        if let Some(args) = matches.values_of("vcom-arg") {
+                        lines.push(matches.get_one::<String>("vhdlan-bin").unwrap().to_owned());
+                        if let Some(args) = matches.get_many::<String>("vcom-arg") {
                             lines.extend(args.map(Into::into));
                         }
                     }
@@ -604,7 +630,7 @@ fn emit_verilator_sh(
                 match ty {
                     SourceType::Verilog => {
                         // Default flags
-                        if let Some(args) = matches.values_of("vlog-arg") {
+                        if let Some(args) = matches.get_many::<String>("vlog-arg") {
                             lines.extend(args.map(Into::into));
                         }
                         let mut defines: Vec<(String, Option<String>)> = vec![];
@@ -676,7 +702,7 @@ fn emit_flist(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>) -> R
     }
 
     let mut root = format!("{}/", sess.root.to_str().unwrap());
-    if matches.is_present("relative-path") {
+    if matches.get_flag("relative-path") {
         root = "".to_string();
     }
 
@@ -916,9 +942,9 @@ fn emit_vivado_tcl(
         sources: bool,
     }
     let mut output_components = OutputComponents::default();
-    if !matches.is_present("only-defines")
-        && !matches.is_present("only-includes")
-        && !matches.is_present("only-sources")
+    if !matches.get_flag("only-defines")
+        && !matches.get_flag("only-includes")
+        && !matches.get_flag("only-sources")
     {
         // Print everything if user specified no restriction.
         output_components = OutputComponents {
@@ -927,13 +953,13 @@ fn emit_vivado_tcl(
             sources: true,
         };
     } else {
-        if matches.is_present("only-defines") {
+        if matches.get_flag("only-defines") {
             output_components.defines = true;
         }
-        if matches.is_present("only-includes") {
+        if matches.get_flag("only-includes") {
             output_components.include_dirs = true;
         }
-        if matches.is_present("only-sources") {
+        if matches.get_flag("only-sources") {
             output_components.sources = true;
         }
     }
@@ -941,7 +967,7 @@ fn emit_vivado_tcl(
     println!("{}", header_tcl(sess));
     let mut include_dirs = vec![];
     let mut defines: Vec<(String, Option<String>)> = vec![];
-    let filesets = if matches.is_present("no-simset") {
+    let filesets = if matches.get_flag("no-simset") {
         vec![""]
     } else {
         vec!["", " -simset"]
@@ -1047,7 +1073,7 @@ fn emit_riviera_tcl(
                     match ty {
                         SourceType::Verilog => {
                             lines.push(tcl_catch_prefix("vlog -sv", abort_on_error));
-                            if let Some(args) = matches.values_of("vlog-arg") {
+                            if let Some(args) = matches.get_many::<String>("vlog-arg") {
                                 lines.extend(args.map(Into::into));
                             }
                             let mut defines: Vec<(String, Option<String>)> = vec![];
@@ -1080,7 +1106,7 @@ fn emit_riviera_tcl(
                         }
                         SourceType::Vhdl => {
                             lines.push(tcl_catch_prefix("vcom -2008", abort_on_error));
-                            if let Some(args) = matches.values_of("vcom-arg") {
+                            if let Some(args) = matches.get_many::<String>("vcom-arg") {
                                 lines.extend(args.map(Into::into));
                             }
                         }
@@ -1134,7 +1160,7 @@ fn emit_riviera_tcl(
         }
         if t {
             lines.push(tcl_catch_prefix("vlog -sv", abort_on_error));
-            if let Some(args) = matches.values_of("vlog-arg") {
+            if let Some(args) = matches.get_many::<String>("vlog-arg") {
                 lines.extend(args.map(Into::into));
             }
             defines.extend(
@@ -1158,7 +1184,7 @@ fn emit_riviera_tcl(
             }
         } else {
             lines.push(tcl_catch_prefix("vcom -2008", abort_on_error));
-            if let Some(args) = matches.values_of("vcom-arg") {
+            if let Some(args) = matches.get_many::<String>("vcom-arg") {
                 lines.extend(args.map(Into::into));
             }
         }

@@ -10,7 +10,7 @@ use crate::error::*;
 use crate::sess::{Session, SessionIo};
 
 /// Assemble the `checkout` subcommand.
-pub fn new<'a>() -> Command<'a> {
+pub fn new() -> Command {
     Command::new("checkout").about("Checkout all dependencies referenced in the Lock file")
 }
 
