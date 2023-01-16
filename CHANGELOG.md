@@ -5,13 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+## 0.27.0 - 2023-01-16
 ### Added
 - Add `--no-default-target` flag to `script` command to remove default targets
 - Add `fusesoc` command to generate FuseSoC `.core` files.
+- Add rhel and almalinux releases
 
 ### Changed
-- Reworked `import` command to `vendor`, refactor corresponding Manifest entry
-- Update `clap` to v4
+- Reworked `import` command to `vendor`, refactor corresponding Manifest entry (`vendor_package` instead of `external_import`)
+- Update `clap` to v4, changes CLI
 - Use relative paths in Lockfile if path dependency is in a subdirectory
 
 ### Fixed
