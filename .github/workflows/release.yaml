@@ -23,8 +23,8 @@ jobs:
           - ubuntu:18.04
           - ubuntu:20.04
           - ubuntu:22.04
-          - fedora:35
           - fedora:36
+          - fedora:37
           - debian:10
           - debian:11
           - rhel:8.6
