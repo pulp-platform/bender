@@ -29,6 +29,13 @@ pub fn new() -> Command {
                 .value_parser(value_parser!(String)),
         )
         .arg(
+            Arg::new("no-default-target")
+                .long("no-default-target")
+                .help("Remove any default targets that may be added to the generated script")
+                .num_args(0)
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
             Arg::new("format")
                 .help("Format of the generated script")
                 .required(true)
@@ -192,19 +199,23 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         a.iter().chain(b).cloned().collect()
     }
     let format = matches.get_one::<String>("format").unwrap();
-    let format_targets: Vec<&str> = match format.as_str() {
-        "flist" => vec!["flist"],
-        "vsim" => vec!["vsim", "simulation"],
-        "vcs" => vec!["vcs", "simulation"],
-        "verilator" => vec!["verilator", "synthesis"],
-        "synopsys" => vec!["synopsys", "synthesis"],
-        "formality" => vec!["synopsys", "synthesis", "formality"],
-        "riviera" => vec!["riviera", "simulation"],
-        "genus" => vec!["genus", "synthesis"],
-        "vivado" => concat(vivado_targets, &["synthesis"]),
-        "vivado-sim" => concat(vivado_targets, &["simulation"]),
-        "precision" => vec!["precision", "fpga", "synthesis"],
-        _ => unreachable!(),
+    let format_targets: Vec<&str> = if !matches.get_flag("no-default-target") {
+        match format.as_str() {
+            "flist" => vec!["flist"],
+            "vsim" => vec!["vsim", "simulation"],
+            "vcs" => vec!["vcs", "simulation"],
+            "verilator" => vec!["verilator", "synthesis"],
+            "synopsys" => vec!["synopsys", "synthesis"],
+            "formality" => vec!["synopsys", "synthesis", "formality"],
+            "riviera" => vec!["riviera", "simulation"],
+            "genus" => vec!["genus", "synthesis"],
+            "vivado" => concat(vivado_targets, &["synthesis"]),
+            "vivado-sim" => concat(vivado_targets, &["simulation"]),
+            "precision" => vec!["precision", "fpga", "synthesis"],
+            _ => unreachable!(),
+        }
+    } else {
+        vec![]
     };
 
     let abort_on_error = !matches.get_flag("no-abort-on-error");
