@@ -107,14 +107,11 @@ impl<'ctx> SourceGroup<'ctx> {
     fn get_deps(&self, packages: &HashSet<String>, excludes: &HashSet<String>) -> HashSet<String> {
         let mut result = packages.clone();
 
-        match self.package {
-            Some(x) => {
-                if result.contains(x) {
-                    result.extend(HashSet::<String>::from_iter(self.dependencies.clone()));
-                    result = &result - excludes;
-                }
+        if let Some(x) = self.package {
+            if result.contains(x) {
+                result.extend(HashSet::<String>::from_iter(self.dependencies.clone()));
+                result = &result - excludes;
             }
-            None => {}
         }
 
         for file in &self.files {
