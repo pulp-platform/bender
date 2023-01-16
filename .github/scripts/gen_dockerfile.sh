@@ -4,6 +4,14 @@ export filename="Dockerfile"
 rm -f $filename
 touch $filename
 
+if [ $(echo $full_tgtname | cut -d ':' -f 1) = "rhel" ]; then
+  export maj_version=$(echo $full_tgtname | cut -d ':' -f 2)
+  export full_tgtname=redhat/ubi${maj_version:0:1}:$(echo $full_tgtname | cut -d ':' -f 2)
+  if [ $(echo $full_tgtname | cut -d ':' -f 2) = '9.0' ]; then
+    export full_tgtname=$full_tgtname.0
+  fi
+fi
+
 echo "FROM $full_tgtname" >> $filename
 echo >> $filename
 if [ $(echo $full_tgtname | cut -d ':' -f 1) = "centos" ]; then
@@ -17,6 +25,12 @@ if [ $(echo $full_tgtname | cut -d ':' -f 1) = "fedora" ]; then
 fi
 if [ $(echo $full_tgtname | cut -d ':' -f 1) = "debian" ]; then
   echo 'RUN apt update && apt -y install build-essential curl gcc make' >> $filename
+fi
+if [ $(echo $full_tgtname | cut -d ':' -f 1) = "almalinux" ]; then
+  echo 'RUN dnf -y update && dnf -y group install "Development Tools"' >> $filename
+fi
+if [[ $(echo $full_tgtname | cut -d ':' -f 1) == "redhat"* ]]; then
+  echo 'RUN dnf -y install gcc' >> $filename
 fi
 echo >> $filename
 echo 'ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo' >> $filename
