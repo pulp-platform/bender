@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+### Added
+- Add `--no-default-target` flag to `script` command to remove default targets
+
 ### Changed
 - Reworked `import` command to `vendor`, refactor corresponding Manifest entry
 - Update `clap` to v4
