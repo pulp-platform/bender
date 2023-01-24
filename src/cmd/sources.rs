@@ -128,8 +128,6 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         matches.get_flag("no_deps"),
     );
 
-    println!("{:?}", matches.contains_id("package"));
-
     if matches.contains_id("package")
         || matches.contains_id("exclude")
         || matches.get_flag("no_deps")
