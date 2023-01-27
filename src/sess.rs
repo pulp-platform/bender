@@ -6,7 +6,6 @@
 #![deny(missing_docs)]
 
 use std;
-use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::canonicalize;
 use std::io::Write;
@@ -20,6 +19,7 @@ use std::time::SystemTime;
 use crate::futures::{FutureExt, TryFutureExt};
 use async_recursion::async_recursion;
 use futures::future::{self, join_all};
+use indexmap::{IndexMap, IndexSet};
 use semver::Version;
 use typed_arena::Arena;
 
@@ -54,13 +54,13 @@ pub struct Session<'ctx> {
     /// The dependency table.
     deps: Mutex<DependencyTable<'ctx>>,
     /// The internalized paths.
-    paths: Mutex<HashSet<&'ctx Path>>,
+    paths: Mutex<IndexSet<&'ctx Path>>,
     /// The internalized strings.
-    strings: Mutex<HashSet<&'ctx str>>,
+    strings: Mutex<IndexSet<&'ctx str>>,
     /// The package name table.
-    names: Mutex<HashMap<String, DependencyRef>>,
+    names: Mutex<IndexMap<String, DependencyRef>>,
     /// The dependency graph.
-    graph: Mutex<Arc<HashMap<DependencyRef, HashSet<DependencyRef>>>>,
+    graph: Mutex<Arc<IndexMap<DependencyRef, IndexSet<DependencyRef>>>>,
     /// The topologically sorted list of packages.
     pkgs: Mutex<Arc<Vec<Vec<DependencyRef>>>>,
     /// The source file manifest.
@@ -99,10 +99,10 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             },
             stats: Default::default(),
             deps: Mutex::new(DependencyTable::new()),
-            paths: Mutex::new(HashSet::new()),
-            strings: Mutex::new(HashSet::new()),
-            names: Mutex::new(HashMap::new()),
-            graph: Mutex::new(Arc::new(HashMap::new())),
+            paths: Mutex::new(IndexSet::new()),
+            strings: Mutex::new(IndexSet::new()),
+            names: Mutex::new(IndexMap::new()),
+            graph: Mutex::new(Arc::new(IndexMap::new())),
             pkgs: Mutex::new(Arc::new(Vec::new())),
             sources: Mutex::new(None),
             plugins: Mutex::new(None),
@@ -147,8 +147,8 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
     /// objects to them, and generates a nametable.
     pub fn load_locked(&self, locked: &config::Locked) -> Result<()> {
         let mut deps = self.deps.lock().unwrap();
-        let mut names = HashMap::new();
-        let mut graph_names = HashMap::new();
+        let mut names = IndexMap::new();
+        let mut graph_names = IndexMap::new();
         for (name, pkg) in &locked.packages {
             let src = match pkg.source {
                 config::LockedSource::Path(ref path) => DependencySource::Path(path.clone()),
@@ -172,7 +172,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         drop(deps);
 
         // Translate the name-based graph into an ID-based graph.
-        let graph: HashMap<DependencyRef, HashSet<DependencyRef>> = graph_names
+        let graph: IndexMap<DependencyRef, IndexSet<DependencyRef>> = graph_names
             .into_iter()
             .map(|(k, v)| (k, v.iter().map(|name| names[name]).collect()))
             .collect();
@@ -182,9 +182,9 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             // Assign a rank to each package. A package's rank will be strictly
             // smaller than the rank of all its dependencies. This yields a
             // topological ordering.
-            let mut ranks: HashMap<DependencyRef, usize> =
+            let mut ranks: IndexMap<DependencyRef, usize> =
                 graph.keys().map(|&id| (id, 0)).collect();
-            let mut pending = HashSet::new();
+            let mut pending = IndexSet::new();
             for name in self.manifest.dependencies.keys() {
                 if !(names.contains_key(name)) {
                     return Err(Error::new(format!(
@@ -197,7 +197,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             pending.extend(self.manifest.dependencies.keys().map(|name| names[name]));
             let mut cyclic = false;
             while !pending.is_empty() {
-                let mut current_pending = HashSet::new();
+                let mut current_pending = IndexSet::new();
                 swap(&mut pending, &mut current_pending);
                 for id in current_pending {
                     let min_dep_rank = ranks[&id] + 1;
@@ -344,7 +344,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
     }
 
     /// Access the package dependency graph.
-    pub fn graph(&self) -> Arc<HashMap<DependencyRef, HashSet<DependencyRef>>> {
+    pub fn graph(&self) -> Arc<IndexMap<DependencyRef, IndexSet<DependencyRef>>> {
         self.graph.lock().unwrap().clone()
     }
 
@@ -359,11 +359,11 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         sources: &'ctx config::Sources,
         package: Option<&'ctx str>,
         dependencies: Vec<String>,
-        dependency_export_includes: HashMap<String, Vec<&'ctx Path>>,
+        dependency_export_includes: IndexMap<String, Vec<&'ctx Path>>,
         version: Option<Version>,
     ) -> SourceGroup<'ctx> {
-        let include_dirs: HashSet<&Path> =
-            HashSet::from_iter(sources.include_dirs.iter().map(|d| self.intern_path(d)));
+        let include_dirs: IndexSet<&Path> =
+            IndexSet::from_iter(sources.include_dirs.iter().map(|d| self.intern_path(d)));
         let defines = sources
             .defines
             .iter()
@@ -412,7 +412,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
 pub struct SessionIo<'sess, 'ctx: 'sess> {
     /// The underlying session.
     pub sess: &'sess Session<'ctx>,
-    git_versions: Mutex<HashMap<PathBuf, GitVersions<'ctx>>>,
+    git_versions: Mutex<IndexMap<PathBuf, GitVersions<'ctx>>>,
 }
 
 impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
@@ -420,7 +420,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     pub fn new(sess: &'sess Session<'ctx>) -> SessionIo<'sess, 'ctx> {
         SessionIo {
             sess,
-            git_versions: Mutex::new(HashMap::new()),
+            git_versions: Mutex::new(IndexMap::new()),
         }
     }
 
@@ -589,12 +589,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     let (tags, branches) = {
                         // Create a lookup table for the revisions. This will be used to
                         // only accept refs that point to actual revisions.
-                        let rev_ids: HashSet<&str> = revs.iter().copied().collect();
+                        let rev_ids: IndexSet<&str> = revs.iter().copied().collect();
 
                         // Split the refs into tags and branches, discard
                         // everything else.
-                        let mut tags = HashMap::<&'ctx str, &'ctx str>::new();
-                        let mut branches = HashMap::<&'ctx str, &'ctx str>::new();
+                        let mut tags = IndexMap::<&'ctx str, &'ctx str>::new();
+                        let mut branches = IndexMap::<&'ctx str, &'ctx str>::new();
                         let tag_pfx = "refs/tags/";
                         let branch_pfx = "refs/remotes/origin/";
                         for (hash, rf) in refs {
@@ -627,7 +627,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     versions.sort_by(|a, b| b.cmp(a));
 
                     // Merge tags and branches.
-                    let refs: HashMap<&str, &str> =
+                    let refs: IndexMap<&str, &str> =
                         branches.into_iter().chain(tags.into_iter()).collect();
 
                     let mut git_versions = self.git_versions.lock().unwrap().clone();
@@ -838,7 +838,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     #[async_recursion(?Send)]
     async fn sub_dependency_fixing(
         &'io self,
-        dep_iter_mut: &mut HashMap<String, config::Dependency>,
+        dep_iter_mut: &mut IndexMap<String, config::Dependency>,
         top_package_name: String,
         reference_path: &Path,
         dep_base_path: &Path,
@@ -1171,9 +1171,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         use std::iter::once;
 
-        // Create HashMap of the export_include_dirs for each package
-        let mut all_export_include_dirs: HashMap<String, Vec<&Path>> = HashMap::new();
-        let tmp_export_include_dirs: Vec<HashMap<String, _>> = ranks
+        // Create IndexMap of the export_include_dirs for each package
+        let mut all_export_include_dirs: IndexMap<String, Vec<&Path>> = IndexMap::new();
+        let tmp_export_include_dirs: Vec<IndexMap<String, _>> = ranks
             .clone()
             .into_iter()
             .chain(once(vec![Some(self.sess.manifest)]))
@@ -1209,8 +1209,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     .filter_map(|m| {
                         m.sources.as_ref().map(|s| {
                             // Collect include dirs from export_include_dirs of package and direct dependencies
-                            let mut export_include_dirs: HashMap<String, Vec<&Path>> =
-                                HashMap::new();
+                            let mut export_include_dirs: IndexMap<String, Vec<&Path>> =
+                                IndexMap::new();
                             export_include_dirs.insert(
                                 m.package.name.clone(),
                                 m.export_include_dirs
@@ -1253,8 +1253,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     independent: true,
                     target: TargetSpec::Wildcard,
                     include_dirs: Vec::new(),
-                    export_incdirs: HashMap::new(),
-                    defines: HashMap::new(),
+                    export_incdirs: IndexMap::new(),
+                    defines: IndexMap::new(),
                     files,
                     dependencies: Vec::new(),
                     version: None,
@@ -1269,8 +1269,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             independent: false,
             target: TargetSpec::Wildcard,
             include_dirs: Vec::new(),
-            export_incdirs: HashMap::new(),
-            defines: HashMap::new(),
+            export_incdirs: IndexMap::new(),
+            defines: IndexMap::new(),
             files,
             dependencies: Vec::new(),
             version: None,
@@ -1322,7 +1322,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .collect::<Vec<_>>();
 
         // Extract the plugins from the manifests.
-        let mut plugins = HashMap::new();
+        let mut plugins = IndexMap::new();
         for (package, manifest) in manifests {
             for (name, plugin) in &manifest.plugins {
                 debugln!(
@@ -1504,7 +1504,7 @@ impl DependencySource {
 #[derive(Debug)]
 struct DependencyTable<'ctx> {
     list: Vec<&'ctx DependencyEntry>,
-    ids: HashMap<&'ctx DependencyEntry, DependencyRef>,
+    ids: IndexMap<&'ctx DependencyEntry, DependencyRef>,
 }
 
 impl<'ctx> DependencyTable<'ctx> {
@@ -1512,7 +1512,7 @@ impl<'ctx> DependencyTable<'ctx> {
     pub fn new() -> DependencyTable<'ctx> {
         DependencyTable {
             list: Vec::new(),
-            ids: HashMap::new(),
+            ids: IndexMap::new(),
         }
     }
 
@@ -1557,7 +1557,7 @@ pub struct GitVersions<'ctx> {
     pub versions: Vec<(semver::Version, &'ctx str)>,
     /// The named references available for this dependency. This is a mixture of
     /// branch names and tags, where the tags take precedence.
-    pub refs: HashMap<&'ctx str, &'ctx str>,
+    pub refs: IndexMap<&'ctx str, &'ctx str>,
     /// The revisions available for this dependency, newest one first. We obtain
     /// these via `git rev-list --all --date-order`.
     pub revs: Vec<&'ctx str>,
@@ -1671,9 +1671,9 @@ impl fmt::Debug for StatisticCounter {
 #[derive(Default)]
 pub struct SessionCache<'ctx> {
     dependency_manifest_version:
-        Mutex<HashMap<(DependencyRef, DependencyVersion<'ctx>), Option<&'ctx config::Manifest>>>,
-    dependency_manifest: Mutex<HashMap<DependencyRef, Option<&'ctx config::Manifest>>>,
-    checkout: Mutex<HashMap<DependencyRef, &'ctx Path>>,
+        Mutex<IndexMap<(DependencyRef, DependencyVersion<'ctx>), Option<&'ctx config::Manifest>>>,
+    dependency_manifest: Mutex<IndexMap<DependencyRef, Option<&'ctx config::Manifest>>>,
+    checkout: Mutex<IndexMap<DependencyRef, &'ctx Path>>,
 }
 
 impl<'ctx> fmt::Debug for SessionCache<'ctx> {
@@ -1683,7 +1683,7 @@ impl<'ctx> fmt::Debug for SessionCache<'ctx> {
 }
 
 /// A list of plugins.
-pub type Plugins = HashMap<String, Plugin>;
+pub type Plugins = IndexMap<String, Plugin>;
 
 /// A plugin declared by a package.
 #[derive(Debug)]

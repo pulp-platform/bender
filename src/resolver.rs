@@ -5,7 +5,6 @@
 
 #![deny(missing_docs)]
 
-use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::Write as _;
 use std::fs;
@@ -34,11 +33,11 @@ pub struct DependencyResolver<'ctx> {
     /// The session within which resolution occurs.
     sess: &'ctx Session<'ctx>,
     /// The version table which is used to perform resolution.
-    table: HashMap<&'ctx str, Dependency<'ctx>>,
+    table: IndexMap<&'ctx str, Dependency<'ctx>>,
     /// A cache of decisions made by the user during the resolution.
-    decisions: HashMap<&'ctx str, DependencyConstraint>,
+    decisions: IndexMap<&'ctx str, DependencyConstraint>,
     /// Checkout Directory overrides in case checkout_dir is defined and contains folders.
-    checked_out: HashMap<String, config::Dependency>,
+    checked_out: IndexMap<String, config::Dependency>,
 }
 
 impl<'ctx> DependencyResolver<'ctx> {
@@ -47,9 +46,9 @@ impl<'ctx> DependencyResolver<'ctx> {
         // TODO: Populate the table with the contents of the lock file.
         DependencyResolver {
             sess,
-            table: HashMap::new(),
-            decisions: HashMap::new(),
-            checked_out: HashMap::new(),
+            table: IndexMap::new(),
+            decisions: IndexMap::new(),
+            checked_out: IndexMap::new(),
         }
     }
 
@@ -203,13 +202,13 @@ impl<'ctx> DependencyResolver<'ctx> {
 
     fn register_dependencies_in_manifest(
         &mut self,
-        deps: &'ctx HashMap<String, config::Dependency>,
+        deps: &'ctx IndexMap<String, config::Dependency>,
         manifest: &'ctx config::Manifest,
         rt: &Runtime,
         io: &SessionIo<'ctx, 'ctx>,
     ) -> Result<()> {
         // Map the dependencies to unique IDs.
-        let names: HashMap<&str, DependencyRef> = deps
+        let names: IndexMap<&str, DependencyRef> = deps
             .iter()
             .map(|(name, dep)| {
                 let name = name.as_str();
@@ -218,7 +217,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 (name, self.sess.load_dependency(name, dep, manifest))
             })
             .collect();
-        let ids: HashSet<DependencyRef> = names.iter().map(|(_, &id)| id).collect();
+        let ids: IndexSet<DependencyRef> = names.iter().map(|(_, &id)| id).collect();
         // debugln!("resolve: dep names {:?}", names);
         // debugln!("resolve: dep ids {:?}", ids);
 
@@ -231,12 +230,12 @@ impl<'ctx> DependencyResolver<'ctx> {
                     .map(move |v| (id, v))
             })
             .collect();
-        let versions: HashMap<_, _> = rt
+        let versions: IndexMap<_, _> = rt
             .block_on(join_all(versions))
             .into_iter()
             .collect::<Result<Vec<_>>>()?
             .into_iter()
-            .collect::<HashMap<_, _>>();
+            .collect::<IndexMap<_, _>>();
         // debugln!("resolve: versions {:#?}", versions);
 
         // Register the versions.
@@ -294,7 +293,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Gather the constraints from the available manifests. Group them by
         // constraint.
         let cons_map = {
-            let mut map = HashMap::<&str, Vec<(&str, DependencyConstraint)>>::new();
+            let mut map = IndexMap::<&str, Vec<(&str, DependencyConstraint)>>::new();
             let dep_iter = once(self.sess.manifest)
                 .chain(self.table.values().filter_map(|dep| dep.manifest))
                 .flat_map(|m| {
@@ -362,7 +361,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             (&DepCon::Path, &DepVer::Path) => Ok(None),
             (&DepCon::Version(ref con), &DepVer::Git(ref gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
-                let hash_ids: HashMap<&str, usize> = gv
+                let hash_ids: IndexMap<&str, usize> = gv
                     .revs
                     .iter()
                     .enumerate()
@@ -572,7 +571,7 @@ impl<'ctx> DependencyResolver<'ctx> {
     /// Pick a version for each dependency.
     fn pick(&mut self) -> Result<bool> {
         let mut any_changes = false;
-        let mut open_pending = HashSet::<&'ctx str>::new();
+        let mut open_pending = IndexSet::<&'ctx str>::new();
         for dep in self.table.values_mut() {
             for src in dep.sources.values_mut() {
                 src.state = match src.state {
@@ -622,7 +621,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Recursively open up dependencies.
         while !open_pending.is_empty() {
             use std::mem::swap;
-            let mut open = HashSet::new();
+            let mut open = IndexSet::new();
             swap(&mut open_pending, &mut open);
             for dep_name in open {
                 debugln!("resolve: resetting `{}`", dep_name);
@@ -695,7 +694,7 @@ struct Dependency<'ctx> {
     /// The name of the dependency.
     name: &'ctx str,
     /// The set of sources for this dependency.
-    sources: HashMap<DependencyRef, DependencySource<'ctx>>,
+    sources: IndexMap<DependencyRef, DependencySource<'ctx>>,
     /// The picked manifest for this dependency.
     manifest: Option<&'ctx config::Manifest>,
 }
@@ -705,7 +704,7 @@ impl<'ctx> Dependency<'ctx> {
     fn new(name: &'ctx str) -> Dependency<'ctx> {
         Dependency {
             name,
-            sources: HashMap::new(),
+            sources: IndexMap::new(),
             manifest: None,
         }
     }
@@ -732,7 +731,7 @@ struct DependencySource<'ctx> {
     /// The currently picked version.
     pick: Option<usize>,
     /// The available version options. These are indices into `versions`.
-    options: Option<HashSet<usize>>,
+    options: Option<IndexSet<usize>>,
     /// The current resolution state.
     state: State,
 }
@@ -800,7 +799,7 @@ impl State {
     }
 }
 
-struct TableDumper<'a>(&'a HashMap<&'a str, Dependency<'a>>);
+struct TableDumper<'a>(&'a IndexMap<&'a str, Dependency<'a>>);
 
 impl<'a> fmt::Debug for TableDumper<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -827,7 +826,7 @@ impl<'a> fmt::Debug for TableDumper<'a> {
     }
 }
 
-struct ConstraintsDumper<'a>(&'a HashMap<&'a str, Vec<(&'a str, DependencyConstraint)>>);
+struct ConstraintsDumper<'a>(&'a IndexMap<&'a str, Vec<(&'a str, DependencyConstraint)>>);
 
 impl<'a> fmt::Debug for ConstraintsDumper<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

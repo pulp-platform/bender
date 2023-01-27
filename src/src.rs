@@ -7,11 +7,11 @@
 
 #![deny(missing_docs)]
 
-use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::iter::FromIterator;
 use std::path::Path;
 
+use indexmap::{IndexMap, IndexSet};
 use serde::ser::{Serialize, Serializer};
 
 use crate::sess::Session;
@@ -30,9 +30,9 @@ pub struct SourceGroup<'ctx> {
     /// The directories to search for include files.
     pub include_dirs: Vec<&'ctx Path>,
     /// The directories exported by dependent package for include files.
-    pub export_incdirs: HashMap<String, Vec<&'ctx Path>>,
+    pub export_incdirs: IndexMap<String, Vec<&'ctx Path>>,
     /// The preprocessor definitions.
-    pub defines: HashMap<&'ctx str, Option<&'ctx str>>,
+    pub defines: IndexMap<&'ctx str, Option<&'ctx str>>,
     /// The files in this group.
     pub files: Vec<SourceFile<'ctx>>,
     /// Package dependencies of this source group
@@ -108,12 +108,16 @@ impl<'ctx> SourceGroup<'ctx> {
     }
 
     /// Recursively get dependency names.
-    fn get_deps(&self, packages: &HashSet<String>, excludes: &HashSet<String>) -> HashSet<String> {
+    fn get_deps(
+        &self,
+        packages: &IndexSet<String>,
+        excludes: &IndexSet<String>,
+    ) -> IndexSet<String> {
         let mut result = packages.clone();
 
         if let Some(x) = self.package {
             if result.contains(x) {
-                result.extend(HashSet::<String>::from_iter(self.dependencies.clone()));
+                result.extend(IndexSet::<String>::from_iter(self.dependencies.clone()));
                 result = &result - excludes;
             }
         }
@@ -131,11 +135,11 @@ impl<'ctx> SourceGroup<'ctx> {
     pub fn get_package_list(
         &self,
         sess: &Session,
-        packages: &HashSet<String>,
-        excludes: &HashSet<String>,
+        packages: &IndexSet<String>,
+        excludes: &IndexSet<String>,
         no_deps: bool,
-    ) -> HashSet<String> {
-        let mut result = HashSet::new();
+    ) -> IndexSet<String> {
+        let mut result = IndexSet::new();
 
         if !packages.is_empty() {
             result.extend(packages.clone());
@@ -157,7 +161,7 @@ impl<'ctx> SourceGroup<'ctx> {
     }
 
     /// Filter the sources, keeping only the ones that apply to the selected packages.
-    pub fn filter_packages(&self, packages: &HashSet<String>) -> Option<SourceGroup<'ctx>> {
+    pub fn filter_packages(&self, packages: &IndexSet<String>) -> Option<SourceGroup<'ctx>> {
         let mut files = Vec::new();
 
         if self.package.is_none() || packages.contains(self.package.unwrap()) {
@@ -196,7 +200,7 @@ impl<'ctx> SourceGroup<'ctx> {
             .include_dirs
             .into_iter()
             .chain(self.export_incdirs.into_iter().flat_map(|(_, v)| v))
-            .fold(HashSet::new(), |mut acc, inc_dir| {
+            .fold(IndexSet::new(), |mut acc, inc_dir| {
                 acc.insert(inc_dir);
                 acc
             });
@@ -244,7 +248,7 @@ impl<'ctx> SourceGroup<'ctx> {
                             .map(|&i| i.clone())
                             .collect(),
                     );
-                    grp.include_dirs = HashSet::<&Path>::from_iter(
+                    grp.include_dirs = IndexSet::<&Path>::from_iter(
                         self.include_dirs
                             .iter()
                             .cloned()

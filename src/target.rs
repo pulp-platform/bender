@@ -9,10 +9,11 @@
 #![deny(missing_docs)]
 
 use std;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::fmt;
 use std::str::FromStr;
 
+use indexmap::IndexSet;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
@@ -272,7 +273,7 @@ fn parse_wrong<R>(wrong: Option<Result<TargetToken>>) -> Result<R> {
 ///
 /// Target specifications can be matched against a target set. A target set is
 /// basically just a collection of strings.
-pub struct TargetSet(HashSet<String>);
+pub struct TargetSet(IndexSet<String>);
 
 impl TargetSet {
     /// Create an empty target set.
@@ -289,7 +290,7 @@ impl TargetSet {
         I: IntoIterator,
         I::Item: AsRef<str>,
     {
-        let targets: HashSet<String> = targets
+        let targets: IndexSet<String> = targets
             .into_iter()
             .map(|t| t.as_ref().to_lowercase())
             .collect();
@@ -308,16 +309,16 @@ impl TargetSet {
 }
 
 impl<'a> IntoIterator for &'a TargetSet {
-    type Item = <&'a HashSet<String> as IntoIterator>::Item;
-    type IntoIter = <&'a HashSet<String> as IntoIterator>::IntoIter;
+    type Item = <&'a IndexSet<String> as IntoIterator>::Item;
+    type IntoIter = <&'a IndexSet<String> as IntoIterator>::IntoIter;
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
     }
 }
 
 impl IntoIterator for TargetSet {
-    type Item = <HashSet<String> as IntoIterator>::Item;
-    type IntoIter = <HashSet<String> as IntoIterator>::IntoIter;
+    type Item = <IndexSet<String> as IntoIterator>::Item;
+    type IntoIter = <IndexSet<String> as IntoIterator>::IntoIter;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
