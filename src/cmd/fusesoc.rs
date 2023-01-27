@@ -12,7 +12,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools;
 use tokio::runtime::Runtime;
 use walkdir::{DirEntry, WalkDir};
@@ -434,7 +434,7 @@ fn get_fuse_file_str(
                                 if src_packages[0]
                                     .export_incdirs
                                     .get(pkg)
-                                    .unwrap_or(&Vec::new())
+                                    .unwrap_or(&IndexSet::new())
                                     .is_empty()
                                 {
                                     Vec::new()
@@ -442,7 +442,7 @@ fn get_fuse_file_str(
                                     src_packages[0]
                                         .export_incdirs
                                         .get(pkg)
-                                        .unwrap_or(&Vec::new())
+                                        .unwrap_or(&IndexSet::new())
                                         .iter()
                                         .flat_map(|incdir| {
                                             get_include_files(

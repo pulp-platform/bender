@@ -358,8 +358,8 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         &self,
         sources: &'ctx config::Sources,
         package: Option<&'ctx str>,
-        dependencies: Vec<String>,
-        dependency_export_includes: IndexMap<String, Vec<&'ctx Path>>,
+        dependencies: IndexSet<String>,
+        dependency_export_includes: IndexMap<String, IndexSet<&'ctx Path>>,
         version: Option<Version>,
     ) -> SourceGroup<'ctx> {
         let include_dirs: IndexSet<&Path> =
@@ -394,7 +394,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             package,
             independent: false,
             target: sources.target.clone(),
-            include_dirs: include_dirs.into_iter().collect(),
+            include_dirs: include_dirs.clone(),
             export_incdirs: dependency_export_includes.clone(),
             defines,
             files,
@@ -1172,7 +1172,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         use std::iter::once;
 
         // Create IndexMap of the export_include_dirs for each package
-        let mut all_export_include_dirs: IndexMap<String, Vec<&Path>> = IndexMap::new();
+        let mut all_export_include_dirs: IndexMap<String, IndexSet<&Path>> = IndexMap::new();
         let tmp_export_include_dirs: Vec<IndexMap<String, _>> = ranks
             .clone()
             .into_iter()
@@ -1209,7 +1209,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     .filter_map(|m| {
                         m.sources.as_ref().map(|s| {
                             // Collect include dirs from export_include_dirs of package and direct dependencies
-                            let mut export_include_dirs: IndexMap<String, Vec<&Path>> =
+                            let mut export_include_dirs: IndexMap<String, IndexSet<&Path>> =
                                 IndexMap::new();
                             export_include_dirs.insert(
                                 m.package.name.clone(),
@@ -1222,7 +1222,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 for i in m.dependencies.keys() {
                                     if !all_export_include_dirs.contains_key(i) {
                                         warnln!("Name issue with {:?}, `export_include_dirs` not handled\n\tCould relate to name mismatch, see `bender update`", i);
-                                        export_include_dirs.insert(i.clone(), Vec::new());
+                                        export_include_dirs.insert(i.clone(), IndexSet::new());
                                     } else {
                                         export_include_dirs.insert(
                                             i.clone(),
@@ -1252,11 +1252,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     package: None,
                     independent: true,
                     target: TargetSpec::Wildcard,
-                    include_dirs: Vec::new(),
+                    include_dirs: IndexSet::new(),
                     export_incdirs: IndexMap::new(),
                     defines: IndexMap::new(),
                     files,
-                    dependencies: Vec::new(),
+                    dependencies: IndexSet::new(),
                     version: None,
                 }
                 .into()
@@ -1268,11 +1268,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             package: None,
             independent: false,
             target: TargetSpec::Wildcard,
-            include_dirs: Vec::new(),
+            include_dirs: IndexSet::new(),
             export_incdirs: IndexMap::new(),
             defines: IndexMap::new(),
             files,
-            dependencies: Vec::new(),
+            dependencies: IndexSet::new(),
             version: None,
         }
         .simplify();

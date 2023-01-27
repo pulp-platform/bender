@@ -28,15 +28,15 @@ pub struct SourceGroup<'ctx> {
     /// The targets for which the sources should be considered.
     pub target: TargetSpec,
     /// The directories to search for include files.
-    pub include_dirs: Vec<&'ctx Path>,
+    pub include_dirs: IndexSet<&'ctx Path>,
     /// The directories exported by dependent package for include files.
-    pub export_incdirs: IndexMap<String, Vec<&'ctx Path>>,
+    pub export_incdirs: IndexMap<String, IndexSet<&'ctx Path>>,
     /// The preprocessor definitions.
     pub defines: IndexMap<&'ctx str, Option<&'ctx str>>,
     /// The files in this group.
     pub files: Vec<SourceFile<'ctx>>,
     /// Package dependencies of this source group
-    pub dependencies: Vec<String>,
+    pub dependencies: IndexSet<String>,
     /// Version information of the package
     pub version: Option<semver::Version>,
 }
