@@ -4,7 +4,6 @@
 //! The `fusesoc` subcommand.
 
 use serde_yaml::Value;
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::fs;
@@ -13,6 +12,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
+use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools;
 use tokio::runtime::Runtime;
 use walkdir::{DirEntry, WalkDir};
@@ -87,7 +87,7 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 sources,
                 Some(name.as_str()),
                 sess.manifest.dependencies.keys().cloned().collect(),
-                HashMap::new(),
+                IndexMap::new(),
                 version_string.clone(),
             )
             .flatten()),
@@ -139,7 +139,7 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
         )])
         .collect();
 
-    let pkg_manifest_paths = HashMap::from([(name.to_string(), sess.root.to_path_buf())]);
+    let pkg_manifest_paths = IndexMap::from([(name.to_string(), sess.root.to_path_buf())]);
 
     let fuse_str = get_fuse_file_str(
         name,
@@ -195,7 +195,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 )
             })
         })
-        .collect::<HashMap<String, _>>();
+        .collect::<IndexMap<String, _>>();
 
     pkg_manifest_paths.insert(sess.manifest.package.name.clone(), sess.root.to_path_buf());
 
@@ -213,13 +213,13 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 .collect::<Vec<_>>();
             Ok((pkg.to_string(), paths))
         })
-        .collect::<Result<HashMap<String, _>>>()?;
+        .collect::<Result<IndexMap<String, _>>>()?;
 
     // List of files to generate
-    let mut generate_files: HashMap<String, _> = HashMap::new();
+    let mut generate_files: IndexMap<String, _> = IndexMap::new();
 
     // FuseSoC `name` and `depend` strings
-    let mut fuse_depend_string: HashMap<String, String> = HashMap::new();
+    let mut fuse_depend_string: IndexMap<String, String> = IndexMap::new();
     let top = &sess.manifest.package.name;
 
     // Determine `.core` file names and locations
@@ -379,8 +379,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 fn get_fuse_file_str(
     pkg: &String,
     src_packages: &[SourceGroup],
-    fuse_depend_string: &HashMap<String, String>,
-    pkg_manifest_paths: &HashMap<String, PathBuf>,
+    fuse_depend_string: &IndexMap<String, String>,
+    pkg_manifest_paths: &IndexMap<String, PathBuf>,
     bender_generate_flag: String,
     lic_string: Vec<&String>,
 ) -> Result<String> {
@@ -434,7 +434,7 @@ fn get_fuse_file_str(
                                 if src_packages[0]
                                     .export_incdirs
                                     .get(pkg)
-                                    .unwrap_or(&Vec::new())
+                                    .unwrap_or(&IndexSet::new())
                                     .is_empty()
                                 {
                                     Vec::new()
@@ -442,7 +442,7 @@ fn get_fuse_file_str(
                                     src_packages[0]
                                         .export_incdirs
                                         .get(pkg)
-                                        .unwrap_or(&Vec::new())
+                                        .unwrap_or(&IndexSet::new())
                                         .iter()
                                         .flat_map(|incdir| {
                                             get_include_files(
@@ -475,12 +475,12 @@ fn get_fuse_file_str(
                         },
                     )
                 })
-                .collect::<HashMap<_, _>>()
+                .collect::<IndexMap<_, _>>()
         },
-        targets: HashMap::from([
+        targets: IndexMap::from([
             (
                 "default".to_string(),
-                HashMap::from([(
+                IndexMap::from([(
                     "filesets".to_string(),
                     StringOrVec::Vec(
                         src_packages
@@ -495,7 +495,7 @@ fn get_fuse_file_str(
             ),
             (
                 "simulation".to_string(),
-                HashMap::from([(
+                IndexMap::from([(
                     "filesets".to_string(),
                     StringOrVec::Vec(
                         src_packages
@@ -636,7 +636,7 @@ fn get_fileset_files(file_pkg: &SourceGroup, root_dir: PathBuf) -> Vec<FuseFileT
         .filter_map(|src_file| match src_file {
             SourceFile::File(intern_file) => Some(
                 match intern_file.extension().and_then(std::ffi::OsStr::to_str) {
-                    Some("vhd") | Some("vhdl") => FuseFileType::HashMap(HashMap::from([(
+                    Some("vhd") | Some("vhdl") => FuseFileType::IndexMap(IndexMap::from([(
                         intern_file
                             .strip_prefix(root_dir.clone())
                             .unwrap()
@@ -647,7 +647,7 @@ fn get_fileset_files(file_pkg: &SourceGroup, root_dir: PathBuf) -> Vec<FuseFileT
                             file_type: Some("vhdlSource".to_string()),
                         },
                     )])),
-                    Some("v") => FuseFileType::HashMap(HashMap::from([(
+                    Some("v") => FuseFileType::IndexMap(IndexMap::from([(
                         intern_file
                             .strip_prefix(root_dir.clone())
                             .unwrap()
@@ -692,7 +692,7 @@ fn get_include_files(dir: &PathBuf, base_path: PathBuf) -> Vec<FuseFileType> {
         .map(|e| e.path().to_path_buf());
     incdir_files
         .map(|incdir_file| {
-            FuseFileType::HashMap(HashMap::from([(
+            FuseFileType::IndexMap(IndexMap::from([(
                 incdir_file
                     .strip_prefix(base_path.clone())
                     .unwrap()
@@ -712,15 +712,15 @@ struct FuseSoCCAPI2 {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     description: Option<String>,
-    filesets: HashMap<String, FuseSoCFileSet>,
-    targets: HashMap<String, HashMap<String, StringOrVec>>,
+    filesets: IndexMap<String, FuseSoCFileSet>,
+    targets: IndexMap<String, IndexMap<String, StringOrVec>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 enum FuseFileType {
     PathBuf(PathBuf),
-    HashMap(HashMap<PathBuf, FuseSoCFile>),
+    IndexMap(IndexMap<PathBuf, FuseSoCFile>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

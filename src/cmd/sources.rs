@@ -6,8 +6,8 @@
 use std;
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
+use indexmap::IndexSet;
 use serde_json;
-use std::collections::HashSet;
 use tokio::runtime::Runtime;
 
 use crate::error::*;
@@ -71,7 +71,7 @@ pub fn new() -> Command {
         )
 }
 
-fn get_package_strings<I>(packages: I) -> HashSet<String>
+fn get_package_strings<I>(packages: I) -> IndexSet<String>
 where
     I: IntoIterator,
     I::Item: AsRef<str>,

@@ -3,9 +3,10 @@
 
 //! The `parents` subcommand.
 
-use clap::{Arg, ArgMatches, Command};
-use std::collections::HashMap;
 use std::io::Write;
+
+use clap::{Arg, ArgMatches, Command};
+use indexmap::IndexMap;
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
@@ -33,7 +34,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let io = SessionIo::new(sess);
 
     let parent_array = {
-        let mut map = HashMap::<String, Vec<String>>::new();
+        let mut map = IndexMap::<String, Vec<String>>::new();
         if sess.manifest.dependencies.contains_key(dep) {
             let dep_str = format!(
                 "{}",

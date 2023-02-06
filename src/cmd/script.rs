@@ -5,15 +5,14 @@
 
 use clap::builder::PossibleValue;
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
+use common_path::common_path_all;
+use indexmap::IndexSet;
 use tokio::runtime::Runtime;
 
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup};
 use crate::target::{TargetSet, TargetSpec};
-use common_path::common_path_all;
-
-use std::collections::HashSet;
 
 /// Assemble the `script` subcommand.
 pub fn new() -> Command {
@@ -176,7 +175,7 @@ pub fn new() -> Command {
         )
 }
 
-fn get_package_strings<I>(packages: I) -> HashSet<String>
+fn get_package_strings<I>(packages: I) -> IndexSet<String>
 where
     I: IntoIterator,
     I::Item: AsRef<str>,

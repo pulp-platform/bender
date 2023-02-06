@@ -9,12 +9,13 @@
 #![deny(missing_docs)]
 
 use std;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use indexmap::IndexMap;
 use semver;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -31,13 +32,13 @@ pub struct Manifest {
     /// The package definition.
     pub package: Package,
     /// The dependencies.
-    pub dependencies: HashMap<String, Dependency>,
+    pub dependencies: IndexMap<String, Dependency>,
     /// The source files.
     pub sources: Option<Sources>,
     /// The include directories exported to dependent packages.
     pub export_include_dirs: Vec<PathBuf>,
     /// The plugin binaries.
-    pub plugins: HashMap<String, PathBuf>,
+    pub plugins: IndexMap<String, PathBuf>,
     /// Whether the dependencies of the manifest are frozen.
     pub frozen: bool,
     /// The workspace configuration.
@@ -139,7 +140,7 @@ pub struct Sources {
     /// The directories to search for include files.
     pub include_dirs: Vec<PathBuf>,
     /// The preprocessor definitions.
-    pub defines: HashMap<String, Option<String>>,
+    pub defines: IndexMap<String, Option<String>>,
     /// The source files.
     pub files: Vec<SourceFile>,
 }
@@ -187,7 +188,7 @@ pub struct Workspace {
     /// The directory which will contain working copies of the dependencies.
     pub checkout_dir: Option<PathBuf>,
     /// The locally linked packages.
-    pub package_links: HashMap<PathBuf, String>,
+    pub package_links: IndexMap<PathBuf, String>,
 }
 
 impl PrefixPaths for Workspace {
@@ -214,12 +215,12 @@ pub trait Validate {
 }
 
 // Implement `Validate` for hash maps of validatable values.
-impl<K, V> Validate for HashMap<K, V>
+impl<K, V> Validate for IndexMap<K, V>
 where
     K: Hash + Eq,
     V: Validate<Error = Error>,
 {
-    type Output = HashMap<K, V::Output>;
+    type Output = IndexMap<K, V::Output>;
     type Error = (K, Error);
     fn validate(self) -> std::result::Result<Self::Output, Self::Error> {
         self.into_iter()
@@ -279,13 +280,13 @@ pub struct PartialManifest {
     /// The package definition.
     pub package: Option<Package>,
     /// The dependencies.
-    pub dependencies: Option<HashMap<String, StringOrStruct<PartialDependency>>>,
+    pub dependencies: Option<IndexMap<String, StringOrStruct<PartialDependency>>>,
     /// The source files.
     pub sources: Option<SeqOrStruct<PartialSources, PartialSourceFile>>,
     /// The include directories exported to dependent packages.
     pub export_include_dirs: Option<Vec<PathBuf>>,
     /// The plugin binaries.
-    pub plugins: Option<HashMap<String, PathBuf>>,
+    pub plugins: Option<IndexMap<String, PathBuf>>,
     /// Whether the dependencies of the manifest are frozen.
     pub frozen: Option<bool>,
     /// The workspace configuration.
@@ -309,7 +310,7 @@ impl Validate for PartialManifest {
             Some(d) => d
                 .into_iter()
                 .map(|(k, v)| (k.to_lowercase(), v))
-                .collect::<HashMap<_, _>>()
+                .collect::<IndexMap<_, _>>()
                 .validate()
                 .map_err(|(key, cause)| {
                     Error::chain(
@@ -317,7 +318,7 @@ impl Validate for PartialManifest {
                         cause,
                     )
                 })?,
-            None => HashMap::new(),
+            None => IndexMap::new(),
         };
         let srcs = match self.sources {
             Some(s) => Some(s.validate().map_err(|cause| {
@@ -328,7 +329,7 @@ impl Validate for PartialManifest {
         let exp_inc_dirs = self.export_include_dirs.unwrap_or_default();
         let plugins = match self.plugins {
             Some(s) => s,
-            None => HashMap::new(),
+            None => IndexMap::new(),
         };
         let frozen = self.frozen.unwrap_or(false);
         let workspace = match self.workspace {
@@ -465,7 +466,7 @@ pub struct PartialSources {
     /// The directories to search for include files.
     pub include_dirs: Option<Vec<PathBuf>>,
     /// The preprocessor definitions.
-    pub defines: Option<HashMap<String, Option<String>>>,
+    pub defines: Option<IndexMap<String, Option<String>>>,
     /// The source file paths.
     pub files: Vec<PartialSourceFile>,
 }
@@ -576,7 +577,7 @@ pub struct PartialWorkspace {
     /// The directory which will contain working copies of the dependencies.
     pub checkout_dir: Option<PathBuf>,
     /// The locally linked packages.
-    pub package_links: Option<HashMap<PathBuf, String>>,
+    pub package_links: Option<IndexMap<PathBuf, String>>,
 }
 
 impl Validate for PartialWorkspace {
@@ -618,7 +619,7 @@ where
 }
 
 // Implement `PrefixPaths` for hash maps of prefixable values.
-impl<K, V> PrefixPaths for HashMap<K, V>
+impl<K, V> PrefixPaths for IndexMap<K, V>
 where
     K: Hash + Eq,
     V: PrefixPaths,
@@ -651,9 +652,9 @@ pub struct Config {
     /// The git command or path to the binary.
     pub git: String,
     /// The dependency overrides.
-    pub overrides: HashMap<String, Dependency>,
+    pub overrides: IndexMap<String, Dependency>,
     /// The auxiliary plugin dependencies.
-    pub plugins: HashMap<String, Dependency>,
+    pub plugins: IndexMap<String, Dependency>,
 }
 
 /// A partial configuration.
@@ -664,9 +665,9 @@ pub struct PartialConfig {
     /// The git command or path to the binary.
     pub git: Option<String>,
     /// The dependency overrides.
-    pub overrides: Option<HashMap<String, PartialDependency>>,
+    pub overrides: Option<IndexMap<String, PartialDependency>>,
     /// The auxiliary plugin dependencies.
-    pub plugins: Option<HashMap<String, PartialDependency>>,
+    pub plugins: Option<IndexMap<String, PartialDependency>>,
 }
 
 impl PartialConfig {
@@ -740,13 +741,13 @@ impl Validate for PartialConfig {
                 Some(d) => d.validate().map_err(|(key, cause)| {
                     Error::chain(format!("In override `{}`:", key), cause)
                 })?,
-                None => HashMap::new(),
+                None => IndexMap::new(),
             },
             plugins: match self.plugins {
                 Some(d) => d
                     .validate()
                     .map_err(|(key, cause)| Error::chain(format!("In plugin `{}`:", key), cause))?,
-                None => HashMap::new(),
+                None => IndexMap::new(),
             },
         })
     }
