@@ -84,7 +84,7 @@ impl<'git, 'ctx> Git<'ctx> {
             } else {
                 let mut msg = format!("Git command ({:?}) in directory {:?}", cmd, self.path);
                 match output.status.code() {
-                    Some(code) => msg.push_str(&format!(" failed with exit code {}", code)),
+                    Some(code) => msg.push_str(&format!(" failed with exit code {code}")),
                     None => msg.push_str(" failed"),
                 };
                 match String::from_utf8(output.stderr) {
@@ -92,7 +92,7 @@ impl<'git, 'ctx> Git<'ctx> {
                         msg.push_str(":\n\n");
                         msg.push_str(&txt);
                     }
-                    Err(err) => msg.push_str(&format!(". Stderr is not valid UTF-8, {}.", err)),
+                    Err(err) => msg.push_str(&format!(". Stderr is not valid UTF-8, {err}.")),
                 };
                 Err(Error::new(msg))
             }

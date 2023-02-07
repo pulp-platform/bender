@@ -188,9 +188,8 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             for name in self.manifest.dependencies.keys() {
                 if !(names.contains_key(name)) {
                     return Err(Error::new(format!(
-                        "`Bender.yml` contains dependency `{}` but `Bender.lock` does not.\n\
-                        \tYou may need to run `bender update`.",
-                        name
+                        "`Bender.yml` contains dependency `{name}` but `Bender.lock` does not.\n\
+                        \tYou may need to run `bender update`."
                     )));
                 }
             }
@@ -219,9 +218,8 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
                         pend_str.push(self.dependency_name(*element));
                     }
                     return Err(Error::new(format!(
-                        "a cyclical dependency was discovered, likely relates to one of {:?}.\n\
-                        \tPlease ensure no dependency loops.",
-                        pend_str
+                        "a cyclical dependency was discovered, likely relates to one of {pend_str:?}.\n\
+                        \tPlease ensure no dependency loops."
                     )));
                 }
             }
@@ -279,8 +277,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         match result {
             Some(id) => Ok(id),
             None => Err(Error::new(format!(
-                "Dependency `{}` does not exist. Did you forget to add it to the manifest?",
-                name
+                "Dependency `{name}` does not exist. Did you forget to add it to the manifest?"
             ))),
         }
     }
@@ -466,7 +463,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // 8 bytes (16 hex characters) of the URL's BLAKE2 hash.
         use blake2::{Blake2b512, Digest};
         let hash = &format!("{:016x}", Blake2b512::digest(url.as_bytes()))[..16];
-        let db_name = format!("{}-{}", name, hash);
+        let db_name = format!("{name}-{hash}");
 
         // Determine the location of the git database and create it if its does
         // not yet exist.
@@ -482,7 +479,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             Ok(_) => (),
             Err(cause) => {
                 return Err(Error::chain(
-                    format!("Failed to create git database directory {:?}.", db_dir),
+                    format!("Failed to create git database directory {db_dir:?}."),
                     cause,
                 ))
             }
@@ -518,7 +515,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 }
                 warnln!("Please ensure the url is correct and you have access to the repository.");
                 Error::chain(
-                    format!("Failed to initialize git database in {:?}.", db_dir),
+                    format!("Failed to initialize git database in {db_dir:?}."),
                     cause,
                 )
             })
@@ -544,7 +541,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 }
                 warnln!("Please ensure the url is correct and you have access to the repository.");
                 Error::chain(
-                    format!("Failed to update git database in {:?}.", db_dir),
+                    format!("Failed to update git database in {db_dir:?}."),
                     cause,
                 )
             })
@@ -797,7 +794,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     debugln!("checkout_git: clear checkout {:?}", path);
                     std::fs::remove_dir_all(path).map_err(|cause| {
                         Error::chain(
-                            format!("Failed to remove checkout directory {:?}.", path),
+                            format!("Failed to remove checkout directory {path:?}."),
                             cause,
                         )
                     })
@@ -815,7 +812,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             // First generate a tag to be cloned in the database. This is
             // necessary since `git clone` does not accept commits, but only
             // branches or tags for shallow clones.
-            let tag_name_0 = format!("bender-tmp-{}", revision);
+            let tag_name_0 = format!("bender-tmp-{revision}");
             let tag_name_1 = tag_name_0.clone();
             let git = self.git_database(name, url, false).await?;
             // .and_then(move |git| {
@@ -880,7 +877,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             .truncate(true)
                             .create(true)
                             .open(tmp_path.join(format!("{}_manifest.yml", dep.0)))?;
-                        writeln!(&mut sub_file, "{}", full_sub_data)?;
+                        writeln!(&mut sub_file, "{full_sub_data}")?;
                         sub_file.flush()?;
                     }
 
@@ -960,7 +957,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         use self::DependencySource as DepSrc;
         use self::DependencyVersion as DepVer;
         match (&dep.source, version) {
-            (&DepSrc::Path(ref path), DepVer::Path) => {
+            (DepSrc::Path(path), DepVer::Path) => {
                 if !path.starts_with("/") {
                     warnln!("There may be issues in the path for {:?}.", dep.name);
                 }
@@ -1009,7 +1006,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             (&DepSrc::Registry, DepVer::Registry(_hash)) => {
                 unimplemented!("load manifest of registry dependency");
             }
-            (&DepSrc::Git(ref url), DepVer::Git(rev)) => {
+            (DepSrc::Git(url), DepVer::Git(rev)) => {
                 let dep_name = self.sess.intern_string(dep.name.as_str());
                 // TODO MICHAERO: May need proper chaining using and_then
                 let db = self.git_database(&dep.name, url, false).await?;
@@ -1024,9 +1021,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             .map_err(|cause| {
                                 Error::chain(
                                     format!(
-                                        "Syntax error in manifest of dependency `{}` at \
-                                             revision `{}`.",
-                                        dep_name, rev
+                                        "Syntax error in manifest of dependency `{dep_name}` at \
+                                             revision `{rev}`."
                                     ),
                                     cause,
                                 )
@@ -1034,9 +1030,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         let mut full = partial.validate().map_err(|cause| {
                             Error::chain(
                                 format!(
-                                    "Error in manifest of dependency `{}` at revision \
-                                         `{}`.",
-                                    dep_name, rev
+                                    "Error in manifest of dependency `{dep_name}` at revision \
+                                         `{rev}`."
                                 ),
                                 cause,
                             )
@@ -1483,8 +1478,8 @@ impl fmt::Display for DependencySource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             DependencySource::Registry => write!(f, "registry"),
-            DependencySource::Path(ref path) => write!(f, "{:?}", path),
-            DependencySource::Git(ref url) => write!(f, "`{}`", url),
+            DependencySource::Path(ref path) => write!(f, "{path:?}"),
+            DependencySource::Git(ref url) => write!(f, "`{url}`"),
         }
     }
 }
@@ -1494,7 +1489,7 @@ impl DependencySource {
     pub fn to_str(&self) -> String {
         match *self {
             DependencySource::Registry => "registry".to_string(),
-            DependencySource::Path(ref path) => format!("{:?}", path),
+            DependencySource::Path(ref path) => format!("{path:?}"),
             DependencySource::Git(ref url) => url.to_string(),
         }
     }
@@ -1578,8 +1573,8 @@ impl<'ctx> fmt::Display for DependencyVersion<'ctx> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             DependencyVersion::Path => write!(f, "path"),
-            DependencyVersion::Registry(ref v) => write!(f, "{}", v),
-            DependencyVersion::Git(ref r) => write!(f, "{}", r),
+            DependencyVersion::Registry(ref v) => write!(f, "{v}"),
+            DependencyVersion::Git(ref r) => write!(f, "{r}"),
         }
     }
 }
@@ -1623,8 +1618,8 @@ impl fmt::Display for DependencyConstraint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             DependencyConstraint::Path => write!(f, "path"),
-            DependencyConstraint::Version(ref v) => write!(f, "{}", v),
-            DependencyConstraint::Revision(ref r) => write!(f, "{}", r),
+            DependencyConstraint::Version(ref v) => write!(f, "{v}"),
+            DependencyConstraint::Revision(ref r) => write!(f, "{r}"),
         }
     }
 }

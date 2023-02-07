@@ -379,7 +379,7 @@ enum SourceType {
 }
 
 fn quote(s: &(impl std::fmt::Display + ?Sized)) -> String {
-    format!("\"{}\"", s)
+    format!("\"{s}\"")
 }
 
 fn relativize_path(path: &std::path::Path, root: &std::path::Path) -> String {
@@ -397,7 +397,7 @@ static HEADER_AUTOGEN: &str = "This script was generated automatically by bender
 
 fn header_tcl(sess: &Session) -> String {
     let mut lines = vec![];
-    lines.push(format!("# {}", HEADER_AUTOGEN));
+    lines.push(format!("# {HEADER_AUTOGEN}"));
     lines.push(format!("set ROOT {}", quote(sess.root.to_str().unwrap())));
     lines.join("\n")
 }
@@ -405,14 +405,14 @@ fn header_tcl(sess: &Session) -> String {
 fn header_sh(sess: &Session) -> String {
     let mut lines = vec![];
     lines.push("#!/usr/bin/env bash".to_string());
-    lines.push(format!("# {}", HEADER_AUTOGEN));
+    lines.push(format!("# {HEADER_AUTOGEN}"));
     lines.push(format!("ROOT={}", quote(sess.root.to_str().unwrap())));
     lines.join("\n")
 }
 
 fn tcl_catch_prefix(cmd: &str, do_prefix: bool) -> String {
     let prefix = if do_prefix { "if {[catch {" } else { "" };
-    format!("{}{}", prefix, cmd)
+    format!("{prefix}{cmd}")
 }
 
 fn tcl_catch_postfix() -> &'static str {
@@ -802,7 +802,7 @@ fn emit_synopsys_tcl(
                     if !defines.is_empty() {
                         lines.push("-define {".to_owned());
                         for (k, v) in defines {
-                            let mut s = format!("    {}", k);
+                            let mut s = format!("    {k}");
                             if let Some(v) = v {
                                 s.push('=');
                                 s.push_str(&v);
@@ -909,7 +909,7 @@ fn emit_genus_tcl(
                 if !defines.is_empty() {
                     lines.push("-define {".to_owned());
                     for (k, v) in defines {
-                        let mut s = format!("    {}", k);
+                        let mut s = format!("    {k}");
                         if let Some(v) = v {
                             s.push('=');
                             s.push_str(&v);
@@ -1045,12 +1045,12 @@ fn emit_vivado_tcl(
             println!("set_property verilog_define [list \\");
             for (k, v) in &defines {
                 let s = match v {
-                    Some(s) => format!("{}={}", k, s),
+                    Some(s) => format!("{k}={s}"),
                     None => k.to_string(),
                 };
-                println!("    {} \\", s);
+                println!("    {s} \\");
             }
-            println!("] [current_fileset{}]", arg);
+            println!("] [current_fileset{arg}]");
         }
     }
     Ok(())
@@ -1231,7 +1231,7 @@ fn emit_precision_tcl(
     let root = common_path_all(file_paths).unwrap();
 
     // Print the script header
-    println!("# {}", HEADER_AUTOGEN);
+    println!("# {HEADER_AUTOGEN}");
     println!("# Precision does not take relative paths into account when specifying include dirs.");
     println!("# Define the common ROOT anyway if needed for patching file paths. ");
     println!("set ROOT {}", root.to_str().unwrap());
@@ -1257,7 +1257,7 @@ fn emit_precision_tcl(
     if !defines.is_empty() {
         let mut lines = vec!["setup_design -defines { \\".to_owned()];
         for (k, v) in defines {
-            let mut s = format!("    +define+{}", k);
+            let mut s = format!("    +define+{k}");
             if let Some(v) = v {
                 s.push('=');
                 s.push_str(&v);

@@ -74,7 +74,7 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
     };
     let version_string = match matches.get_one::<String>("version") {
         Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
-            Error::chain(format!("Unable to parse version {}.", version), cause)
+            Error::chain(format!("Unable to parse version {version}."), cause)
         })?),
         None => None,
     };
@@ -94,7 +94,7 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
         None => Err(Error::new("Error in loading sources")),
     }?;
 
-    let core_path = &sess.root.join(format!("{}.core", name));
+    let core_path = &sess.root.join(format!("{name}.core"));
 
     let file_str = match read_to_string(core_path) {
         Ok(file_str) => file_str,
@@ -103,8 +103,7 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     if !file_str.contains(bender_generate_flag) {
         Err(Error::new(format!(
-            "{}.core already exists, please delete to generate.",
-            name
+            "{name}.core already exists, please delete to generate."
         )))?
     }
 
@@ -132,7 +131,7 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 "",            // Library
                 name,          // Name
                 match &version_string {
-                    Some(version) => format!("{}", version),
+                    Some(version) => format!("{version}"),
                     None => "".to_string(),
                 }  // Version
             ),
@@ -175,7 +174,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     };
     let version_string = match matches.get_one::<String>("version") {
         Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
-            Error::chain(format!("Unable to parse version {}.", version), cause)
+            Error::chain(format!("Unable to parse version {version}."), cause)
         })?),
         None => None,
     };
@@ -204,7 +203,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         .map(|(pkg, dir)| {
             let paths = fs::read_dir(dir)
                 .map_err(|err| {
-                    Error::chain(format!("Unable to read package directory {:?}", dir), err)
+                    Error::chain(format!("Unable to read package directory {dir:?}"), err)
                 })?
                 .filter(|path| {
                     path.as_ref().unwrap().path().extension() == Some(OsStr::new("core"))
@@ -229,7 +228,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 pkg.to_string(),
                 pkg_manifest_paths[pkg]
                     .clone()
-                    .join(format!("{}.core", pkg)),
+                    .join(format!("{pkg}.core")),
             );
 
             fuse_depend_string.insert(
@@ -245,7 +244,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         } else {
             let mut index = 0;
             if present_core_files[pkg].len() > 1 {
-                let mut msg = format!("Multiple `.core` files already present for {}.\n", pkg);
+                let mut msg = format!("Multiple `.core` files already present for {pkg}.\n");
                 writeln!(
                     msg,
                     "Please pick a `.core` file to use for this dependency.\n"
@@ -280,7 +279,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     )
                     .unwrap();
                 }
-                println!("{}", msg);
+                println!("{msg}");
                 // Let user resolve conflict if both stderr and stdin go to a TTY.
                 if atty::is(atty::Stream::Stderr) && atty::is(atty::Stream::Stdin) {
                     index = {
@@ -385,7 +384,7 @@ fn get_fuse_file_str(
     lic_string: Vec<&String>,
 ) -> Result<String> {
     let mut fuse_str = "CAPI=2:\n".to_string();
-    fuse_str.push_str(&format!("# {}\n\n", bender_generate_flag));
+    fuse_str.push_str(&format!("# {bender_generate_flag}\n\n"));
 
     for line in lic_string.clone() {
         fuse_str.push_str("# ");
@@ -588,7 +587,7 @@ fn get_fuse_depend_string(
         "",            // Library
         pkg,           // Name
         match &src_packages.clone()[0].version {
-            Some(version) => format!("{}", version),
+            Some(version) => format!("{version}"),
             None => "".to_string(),
         }  // Version
     )

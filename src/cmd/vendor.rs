@@ -100,7 +100,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                         }
                         warnln!("Please ensure the url is correct and you have access to the repository.");
                         Error::chain(
-                            format!("Failed to initialize git database in {:?}.", tmp_path),
+                            format!("Failed to initialize git database in {tmp_path:?}."),
                             cause,
                         )
                     })
@@ -114,7 +114,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                             config::Dependency::GitRevision(_, ref rev) => rev,
                             _ => unimplemented!(),
                         };
-                        if *rev_hash != git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{}^{{commit}}", rev_hash))).await?.trim_end_matches('\n') {
+                        if *rev_hash != git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{rev_hash}^{{commit}}"))).await?.trim_end_matches('\n') {
                             Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout"))
                         } else {
                             Ok(())
@@ -167,7 +167,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     let get_diff = diff(&rt, git, vendor_package, patch_link, dep_path.clone())
                         .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
                     if !get_diff.is_empty() {
-                        print!("{}", get_diff);
+                        print!("{get_diff}");
                         // If desired, return an error (e.g. for CI)
                         if matches.contains_id("err_on_diff") {
                             let err_msg : Option<&String> = matches.get_one("err_on_diff");
@@ -197,7 +197,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                             std::fs::remove_file(target_path.clone())
                         }
                         .map_err(|cause| {
-                            Error::chain(format!("Failed to remove {:?}.", target_path), cause)
+                            Error::chain(format!("Failed to remove {target_path:?}."), cause)
                         })?;
                     }
 
@@ -378,7 +378,7 @@ pub fn apply_patches(
                 })
                 .await
                 .map_err(move |cause| {
-                    Error::chain(format!("Failed to apply patch {:?}.", patch), cause)
+                    Error::chain(format!("Failed to apply patch {patch:?}."), cause)
                 })
                 .map(move |_| git)
             })?;

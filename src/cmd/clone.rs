@@ -66,12 +66,12 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
             .unwrap()
             .success()
     {
-        Err(Error::new(format!("Creating dir {} failed", path_mod,)))?;
+        Err(Error::new(format!("Creating dir {path_mod} failed",)))?;
     }
 
     // Copy dependency to dir for proper workflow
     if path.join(path_mod).join(dep).exists() {
-        println!("{} already has a directory in {}.", dep, path_mod);
+        println!("{dep} already has a directory in {path_mod}.");
         println!("Please manually ensure the correct checkout.");
     } else {
         let rt = Runtime::new()?;
@@ -100,7 +100,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
                     .arg(path.join(path_mod).join(dep).to_str().unwrap())
                     .status();
                 if !command.unwrap().success() {
-                    Err(Error::new(format!("Copying {} failed", dep,)))?;
+                    Err(Error::new(format!("Copying {dep} failed",)))?;
                 }
                 // println!("{:?}", command);
             }
@@ -163,14 +163,12 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     // Rewrite Bender.local file to keep changes
     let local_path = path.join("Bender.local");
     let dep_str = format!(
-        "  {}: {{ path: \"{}/{0}\" }} # Temporary override by Bender using `bender clone` command\n",
-        dep, path_mod
+        "  {dep}: {{ path: \"{path_mod}/{dep}\" }} # Temporary override by Bender using `bender clone` command\n"
     );
     if local_path.exists() {
         let local_file_str = match std::fs::read_to_string(&local_path) {
             Err(why) => Err(Error::new(format!(
-                "Reading Bender.local failed with msg:\n\t{}",
-                why
+                "Reading Bender.local failed with msg:\n\t{why}"
             )))?,
             Ok(local_file_str) => local_file_str,
         };
@@ -199,24 +197,22 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         }
         if let Err(why) = std::fs::write(local_path, new_str) {
             Err(Error::new(format!(
-                "Writing new Bender.local failed with msg:\n\t{}",
-                why
+                "Writing new Bender.local failed with msg:\n\t{why}"
             )))?
         }
-    } else if let Err(why) = std::fs::write(local_path, format!("overrides:\n{}", dep_str)) {
+    } else if let Err(why) = std::fs::write(local_path, format!("overrides:\n{dep_str}")) {
         Err(Error::new(format!(
-            "Writing new Bender.local failed with msg:\n\t{}",
-            why
+            "Writing new Bender.local failed with msg:\n\t{why}"
         )))?
     };
 
-    println!("{} dependency added to Bender.local", dep);
+    println!("{dep} dependency added to Bender.local");
 
     use std::fs::File;
     let file = File::open(path.join("Bender.lock"))
-        .map_err(|cause| Error::chain(format!("Cannot open lockfile {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Cannot open lockfile {path:?}."), cause))?;
     let mut locked: Locked = serde_yaml::from_reader(&file)
-        .map_err(|cause| Error::chain(format!("Syntax error in lockfile {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Syntax error in lockfile {path:?}."), cause))?;
 
     let mut mod_package = locked.packages[dep].clone();
     mod_package.revision = None;
@@ -225,9 +221,9 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     locked.packages.insert(dep.to_string(), mod_package);
 
     let file = File::create(path.join("Bender.lock"))
-        .map_err(|cause| Error::chain(format!("Cannot create lockfile {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Cannot create lockfile {path:?}."), cause))?;
     serde_yaml::to_writer(&file, &locked)
-        .map_err(|cause| Error::chain(format!("Cannot write lockfile {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Cannot write lockfile {path:?}."), cause))?;
 
     println!("Lockfile updated");
 

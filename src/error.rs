@@ -75,7 +75,7 @@ impl fmt::Display for Severity {
             Severity::Note => ("\x1B[;1m", "note"),
             Severity::Debug => ("\x1B[34;1m", "debug"),
         };
-        write!(f, "{}{}:\x1B[m", color, prefix)
+        write!(f, "{color}{prefix}:\x1B[m")
     }
 }
 
@@ -130,7 +130,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.msg)?;
         if let Some(ref c) = self.cause {
-            write!(f, " {}", c)?
+            write!(f, " {c}")?
         }
         Ok(())
     }
@@ -138,7 +138,7 @@ impl fmt::Display for Error {
 
 impl From<Error> for String {
     fn from(err: Error) -> String {
-        format!("{}", err)
+        format!("{err}")
     }
 }
 
@@ -158,5 +158,5 @@ macro_rules! stageln {
 
 /// Print stage progress.
 pub fn println_stage(stage: &str, message: &str) {
-    eprintln!("\x1B[32;1m{:>12}\x1B[0m {}", stage, message);
+    eprintln!("\x1B[32;1m{stage:>12}\x1B[0m {message}");
 }

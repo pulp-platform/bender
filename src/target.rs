@@ -38,10 +38,10 @@ impl fmt::Display for TargetSpec {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             TargetSpec::Wildcard => write!(f, "*"),
-            TargetSpec::Name(ref name) => write!(f, "{}", name),
+            TargetSpec::Name(ref name) => write!(f, "{name}"),
             TargetSpec::All(ref specs) => write!(f, "all({})", SpecsWriter(specs.iter())),
             TargetSpec::Any(ref specs) => write!(f, "any({})", SpecsWriter(specs.iter())),
-            TargetSpec::Not(ref spec) => write!(f, "not({})", spec),
+            TargetSpec::Not(ref spec) => write!(f, "not({spec})"),
         }
     }
 }
@@ -55,7 +55,7 @@ where
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use std::iter::{once, repeat};
         for (sep, val) in once("").chain(repeat(", ")).zip(self.0.clone()) {
-            write!(f, "{}{}", sep, val)?;
+            write!(f, "{sep}{val}")?;
         }
         Ok(())
     }
@@ -79,7 +79,7 @@ impl FromStr for TargetSpec {
         };
         parse(&mut lexer).map_err(|cause| {
             Error::chain(
-                format!("Syntax error in target specification `{}`.", s),
+                format!("Syntax error in target specification `{s}`."),
                 cause,
             )
         })
@@ -91,7 +91,7 @@ impl Serialize for TargetSpec {
     where
         S: Serializer,
     {
-        format!("{}", self).serialize(serializer)
+        format!("{self}").serialize(serializer)
     }
 }
 
@@ -194,7 +194,7 @@ where
                 Some(')') => return Some(Ok(TargetToken::RParen)),
                 Some(',') => return Some(Ok(TargetToken::Comma)),
                 Some(c) if c.is_whitespace() => (),
-                Some(c) => return Some(Err(Error::new(format!("Invalid character `{}`.", c)))),
+                Some(c) => return Some(Err(Error::new(format!("Invalid character `{c}`.")))),
                 None => return None,
             }
         }
@@ -259,7 +259,7 @@ fn parse_wrong<R>(wrong: Option<Result<TargetToken>>) -> Result<R> {
         Some(Ok(TargetToken::Any)) => Err(Error::new("Unexpected `any` keyword.")),
         Some(Ok(TargetToken::Not)) => Err(Error::new("Unexpected `not` keyword.")),
         Some(Ok(TargetToken::Ident(name))) => {
-            Err(Error::new(format!("Unexpected identifier `{}`.", name)))
+            Err(Error::new(format!("Unexpected identifier `{name}`.")))
         }
         Some(Ok(TargetToken::LParen)) => Err(Error::new("Unexpected `(`.")),
         Some(Ok(TargetToken::RParen)) => Err(Error::new("Unexpected `)`.")),

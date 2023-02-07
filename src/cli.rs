@@ -106,7 +106,7 @@ pub fn main() -> Result<()> {
     // hierarchy.
     let root_dir: PathBuf = match matches.get_one::<String>("dir") {
         Some(d) => canonicalize(d).map_err(|cause| {
-            Error::chain(format!("Failed to canonicalize path {:?}.", d), cause)
+            Error::chain(format!("Failed to canonicalize path {d:?}."), cause)
         })?,
         None => find_package_root(Path::new("."))
             .map_err(|cause| Error::chain("Cannot find root directory of package.", cause))?,
@@ -152,8 +152,7 @@ pub fn main() -> Result<()> {
                 if manifest.frozen {
                     return Err(Error::new(format!(
                         "Refusing to update dependencies because the package is frozen.
-                        Remove the `frozen: true` from {:?} to proceed; there be dragons.",
-                        manifest_path
+                        Remove the `frozen: true` from {manifest_path:?} to proceed; there be dragons."
                     )));
                 }
                 debugln!("main: lockfile {:?} outdated", lock_path);
@@ -191,7 +190,7 @@ pub fn main() -> Result<()> {
             if path.exists() {
                 let meta = path.symlink_metadata().map_err(|cause| {
                     Error::chain(
-                        format!("Failed to read metadata of path {:?}.", path),
+                        format!("Failed to read metadata of path {path:?}."),
                         cause,
                     )
                 })?;
@@ -207,7 +206,7 @@ pub fn main() -> Result<()> {
                     debugln!("main: removing existing link {:?}", path);
                     std::fs::remove_file(path).map_err(|cause| {
                         Error::chain(
-                            format!("Failed to remove symlink at path {:?}.", path),
+                            format!("Failed to remove symlink at path {path:?}."),
                             cause,
                         )
                     })?;
@@ -219,7 +218,7 @@ pub fn main() -> Result<()> {
                 stageln!("Linking", "{} ({:?})", pkg_name, path);
                 if let Some(parent) = path.parent() {
                     std::fs::create_dir_all(parent).map_err(|cause| {
-                        Error::chain(format!("Failed to create directory {:?}.", parent), cause)
+                        Error::chain(format!("Failed to create directory {parent:?}."), cause)
                     })?;
                 }
                 let previous_dir = match path.parent() {
@@ -233,8 +232,7 @@ pub fn main() -> Result<()> {
                 std::os::unix::fs::symlink(&pkg_path, path).map_err(|cause| {
                     Error::chain(
                         format!(
-                            "Failed to create symlink to {:?} at path {:?}.",
-                            pkg_path, path
+                            "Failed to create symlink to {pkg_path:?} at path {path:?}."
                         ),
                         cause,
                     )
@@ -272,7 +270,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
 
     // Canonicalize the path. This will resolve any intermediate links.
     let mut path = canonicalize(from)
-        .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", from), cause))?;
+        .map_err(|cause| Error::chain(format!("Failed to canonicalize path {from:?}."), cause))?;
     debugln!("find_package_root: canonicalized to {:?}", path);
 
     // Look up the device at the current path. This information will then be
@@ -293,8 +291,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
         let tested_path = path.clone();
         if !path.pop() {
             return Err(Error::new(format!(
-                "Stopped at filesystem root {:?}.",
-                path
+                "Stopped at filesystem root {path:?}."
             )));
         }
 
@@ -303,8 +300,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
         debugln!("find_package_root: rdev = {:?}", rdev);
         if rdev != limit_rdev {
             return Err(Error::new(format!(
-                "Stopped at filesystem boundary {:?}.",
-                tested_path
+                "Stopped at filesystem boundary {tested_path:?}."
             )));
         }
     }
@@ -318,12 +314,12 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
     use std::fs::File;
     debugln!("read_manifest: {:?}", path);
     let file = File::open(path)
-        .map_err(|cause| Error::chain(format!("Cannot open manifest {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Cannot open manifest {path:?}."), cause))?;
     let partial: PartialManifest = serde_yaml::from_reader(file)
-        .map_err(|cause| Error::chain(format!("Syntax error in manifest {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Syntax error in manifest {path:?}."), cause))?;
     let manifest = partial
         .validate()
-        .map_err(|cause| Error::chain(format!("Error in manifest {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Error in manifest {path:?}."), cause))?;
     Ok(manifest.prefix_paths(path.parent().unwrap()))
 }
 
@@ -334,7 +330,7 @@ fn load_config(from: &Path) -> Result<Config> {
 
     // Canonicalize the path. This will resolve any intermediate links.
     let mut path = canonicalize(from)
-        .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", from), cause))?;
+        .map_err(|cause| Error::chain(format!("Failed to canonicalize path {from:?}."), cause))?;
     debugln!("load_config: canonicalized to {:?}", path);
 
     // Look up the device at the current path. This information will then be
@@ -404,9 +400,9 @@ fn maybe_load_config(path: &Path) -> Result<Option<PartialConfig>> {
         return Ok(None);
     }
     let file = File::open(path)
-        .map_err(|cause| Error::chain(format!("Cannot open config {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Cannot open config {path:?}."), cause))?;
     let partial: PartialConfig = serde_yaml::from_reader(file)
-        .map_err(|cause| Error::chain(format!("Syntax error in config {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Syntax error in config {path:?}."), cause))?;
     Ok(Some(partial.prefix_paths(path.parent().unwrap())))
 }
 
@@ -415,9 +411,9 @@ fn read_lockfile(path: &Path, root_dir: &Path) -> Result<Locked> {
     debugln!("read_lockfile: {:?}", path);
     use std::fs::File;
     let file = File::open(path)
-        .map_err(|cause| Error::chain(format!("Cannot open lockfile {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Cannot open lockfile {path:?}."), cause))?;
     let locked_loaded: Result<Locked> = serde_yaml::from_reader(file)
-        .map_err(|cause| Error::chain(format!("Syntax error in lockfile {:?}.", path), cause));
+        .map_err(|cause| Error::chain(format!("Syntax error in lockfile {path:?}."), cause));
     // Make relative paths absolute
     Ok(Locked {
         packages: locked_loaded?
@@ -476,9 +472,9 @@ fn write_lockfile(locked: &Locked, path: &Path, root_dir: &Path) -> Result<()> {
 
     use std::fs::File;
     let file = File::create(path)
-        .map_err(|cause| Error::chain(format!("Cannot create lockfile {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Cannot create lockfile {path:?}."), cause))?;
     serde_yaml::to_writer(file, &adapted_locked)
-        .map_err(|cause| Error::chain(format!("Cannot write lockfile {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Cannot write lockfile {path:?}."), cause))?;
     Ok(())
 }
 
@@ -498,7 +494,7 @@ fn execute_plugin(
     // Lookup the requested plugin and complain if it does not exist.
     let plugin = match plugins.get(plugin) {
         Some(p) => p,
-        None => return Err(Error::new(format!("Unknown command `{}`.", plugin))),
+        None => return Err(Error::new(format!("Unknown command `{plugin}`."))),
     };
     debugln!("main: found plugin {:#?}", plugin);
 

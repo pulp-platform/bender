@@ -44,7 +44,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     debugln!("main: checkouts {:#?}", checkouts);
     for c in checkouts {
         if let Some(s) = c.to_str() {
-            println!("{}", s);
+            println!("{s}");
         }
     }
     Ok(())

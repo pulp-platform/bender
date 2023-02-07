@@ -86,7 +86,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     };
 
     if parent_array.is_empty() {
-        println!("No parents found for {}.", dep);
+        println!("No parents found for {dep}.");
     } else {
         println!("Parents found:");
         let source = &parent_array.values().next().unwrap()[1];
@@ -108,7 +108,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             }
         }
         let mut tw = TabWriter::new(vec![]);
-        write!(&mut tw, "{}", res).unwrap();
+        write!(&mut tw, "{res}").unwrap();
         tw.flush().unwrap();
         print!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
     }

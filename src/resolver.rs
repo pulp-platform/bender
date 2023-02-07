@@ -152,8 +152,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     }
                     DependencyVersions::Registry(ref _rv) => {
                         return Err(Error::new(format!(
-                            "Registry dependencies such as `{}` not yet supported.",
-                            name
+                            "Registry dependencies such as `{name}` not yet supported."
                         )));
                     }
                     DependencyVersions::Git(ref gv) => {
@@ -167,7 +166,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                             .versions
                             .iter()
                             .filter(|&&(_, r)| r == rev)
-                            .map(|&(ref v, _)| v)
+                            .map(|(v, _)| v)
                             .max()
                             .map(|v| v.to_string());
                         config::LockedPackage {
@@ -337,7 +336,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Impose the constraints on the dependencies.
         let mut table = mem::take(&mut self.table);
         for (name, cons) in cons_map {
-            for &(_, ref con) in &cons {
+            for (_, con) in &cons {
                 debugln!("resolve: impose `{}` on `{}`", con, name);
                 for src in table.get_mut(name).unwrap().sources.values_mut() {
                     self.impose(name, con, src, &cons, rt, io)?;
@@ -359,7 +358,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         use self::DependencyVersions as DepVer;
         match (con, &src.versions) {
             (&DepCon::Path, &DepVer::Path) => Ok(None),
-            (&DepCon::Version(ref con), &DepVer::Git(ref gv)) => {
+            (DepCon::Version(con), DepVer::Git(gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
                 let hash_ids: IndexMap<&str, usize> = gv
                     .revs
@@ -395,7 +394,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 // debugln!("resolve: `{}` matches version requirement `{}` for revs {:?}", name, con, revs);
                 Ok(Some(revs))
             }
-            (&DepCon::Revision(ref con), &DepVer::Git(ref gv)) => {
+            (DepCon::Revision(con), DepVer::Git(gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
                 let mut revs: IndexSet<usize> = gv
                     .refs
@@ -420,24 +419,20 @@ impl<'ctx> DependencyResolver<'ctx> {
                 // debugln!("resolve: `{}` matches revision `{}` for revs {:?}", name, con, revs);
                 Ok(Some(revs))
             }
-            (&DepCon::Version(ref _con), &DepVer::Registry(ref _rv)) => Err(Error::new(format!(
-                "Constraints on registry dependency `{}` not implemented",
-                name
+            (DepCon::Version(_con), DepVer::Registry(_rv)) => Err(Error::new(format!(
+                "Constraints on registry dependency `{name}` not implemented"
             ))),
 
             // Handle the error cases.
             // TODO: These need to improve a lot!
             (con, &DepVer::Git(..)) => Err(Error::new(format!(
-                "Requirement `{}` cannot be applied to git dependency `{}`",
-                con, name
+                "Requirement `{con}` cannot be applied to git dependency `{name}`"
             ))),
             (con, &DepVer::Registry(..)) => Err(Error::new(format!(
-                "Requirement `{}` cannot be applied to registry dependency `{}`",
-                con, name
+                "Requirement `{con}` cannot be applied to registry dependency `{name}`"
             ))),
             (_, &DepVer::Path) => Err(Error::new(format!(
-                "`{}` is not declared as a path dependency everywhere.",
-                name
+                "`{name}` is not declared as a path dependency everywhere."
             ))),
         }
     }
@@ -492,12 +487,11 @@ impl<'ctx> DependencyResolver<'ctx> {
                     .collect::<IndexSet<usize>>();
                 if is_ids.is_empty() {
                     let mut msg = format!(
-                        "Requirement `{}` conflicts with other requirements on dependency `{}`.\n",
-                        con, name
+                        "Requirement `{con}` conflicts with other requirements on dependency `{name}`.\n"
                     );
                     let mut cons = Vec::new();
                     for &(pkg_name, ref con) in all_cons {
-                        let _ = write!(msg, "\n- package `{}` requires `{}`", pkg_name, con);
+                        let _ = write!(msg, "\n- package `{pkg_name}` requires `{con}`");
                         cons.push(con);
                     }
                     cons = cons.into_iter().unique().collect();
@@ -507,12 +501,11 @@ impl<'ctx> DependencyResolver<'ctx> {
                             d.clone()
                         } else {
                             eprintln!(
-                                "{}\n\nTo resolve this conflict manually, \
-                                 select a revision for `{}` among:",
-                                msg, name
+                                "{msg}\n\nTo resolve this conflict manually, \
+                                 select a revision for `{name}` among:"
                             );
                             for (idx, e) in cons.iter().enumerate() {
-                                eprintln!("{}) `{}`", idx, e);
+                                eprintln!("{idx}) `{e}`");
                             }
                             loop {
                                 eprint!("Enter a number or hit enter to abort: ");
@@ -808,12 +801,12 @@ impl<'a> fmt::Debug for TableDumper<'a> {
         write!(f, "{{")?;
         for name in names {
             let dep = self.0.get(name).unwrap();
-            write!(f, "\n    \"{}\":", name)?;
+            write!(f, "\n    \"{name}\":")?;
             for (&id, src) in &dep.sources {
-                write!(f, "\n        [{}]:", id)?;
+                write!(f, "\n        [{id}]:")?;
                 match src.state {
                     State::Open => write!(f, " open")?,
-                    State::Locked(idx) => write!(f, " locked {}", idx)?,
+                    State::Locked(idx) => write!(f, " locked {idx}")?,
                     State::Constrained(ref idcs) => write!(f, " {} possible", idcs.len())?,
                     State::Picked(idx, ref idcs) => {
                         write!(f, " picked #{} out of {} possible", idx, idcs.len())?
@@ -835,9 +828,9 @@ impl<'a> fmt::Debug for ConstraintsDumper<'a> {
         write!(f, "{{")?;
         for name in names {
             let cons = self.0.get(name).unwrap();
-            write!(f, "\n    \"{}\":", name)?;
+            write!(f, "\n    \"{name}\":")?;
             for &(pkg_name, ref con) in cons {
-                write!(f, " {} ({});", con, pkg_name)?;
+                write!(f, " {con} ({pkg_name});")?;
             }
         }
         write!(f, "\n}}")?;

@@ -114,7 +114,7 @@ impl Serialize for Dependency {
     {
         use serde::ser::SerializeMap;
         match *self {
-            Dependency::Version(ref version) => format!("{}", version).serialize(serializer),
+            Dependency::Version(ref version) => format!("{version}").serialize(serializer),
             Dependency::Path(ref path) => path.serialize(serializer),
             Dependency::GitRevision(ref url, ref rev) => {
                 let mut map = serializer.serialize_map(Some(2))?;
@@ -125,7 +125,7 @@ impl Serialize for Dependency {
             Dependency::GitVersion(ref url, ref version) => {
                 let mut map = serializer.serialize_map(Some(2))?;
                 map.serialize_entry("git", url)?;
-                map.serialize_entry("version", &format!("{}", version))?;
+                map.serialize_entry("version", &format!("{version}"))?;
                 map.end()
             }
         }
@@ -410,7 +410,7 @@ impl Validate for PartialDependency {
         let version = match self.version {
             Some(v) => Some(semver::VersionReq::parse(&v).map_err(|cause| {
                 Error::chain(
-                    format!("\"{}\" is not a valid semantic version requirement.", v),
+                    format!("\"{v}\" is not a valid semantic version requirement."),
                     cause,
                 )
             })?),
@@ -432,8 +432,7 @@ impl Validate for PartialDependency {
                 "or",
             ) {
                 Err(Error::new(format!(
-                    "A `path` dependency cannot have a {} field.",
-                    list
+                    "A `path` dependency cannot have a {list} field."
                 )))
             } else {
                 Ok(Dependency::Path(path))
@@ -739,14 +738,14 @@ impl Validate for PartialConfig {
             },
             overrides: match self.overrides {
                 Some(d) => d.validate().map_err(|(key, cause)| {
-                    Error::chain(format!("In override `{}`:", key), cause)
+                    Error::chain(format!("In override `{key}`:"), cause)
                 })?,
                 None => IndexMap::new(),
             },
             plugins: match self.plugins {
                 Some(d) => d
                     .validate()
-                    .map_err(|(key, cause)| Error::chain(format!("In plugin `{}`:", key), cause))?,
+                    .map_err(|(key, cause)| Error::chain(format!("In plugin `{key}`:"), cause))?,
                 None => IndexMap::new(),
             },
         })

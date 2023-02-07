@@ -39,16 +39,16 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             if flat {
                 // Print one line per dependency.
                 for dep_name in dep_names {
-                    println!("{}\t{}", pkg_name, dep_name);
+                    println!("{pkg_name}\t{dep_name}");
                 }
             } else {
                 // Print all dependencies on one line.
-                print!("{}\t", pkg_name);
+                print!("{pkg_name}\t");
                 for (i, dep_name) in dep_names.enumerate() {
                     if i > 0 {
-                        print!(" {}", dep_name);
+                        print!(" {dep_name}");
                     } else {
-                        print!("{}", dep_name);
+                        print!("{dep_name}");
                     }
                 }
                 println!();
@@ -60,15 +60,15 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             if flat {
                 // Print one line per package.
                 for pkg_name in pkg_names {
-                    println!("{}", pkg_name);
+                    println!("{pkg_name}");
                 }
             } else {
                 // Print all packages per rank on one line.
                 for (i, pkg_name) in pkg_names.enumerate() {
                     if i > 0 {
-                        print!(" {}", pkg_name);
+                        print!(" {pkg_name}");
                     } else {
-                        print!("{}", pkg_name);
+                        print!("{pkg_name}");
                     }
                 }
                 println!();

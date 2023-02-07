@@ -17,7 +17,7 @@ jobs:
           - stable
           - beta
           - nightly
-          - 1.64.0 # minimum supported version
+          - 1.66.0 # minimum supported version
     continue-on-error: ${{ matrix.rust == 'nightly' }}
     steps:
       - uses: actions/checkout@v3
@@ -44,4 +44,4 @@ jobs:
         with:
           toolchain: stable
           components: clippy
-      - run: cargo clippy --all-features
+      - run: cargo clippy --all-features -- -D warnings
