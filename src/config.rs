@@ -737,9 +737,9 @@ impl Validate for PartialConfig {
                 None => return Err(Error::new("Git command or path to binary not configured")),
             },
             overrides: match self.overrides {
-                Some(d) => d.validate().map_err(|(key, cause)| {
-                    Error::chain(format!("In override `{key}`:"), cause)
-                })?,
+                Some(d) => d
+                    .validate()
+                    .map_err(|(key, cause)| Error::chain(format!("In override `{key}`:"), cause))?,
                 None => IndexMap::new(),
             },
             plugins: match self.plugins {

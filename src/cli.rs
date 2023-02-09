@@ -105,9 +105,8 @@ pub fn main() -> Result<()> {
     // the -d/--dir switch, or by searching upwards in the file system
     // hierarchy.
     let root_dir: PathBuf = match matches.get_one::<String>("dir") {
-        Some(d) => canonicalize(d).map_err(|cause| {
-            Error::chain(format!("Failed to canonicalize path {d:?}."), cause)
-        })?,
+        Some(d) => canonicalize(d)
+            .map_err(|cause| Error::chain(format!("Failed to canonicalize path {d:?}."), cause))?,
         None => find_package_root(Path::new("."))
             .map_err(|cause| Error::chain("Cannot find root directory of package.", cause))?,
     };
@@ -189,10 +188,7 @@ pub fn main() -> Result<()> {
             // removed.
             if path.exists() {
                 let meta = path.symlink_metadata().map_err(|cause| {
-                    Error::chain(
-                        format!("Failed to read metadata of path {path:?}."),
-                        cause,
-                    )
+                    Error::chain(format!("Failed to read metadata of path {path:?}."), cause)
                 })?;
                 if !meta.file_type().is_symlink() {
                     warnln!(
@@ -205,10 +201,7 @@ pub fn main() -> Result<()> {
                 if path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
                     debugln!("main: removing existing link {:?}", path);
                     std::fs::remove_file(path).map_err(|cause| {
-                        Error::chain(
-                            format!("Failed to remove symlink at path {path:?}."),
-                            cause,
-                        )
+                        Error::chain(format!("Failed to remove symlink at path {path:?}."), cause)
                     })?;
                 }
             }
@@ -231,9 +224,7 @@ pub fn main() -> Result<()> {
                 };
                 std::os::unix::fs::symlink(&pkg_path, path).map_err(|cause| {
                     Error::chain(
-                        format!(
-                            "Failed to create symlink to {pkg_path:?} at path {path:?}."
-                        ),
+                        format!("Failed to create symlink to {pkg_path:?} at path {path:?}."),
                         cause,
                     )
                 })?;
@@ -290,9 +281,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
         // Abort if we have reached the filesystem root.
         let tested_path = path.clone();
         if !path.pop() {
-            return Err(Error::new(format!(
-                "Stopped at filesystem root {path:?}."
-            )));
+            return Err(Error::new(format!("Stopped at filesystem root {path:?}.")));
         }
 
         // Abort if we have crossed the filesystem boundary.

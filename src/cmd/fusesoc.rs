@@ -72,12 +72,13 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
         Some(vendor) => vendor,
         None => "",
     };
-    let version_string = match matches.get_one::<String>("version") {
-        Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
-            Error::chain(format!("Unable to parse version {version}."), cause)
-        })?),
-        None => None,
-    };
+    let version_string =
+        match matches.get_one::<String>("version") {
+            Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
+                Error::chain(format!("Unable to parse version {version}."), cause)
+            })?),
+            None => None,
+        };
 
     let name = &sess.manifest.package.name;
 
@@ -172,12 +173,13 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         Some(vendor) => vendor,
         None => "",
     };
-    let version_string = match matches.get_one::<String>("version") {
-        Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
-            Error::chain(format!("Unable to parse version {version}."), cause)
-        })?),
-        None => None,
-    };
+    let version_string =
+        match matches.get_one::<String>("version") {
+            Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
+                Error::chain(format!("Unable to parse version {version}."), cause)
+            })?),
+            None => None,
+        };
 
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
@@ -226,9 +228,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         if present_core_files[pkg].is_empty() {
             generate_files.insert(
                 pkg.to_string(),
-                pkg_manifest_paths[pkg]
-                    .clone()
-                    .join(format!("{pkg}.core")),
+                pkg_manifest_paths[pkg].clone().join(format!("{pkg}.core")),
             );
 
             fuse_depend_string.insert(
