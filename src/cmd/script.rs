@@ -3,6 +3,8 @@
 
 //! The `script` subcommand.
 
+use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 use clap::builder::PossibleValue;
@@ -54,6 +56,7 @@ pub fn new() -> Command {
                     PossibleValue::new("vivado"),
                     PossibleValue::new("vivado-sim"),
                     PossibleValue::new("precision"),
+                    PossibleValue::new("template"),
                     PossibleValue::new("template_json"),
                 ]),
         )
@@ -177,6 +180,14 @@ pub fn new() -> Command {
                 .action(ArgAction::Append)
                 .value_parser(value_parser!(String)),
         )
+        .arg(
+            Arg::new("template")
+                .long("template")
+                .required_if_eq("format", "template")
+                .help("Path to a file containing the tera template string to be formatted.")
+                .num_args(1)
+                .value_parser(value_parser!(String)),
+        )
 }
 
 fn get_package_strings<I>(packages: I) -> IndexSet<String>
@@ -215,6 +226,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             "vivado" => concat(vivado_targets, &["synthesis"]),
             "vivado-sim" => concat(vivado_targets, &["simulation"]),
             "precision" => vec!["precision", "fpga", "synthesis"],
+            "template" => vec![],
             "template_json" => vec![],
             _ => unreachable!(),
         }
@@ -293,6 +305,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         && format != "vsim"
         && format != "vcs"
         && format != "riviera"
+        && format != "template"
         && format != "template_json"
     {
         return Err(Error::new(
@@ -304,6 +317,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         || matches.get_flag("only-sources")
         || matches.get_flag("no-simset"))
         && !format.starts_with("vivado")
+        && format != "template"
         && format != "template_json"
     {
         return Err(Error::new(
@@ -331,6 +345,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "vivado" => emit_template(sess, VIVADO_TCL_TPL, matches, targets, srcs),
         "vivado-sim" => emit_template(sess, VIVADO_TCL_TPL, matches, targets, srcs),
         "precision" => emit_precision_tcl(sess, matches, targets, srcs, abort_on_error),
+        "template" => {
+            let custom_tpl_path = Path::new(matches.get_one::<String>("template").unwrap());
+            let custom_tpl_str =
+                &String::from_utf8(fs::read(custom_tpl_path)?).map_err(|e| Error::chain("", e))?;
+            emit_template(sess, custom_tpl_str, matches, targets, srcs)
+        }
         "template_json" => emit_template(sess, JSON, matches, targets, srcs),
         _ => unreachable!(),
     }
@@ -602,7 +622,7 @@ fn emit_template(
         "{}",
         tera_obj
             .render_str(template, &tera_context)
-            .map_err(|e| { Error::chain("Failed to render flist template.", e) })?
+            .map_err(|e| { Error::chain("Failed to render template.", e) })?
     );
 
     Ok(())
