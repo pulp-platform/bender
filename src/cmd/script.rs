@@ -324,8 +324,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             riviera_separate_compilation_mode,
         ),
         "genus" => emit_template(sess, GENUS_TCL_TPL, matches, targets, srcs),
-        "vivado" => emit_vivado_tcl(sess, matches, targets, srcs),
-        "vivado-sim" => emit_vivado_tcl(sess, matches, targets, srcs),
+        "vivado" => emit_template(sess, VIVADO_TCL_TPL, matches, targets, srcs),
+        "vivado-sim" => emit_template(sess, VIVADO_TCL_TPL, matches, targets, srcs),
         "precision" => emit_precision_tcl(sess, matches, targets, srcs, abort_on_error),
         _ => unreachable!(),
     }
@@ -483,17 +483,32 @@ fn emit_template(
         all_incdirs.append(&mut src.clone().get_incdirs());
         all_files.append(&mut src.files.clone());
     }
+    let all_defines = if !matches.get_flag("only-includes") && !matches.get_flag("only-sources") {
+        all_defines
+    } else {
+        vec![]
+    };
     tera_context.insert("all_defines", &all_defines);
 
-    let all_incdirs: IndexSet<PathBuf> = all_incdirs.into_iter().map(|p| p.to_path_buf()).collect();
+    let all_incdirs: IndexSet<PathBuf> =
+        if !matches.get_flag("only-defines") && !matches.get_flag("only-sources") {
+            all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
+        } else {
+            IndexSet::new()
+        };
     tera_context.insert("all_incdirs", &all_incdirs);
-    let all_files: IndexSet<PathBuf> = all_files
-        .into_iter()
-        .filter_map(|file| match file {
-            SourceFile::File(p) => Some(p.to_path_buf()),
-            _ => None,
-        })
-        .collect();
+    let all_files: IndexSet<PathBuf> =
+        if !matches.get_flag("only-defines") && !matches.get_flag("only-includes") {
+            all_files
+                .into_iter()
+                .filter_map(|file| match file {
+                    SourceFile::File(p) => Some(p.to_path_buf()),
+                    _ => None,
+                })
+                .collect()
+        } else {
+            IndexSet::new()
+        };
     tera_context.insert("all_files", &all_files);
 
     let mut split_srcs = vec![];
@@ -540,6 +555,11 @@ fn emit_template(
             },
         );
     }
+    let split_srcs = if !matches.get_flag("only-defines") && !matches.get_flag("only-includes") {
+        split_srcs
+    } else {
+        vec![]
+    };
     tera_context.insert("srcs", &split_srcs);
     let vlog_args: Vec<String> = if let Some(args) = matches.get_many::<String>("vlog-arg") {
         args.map(Into::into).collect()
@@ -557,6 +577,14 @@ fn emit_template(
     tera_context.insert("vlogan_bin", &matches.get_one::<String>("vlogan-bin"));
     tera_context.insert("vhdlan_bin", &matches.get_one::<String>("vhdlan-bin"));
     tera_context.insert("relativize_path", &matches.get_flag("relative-path"));
+
+    let vivado_filesets = if matches.get_flag("no-simset") {
+        vec![""]
+    } else {
+        vec!["", " -simset"]
+    };
+
+    tera_context.insert("vivado_filesets", &vivado_filesets);
 
     print!(
         "{}",
@@ -751,123 +779,30 @@ set ROOT = \"{{ root }}\"
 set search_path $search_path_initial
 ";
 
-
-/// Emit a script to add sources to Vivado.
-fn emit_vivado_tcl(
-    sess: &Session,
-    matches: &ArgMatches,
-    targets: TargetSet,
-    srcs: Vec<SourceGroup>,
-) -> Result<()> {
-    // Determine the components that are part of the output.
-    #[derive(Default)]
-    struct OutputComponents {
-        include_dirs: bool,
-        defines: bool,
-        sources: bool,
-    }
-    let mut output_components = OutputComponents::default();
-    if !matches.get_flag("only-defines")
-        && !matches.get_flag("only-includes")
-        && !matches.get_flag("only-sources")
-    {
-        // Print everything if user specified no restriction.
-        output_components = OutputComponents {
-            include_dirs: true,
-            defines: true,
-            sources: true,
-        };
-    } else {
-        if matches.get_flag("only-defines") {
-            output_components.defines = true;
-        }
-        if matches.get_flag("only-includes") {
-            output_components.include_dirs = true;
-        }
-        if matches.get_flag("only-sources") {
-            output_components.sources = true;
-        }
-    }
-
-    println!("{}", header_tcl(sess));
-    let mut include_dirs = vec![];
-    let mut defines: Vec<(String, Option<String>)> = vec![];
-    let filesets = if matches.get_flag("no-simset") {
-        vec![""]
-    } else {
-        vec!["", " -simset"]
-    };
-    for src in srcs {
-        for i in src.clone().get_incdirs() {
-            include_dirs.push(relativize_path(i, sess.root));
-        }
-        separate_files_in_group(
-            src,
-            |f| match f {
-                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
-                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
-                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
-                    _ => None,
-                },
-                _ => None,
-            },
-            |src, _ty, files| {
-                let mut lines =
-                    vec!["add_files -norecurse -fileset [current_fileset] [list".to_owned()];
-                for file in files {
-                    let p = match file {
-                        SourceFile::File(p) => p,
-                        _ => continue,
-                    };
-                    lines.push(relativize_path(p, sess.root));
-                }
-                if output_components.sources {
-                    println!("{} \\\n]", lines.join(" \\\n    "));
-                }
-                defines.extend(
-                    src.defines
-                        .iter()
-                        .map(|(k, &v)| (k.to_string(), v.map(String::from))),
-                );
-            },
-        );
-    }
-    if !include_dirs.is_empty() && output_components.include_dirs {
-        include_dirs.sort();
-        include_dirs.dedup();
-        for arg in &filesets {
-            println!();
-            println!(
-                "set_property include_dirs [list \\\n    {} \\\n] [current_fileset{}]",
-                include_dirs.join(" \\\n    "),
-                arg
-            );
-        }
-    }
-    defines.extend(
-        targets
-            .iter()
-            .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
-    );
-    add_defines_from_matches(&mut defines, matches);
-    if !defines.is_empty() && output_components.defines {
-        defines.sort();
-        defines.dedup();
-        for arg in &filesets {
-            println!();
-            println!("set_property verilog_define [list \\");
-            for (k, v) in &defines {
-                let s = match v {
-                    Some(s) => format!("{}={}", k, s),
-                    None => k.to_string(),
-                };
-                println!("    {} \\", s);
-            }
-            println!("] [current_fileset{}]", arg);
-        }
-    }
-    Ok(())
-}
+static VIVADO_TCL_TPL: &str = "\
+# {{ HEADER_AUTOGEN }}
+set ROOT \"{{ root }}\"
+{% for group in srcs %}\
+    add_files -norecurse -fileset [current_fileset] [list \\\n    \
+    {% for file in group.files %}\
+        {{ file | replace(from=root, to='$ROOT') }} \\\n{% if not loop.last %}    {% endif %}\
+    {% endfor %}\
+    ]\n\
+{% endfor %}\
+{% for arg in vivado_filesets %}\
+    {% for incdir in all_incdirs %}\
+        {% if loop.first %}\nset_property include_dirs [list \\\n    {% endif %}\
+        {{incdir | replace(from=root, to='$ROOT') }}\
+        {%if loop.last %} \\\n] [current_fileset{{ arg }}]\n{% else %} \\\n    {% endif %}\
+    {% endfor %}\
+{% endfor %}\
+{% for arg in vivado_filesets %}\
+    {% for define in all_defines %}\
+        {% if loop.first %}\nset_property verilog_define [list \\\n    {% endif %}\
+        {{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}\
+        {% if loop.last %} \\\n] [current_fileset{{ arg }}]\n{% else %} \\\n    {% endif %}\
+    {% endfor %}\
+{% endfor %}";
 
 /// Emit a riviera compilation script.
 fn emit_riviera_tcl(
