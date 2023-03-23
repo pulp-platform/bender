@@ -14,7 +14,6 @@ jobs:
         rust:
           - stable
         os:
-          - gnu
           - centos:7.4.1708
           - centos:7.6.1810
           - centos:7.7.1908
@@ -36,18 +35,8 @@ jobs:
           - almalinux:9.0
           - almalinux:9.1
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
-          components: rustfmt
-      - name: GNU Build
-        if: matrix.os == 'gnu'
-        run: cargo build --release
+      - uses: actions/checkout@v3
       - name: OS Build
-        if: matrix.os != 'gnu'
         run: |
           export full_tgtname=${{ matrix.os }}
           export tgtname=$(echo ${{ matrix.os }} | tr -d ':')
@@ -60,12 +49,7 @@ jobs:
             $tgtname \
             cargo build --release;
         shell: bash
-      - name: GNU Create Package
-        if: matrix.os == 'gnu'
-        run: .github/scripts/package.sh
-        shell: bash
       - name: OS Create Package
-        if: matrix.os != 'gnu'
         run: |
           tgtname=$(echo ${{ matrix.os }} | tr -d ':')
           .github/scripts/package.sh $tgtname;
@@ -86,4 +70,37 @@ jobs:
           asset_path: ${{ env.ARTIFACT_PATHNAME }}
           asset_name: ${{ env.ARTIFACT_NAME }}
           asset_content_type: application/tar.gz
+  release-gnu:
+    runs-on: ubuntu-latest
+    strategy: 
+      fail-fast: false
+    # Use container that supports old GLIBC versions and (hopefully) many linux OSs
+    container: quay.io/pypa/manylinux2014_x86_64
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: GNU Build
+        run: cargo build --release
+      - name: GNU Create Package
+        run: .github/scripts/package.sh
+        shell: bash
+      - name: Get Artifact Name
+        run: |
+          ARTIFACT_PATHNAME=$(ls ./bender-*.tar.gz | head -n 1)
+          ARTIFACT_NAME=$(basename $ARTIFACT_PATHNAME)
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
+          echo "ARTIFACT_PATHNAME=${ARTIFACT_PATHNAME}" >> $GITHUB_ENV
+        shell: bash
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ${{ env.ARTIFACT_PATHNAME }}
+          asset_name: ${{ env.ARTIFACT_NAME }}
+          asset_content_type: application/tar.gz
+
 
