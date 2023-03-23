@@ -54,6 +54,7 @@ pub fn new() -> Command {
                     PossibleValue::new("vivado"),
                     PossibleValue::new("vivado-sim"),
                     PossibleValue::new("precision"),
+                    PossibleValue::new("template_json"),
                 ]),
         )
         .arg(
@@ -214,6 +215,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             "vivado" => concat(vivado_targets, &["synthesis"]),
             "vivado-sim" => concat(vivado_targets, &["simulation"]),
             "precision" => vec!["precision", "fpga", "synthesis"],
+            "template_json" => vec![],
             _ => unreachable!(),
         }
     } else {
@@ -291,6 +293,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         && format != "vsim"
         && format != "vcs"
         && format != "riviera"
+        && format != "template_json"
     {
         return Err(Error::new(
             "vsim/vcs-only options can only be used for 'vcs', 'vsim' or 'riviera' format!",
@@ -301,6 +304,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         || matches.get_flag("only-sources")
         || matches.get_flag("no-simset"))
         && !format.starts_with("vivado")
+        && format != "template_json"
     {
         return Err(Error::new(
             "Vivado-only options can only be used for 'vivado' format!",
@@ -327,6 +331,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "vivado" => emit_template(sess, VIVADO_TCL_TPL, matches, targets, srcs),
         "vivado-sim" => emit_template(sess, VIVADO_TCL_TPL, matches, targets, srcs),
         "precision" => emit_precision_tcl(sess, matches, targets, srcs, abort_on_error),
+        "template_json" => emit_template(sess, JSON, matches, targets, srcs),
         _ => unreachable!(),
     }
 }
@@ -446,6 +451,8 @@ fn add_defines_from_matches(defines: &mut Vec<(String, Option<String>)>, matches
         }));
     }
 }
+
+static JSON: &str = "json";
 
 fn emit_template(
     sess: &Session,
@@ -585,6 +592,11 @@ fn emit_template(
     };
 
     tera_context.insert("vivado_filesets", &vivado_filesets);
+
+    if template == "json" {
+        println!("{:#}", tera_context.into_json());
+        return Ok(());
+    }
 
     print!(
         "{}",
