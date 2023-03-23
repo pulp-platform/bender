@@ -392,8 +392,17 @@ fn load_config(from: &Path) -> Result<Config> {
     out = out.merge(default_cfg);
 
     // Validate the configuration.
-    out.validate()
-        .map_err(|cause| Error::chain("Invalid configuration:", cause))
+    let mut out = out
+        .validate()
+        .map_err(|cause| Error::chain("Invalid configuration:", cause))?;
+
+    out.overrides = out
+        .overrides
+        .into_iter()
+        .map(|(k, v)| (k.to_lowercase(), v))
+        .collect();
+
+    Ok(out)
 }
 
 /// Load a configuration file if it exists.

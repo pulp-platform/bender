@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Fixed
 - Use `IndexMap` and `IndexSet` instead of the `std Hash*` equivalents to preserve ordering
 - Change GNU release to be built to a more compatible binary (manylinux container).
+- Parse override dependencies in lowercase to align to change in 0.25.0
 
 ## 0.27.1 - 2023-01-25
 ### Fixed
