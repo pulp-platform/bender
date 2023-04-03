@@ -1002,7 +1002,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Err(e) => Err(e),
                     }
                 } else {
-                    warnln!("Manifest not found for {:?}", dep.name);
+                    warnln!("Manifest not found for {:?} at {:?}", dep.name, dep.source);
                     Ok(None)
                 }
             }
