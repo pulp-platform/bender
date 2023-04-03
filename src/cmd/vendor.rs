@@ -308,8 +308,8 @@ pub fn init(
                 Error::chain(
                     format!(
                         "Failed to copy {} to {}.",
+                        link_from.to_str().unwrap(),
                         link_to.to_str().unwrap(),
-                        link_from.to_str().unwrap()
                     ),
                     cause,
                 )
