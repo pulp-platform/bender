@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+### Added
+- Add information on expected location for manifest file not found.
+
 ### Fixed
 - Use `IndexMap` and `IndexSet` instead of the `std Hash*` equivalents to preserve ordering
 - Change GNU release to be built to a more compatible binary (manylinux container).
