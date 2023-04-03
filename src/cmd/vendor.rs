@@ -17,7 +17,7 @@ use crate::sess::{DependencySource, Session};
 use glob::Pattern;
 use std::path::Path;
 use std::path::PathBuf;
-use tempdir::TempDir;
+use tempfile::TempDir;
 
 /// A patch linkage
 #[derive(Clone)]
@@ -81,7 +81,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     for vendor_package in &sess.manifest.vendor_package {
         // Clone upstream into a temporary directory (or make use of .bender/db?)
         let dep_src = DependencySource::from(&vendor_package.upstream);
-        let tmp_dir = TempDir::new(&vendor_package.name)?;
+        let tmp_dir = TempDir::new()?;
         let tmp_path = tmp_dir.path();
         let dep_path = match dep_src {
             DependencySource::Path(path) => path,
@@ -573,7 +573,7 @@ pub fn gen_format_patch(
 
     if !get_diff_cached.is_empty() {
         // Write diff into new temp dir. TODO: pipe directly to "git apply"
-        let tmp_format_dir = TempDir::new(".bender.format.tmp")?;
+        let tmp_format_dir = TempDir::new()?;
         let tmp_format_path = tmp_format_dir.path();
         let diff_cached_path = tmp_format_path.join("staged.diff");
         std::fs::write(diff_cached_path.clone(), get_diff_cached)?;
