@@ -960,7 +960,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         use self::DependencySource as DepSrc;
         use self::DependencyVersion as DepVer;
         match (&dep.source, version) {
-            (&DepSrc::Path(ref path), DepVer::Path) => {
+            (DepSrc::Path(path), DepVer::Path) => {
                 if !path.starts_with("/") {
                     warnln!("There may be issues in the path for {:?}.", dep.name);
                 }
@@ -1009,7 +1009,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             (&DepSrc::Registry, DepVer::Registry(_hash)) => {
                 unimplemented!("load manifest of registry dependency");
             }
-            (&DepSrc::Git(ref url), DepVer::Git(rev)) => {
+            (DepSrc::Git(url), DepVer::Git(rev)) => {
                 let dep_name = self.sess.intern_string(dep.name.as_str());
                 // TODO MICHAERO: May need proper chaining using and_then
                 let db = self.git_database(&dep.name, url, false).await?;

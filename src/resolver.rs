@@ -167,7 +167,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                             .versions
                             .iter()
                             .filter(|&&(_, r)| r == rev)
-                            .map(|&(ref v, _)| v)
+                            .map(|(v, _)| v)
                             .max()
                             .map(|v| v.to_string());
                         config::LockedPackage {
@@ -337,7 +337,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Impose the constraints on the dependencies.
         let mut table = mem::take(&mut self.table);
         for (name, cons) in cons_map {
-            for &(_, ref con) in &cons {
+            for (_, con) in &cons {
                 debugln!("resolve: impose `{}` on `{}`", con, name);
                 for src in table.get_mut(name).unwrap().sources.values_mut() {
                     self.impose(name, con, src, &cons, rt, io)?;
@@ -359,7 +359,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         use self::DependencyVersions as DepVer;
         match (con, &src.versions) {
             (&DepCon::Path, &DepVer::Path) => Ok(None),
-            (&DepCon::Version(ref con), &DepVer::Git(ref gv)) => {
+            (DepCon::Version(con), DepVer::Git(gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
                 let hash_ids: IndexMap<&str, usize> = gv
                     .revs
@@ -395,7 +395,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 // debugln!("resolve: `{}` matches version requirement `{}` for revs {:?}", name, con, revs);
                 Ok(Some(revs))
             }
-            (&DepCon::Revision(ref con), &DepVer::Git(ref gv)) => {
+            (DepCon::Revision(con), DepVer::Git(gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
                 let mut revs: IndexSet<usize> = gv
                     .refs
@@ -420,7 +420,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 // debugln!("resolve: `{}` matches revision `{}` for revs {:?}", name, con, revs);
                 Ok(Some(revs))
             }
-            (&DepCon::Version(ref _con), &DepVer::Registry(ref _rv)) => Err(Error::new(format!(
+            (DepCon::Version(_con), DepVer::Registry(_rv)) => Err(Error::new(format!(
                 "Constraints on registry dependency `{}` not implemented",
                 name
             ))),
