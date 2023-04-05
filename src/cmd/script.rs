@@ -234,7 +234,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         vec![]
     };
 
-    let abort_on_error = !matches.get_flag("no-abort-on-error");
+    // let abort_on_error = !matches.get_flag("no-abort-on-error");
     //////riviera compilation mode
     let mut riviera_separate_compilation_mode = false;
     if matches.get_one::<String>("compilation_mode").unwrap() == "separate" {
@@ -333,14 +333,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "verilator" => emit_template(sess, VERILATOR_SH_TPL, matches, targets, srcs),
         "synopsys" => emit_template(sess, SYNOPSYS_TCL_TPL, matches, targets, srcs),
         "formality" => emit_template(sess, FORMALITY_TCL_TPL, matches, targets, srcs),
-        "riviera" => emit_riviera_tcl(
-            sess,
-            matches,
-            targets,
-            srcs,
-            abort_on_error,
-            riviera_separate_compilation_mode,
-        ),
+        "riviera" => emit_template(sess, RIVIERA_TCL_TPL, matches, targets, srcs),
         "genus" => emit_template(sess, GENUS_TCL_TPL, matches, targets, srcs),
         "vivado" => emit_template(sess, VIVADO_TCL_TPL, matches, targets, srcs),
         "vivado-sim" => emit_template(sess, VIVADO_TCL_TPL, matches, targets, srcs),
@@ -836,158 +829,34 @@ set ROOT \"{{ root }}\"
     {% endfor %}\
 {% endfor %}";
 
-/// Emit a riviera compilation script.
-fn emit_riviera_tcl(
-    sess: &Session,
-    matches: &ArgMatches,
-    targets: TargetSet,
-    srcs: Vec<SourceGroup>,
-    abort_on_error: bool,
-    riviera_separate_compilation_mode: bool,
-) -> Result<()> {
-    println!("{}", header_tcl(sess));
-    println!("vlib work");
-
-    if riviera_separate_compilation_mode {
-        for src in srcs {
-            separate_files_in_group(
-                src,
-                |f| match f {
-                    SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
-                        Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
-                        Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
-                        _ => None,
-                    },
-                    _ => None,
-                },
-                |src, ty, files| {
-                    let mut lines = vec![];
-                    match ty {
-                        SourceType::Verilog => {
-                            lines.push(tcl_catch_prefix("vlog -sv", abort_on_error));
-                            if let Some(args) = matches.get_many::<String>("vlog-arg") {
-                                lines.extend(args.map(Into::into));
-                            }
-                            let mut defines: Vec<(String, Option<String>)> = vec![];
-                            defines.extend(
-                                src.defines
-                                    .iter()
-                                    .map(|(k, &v)| (k.to_string(), v.map(String::from))),
-                            );
-                            defines.extend(
-                                targets
-                                    .iter()
-                                    .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
-                            );
-                            add_defines_from_matches(&mut defines, matches);
-                            defines.sort();
-                            for (k, v) in defines {
-                                let mut s = format!("+define+{}", k.to_uppercase());
-                                if let Some(v) = v {
-                                    s.push('=');
-                                    s.push_str(&v);
-                                }
-                                lines.push(s);
-                            }
-                            for i in src.clone().get_incdirs() {
-                                lines.push(quote(&format!(
-                                    "+incdir+{}",
-                                    relativize_path(i, sess.root)
-                                )));
-                            }
-                        }
-                        SourceType::Vhdl => {
-                            lines.push(tcl_catch_prefix("vcom -2008", abort_on_error));
-                            if let Some(args) = matches.get_many::<String>("vcom-arg") {
-                                lines.extend(args.map(Into::into));
-                            }
-                        }
-                    }
-                    for file in files {
-                        let p = match file {
-                            SourceFile::File(p) => p,
-                            _ => continue,
-                        };
-                        lines.push(quote(&relativize_path(p, sess.root)));
-                    }
-                    println!();
-                    println!("{}", lines.join(" \\\n    "));
-                    if abort_on_error {
-                        println!("{}", tcl_catch_postfix());
-                    }
-                },
-            );
-        }
-    } else {
-        let mut lines = vec![];
-        let mut file_lines = vec![];
-        let mut inc_dirs = Vec::new();
-        let mut files = vec![];
-        let mut defines: Vec<(String, Option<String>)> = vec![];
-        let mut t: bool = false;
-        for src in srcs {
-            inc_dirs = src.clone().get_incdirs();
-            files.append(&mut src.files.clone());
-            defines.extend(
-                src.defines
-                    .iter()
-                    .map(|(k, &v)| (k.to_string(), v.map(String::from))),
-            );
-        }
-        for file in files {
-            let p = match file {
-                SourceFile::File(p) => p,
-                _ => continue,
-            };
-            if p.to_str().unwrap().contains(".sv")
-                || p.to_str().unwrap().contains(".v")
-                || p.to_str().unwrap().contains(".vp")
-            {
-                t = true;
-            } else if p.to_str().unwrap().contains(".vhd") || p.to_str().unwrap().contains(".vhdl")
-            {
-                t = false;
-            }
-            file_lines.push(quote(&relativize_path(p, sess.root)));
-        }
-        if t {
-            lines.push(tcl_catch_prefix("vlog -sv", abort_on_error));
-            if let Some(args) = matches.get_many::<String>("vlog-arg") {
-                lines.extend(args.map(Into::into));
-            }
-            defines.extend(
-                targets
-                    .iter()
-                    .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
-            );
-            add_defines_from_matches(&mut defines, matches);
-            defines.sort();
-            for (k, v) in defines {
-                let mut s = format!("+define+{}", k.to_uppercase());
-                if let Some(v) = v {
-                    s.push('=');
-                    s.push_str(&v);
-                }
-                lines.push(s);
-            }
-
-            for i in &inc_dirs {
-                lines.push(quote(&format!("+incdir+{}", relativize_path(i, sess.root))));
-            }
-        } else {
-            lines.push(tcl_catch_prefix("vcom -2008", abort_on_error));
-            if let Some(args) = matches.get_many::<String>("vcom-arg") {
-                lines.extend(args.map(Into::into));
-            }
-        }
-        lines.extend(file_lines.iter().cloned());
-        println!("{}", lines.join("\\\n"));
-        if abort_on_error {
-            println!("{}", tcl_catch_postfix());
-        }
-    }
-    Ok(())
-}
+static RIVIERA_TCL_TPL: &str = "\
+# {{ HEADER_AUTOGEN }}
+set ROOT \"{{ root }}\"
+vlib work
+{% for group in srcs %}\
+    {% if abort_on_error %}if {[catch { {% endif %}\
+    {% if group.file_type == 'verilog' %}vlog -sv \\\n    \
+        {% for tmp_arg in vlog_args %}\
+            {{ tmp_arg }} \\\n    \
+        {% endfor %}\
+        {% for define in group.defines %}\
+            +define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %} \\\n    \
+        {% endfor %}\
+        {% for incdir in group.incdirs %}\
+            \"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}\" \\\n    \
+        {% endfor %}\
+    {% elif group.file_type == 'vhdl' %}vcom -2008 \\\n    \
+        {% for tmp_arg in vcom_args %}\
+            {{ tmp_arg }} \\\n    \
+        {% endfor %}\
+    {% endif %}\
+    {% for file in group.files %}\
+        \"{{ file | replace(from=root, to='$ROOT') }}\" {% if not loop.last %}\\\n    {% else %}\\\n{% endif %}\
+    {% endfor %}\
+    {% if abort_on_error %}}]} {return 1}\
+    {% endif %}\n\n\
+{% endfor %}\
+";
 
 static PRECISION_TCL_TPL: &str = "\
 # {{ HEADER_AUTOGEN }}
