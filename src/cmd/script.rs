@@ -378,10 +378,6 @@ enum SourceType {
     Vhdl,
 }
 
-fn quote(s: &(impl std::fmt::Display + ?Sized)) -> String {
-    format!("\"{}\"", s)
-}
-
 fn relativize_path(path: &std::path::Path, root: &std::path::Path) -> String {
     if path.starts_with(root) {
         format!(
@@ -394,58 +390,6 @@ fn relativize_path(path: &std::path::Path, root: &std::path::Path) -> String {
 }
 
 static HEADER_AUTOGEN: &str = "This script was generated automatically by bender.";
-
-fn header_tcl(sess: &Session) -> String {
-    let mut lines = vec![];
-    lines.push(format!("# {}", HEADER_AUTOGEN));
-    lines.push(format!("set ROOT {}", quote(sess.root.to_str().unwrap())));
-    lines.join("\n")
-}
-
-fn header_sh(sess: &Session) -> String {
-    let mut lines = vec![];
-    lines.push("#!/usr/bin/env bash".to_string());
-    lines.push(format!("# {}", HEADER_AUTOGEN));
-    lines.push(format!("ROOT={}", quote(sess.root.to_str().unwrap())));
-    lines.join("\n")
-}
-
-fn tcl_catch_prefix(cmd: &str, do_prefix: bool) -> String {
-    let prefix = if do_prefix { "if {[catch {" } else { "" };
-    format!("{}{}", prefix, cmd)
-}
-
-fn tcl_catch_postfix() -> &'static str {
-    "}]} {return 1}"
-}
-
-fn synopsys_dc_cmd(ty: SourceType) -> String {
-    format!(
-        "analyze -format {}",
-        match ty {
-            SourceType::Verilog => {
-                "sv"
-            }
-            SourceType::Vhdl => {
-                "vhdl"
-            }
-        }
-    )
-}
-
-fn synopsys_formality_cmd(ty: SourceType) -> String {
-    format!(
-        "{} -r",
-        match ty {
-            SourceType::Verilog => {
-                "read_sverilog"
-            }
-            SourceType::Vhdl => {
-                "read_vhdl"
-            }
-        }
-    )
-}
 
 fn add_defines_from_matches(defines: &mut Vec<(String, Option<String>)>, matches: &ArgMatches) {
     if let Some(d) = matches.get_many::<String>("define") {
