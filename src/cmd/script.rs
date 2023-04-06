@@ -9,7 +9,6 @@ use std::path::PathBuf;
 
 use clap::builder::PossibleValue;
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
-use common_path::common_path_all;
 use indexmap::IndexSet;
 use tera::{Context, Tera};
 use tokio::runtime::Runtime;
@@ -146,9 +145,9 @@ pub fn new() -> Command {
         .arg(
             Arg::new("compilation_mode")
                 .long("compilation-mode")
-                .help("Choose compilation mode for Riviera-PRO option: separate/common (Riviera-PRO only)")
+                .help("Choose compilation mode option: separate/common")
                 .num_args(1)
-                .default_value("common")
+                .default_value("separate")
                 .value_parser([
                     PossibleValue::new("separate"),
                     PossibleValue::new("common"),
@@ -234,12 +233,6 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         vec![]
     };
 
-    // let abort_on_error = !matches.get_flag("no-abort-on-error");
-    //////riviera compilation mode
-    let mut riviera_separate_compilation_mode = false;
-    if matches.get_one::<String>("compilation_mode").unwrap() == "separate" {
-        riviera_separate_compilation_mode = true;
-    }
     // Filter the sources by target.
     let targets = matches
         .get_many::<String>("target")
@@ -494,6 +487,8 @@ fn emit_template(
     let mut all_defines = defines.clone();
     let mut all_incdirs = vec![];
     let mut all_files = vec![];
+    let mut all_verilog = vec![];
+    let mut all_vhdl = vec![];
     for src in &srcs {
         all_defines.extend(
             src.defines
@@ -575,12 +570,39 @@ fn emit_template(
             },
         );
     }
+    for src in &split_srcs {
+        match src.file_type.as_str() {
+            "verilog" => {
+                all_verilog.append(&mut src.files.clone());
+            }
+            "vhdl" => {
+                all_vhdl.append(&mut src.files.clone());
+            }
+            _ => {}
+        }
+    }
     let split_srcs = if !matches.get_flag("only-defines") && !matches.get_flag("only-includes") {
         split_srcs
     } else {
         vec![]
     };
     tera_context.insert("srcs", &split_srcs);
+
+    let all_verilog: IndexSet<PathBuf> =
+        if !matches.get_flag("only-defines") && !matches.get_flag("only-includes") {
+            all_verilog.into_iter().collect()
+        } else {
+            IndexSet::new()
+        };
+    let all_vhdl: IndexSet<PathBuf> =
+        if !matches.get_flag("only-defines") && !matches.get_flag("only-includes") {
+            all_vhdl.into_iter().collect()
+        } else {
+            IndexSet::new()
+        };
+    tera_context.insert("all_verilog", &all_verilog);
+    tera_context.insert("all_vhdl", &all_vhdl);
+
     let vlog_args: Vec<String> = if let Some(args) = matches.get_many::<String>("vlog-arg") {
         args.map(Into::into).collect()
     } else {
@@ -597,6 +619,10 @@ fn emit_template(
     tera_context.insert("vlogan_bin", &matches.get_one::<String>("vlogan-bin"));
     tera_context.insert("vhdlan_bin", &matches.get_one::<String>("vhdlan-bin"));
     tera_context.insert("relativize_path", &matches.get_flag("relative-path"));
+    tera_context.insert(
+        "compilation_mode",
+        &matches.get_one::<String>("compilation_mode"),
+    );
 
     let vivado_filesets = if matches.get_flag("no-simset") {
         vec![""]
@@ -655,55 +681,120 @@ static FLIST_TPL: &str = "\
 static VSIM_TCL_TPL: &str = "\
 # {{ HEADER_AUTOGEN }}
 set ROOT \"{{ root }}\"
-{% for group in srcs %}\n\
-    {% if abort_on_error %}if {[catch { {% endif %}\
-    {% if group.file_type == 'verilog' %}vlog -incr -sv \\\n    \
-        {% for tmp_arg in vlog_args %}\
-            {{ tmp_arg }} \\\n    \
+{% if compilation_mode == 'separate' %}\
+    {% for group in srcs %}\n\
+        {% if abort_on_error %}if {[catch { {% endif %}\
+        {% if group.file_type == 'verilog' %}vlog -incr -sv \\\n    \
+            {% for tmp_arg in vlog_args %}\
+                {{ tmp_arg }} \\\n    \
+            {% endfor %}\
+            {% for define in group.defines %}\
+                +define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %} \\\n    \
+            {% endfor %}\
+            {% for incdir in group.incdirs %}\
+                \"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}\" \\\n    \
+            {% endfor %}\
+        {% elif group.file_type == 'vhdl' %}vcom -2008 \\\n    \
+            {% for tmp_arg in vcom_args %}\
+                {{ tmp_arg }} \\\n    \
+            {% endfor %}\
+        {% endif %}\
+        {% for file in group.files %}\
+            \"{{ file | replace(from=root, to='$ROOT') }}\" {% if not loop.last %}\\\n    {% endif %}\
         {% endfor %}\
-        {% for define in group.defines %}\
-            +define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %} \\\n    \
-        {% endfor %}\
-        {% for incdir in group.incdirs %}\
-            \"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}\" \\\n    \
-        {% endfor %}\
-    {% elif group.file_type == 'vhdl' %}vcom -2008 \\\n    \
-        {% for tmp_arg in vcom_args %}\
-            {{ tmp_arg }} \\\n    \
-        {% endfor %}\
-    {% endif %}\
-    {% for file in group.files %}\
-        \"{{ file | replace(from=root, to='$ROOT') }}\" {% if not loop.last %}\\\n    {% endif %}\
+        {% if abort_on_error %}\\\n}]} {return 1}\
+        {% endif %}\n\
     {% endfor %}\
-    {% if abort_on_error %}\n}]} {return 1}\
-    {% endif %}\n\
-{% endfor %}";
+{% else %}{# compilation_mode == 'common' #}\
+    {% for file in all_verilog %}\
+        {% if loop.first %}\
+            {% if abort_on_error %}if {[catch { {% endif %}\
+            vlog -incr -sv \\\n    \
+            {% for tmp_arg in vlog_args %}\
+                {{ tmp_arg }} \\\n    \
+            {% endfor %}\
+            {% for define in all_defines %}\
+                +define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %} \\\n    \
+            {% endfor %}\
+            {% for incdir in all_incdirs %}\
+                \"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}\" \\\n    \
+            {% endfor %}\
+        {% endif %}\
+        \"{{ file | replace(from=root, to='$ROOT') }}\" {% if not loop.last %}\\\n    {% endif %}\
+        {% if loop.last %}\
+            {% if abort_on_error %} \\\n}]} {return 1}\
+            {% endif %}\n\
+        {% endif %}\
+    {% endfor %}\
+    {% for file in all_vhdl %}\
+        {% if loop.first %}\
+            {% if abort_on_error %}if {[catch { {% endif %}\
+            vcom -2008 \\\n    \
+            {% for tmp_arg in vcom_args %}\
+                {{ tmp_arg }} \\\n    \
+            {% endfor %}\
+        {% endif %}\
+        \"{{ file | replace(from=root, to='$ROOT') }}\" {% if not loop.last %}\\\n    {% endif %}\
+        {% if loop.last %}\n\
+            {% if abort_on_error %}\n}]} {return 1}\
+            {% endif %}\n\
+        {% endif %}\
+    {% endfor %}\
+{% endif %}";
 
 static VCS_SH_TPL: &str = "\
 #!/usr/bin/env bash
 # {{ HEADER_AUTOGEN }}
 ROOT=\"{{ root }}\"
-{% for group in srcs %}\n\
-    {% if group.file_type == 'verilog' %}{{ vlogan_bin }} -sverilog \\\n    \
-        -full64 \\\n    \
-        {% for tmp_arg in vlog_args %}\
-            {{ tmp_arg }} \\\n    \
-        {% endfor %}\
-        {% for define in group.defines %}\
-            +define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %} \\\n    \
-        {% endfor %}\
-        {% for incdir in group.incdirs %}\
-            \"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}\" \\\n    \
-        {% endfor %}\
-    {% elif group.file_type == 'vhdl' %}{{ vhdlan_bin }} \\\n    \
-        {% for tmp_arg in vcom_args %}\
-            {{ tmp_arg }} \\\n    \
-        {% endfor %}\
-    {% endif %}\
-    {% for file in group.files %}\
+{% if compilation_mode == 'separate' %}\
+    {% for group in srcs %}\n\
+        {% if group.file_type == 'verilog' %}{{ vlogan_bin }} -sverilog \\\n    \
+            -full64 \\\n    \
+            {% for tmp_arg in vlog_args %}\
+                {{ tmp_arg }} \\\n    \
+            {% endfor %}\
+            {% for define in group.defines %}\
+                +define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %} \\\n    \
+            {% endfor %}\
+            {% for incdir in group.incdirs %}\
+                \"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}\" \\\n    \
+            {% endfor %}\
+        {% elif group.file_type == 'vhdl' %}{{ vhdlan_bin }} \\\n    \
+            {% for tmp_arg in vcom_args %}\
+                {{ tmp_arg }} \\\n    \
+            {% endfor %}\
+        {% endif %}\
+        {% for file in group.files %}\
+            \"{{ file | replace(from=root, to='$ROOT') }}\" {% if not loop.last %}\\\n    {% endif %}\
+        {% endfor %}\n\
+    {% endfor %}
+{% else %}{# compilation_mode == 'common' #}\
+    {% for file in all_verilog %}\
+        {% if loop.first %}{{ vlogan_bin }} -sverilog \\\n    \
+            -full64 \\\n    \
+            {% for tmp_arg in vlog_args %}\
+                {{ tmp_arg }} \\\n    \
+            {% endfor %}\
+            {% for define in all_defines %}\
+                +define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %} \\\n    \
+            {% endfor %}\
+            {% for incdir in all_incdirs %}\
+                \"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}\" \\\n    \
+            {% endfor %}\
+        {% endif %}\
         \"{{ file | replace(from=root, to='$ROOT') }}\" {% if not loop.last %}\\\n    {% endif %}\
+        {% if loop.last %}\n{% endif %}\
     {% endfor %}\n\
-{% endfor %}";
+    {% for file in all_vhdl %}\
+        {% if loop.first %}{{ vhdlan_bin }} \\\n    \
+            {% for tmp_arg in vcom_args %}\
+                {{ tmp_arg }} \\\n    \
+            {% endfor %}\
+        {% endif %}\
+        \"{{ file | replace(from=root, to='$ROOT') }}\" {% if not loop.last %}\\\n    {% endif %}\
+        {% if loop.last %}\n{% endif %}\
+    {% endfor %}\n\
+{% endif %}";
 
 static VERILATOR_SH_TPL: &str = "\
 {% for group in srcs %}\
@@ -727,52 +818,124 @@ static SYNOPSYS_TCL_TPL: &str = "\
 # {{HEADER_AUTOGEN}}
 set ROOT \"{{ root }}\"
 set search_path_initial $search_path
-{% for group in srcs %}\n\
-    set search_path $search_path_initial\n\
-    {% for incdir in group.incdirs %}\
-        lappend search_path \"$ROOT{{ incdir | replace(from=root, to='') }}\"\n\
+{% if compilation_mode == 'separate' %}\
+    {% for group in srcs %}\n\
+        set search_path $search_path_initial\n\
+        {% for incdir in group.incdirs %}\
+            lappend search_path \"$ROOT{{ incdir | replace(from=root, to='') }}\"\n\
+        {% endfor %}\n\
+        {% if abort_on_error %}if {[catch { {% endif %}analyze -format \
+        {% if group.file_type == 'verilog' %}sv{% elif group.file_type == 'vhdl' %}vhdl{% endif %} \\\n    \
+        {% for define in group.defines %}\
+            {% if loop.first %}-define { \\\n        {% endif %}\
+            {{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}\
+            {% if loop.last %} \\\n    } \\\n    {% else %} \\\n        {% endif %}\
+        {% endfor %}\
+        [list \\\n    \
+        {% for file in group.files %}\
+            {{ '    ' }}\"{{ file | replace(from=root, to='$ROOT') }}\" \\\n    \
+        {% endfor %}\
+        ]\n\
+        {% if abort_on_error %}}]} {return 1}\
+        {% endif %}\n\
     {% endfor %}\n\
-    {% if abort_on_error %}if {[catch { {% endif %}analyze -format \
-    {% if group.file_type == 'verilog' %}sv{% elif group.file_type == 'vhdl' %}vhdl{% endif %} \\\n    \
-    {% for define in group.defines %}\
-        {% if loop.first %}-define { \\\n        {% endif %}\
-        {{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}\
-        {% if loop.last %} \\\n    } \\\n    {% else %} \\\n        {% endif %}\
-    {% endfor %}\
-    [list \\\n    \
-    {% for file in group.files %}\
+{% else %}{# compilation_mode == 'common' #}\
+    {% for file in all_verilog %}\
+        {% if loop.first %}\
+            set search_path $search_path_initial\n\
+            {% for incdir in all_incdirs %}\
+                lappend search_path \"$ROOT{{ incdir | replace(from=root, to='') }}\"\n\
+            {% endfor %}\n\
+            {% if abort_on_error %}if {[catch { {% endif %}analyze -format sv \\\n    \
+            {% for define in all_defines %}\
+                {% if loop.first %}-define { \\\n        {% endif %}\
+                {{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}\
+                {% if loop.last %} \\\n    } \\\n    {% else %} \\\n        {% endif %}\
+            {% endfor %}\
+            [list \\\n    \
+        {% endif %}\
         {{ '    ' }}\"{{ file | replace(from=root, to='$ROOT') }}\" \\\n    \
-    {% endfor %}\
-    ]\n\
-    {% if abort_on_error %}}]} {return 1}\
-    {% endif %}\n\
-{% endfor %}\n\
+        {% if loop.last %}\
+            ]\n\
+            {% if abort_on_error %}}]} {return 1}\
+            {% endif %}\n\
+        {% endif %}\
+    {% endfor %}\n\
+    {% for file in all_vhdl %}\
+        {% if loop.first %}
+            {% if abort_on_error %}if {[catch { {% endif %}analyze -format vhdl \\\n    \
+            [list \\\n    \
+        {% endif %}\
+        {{ '    ' }}\"{{ file | replace(from=root, to='$ROOT') }}\" \\\n    \
+        {% if loop.last %}\
+            ]\n\
+            {% if abort_on_error %}}]} {return 1}\
+            {% endif %}\n\
+        {% endif %}\
+    {% endfor %}\n\
+{% endif %}\
 set search_path $search_path_initial\n";
 
 static FORMALITY_TCL_TPL: &str = "\
 # {{HEADER_AUTOGEN}}
 set ROOT \"{{ root }}\"
 set search_path_initial $search_path
-{% for group in srcs %}\n\
-    set search_path $search_path_initial\n\
-    {% for incdir in group.incdirs %}\
-        lappend search_path \"$ROOT{{ incdir | replace(from=root, to='') }}\"\n\
+{% if compilation_mode == 'separate' %}\
+    {% for group in srcs %}\n\
+        set search_path $search_path_initial\n\
+        {% for incdir in group.incdirs %}\
+            lappend search_path \"$ROOT{{ incdir | replace(from=root, to='') }}\"\n\
+        {% endfor %}\n\
+        {% if abort_on_error %}if {[catch { {% endif %}\
+        {% if group.file_type == 'verilog' %}read_sverilog{% elif group.file_type == 'vhdl' %}read_vhdl{% endif %} -r \\\n    \
+        {% for define in group.defines %}\
+            {% if loop.first %}-define { \\\n        {% endif %}\
+            {{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}\
+            {% if loop.last %} \\\n    } \\\n    {% else %} \\\n        {% endif %}\
+        {% endfor %}\
+        [list \\\n    \
+        {% for file in group.files %}\
+            {{ '    ' }}\"{{ file | replace(from=root, to='$ROOT') }}\" \\\n    \
+        {% endfor %}\
+        ]\n\
+        {% if abort_on_error %}}]} {return 1}\
+        {% endif %}\n\
     {% endfor %}\n\
-    {% if abort_on_error %}if {[catch { {% endif %}\
-    {% if group.file_type == 'verilog' %}read_sverilog{% elif group.file_type == 'vhdl' %}read_vhdl{% endif %} -r \\\n    \
-    {% for define in group.defines %}\
-        {% if loop.first %}-define { \\\n        {% endif %}\
-        {{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}\
-        {% if loop.last %} \\\n    } \\\n    {% else %} \\\n        {% endif %}\
-    {% endfor %}\
-    [list \\\n    \
-    {% for file in group.files %}\
+{% else %}{# compilation_mode == 'common' #}\
+    {% for file in all_verilog %}\
+        {% if loop.first %}\
+            set search_path $search_path_initial\n\
+            {% for incdir in all_incdirs %}\
+                lappend search_path \"$ROOT{{ incdir | replace(from=root, to='') }}\"\n\
+            {% endfor %}\n\
+            {% if abort_on_error %}if {[catch { {% endif %}read_sverilog -r \\\n    \
+            {% for define in all_defines %}\
+                {% if loop.first %}-define { \\\n        {% endif %}\
+                {{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}\
+                {% if loop.last %} \\\n    } \\\n    {% else %} \\\n        {% endif %}\
+            {% endfor %}\
+            [list \\\n    \
+        {% endif %}\
         {{ '    ' }}\"{{ file | replace(from=root, to='$ROOT') }}\" \\\n    \
-    {% endfor %}\
-    ]\n\
-    {% if abort_on_error %}}]} {return 1}\
-    {% endif %}\n\
-{% endfor %}\n\
+        {% if loop.last %}\
+            ]\n\
+            {% if abort_on_error %}}]} {return 1}\
+            {% endif %}\n\
+        {% endif %}\
+    {% endfor %}\n\
+    {% for file in all_vhdl %}\
+        {% if loop.first %}
+            {% if abort_on_error %}if {[catch { {% endif %}read_vhdl -r \\\n    \
+            [list \\\n    \
+        {% endif %}\
+        {{ '    ' }}\"{{ file | replace(from=root, to='$ROOT') }}\" \\\n    \
+        {% if loop.last %}\
+            ]\n\
+            {% if abort_on_error %}}]} {return 1}\
+            {% endif %}\n\
+        {% endif %}\
+    {% endfor %}\n\
+{% endif %}\
 set search_path $search_path_initial\n";
 
 static GENUS_TCL_TPL: &str = "\
@@ -781,39 +944,87 @@ if [ info exists search_path ] {{ '{{' }}
   set search_path_initial $search_path
 {{ '}}' }}
 set ROOT = \"{{ root }}\"
-{% for group in srcs %}\n\
-    set search_path $search_path_initial\n\
-    {% for incdir in group.incdirs %}\
-        lappend search_path \"$ROOT{{ incdir | replace(from=root, to='') }}\"\n\
-    {% endfor %}\
-    set_db init_hdl_search_path $search_path\n\n\
-    {% if group.file_type == 'verilog' %}read_hdl -language sv \\\n    \
-    {% elif group.file_type == 'vhdl' %}read_hdl -language vhdl \\\n    \
-    {% endif %}\
-    {% for define in group.defines %}\
-        {% if loop.first %}-define { \\\n        {% endif %}\
-        {{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}\
-        {% if loop.last %} \\\n    } \\\n    {% else %} \\\n        {% endif %}\
-    {% endfor %}\
-    [list \\\n    \
-    {% for file in group.files %}\
+{% if compilation_mode == 'separate' %}\
+    {% for group in srcs %}\n\
+        set search_path $search_path_initial\n\
+        {% for incdir in group.incdirs %}\
+            lappend search_path \"$ROOT{{ incdir | replace(from=root, to='') }}\"\n\
+        {% endfor %}\
+        set_db init_hdl_search_path $search_path\n\n\
+        {% if group.file_type == 'verilog' %}read_hdl -language sv \\\n    \
+        {% elif group.file_type == 'vhdl' %}read_hdl -language vhdl \\\n    \
+        {% endif %}\
+        {% for define in group.defines %}\
+            {% if loop.first %}-define { \\\n        {% endif %}\
+            {{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}\
+            {% if loop.last %} \\\n    } \\\n    {% else %} \\\n        {% endif %}\
+        {% endfor %}\
+        [list \\\n    \
+        {% for file in group.files %}\
+            {{ '    ' }}\"{{ file | replace(from=root, to='$ROOT') }}\" \\\n    \
+        {% endfor %}\
+        ]\n\
+    {% endfor %}
+{% else %}{# compilation_mode == 'common' #}\
+    {% for file in all_verilog %}\
+        {% if loop.first %}\
+            set search_path $search_path_initial\n\
+            {% for incdir in all_incdirs %}\
+                lappend search_path \"$ROOT{{ incdir | replace(from=root, to='') }}\"\n\
+            {% endfor %}\n\
+            set_db init_hdl_search_path $search_path\n\n\
+            {% if abort_on_error %}if {[catch { {% endif %}read_hdl -language sv \\\n    \
+            {% for define in all_defines %}\
+                {% if loop.first %}-define { \\\n        {% endif %}\
+                {{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}\
+                {% if loop.last %} \\\n    } \\\n    {% else %} \\\n        {% endif %}\
+            {% endfor %}\
+            [list \\\n    \
+        {% endif %}\
         {{ '    ' }}\"{{ file | replace(from=root, to='$ROOT') }}\" \\\n    \
-    {% endfor %}\
-    ]\n\
-{% endfor %}
-set search_path $search_path_initial
-";
+        {% if loop.last %}\
+            ]\n\
+            {% if abort_on_error %}}]} {return 1}\
+            {% endif %}\n\
+        {% endif %}\
+    {% endfor %}\n\
+    {% for file in all_vhdl %}\
+        {% if loop.first %}
+            {% if abort_on_error %}if {[catch { {% endif %}read_hdl -language vhdl \\\n    \
+            [list \\\n    \
+        {% endif %}\
+        {{ '    ' }}\"{{ file | replace(from=root, to='$ROOT') }}\" \\\n    \
+        {% if loop.last %}\
+            ]\n\
+            {% if abort_on_error %}}]} {return 1}\
+            {% endif %}\n\
+        {% endif %}\
+    {% endfor %}\n\
+{% endif %}\
+set search_path $search_path_initial\n";
 
 static VIVADO_TCL_TPL: &str = "\
 # {{ HEADER_AUTOGEN }}
 set ROOT \"{{ root }}\"
-{% for group in srcs %}\
-    add_files -norecurse -fileset [current_fileset] [list \\\n    \
-    {% for file in group.files %}\
-        {{ file | replace(from=root, to='$ROOT') }} \\\n{% if not loop.last %}    {% endif %}\
+{% if compilation_mode == 'separate' %}\
+    {% for group in srcs %}\
+        add_files -norecurse -fileset [current_fileset] [list \\\n    \
+        {% for file in group.files %}\
+            {{ file | replace(from=root, to='$ROOT') }} \\\n{% if not loop.last %}    {% endif %}\
+        {% endfor %}\
+        ]\n\
     {% endfor %}\
-    ]\n\
-{% endfor %}\
+{% else %}{# compilation_mode == 'common' #}\
+    {% for file in all_files %}\
+        {% if loop.first %}\
+            add_files -norecurse -fileset [current_fileset] [list \\\n    \
+        {% endif %}\
+        {{ file | replace(from=root, to='$ROOT') }} \\\n{% if not loop.last %}    {% endif %}\
+        {% if loop.last %}\
+            ]\n\
+        {% endif %}\
+    {% endfor %}\
+{% endif %}\
 {% for arg in vivado_filesets %}\
     {% for incdir in all_incdirs %}\
         {% if loop.first %}\nset_property include_dirs [list \\\n    {% endif %}\
@@ -833,30 +1044,66 @@ static RIVIERA_TCL_TPL: &str = "\
 # {{ HEADER_AUTOGEN }}
 set ROOT \"{{ root }}\"
 vlib work
-{% for group in srcs %}\
-    {% if abort_on_error %}if {[catch { {% endif %}\
-    {% if group.file_type == 'verilog' %}vlog -sv \\\n    \
-        {% for tmp_arg in vlog_args %}\
-            {{ tmp_arg }} \\\n    \
+{% if compilation_mode == 'separate' %}\
+    {% for group in srcs %}\
+        {% if abort_on_error %}if {[catch { {% endif %}\
+        {% if group.file_type == 'verilog' %}vlog -sv \\\n    \
+            {% for tmp_arg in vlog_args %}\
+                {{ tmp_arg }} \\\n    \
+            {% endfor %}\
+            {% for define in group.defines %}\
+                +define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %} \\\n    \
+            {% endfor %}\
+            {% for incdir in group.incdirs %}\
+                \"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}\" \\\n    \
+            {% endfor %}\
+        {% elif group.file_type == 'vhdl' %}vcom -2008 \\\n    \
+            {% for tmp_arg in vcom_args %}\
+                {{ tmp_arg }} \\\n    \
+            {% endfor %}\
+        {% endif %}\
+        {% for file in group.files %}\
+            \"{{ file | replace(from=root, to='$ROOT') }}\" {% if not loop.last %}\\\n    {% else %}\\\n{% endif %}\
         {% endfor %}\
-        {% for define in group.defines %}\
-            +define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %} \\\n    \
-        {% endfor %}\
-        {% for incdir in group.incdirs %}\
-            \"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}\" \\\n    \
-        {% endfor %}\
-    {% elif group.file_type == 'vhdl' %}vcom -2008 \\\n    \
-        {% for tmp_arg in vcom_args %}\
-            {{ tmp_arg }} \\\n    \
-        {% endfor %}\
-    {% endif %}\
-    {% for file in group.files %}\
+        {% if abort_on_error %}}]} {return 1}\
+        {% endif %}\n\n\
+    {% endfor %}
+{% else %}{# compilation_mode == 'common' #}\
+    {% for file in all_verilog %}\
+        {% if loop.first %}\
+            {% if abort_on_error %}if {[catch { {% endif %}\
+            vlog -sv \\\n    \
+            {% for tmp_arg in vlog_args %}\
+                {{ tmp_arg }} \\\n    \
+            {% endfor %}\
+            {% for define in all_defines %}\
+                +define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %} \\\n    \
+            {% endfor %}\
+            {% for incdir in all_incdirs %}\
+                \"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}\" \\\n    \
+            {% endfor %}\
+        {% endif %}\
         \"{{ file | replace(from=root, to='$ROOT') }}\" {% if not loop.last %}\\\n    {% else %}\\\n{% endif %}\
+        {% if loop.last %}\
+            {% if abort_on_error %}}]} {return 1}\
+            {% endif %}\n\n\
+        {% endif %}\
     {% endfor %}\
-    {% if abort_on_error %}}]} {return 1}\
-    {% endif %}\n\n\
-{% endfor %}\
-";
+    {% for file in all_vhdl %}\
+        {% if loop.first %}\
+            {% if abort_on_error %}if {[catch { {% endif %}\
+            vcom -2008 \\\n    \
+            {% for tmp_arg in vcom_args %}\
+                {{ tmp_arg }} \\\n    \
+            {% endfor %}\
+        {% endif %}\
+        \"{{ file | replace(from=root, to='$ROOT') }}\" {% if not loop.last %}\\\n    {% else %}\\\n{% endif %}\
+        {% if loop.last %}\
+            {% if abort_on_error %}}]} {return 1}\
+            {% endif %}\n\n\
+        {% endif %}\
+    {% endfor %}\
+{% endif %}";
 
 static PRECISION_TCL_TPL: &str = "\
 # {{ HEADER_AUTOGEN }}
@@ -872,26 +1119,63 @@ setup_design -search_path $ROOT
     +define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}\
     {% if loop.last %}\n\n{% else %} \\\n    {% endif %}\
 {% endfor %}\
-{% for group in srcs %}\
-    {% if abort_on_error %}if {[catch { {% endif %}\
-    add_input_file \\\n    \
-    {% if group.file_type == 'verilog' %}\
-        -format SystemVerilog2012 \\\n    \
-        {% for incdir in group.incdirs %}\
-            {% if loop.first %}-search_path { \\\n        {% endif %}\
-                {{ incdir }}\
-            {% if loop.last %} \\\n    } \\\n    {% else %} \\\n        {% endif %}\
+{% if compilation_mode == 'separate' %}\
+    {% for group in srcs %}\
+        {% if abort_on_error %}if {[catch { {% endif %}\
+        add_input_file \\\n    \
+        {% if group.file_type == 'verilog' %}\
+            -format SystemVerilog2012 \\\n    \
+            {% for incdir in group.incdirs %}\
+                {% if loop.first %}-search_path { \\\n        {% endif %}\
+                    {{ incdir }}\
+                {% if loop.last %} \\\n    } \\\n    {% else %} \\\n        {% endif %}\
+            {% endfor %}\
+        {% elif group.file_type == 'vhdl' %}\
+            -format vhdl_2008 \\\n    \
+        {% endif %}\
+        { \\\n        \
+        {% for file in group.files %}\
+            {{ file }}\
+            {% if loop.last %} \\\n    {% else %} \\\n        {% endif %}\
         {% endfor %}\
-    {% elif group.file_type == 'vhdl' %}\
-        -format vhdl_2008 \\\n    \
-    {% endif %}\
-    { \\\n        \
-    {% for file in group.files %}\
+        } \\\n\
+        {% if abort_on_error %}}]} {return 1}\n\
+        {% endif %}\n\
+    {% endfor %}\n
+{% else %}{# compilation_mode == 'common' #}\
+    {% for file in all_verilog %}\
+        {% if loop.first %}\
+            {% if abort_on_error %}if {[catch { {% endif %}\
+            add_input_file \\\n    \
+            -format SystemVerilog2012 \\\n    \
+            {% for incdir in all_incdirs %}\
+                {% if loop.first %}-search_path { \\\n        {% endif %}\
+                    {{ incdir }}\
+                {% if loop.last %} \\\n    } \\\n    {% else %} \\\n        {% endif %}\
+            {% endfor %}\
+            { \\\n        \
+        {% endif %}\
         {{ file }}\
         {% if loop.last %} \\\n    {% else %} \\\n        {% endif %}\
-    {% endfor %}\
-    } \\\n\
-    {% if abort_on_error %}}]} {return 1}\n\
-    {% endif %}\n\
-{% endfor %}\n\
-";
+        {% if loop.last %}\
+            } \\\n\
+            {% if abort_on_error %}}]} {return 1}\n\
+            {% endif %}\n\
+        {% endif %}\
+    {% endfor %}\n\
+    {% for file in all_vhdl %}\
+        {% if loop.first %}\
+            {% if abort_on_error %}if {[catch { {% endif %}\
+            add_input_file \\\n    \
+            -format vhdl_2008 \\\n    \
+        { \\\n        \
+        {% endif %}\
+        {{ file }}\
+        {% if loop.last %} \\\n    {% else %} \\\n        {% endif %}\
+        {% if loop.last %}\
+            } \\\n\
+            {% if abort_on_error %}}]} {return 1}\n\
+            {% endif %}\n\
+        {% endif %}\
+    {% endfor %}\n\
+{% endif %}";
