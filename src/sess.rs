@@ -661,8 +661,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         // Determine the name of the checkout as the given name and the first
         // 8 bytes (16 hex characters) of a BLAKE2 hash of the source and the
-        // path to the root package. This ensures that for every dependency and
-        // root package we have at most one checkout.
+        // root package name. This ensures that for every dependency and
+        // root package we have at most one checkout. (If multiple versions of
+        // the same package have access to the same dependency collection, this
+        // may need to be updated.)
         let hash = {
             use blake2::{Blake2b512, Digest};
             let mut hasher = Blake2b512::new();
@@ -680,7 +682,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     return path;
                 }
             }
-            hasher.update(format!("{:?}", self.sess.root).as_bytes());
+            hasher.update(format!("{:?}", self.sess.manifest.package.name).as_bytes());
             &format!("{:016x}", hasher.finalize())[..16]
         };
         let checkout_name = format!("{}-{}", dep.name, hash);

@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Change GNU release to be built to a more compatible binary (manylinux container).
 - Parse override dependencies in lowercase to align to change in 0.25.0
 
+### Changed
+- Adjusted hash input for dependency checkout to ensure consistency within a project.
+
 ## 0.27.1 - 2023-01-25
 ### Fixed
 - Fixed accidental debug print in `sources` command
