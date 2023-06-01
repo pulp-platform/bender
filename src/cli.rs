@@ -293,7 +293,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
         let tested_path = path.clone();
         if !path.pop() {
             return Err(Error::new(format!(
-                "Stopped at filesystem root {:?}.",
+                "No bender.yml file found. Stopped searching at filesystem root {:?}.",
                 path
             )));
         }
@@ -303,7 +303,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
         debugln!("find_package_root: rdev = {:?}", rdev);
         if rdev != limit_rdev {
             return Err(Error::new(format!(
-                "Stopped at filesystem boundary {:?}.",
+                "No bender.yml file found. Stopped searching at filesystem boundary {:?}.",
                 tested_path
             )));
         }
