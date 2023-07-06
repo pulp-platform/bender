@@ -63,6 +63,13 @@ pub fn new() -> Command {
                 .value_parser(value_parser!(String)),
         )
         .arg(
+            Arg::new("assume_rtl")
+                .long("assume-rtl")
+                .help("Add the `rtl` target to any fileset without a target specification")
+                .num_args(0)
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
             Arg::new("raw")
                 .long("raw")
                 .help("Exports the raw internal source tree.")
@@ -100,6 +107,11 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         .get_many::<String>("target")
         .map(TargetSet::new)
         .unwrap_or_else(TargetSet::empty);
+
+    if matches.get_flag("assume_rtl") {
+        srcs = srcs.assign_target("rtl".to_string());
+    }
+
     srcs = srcs
         .filter_targets(&targets)
         .unwrap_or_else(|| SourceGroup {
