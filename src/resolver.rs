@@ -17,7 +17,8 @@ use tokio::runtime::Runtime;
 extern crate itertools;
 use self::itertools::Itertools;
 
-extern crate atty;
+extern crate is_terminal;
+use is_terminal::IsTerminal;
 
 use std::io::{self, Write};
 
@@ -502,7 +503,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     }
                     cons = cons.into_iter().unique().collect();
                     // Let user resolve conflict if both stderr and stdin go to a TTY.
-                    if atty::is(atty::Stream::Stderr) && atty::is(atty::Stream::Stdin) {
+                    if std::io::stderr().is_terminal() && std::io::stdin().is_terminal() {
                         let decision = if let Some(d) = self.decisions.get(name) {
                             d.clone()
                         } else {

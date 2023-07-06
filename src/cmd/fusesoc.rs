@@ -13,6 +13,7 @@ use std::path::PathBuf;
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 use indexmap::{IndexMap, IndexSet};
+use is_terminal::IsTerminal;
 use itertools::Itertools;
 use tokio::runtime::Runtime;
 use walkdir::{DirEntry, WalkDir};
@@ -282,7 +283,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 }
                 println!("{}", msg);
                 // Let user resolve conflict if both stderr and stdin go to a TTY.
-                if atty::is(atty::Stream::Stderr) && atty::is(atty::Stream::Stdin) {
+                if std::io::stderr().is_terminal() && std::io::stdin().is_terminal() {
                     index = {
                         loop {
                             eprint!("Enter a number or hit enter to abort: ");
