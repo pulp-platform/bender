@@ -14,10 +14,8 @@ use futures::future::join_all;
 use indexmap::{IndexMap, IndexSet};
 use tokio::runtime::Runtime;
 
-extern crate itertools;
-use self::itertools::Itertools;
+use itertools::Itertools;
 
-extern crate is_terminal;
 use is_terminal::IsTerminal;
 
 use std::io::{self, Write};
