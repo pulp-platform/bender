@@ -188,6 +188,14 @@ pub fn new() -> Command {
                 .num_args(1)
                 .value_parser(value_parser!(String)),
         )
+        .arg(
+            Arg::new("global_incdir")
+                .long("global-incdir")
+                .help("Add a global include directory")
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
+        )
 }
 
 fn get_package_strings<I>(packages: I) -> IndexSet<String>
@@ -516,9 +524,25 @@ fn emit_template(
                 .iter()
                 .map(|(k, &v)| (k.to_string(), v.map(String::from))),
         );
-        all_incdirs.append(&mut src.clone().get_incdirs());
+        all_incdirs.append(
+            &mut src
+                .clone()
+                .get_incdirs()
+                .iter()
+                .map(|p| p.to_path_buf())
+                .collect(),
+        );
         all_files.append(&mut src.files.clone());
     }
+
+    let global_incdirs: Vec<PathBuf> =
+        if let Some(incdirs) = &matches.get_many::<String>("global_incdir") {
+            incdirs.clone().map(Into::into).collect()
+        } else {
+            [].to_vec()
+        };
+    all_incdirs.append(&mut global_incdirs.clone().into_iter().collect());
+
     all_defines.extend(target_defines.clone());
     add_defines_from_matches(&mut all_defines, matches);
     let all_defines = if (!matches.get_flag("only-includes") && !matches.get_flag("only-sources"))
@@ -535,7 +559,7 @@ fn emit_template(
         && !matches.get_flag("only-sources"))
         || matches.get_flag("only-includes")
     {
-        all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
+        all_incdirs.into_iter().collect()
     } else {
         IndexSet::new()
     };
@@ -582,14 +606,20 @@ fn emit_template(
                         local_defines.into_iter().collect()
                     },
                     incdirs: {
-                        let mut incdirs = src
+                        let mut incdir_index_list: Vec<PathBuf> = src
                             .clone()
                             .get_incdirs()
                             .iter()
                             .map(|p| p.to_path_buf())
-                            .collect::<IndexSet<_>>();
-                        incdirs.sort();
-                        incdirs
+                            .collect();
+
+                        incdir_index_list.append(&mut global_incdirs.clone().into_iter().collect());
+
+                        incdir_index_list
+                            .into_iter()
+                            .collect::<IndexSet<PathBuf>>()
+                            .into_iter()
+                            .collect()
                     },
                     files: files
                         .iter()
