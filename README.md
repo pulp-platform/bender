@@ -182,7 +182,7 @@ vendor_package:
   - name: lowrisc_opentitan
     # target directory
     target_dir: vendor/lowrisc_opentitan
-    # upstream dependency (i.e. git repository similar to dependencies, but does not support version)
+    # upstream dependency (i.e. git repository similar to dependencies, only supports commit hash)
     upstream: { git: "https://github.com/lowRISC/opentitan.git", rev: "47a0f4798febd9e53dd131ef8c8c2b0255d8c139" }
     # paths to include from upstream dependency. Per default, all paths are included. Optional.
     include_from_upstream:
