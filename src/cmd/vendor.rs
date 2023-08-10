@@ -88,12 +88,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             DependencySource::Git(ref url) => {
                 let git = Git::new(tmp_path, &sess.config.git);
                 rt.block_on(async {
-                    // TODO MICHAERO: May need throttle
-                    future::lazy(|_| {
-                        stageln!("Cloning", "{} ({})", vendor_package.name, url);
-                        Ok(())
-                    })
-                    .and_then(|_| git.spawn_with(|c| c.arg("clone").arg(url).arg(".")))
+                    stageln!("Cloning", "{} ({})", vendor_package.name, url);
+                    git.spawn_with(|c| c.arg("clone").arg(url).arg("."))
                     .map_err(move |cause| {
                         if url.contains("git@") {
                             warnln!("Please ensure your public ssh key is added to the git server.");
@@ -103,24 +99,17 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                             format!("Failed to initialize git database in {:?}.", tmp_path),
                             cause,
                         )
-                    })
-                    .and_then(|_| git.spawn_with(|c| c.arg("checkout").arg(match vendor_package.upstream {
-                        config::Dependency::GitRevision(_, ref rev) => rev,
-                        // config::Dependency::GitVersion(_, ref ver) => ver.to_str(),
-                        _ => unimplemented!(),
-                    })))
-                    .and_then(|_| async {
-                        let rev_hash = match vendor_package.upstream {
-                            config::Dependency::GitRevision(_, ref rev) => rev,
-                            _ => unimplemented!(),
-                        };
-                        if *rev_hash != git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{}^{{commit}}", rev_hash))).await?.trim_end_matches('\n') {
-                            Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout"))
-                        } else {
-                            Ok(())
-                        }
-                    })
-                    .await
+                    }).await?;
+                    let rev_hash = match vendor_package.upstream {
+                        config::Dependency::GitRevision(_, ref rev) => Ok(rev),
+                        _ => Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout")),
+                    }?;
+                    git.spawn_with(|c| c.arg("checkout").arg(rev_hash)).await?;
+                    if *rev_hash != git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{}^{{commit}}", rev_hash))).await?.trim_end_matches('\n') {
+                        Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout"))
+                    } else {
+                        Ok(())
+                    }
                 })?;
 
                 tmp_path.to_path_buf()
