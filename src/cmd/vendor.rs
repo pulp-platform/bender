@@ -279,8 +279,15 @@ pub fn init(
         apply_patches(rt, git, vendor_package.name.clone(), patch_link.clone())?;
     }
 
+    // Check if includes exist
+    for path in vendor_package.include_from_upstream.clone() {
+        if !PathBuf::from(extend_paths(&[path.clone()], dep_path)[0].clone()).exists() {
+            warnln!("{} not found in upstream, continuing.", path);
+        }
+    }
+
     // Copy src to dst recursively.
-    match &patch_link.from_prefix.prefix_paths(dep_path).is_dir() {
+    match link_from.is_dir() {
         true => copy_recursively(
             &link_from,
             &link_to,
@@ -293,16 +300,23 @@ pub fn init(
                 .collect(),
         )?,
         false => {
-            std::fs::copy(&link_from, &link_to).map_err(|cause| {
-                Error::chain(
-                    format!(
-                        "Failed to copy {} to {}.",
-                        link_from.to_str().unwrap(),
-                        link_to.to_str().unwrap(),
-                    ),
-                    cause,
-                )
-            })?;
+            if link_from.exists() {
+                std::fs::copy(&link_from, &link_to).map_err(|cause| {
+                    Error::chain(
+                        format!(
+                            "Failed to copy {} to {}.",
+                            link_from.to_str().unwrap(),
+                            link_to.to_str().unwrap(),
+                        ),
+                        cause,
+                    )
+                })?;
+            } else {
+                warnln!(
+                    "{} not found in upstream, continuing.",
+                    link_from.to_str().unwrap()
+                );
+            }
         }
     };
 
