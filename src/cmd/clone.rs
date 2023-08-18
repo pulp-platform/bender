@@ -212,6 +212,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
 
     println!("{} dependency added to Bender.local", dep);
 
+    // Update Bender.lock to enforce usage
     use std::fs::File;
     let file = File::open(path.join("Bender.lock"))
         .map_err(|cause| Error::chain(format!("Cannot open lockfile {:?}.", path), cause))?;
@@ -230,6 +231,79 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         .map_err(|cause| Error::chain(format!("Cannot write lockfile {:?}.", path), cause))?;
 
     println!("Lockfile updated");
+
+    // Update any possible workspace symlinks
+    for (link_path, pkg_name) in &sess.manifest.workspace.package_links {
+        if pkg_name == dep {
+            debugln!("main: maintaining link to {} at {:?}", pkg_name, link_path);
+
+            // Determine the checkout path for this package.
+            let pkg_path = &path.join(path_mod).join(dep);
+            let pkg_path = link_path
+                .parent()
+                .and_then(|path| pathdiff::diff_paths(pkg_path, path))
+                .unwrap_or_else(|| pkg_path.into());
+
+            // Check if there is something at the destination path that needs to be
+            // removed.
+            if link_path.exists() {
+                let meta = link_path.symlink_metadata().map_err(|cause| {
+                    Error::chain(
+                        format!("Failed to read metadata of path {:?}.", link_path),
+                        cause,
+                    )
+                })?;
+                if !meta.file_type().is_symlink() {
+                    warnln!(
+                        "Skipping link to package {} at {:?} since there is something there",
+                        pkg_name,
+                        link_path
+                    );
+                    continue;
+                }
+                if link_path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
+                    debugln!("main: removing existing link {:?}", link_path);
+                    std::fs::remove_file(link_path).map_err(|cause| {
+                        Error::chain(
+                            format!("Failed to remove symlink at path {:?}.", link_path),
+                            cause,
+                        )
+                    })?;
+                }
+            }
+
+            // Create the symlink if there is nothing at the destination.
+            if !link_path.exists() {
+                stageln!("Linking", "{} ({:?})", pkg_name, link_path);
+                if let Some(parent) = link_path.parent() {
+                    std::fs::create_dir_all(parent).map_err(|cause| {
+                        Error::chain(format!("Failed to create directory {:?}.", parent), cause)
+                    })?;
+                }
+                let previous_dir = match link_path.parent() {
+                    Some(parent) => {
+                        let d = std::env::current_dir().unwrap();
+                        std::env::set_current_dir(parent).unwrap();
+                        Some(d)
+                    }
+                    None => None,
+                };
+                std::os::unix::fs::symlink(&pkg_path, link_path).map_err(|cause| {
+                    Error::chain(
+                        format!(
+                            "Failed to create symlink to {:?} at path {:?}.",
+                            pkg_path, link_path
+                        ),
+                        cause,
+                    )
+                })?;
+                if let Some(d) = previous_dir {
+                    std::env::set_current_dir(d).unwrap();
+                }
+            }
+            println!("{} symlink updated", dep);
+        }
+    }
 
     Ok(())
 }

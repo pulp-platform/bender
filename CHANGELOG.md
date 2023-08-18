@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Fixed
 - Improve ReadMe and Warning information for `vendor` upstream linking.
+- Ensure `workspace.package_links` symlinks are properly updated when executing the `clone` command.
 
 ## 0.27.2 - 2023-07-12
 ### Added
