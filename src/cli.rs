@@ -173,6 +173,14 @@ pub fn main() -> Result<()> {
     sess.load_locked(&locked)?;
 
     // Ensure the locally linked packages are up-to-date.
+    if matches.subcommand_name() == Some("update")
+        || !sess
+            .manifest
+            .workspace
+            .package_links
+            .clone()
+            .into_iter()
+            .all(|(path, _)| path.exists())
     {
         let rt = Runtime::new()?;
         let io = SessionIo::new(&sess);
@@ -244,6 +252,8 @@ pub fn main() -> Result<()> {
                 }
             }
         }
+    } else {
+        debugln!("main: All links up-to-date, skipping re-linking");
     }
 
     // Dispatch the different subcommands.
