@@ -6,7 +6,12 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 ### Added
-- Add `--no-checkout` flag to `path` command to avoid checkout if not needed.
+- Add `--checkout` flag to `path` command to force checkout if needed.
+- Add `--no-checkout` flag to `update` command to prevent checkout after update if not needed.
+
+### Changed
+- `path` and local links: Skip checkout if package path already exists (can be overruled by `--checkout` flag)
+- `update`: Default to automatically perform checkout after update (can be overruled by `--no-checkout` flag)
 
 ### Fixed
 - Improve ReadMe and Warning information for `vendor` upstream linking.
