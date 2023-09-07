@@ -173,26 +173,25 @@ pub fn main() -> Result<()> {
     sess.load_locked(&locked)?;
 
     // Ensure the locally linked packages are up-to-date.
-    if matches.subcommand_name() == Some("update")
-        || !sess
-            .manifest
-            .workspace
-            .package_links
-            .clone()
-            .into_iter()
-            .all(|(path, _)| path.exists())
     {
-        let rt = Runtime::new()?;
         let io = SessionIo::new(&sess);
         for (path, pkg_name) in &sess.manifest.workspace.package_links {
             debugln!("main: maintaining link to {} at {:?}", pkg_name, path);
 
             // Determine the checkout path for this package.
-            let pkg_path = rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?))?;
+            let pkg_path = io.get_package_path(sess.dependency_with_name(pkg_name)?);
+
+            // Checkout if we are running update or package path does not exist yet
+            if matches.subcommand_name() == Some("update") || !pkg_path.clone().exists() {
+                let rt = Runtime::new()?;
+                rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?))?;
+            }
+
+            // Convert to relative path
             let pkg_path = path
                 .parent()
-                .and_then(|path| pathdiff::diff_paths(pkg_path, path))
-                .unwrap_or_else(|| pkg_path.into());
+                .and_then(|path| pathdiff::diff_paths(pkg_path.clone(), path))
+                .unwrap_or(pkg_path);
 
             // Check if there is something at the destination path that needs to be
             // removed.
@@ -252,8 +251,6 @@ pub fn main() -> Result<()> {
                 }
             }
         }
-    } else {
-        debugln!("main: All links up-to-date, skipping re-linking");
     }
 
     // Dispatch the different subcommands.
