@@ -21,11 +21,11 @@ pub fn new() -> Command {
                 .help("Package names to get the path for"),
         )
         .arg(
-            Arg::new("no-checkout")
-                .long("no-checkout")
+            Arg::new("checkout")
+                .long("checkout")
                 .num_args(0)
                 .action(ArgAction::SetTrue)
-                .help("Prevents check out of dependency."),
+                .help("Force check out of dependency."),
         )
 }
 
@@ -38,7 +38,15 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
 
     let io = SessionIo::new(sess);
-    if !matches.get_flag("no-checkout") {
+
+    // Get paths
+    let paths = ids
+        .iter()
+        .map(|&(_, id)| io.get_package_path(id))
+        .collect::<Vec<_>>();
+
+    // Check out if requested or not done yet
+    if matches.get_flag("checkout") || !paths.iter().all(|p| p.exists()) {
         debugln!("main: obtain checkouts {:?}", ids);
         let rt = Runtime::new()?;
         let checkouts = rt
@@ -50,21 +58,14 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
         debugln!("main: checkouts {:#?}", checkouts);
-        for c in checkouts {
-            if let Some(s) = c.to_str() {
-                println!("{}", s);
-            }
-        }
-    } else {
-        let paths = ids
-            .iter()
-            .map(|&(_, id)| io.get_package_path(id))
-            .collect::<Vec<_>>();
-        for c in paths {
-            if let Some(s) = c.to_str() {
-                println!("{}", s);
-            }
+    }
+
+    // Print paths
+    for c in paths {
+        if let Some(s) = c.to_str() {
+            println!("{}", s);
         }
     }
+
     Ok(())
 }
