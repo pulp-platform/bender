@@ -49,14 +49,23 @@ pub fn main() -> Result<()> {
                 .help("Disables fetching of remotes (e.g. for air-gapped computers)"),
         )
         .subcommand(
-            Command::new("update").about("Update the dependencies").arg(
-                Arg::new("fetch")
-                    .short('f')
-                    .long("fetch")
-                    .num_args(0)
-                    .action(ArgAction::SetTrue)
-                    .help("forces fetch of git dependencies"),
-            ),
+            Command::new("update")
+                .about("Update the dependencies")
+                .arg(
+                    Arg::new("fetch")
+                        .short('f')
+                        .long("fetch")
+                        .num_args(0)
+                        .action(ArgAction::SetTrue)
+                        .help("forces fetch of git dependencies"),
+                )
+                .arg(
+                    Arg::new("no-checkout")
+                        .long("no-checkout")
+                        .num_args(0)
+                        .action(ArgAction::SetTrue)
+                        .help("Disables checkout of dependencies"),
+                ),
         )
         .subcommand(cmd::path::new())
         .subcommand(cmd::parents::new())
@@ -174,17 +183,24 @@ pub fn main() -> Result<()> {
 
     // Ensure the locally linked packages are up-to-date.
     {
-        let rt = Runtime::new()?;
         let io = SessionIo::new(&sess);
         for (path, pkg_name) in &sess.manifest.workspace.package_links {
             debugln!("main: maintaining link to {} at {:?}", pkg_name, path);
 
             // Determine the checkout path for this package.
-            let pkg_path = rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?))?;
+            let pkg_path = io.get_package_path(sess.dependency_with_name(pkg_name)?);
+
+            // Checkout if we are running update or package path does not exist yet
+            if matches.subcommand_name() == Some("update") || !pkg_path.clone().exists() {
+                let rt = Runtime::new()?;
+                rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?))?;
+            }
+
+            // Convert to relative path
             let pkg_path = path
                 .parent()
-                .and_then(|path| pathdiff::diff_paths(pkg_path, path))
-                .unwrap_or_else(|| pkg_path.into());
+                .and_then(|path| pathdiff::diff_paths(pkg_path.clone(), path))
+                .unwrap_or(pkg_path);
 
             // Check if there is something at the destination path that needs to be
             // removed.
@@ -256,7 +272,13 @@ pub fn main() -> Result<()> {
         Some(("config", matches)) => cmd::config::run(&sess, matches),
         Some(("script", matches)) => cmd::script::run(&sess, matches),
         Some(("checkout", matches)) => cmd::checkout::run(&sess, matches),
-        Some(("update", _)) => Ok(()),
+        Some(("update", _)) => {
+            if matches.get_flag("no-checkout") {
+                Ok(())
+            } else {
+                cmd::checkout::run(&sess, &matches)
+            }
+        }
         Some(("vendor", matches)) => cmd::vendor::run(&sess, matches),
         Some(("fusesoc", matches)) => cmd::fusesoc::run(&sess, matches),
         Some((plugin, matches)) => execute_plugin(&sess, plugin, matches.get_many::<OsString>("")),
