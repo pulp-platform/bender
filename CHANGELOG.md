@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
-## 0.27.3 - 2023-08-12
+## 0.27.3 - 2023-09-12
 ### Added
 - Add `--checkout` flag to `path` command to force checkout if needed.
 - Add `--no-checkout` flag to `update` command to prevent checkout after update if not needed.
