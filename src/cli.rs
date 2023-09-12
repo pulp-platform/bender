@@ -272,7 +272,7 @@ pub fn main() -> Result<()> {
         Some(("config", matches)) => cmd::config::run(&sess, matches),
         Some(("script", matches)) => cmd::script::run(&sess, matches),
         Some(("checkout", matches)) => cmd::checkout::run(&sess, matches),
-        Some(("update", _)) => {
+        Some(("update", matches)) => {
             if matches.get_flag("no-checkout") {
                 Ok(())
             } else {
