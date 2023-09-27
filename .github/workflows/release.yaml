@@ -22,18 +22,26 @@ jobs:
           - ubuntu:18.04
           - ubuntu:20.04
           - ubuntu:22.04
-          - fedora:36
           - fedora:37
+          - fedora:38
+          - fedora:39
           - debian:10
           - debian:11
+          - debian:12
           - rhel:8.6
           - rhel:8.7
+          - rhel:8.8
           - rhel:9.0
           - rhel:9.1
+          - rhel:9.2
+          - rhel:9.3
           - almalinux:8.6
           - almalinux:8.7
+          - almalinux:8.8
           - almalinux:9.0
           - almalinux:9.1
+          - almalinux:9.2
+          - almalinux:9.3
     steps:
       - uses: actions/checkout@v3
       - name: OS Build
@@ -78,9 +86,10 @@ jobs:
     container: quay.io/pypa/manylinux2014_x86_64
     steps:
       - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "${CARGO_HOME:-$HOME/.cargo}/bin" >> $GITHUB_PATH
       - name: GNU Build
         run: cargo build --release
       - name: GNU Create Package
