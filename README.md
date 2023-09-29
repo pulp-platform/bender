@@ -449,6 +449,8 @@ To clean up once the changes are added, ensure the correct version is referenced
 
 > Note: The location of the override may be updated in the future to prevent modifying the human-editable `Bender.local` file by adding a persistent section to `Bender.lock`.
 
+> Note: The newly created directory will be a git repo with a remote origin pointing to the `git` tag in `Bender.yml`. On the other hand, git does not support `https` remotes for pushing changes. In order to push changes, either use `git@...` URLs in `Bender.yml` or add a new remote with `git remote add`.
+
 ### `parents` --- Lists packages calling the specified package
 
 The `bender parents <PKG>` command lists all packages calling the `PKG` package.
