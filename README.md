@@ -352,6 +352,7 @@ git: git-wrapper.sh
 # Format is the same as `dependencies` in a package manifest.
 overrides:
   common_cells: { path: "/var/magic/common_cells" }
+  apb_uart:     { git: "git@github.com:pulp-platform/apb_uart.git"}
 
 # Auxiliary plugin dependencies. Optional.
 # Additional dependencies that will be loaded for every package in order to
@@ -449,7 +450,10 @@ To clean up once the changes are added, ensure the correct version is referenced
 
 > Note: The location of the override may be updated in the future to prevent modifying the human-editable `Bender.local` file by adding a persistent section to `Bender.lock`.
 
-> Note: The newly created directory will be a git repo with a remote origin pointing to the `git` tag in `Bender.yml`. On the other hand, git does not support `https` remotes for pushing changes. In order to push changes, either use `git@...` URLs in `Bender.yml` or add a new remote with `git remote add`.
+> Note: The newly created directory will be a git repo with a remote origin pointing to the `git` tag in `Bender.yml`. On the other hand, git does not support `https` remotes for pushing changes. In order to push changes from the new directory, you can do one of the following:
+> 1. Use `git@...` URLs in `Bender.yml`.
+> 2. Add a new remote with `git remote add`.
+> 3. Create your `git` overrides in your `Benderlocal`, run `bender update` and `bender clone`.
 
 ### `parents` --- Lists packages calling the specified package
 
