@@ -822,6 +822,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             let git = self.git_database(name, url, false).await?;
             // .and_then(move |git| {
             git.spawn_with(move |c| c.arg("tag").arg(tag_name_0).arg(revision).arg("--force"))
+		.map_err(move |cause| {
+		    warnln!("Please ensure the commits are available on the remote or run bender update");
+		    Error::chain(format!("Failed to checkout given commit in Bender.lock.\n"),
+                    cause,
+                    )
+		})
                 .await?;
             git.spawn_with(move |c| {
                 c.arg("clone")
