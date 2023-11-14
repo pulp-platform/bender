@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
+## 0.27.4 - 2023-11-14
+### Added
+- Add clearer error message when commits are no longer available upstream.
+- Improve Readme git explanation
+
+### Fixed
+- Fix CI GNU release.
+
 ## 0.27.3 - 2023-09-12
 ### Added
 - Add `--checkout` flag to `path` command to force checkout if needed.
