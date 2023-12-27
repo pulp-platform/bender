@@ -76,7 +76,8 @@ pub fn main() -> Result<()> {
         .subcommand(cmd::script::new())
         .subcommand(cmd::checkout::new())
         .subcommand(cmd::vendor::new())
-        .subcommand(cmd::fusesoc::new());
+        .subcommand(cmd::fusesoc::new())
+        .subcommand(cmd::init::new());
 
     // Add the `--debug` option in debug builds.
     let app = if cfg!(debug_assertions) {
@@ -98,6 +99,10 @@ pub fn main() -> Result<()> {
     // Enable debug outputs if needed.
     if matches.contains_id("debug") && matches.get_flag("debug") {
         ENABLE_DEBUG.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    if let Some(("init", matches)) = matches.subcommand() {
+        return cmd::init::run(matches);
     }
 
     let mut force_fetch = false;
