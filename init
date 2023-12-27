@@ -44,16 +44,25 @@ main() {
 
     get_architecture || err "Failed to determine target architecture!"
     local _arch="$RETVAL"
-    if [ "$_arch" != "x86_64-linux-gnu" ]; then
+
+    if [ "$_arch" = "aarch64-apple-darwin" ] || [ "$_arch" = "x86_64-apple-darwin" ]; then
+        local _arch="universal-apple-darwin"
+    fi
+
+    if [ "$_arch" != "x86_64-linux-gnu" ] && [ "$_arch" != "universal-apple-darwin" ]; then
         echo "Error: Architecture '$_arch' currently not supported!"
         return 1
     fi
 
-    get_distribution || err "Failed to determine distribution!"
-    local _dist="$RETVAL"
-    assert_nz "$_dist" "dist"
+    if [ "$_arch" = "x86_64-linux-gnu" ]; then
+        get_distribution || err "Failed to determine distribution!"
+        local _dist="$RETVAL"
+        assert_nz "$_dist" "dist"
 
-    local _platform="$_arch-$_dist"
+        local _platform="$_arch-$_dist"
+    else
+        local _platform="$_arch"
+    fi
 
     get_asset_url "$_version" "$_platform" #|| err "Failed to get URL of release tar file!"
     local _asset_url="$RETVAL"
@@ -203,6 +212,10 @@ get_architecture() {
             _cputype=aarch64
             ;;
 
+        arm64)
+            _cputype=aarch64
+            ;;
+
         x86_64 | x86-64 | x64 | amd64)
             _cputype=x86_64
             ;;
@@ -294,7 +307,8 @@ get_download_url() {
     local _suburl="$1"
     local _platform="$2"
     RETVAL="$(downloader "$GITHUB_API_BENDER_ROOT/releases/$_suburl" | \
-        grep -Po "(?<=    \"browser_download_url\": \").*?bender-.*-$_platform\.tar\.gz(?=\")")"
+        grep -Eo "    \"browser_download_url\": \".*?bender-.*-$_platform\.tar\.gz\"" | \
+        grep -Eo "http.*?bender-.*-$_platform\.tar\.gz")"
 }
 
 get_asset_url() {
