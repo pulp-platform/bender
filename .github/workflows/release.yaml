@@ -111,5 +111,43 @@ jobs:
           asset_path: ${{ env.ARTIFACT_PATHNAME }}
           asset_name: ${{ env.ARTIFACT_NAME }}
           asset_content_type: application/tar.gz
-
-
+  release-macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: true
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "${CARGO_HOME:-$HOME/.cargo}/bin" >> $GITHUB_PATH
+      - name: universal2 install
+        run: |
+          rustup target add x86_64-apple-darwin
+          rustup target add aarch64-apple-darwin
+          cargo install universal2
+      - name: MacOS Build
+        run: cargo universal2 --release
+      - name: Get Artifact Name
+        run: |
+          if [[ "$GITHUB_REF" =~ ^refs/tags/v.*$ ]]; then \
+            PKG_VERSION=$(echo $GITHUB_REF | sed -n 's/^refs\/tags\/v//p'); \
+          else \
+            PKG_VERSION=$(echo $GITHUB_REF | sed -n 's/^refs\/tags\///p'); \
+          fi
+          ARTIFACT_PATHNAME="bender-$PKG_VERSION-universal-apple-darwin.tar.gz"
+          ARTIFACT_NAME=$(basename $ARTIFACT_PATHNAME)
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
+          echo "ARTIFACT_PATHNAME=${ARTIFACT_PATHNAME}" >> $GITHUB_ENV
+      - name: Create Package
+        run: |
+          gtar -czf $ARTIFACT_PATHNAME -C "./target/universal2-apple-darwin/release" --owner=0 --group=0 bender
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ${{ env.ARTIFACT_PATHNAME }}
+          asset_name: ${{ env.ARTIFACT_NAME }}
+          asset_content_type: application/tar.gz
