@@ -20,6 +20,7 @@ extern crate is_terminal;
 extern crate itertools;
 extern crate pathdiff;
 extern crate semver;
+extern crate subst;
 extern crate tempfile;
 extern crate typed_arena;
 
