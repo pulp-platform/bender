@@ -37,7 +37,7 @@ pub fn run(_matches: &ArgMatches) -> Result<()> {
             .output()?
             .stdout,
     )
-    .unwrap_or("".to_string());
+    .unwrap_or("Your Name".to_string());
     let name = &name
         .strip_suffix("\r\n")
         .unwrap_or(name.strip_suffix('\n').unwrap_or(&name));
@@ -47,7 +47,7 @@ pub fn run(_matches: &ArgMatches) -> Result<()> {
             .output()?
             .stdout,
     )
-    .unwrap_or("".to_string());
+    .unwrap_or("you@example.com".to_string());
     let email = &email
         .strip_suffix("\r\n")
         .unwrap_or(email.strip_suffix('\n').unwrap_or(&email));
@@ -62,6 +62,9 @@ pub fn run(_matches: &ArgMatches) -> Result<()> {
     writeln!(
         file,
         "\
+# A more detailed description of the manifest format `Bender.yml` can be found here:
+# https://github.com/pulp-platform/bender#manifest-format-benderyml
+
 package:
   name: {}
   authors:
