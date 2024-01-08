@@ -178,7 +178,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     let target_path = patch_link
                         .clone()
                         .to_prefix
-                        .prefix_paths(&vendor_package.target_dir);
+                        .prefix_paths(&vendor_package.target_dir)?;
                     if target_path.exists() {
                         if target_path.is_dir() {
                             std::fs::remove_dir_all(target_path.clone())
@@ -266,8 +266,8 @@ pub fn init(
     let link_to = patch_link
         .to_prefix
         .clone()
-        .prefix_paths(&vendor_package.target_dir);
-    let link_from = patch_link.from_prefix.clone().prefix_paths(dep_path);
+        .prefix_paths(&vendor_package.target_dir)?;
+    let link_from = patch_link.from_prefix.clone().prefix_paths(dep_path)?;
     std::fs::create_dir_all(link_to.parent().unwrap()).map_err(|cause| {
         Error::chain(
             format!("Failed to create directory {:?}", link_to.parent()),
@@ -281,7 +281,7 @@ pub fn init(
 
     // Check if includes exist
     for path in vendor_package.include_from_upstream.clone() {
-        if !PathBuf::from(extend_paths(&[path.clone()], dep_path)[0].clone()).exists() {
+        if !PathBuf::from(extend_paths(&[path.clone()], dep_path)?[0].clone()).exists() {
             warnln!("{} not found in upstream, continuing.", path);
         }
     }
@@ -291,7 +291,7 @@ pub fn init(
         true => copy_recursively(
             &link_from,
             &link_to,
-            &extend_paths(&vendor_package.include_from_upstream, dep_path),
+            &extend_paths(&vendor_package.include_from_upstream, dep_path)?,
             &vendor_package
                 .exclude_from_upstream
                 .clone()
@@ -364,6 +364,7 @@ pub fn apply_patches(
                             .from_prefix
                             .clone()
                             .prefix_paths(git.path)
+                            .unwrap()
                             .is_file()
                         {
                             patch_link.from_prefix.as_path()
@@ -404,11 +405,11 @@ pub fn diff(
     let link_from = patch_link
         .from_prefix
         .clone()
-        .prefix_paths(dep_path.as_ref()); // dep_path: path to temporary clone. link_to: targetdir/link.to
+        .prefix_paths(dep_path.as_ref())?; // dep_path: path to temporary clone. link_to: targetdir/link.to
     let link_to = patch_link
         .to_prefix
         .clone()
-        .prefix_paths(vendor_package.target_dir.as_ref());
+        .prefix_paths(vendor_package.target_dir.as_ref())?;
     if !&link_to.exists() {
         return Err(Error::new(format!(
             "Could not find {}. Did you run bender vendor init?",
@@ -423,7 +424,7 @@ pub fn diff(
             &extend_paths(
                 &vendor_package.include_from_upstream,
                 &vendor_package.target_dir,
-            ),
+            )?,
             &vendor_package
                 .exclude_from_upstream
                 .clone()
@@ -528,7 +529,7 @@ pub fn gen_format_patch(
     let to_path = patch_link
         .to_prefix
         .clone()
-        .prefix_paths(target_dir.as_ref());
+        .prefix_paths(target_dir.as_ref())?;
     if !&to_path.exists() {
         return Err(Error::new(format!(
             "Could not find {}. Did you run bender vendor init?",
@@ -724,16 +725,19 @@ pub fn copy_recursively(
 }
 
 /// Prefix paths with prefix. Append ** to directories.
-pub fn extend_paths(include_from_upstream: &[String], prefix: impl AsRef<Path>) -> Vec<String> {
+pub fn extend_paths(
+    include_from_upstream: &[String],
+    prefix: impl AsRef<Path>,
+) -> Result<Vec<String>> {
     include_from_upstream
         .iter()
         .map(|pattern| {
-            let pattern_long = PathBuf::from(pattern).prefix_paths(prefix.as_ref());
+            let pattern_long = PathBuf::from(pattern).prefix_paths(prefix.as_ref())?;
             if pattern_long.is_dir() {
-                String::from(pattern_long.join("**").to_str().unwrap())
+                Ok(String::from(pattern_long.join("**").to_str().unwrap()))
             } else {
-                String::from(pattern_long.to_str().unwrap())
+                Ok(String::from(pattern_long.to_str().unwrap()))
             }
         })
-        .collect()
+        .collect::<Result<_>>()
 }

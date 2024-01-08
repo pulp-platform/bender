@@ -19,6 +19,7 @@ use indexmap::IndexMap;
 use semver;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
+use subst;
 
 use crate::error::*;
 use crate::target::TargetSpec;
@@ -48,21 +49,25 @@ pub struct Manifest {
 }
 
 impl PrefixPaths for Manifest {
-    fn prefix_paths(self, prefix: &Path) -> Self {
-        Manifest {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(Manifest {
             package: self.package,
-            dependencies: self.dependencies.prefix_paths(prefix),
-            sources: self.sources.map(|src| src.prefix_paths(prefix)),
+            dependencies: self.dependencies.prefix_paths(prefix)?,
+            sources: self
+                .sources
+                .map_or(Ok::<Option<Sources>, Error>(None), |src| {
+                    Ok(Some(src.prefix_paths(prefix)?))
+                })?,
             export_include_dirs: self
                 .export_include_dirs
                 .into_iter()
-                .map(|src| src.prefix_paths(prefix))
-                .collect(),
-            plugins: self.plugins.prefix_paths(prefix),
+                .map(|src| Ok(src.prefix_paths(prefix)?))
+                .collect::<Result<_>>()?,
+            plugins: self.plugins.prefix_paths(prefix)?,
             frozen: self.frozen,
-            workspace: self.workspace.prefix_paths(prefix),
-            vendor_package: self.vendor_package.prefix_paths(prefix),
-        }
+            workspace: self.workspace.prefix_paths(prefix)?,
+            vendor_package: self.vendor_package.prefix_paths(prefix)?,
+        })
     }
 }
 
@@ -99,11 +104,11 @@ pub enum Dependency {
 }
 
 impl PrefixPaths for Dependency {
-    fn prefix_paths(self, prefix: &Path) -> Self {
-        match self {
-            Dependency::Path(p) => Dependency::Path(p.prefix_paths(prefix)),
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(match self {
+            Dependency::Path(p) => Dependency::Path(p.prefix_paths(prefix)?),
             v => v,
-        }
+        })
     }
 }
 
@@ -146,13 +151,13 @@ pub struct Sources {
 }
 
 impl PrefixPaths for Sources {
-    fn prefix_paths(self, prefix: &Path) -> Self {
-        Sources {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(Sources {
             target: self.target,
-            include_dirs: self.include_dirs.prefix_paths(prefix),
+            include_dirs: self.include_dirs.prefix_paths(prefix)?,
             defines: self.defines,
-            files: self.files.prefix_paths(prefix),
-        }
+            files: self.files.prefix_paths(prefix)?,
+        })
     }
 }
 
@@ -174,11 +179,11 @@ impl fmt::Debug for SourceFile {
 }
 
 impl PrefixPaths for SourceFile {
-    fn prefix_paths(self, prefix: &Path) -> Self {
-        match self {
-            SourceFile::File(path) => SourceFile::File(path.prefix_paths(prefix)),
-            SourceFile::Group(group) => SourceFile::Group(Box::new(group.prefix_paths(prefix))),
-        }
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(match self {
+            SourceFile::File(path) => SourceFile::File(path.prefix_paths(prefix)?),
+            SourceFile::Group(group) => SourceFile::Group(Box::new(group.prefix_paths(prefix)?)),
+        })
     }
 }
 
@@ -192,15 +197,15 @@ pub struct Workspace {
 }
 
 impl PrefixPaths for Workspace {
-    fn prefix_paths(self, prefix: &Path) -> Self {
-        Workspace {
-            checkout_dir: self.checkout_dir.prefix_paths(prefix),
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(Workspace {
+            checkout_dir: self.checkout_dir.prefix_paths(prefix)?,
             package_links: self
                 .package_links
                 .into_iter()
-                .map(|(k, v)| (k.prefix_paths(prefix), v))
-                .collect(),
-        }
+                .map(|(k, v)| Ok((k.prefix_paths(prefix)?, v)))
+                .collect::<Result<_>>()?,
+        })
     }
 }
 
@@ -284,9 +289,9 @@ pub struct PartialManifest {
     /// The source files.
     pub sources: Option<SeqOrStruct<PartialSources, PartialSourceFile>>,
     /// The include directories exported to dependent packages.
-    pub export_include_dirs: Option<Vec<PathBuf>>,
+    pub export_include_dirs: Option<Vec<String>>,
     /// The plugin binaries.
-    pub plugins: Option<IndexMap<String, PathBuf>>,
+    pub plugins: Option<IndexMap<String, String>>,
     /// Whether the dependencies of the manifest are frozen.
     pub frozen: Option<bool>,
     /// The workspace configuration.
@@ -328,7 +333,10 @@ impl Validate for PartialManifest {
         };
         let exp_inc_dirs = self.export_include_dirs.unwrap_or_default();
         let plugins = match self.plugins {
-            Some(s) => s,
+            Some(s) => s
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), env_path_from_string(v.to_string())?)))
+                .collect::<Result<IndexMap<_, _>>>()?,
             None => IndexMap::new(),
         };
         let frozen = self.frozen.unwrap_or(false);
@@ -348,7 +356,10 @@ impl Validate for PartialManifest {
             package: pkg,
             dependencies: deps,
             sources: srcs,
-            export_include_dirs: exp_inc_dirs,
+            export_include_dirs: exp_inc_dirs
+                .iter()
+                .map(|path| env_path_from_string(path.to_string()))
+                .collect::<Result<Vec<_>>>()?,
             plugins,
             frozen,
             workspace,
@@ -371,7 +382,7 @@ impl Validate for PartialManifest {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PartialDependency {
     /// The path to the package.
-    path: Option<PathBuf>,
+    path: Option<String>,
     /// The git URL to the package.
     git: Option<String>,
     /// The git revision of the package to use. Can be a commit hash, branch,
@@ -395,11 +406,11 @@ impl FromStr for PartialDependency {
 }
 
 impl PrefixPaths for PartialDependency {
-    fn prefix_paths(self, prefix: &Path) -> Self {
-        PartialDependency {
-            path: self.path.prefix_paths(prefix),
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(PartialDependency {
+            path: self.path.prefix_paths(prefix)?,
             ..self
-        }
+        })
     }
 }
 
@@ -436,7 +447,7 @@ impl Validate for PartialDependency {
                     list
                 )))
             } else {
-                Ok(Dependency::Path(path))
+                Ok(Dependency::Path(env_path_from_string(path)?))
             }
         } else if let Some(git) = self.git {
             if let Some(rev) = self.rev {
@@ -464,7 +475,7 @@ pub struct PartialSources {
     /// The targets for which the sources should be considered.
     pub target: Option<TargetSpec>,
     /// The directories to search for include files.
-    pub include_dirs: Option<Vec<PathBuf>>,
+    pub include_dirs: Option<Vec<String>>,
     /// The preprocessor definitions.
     pub defines: Option<IndexMap<String, Option<String>>>,
     /// The source file paths.
@@ -486,12 +497,17 @@ impl Validate for PartialSources {
     type Output = Sources;
     type Error = Error;
     fn validate(self) -> Result<Sources> {
-        let include_dirs = self.include_dirs.unwrap_or_default();
+        let include_dirs: Result<Vec<_>> = self
+            .include_dirs
+            .unwrap_or_default()
+            .iter()
+            .map(|path| env_path_from_string(path.to_string()))
+            .collect();
         let defines = self.defines.unwrap_or_default();
         let files: Result<Vec<_>> = self.files.into_iter().map(|f| f.validate()).collect();
         Ok(Sources {
             target: self.target.unwrap_or(TargetSpec::Wildcard),
-            include_dirs,
+            include_dirs: include_dirs?,
             defines,
             files: files?,
         })
@@ -502,7 +518,7 @@ impl Validate for PartialSources {
 #[derive(Debug)]
 pub enum PartialSourceFile {
     /// A single file.
-    File(PathBuf),
+    File(String),
     /// A subgroup of sources.
     Group(Box<PartialSources>),
 }
@@ -565,7 +581,7 @@ impl Validate for PartialSourceFile {
     type Error = Error;
     fn validate(self) -> Result<SourceFile> {
         match self {
-            PartialSourceFile::File(path) => Ok(SourceFile::File(path)),
+            PartialSourceFile::File(path) => Ok(SourceFile::File(env_path_from_string(path)?)),
             PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate()?))),
         }
     }
@@ -575,18 +591,27 @@ impl Validate for PartialSourceFile {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PartialWorkspace {
     /// The directory which will contain working copies of the dependencies.
-    pub checkout_dir: Option<PathBuf>,
+    pub checkout_dir: Option<String>,
     /// The locally linked packages.
-    pub package_links: Option<IndexMap<PathBuf, String>>,
+    pub package_links: Option<IndexMap<String, String>>,
 }
 
 impl Validate for PartialWorkspace {
     type Output = Workspace;
     type Error = Error;
     fn validate(self) -> Result<Workspace> {
+        let package_links: Result<IndexMap<_, _>> = self
+            .package_links
+            .unwrap_or_default()
+            .iter()
+            .map(|(k, v)| Ok((env_path_from_string(k.to_string())?, v.clone())))
+            .collect();
         Ok(Workspace {
-            checkout_dir: self.checkout_dir,
-            package_links: self.package_links.unwrap_or_default(),
+            checkout_dir: match self.checkout_dir {
+                Some(dir) => Some(env_path_from_string(dir)?),
+                None => None,
+            },
+            package_links: package_links?,
         })
     }
 }
@@ -600,12 +625,23 @@ pub trait Merge {
 /// Prefixes relative paths.
 pub trait PrefixPaths {
     /// Prefixes all paths with `prefix`. Does not touch absolute paths.
-    fn prefix_paths(self, prefix: &Path) -> Self;
+    fn prefix_paths(self, prefix: &Path) -> Result<Self>
+    where
+        Self: std::marker::Sized;
 }
 
 impl PrefixPaths for PathBuf {
-    fn prefix_paths(self, prefix: &Path) -> Self {
-        prefix.join(self)
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(prefix.join(self))
+    }
+}
+
+impl PrefixPaths for String {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(prefix
+            .join(env_path_from_string(self)?)
+            .display()
+            .to_string())
     }
 }
 
@@ -613,8 +649,8 @@ impl<T> PrefixPaths for Option<T>
 where
     T: PrefixPaths,
 {
-    fn prefix_paths(self, prefix: &Path) -> Self {
-        self.map(|inner| inner.prefix_paths(prefix))
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        self.map_or(Ok(None), |inner| Ok(Some(inner.prefix_paths(prefix)?)))
     }
 }
 
@@ -624,10 +660,11 @@ where
     K: Hash + Eq,
     V: PrefixPaths,
 {
-    fn prefix_paths(self, prefix: &Path) -> Self {
-        self.into_iter()
-            .map(|(k, v)| (k, v.prefix_paths(prefix)))
-            .collect()
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(self
+            .into_iter()
+            .map(|(k, v)| Ok((k, v.prefix_paths(prefix)?)))
+            .collect::<Result<_>>()?)
     }
 }
 
@@ -636,8 +673,11 @@ impl<V> PrefixPaths for Vec<V>
 where
     V: PrefixPaths,
 {
-    fn prefix_paths(self, prefix: &Path) -> Self {
-        self.into_iter().map(|v| v.prefix_paths(prefix)).collect()
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(self
+            .into_iter()
+            .map(|v| Ok(v.prefix_paths(prefix)?))
+            .collect::<Result<_>>()?)
     }
 }
 
@@ -661,7 +701,7 @@ pub struct Config {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PartialConfig {
     /// The path to the database directory.
-    pub database: Option<PathBuf>,
+    pub database: Option<String>,
     /// The git command or path to the binary.
     pub git: Option<String>,
     /// The dependency overrides.
@@ -689,13 +729,13 @@ impl Default for PartialConfig {
 }
 
 impl PrefixPaths for PartialConfig {
-    fn prefix_paths(self, prefix: &Path) -> Self {
-        PartialConfig {
-            database: self.database.prefix_paths(prefix),
-            overrides: self.overrides.prefix_paths(prefix),
-            plugins: self.plugins.prefix_paths(prefix),
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(PartialConfig {
+            database: self.database.prefix_paths(prefix)?,
+            overrides: self.overrides.prefix_paths(prefix)?,
+            plugins: self.plugins.prefix_paths(prefix)?,
             ..self
-        }
+        })
     }
 }
 
@@ -730,7 +770,7 @@ impl Validate for PartialConfig {
     fn validate(self) -> Result<Config> {
         Ok(Config {
             database: match self.database {
-                Some(db) => db,
+                Some(db) => env_path_from_string(db)?,
                 None => return Err(Error::new("Database directory not configured")),
             },
             git: match self.git {
@@ -773,29 +813,36 @@ pub struct VendorPackage {
 }
 
 impl PrefixPaths for VendorPackage {
-    fn prefix_paths(self, prefix: &Path) -> Self {
-        let patch_root = self.patch_dir.prefix_paths(prefix);
-        VendorPackage {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        let patch_root = self.patch_dir.prefix_paths(prefix)?;
+        Ok(VendorPackage {
             name: self.name,
-            target_dir: self.target_dir.prefix_paths(prefix),
+            target_dir: self.target_dir.prefix_paths(prefix)?,
             upstream: self.upstream,
             mapping: self
                 .mapping
                 .into_iter()
-                .map(|ftl| FromToLink {
-                    from: ftl.from,
-                    to: ftl.to,
-                    patch_dir: ftl.patch_dir.map(|dir| {
-                        dir.prefix_paths(&patch_root.clone().expect(
+                .map(|ftl| {
+                    Ok(FromToLink {
+                        from: ftl.from,
+                        to: ftl.to,
+                        patch_dir: ftl.patch_dir.map_or(
+                            Ok::<Option<PathBuf>, Error>(None),
+                            |dir| {
+                                Ok(Some({
+                                    dir.prefix_paths(&patch_root.clone().expect(
                             "A mapping has a local patch_dir, but no global patch_dir is defined.",
-                        ))
-                    }),
+                        ))?
+                                }))
+                            },
+                        )?,
+                    })
                 })
-                .collect(),
+                .collect::<Result<_>>()?,
             patch_dir: patch_root,
             include_from_upstream: self.include_from_upstream,
             exclude_from_upstream: self.exclude_from_upstream,
-        }
+        })
     }
 }
 
@@ -805,13 +852,13 @@ pub struct PartialVendorPackage {
     /// External dependency name
     pub name: Option<String>,
     /// Target folder for imported dependency
-    pub target_dir: Option<PathBuf>,
+    pub target_dir: Option<String>,
     /// Upstream dependency reference
     pub upstream: Option<PartialDependency>,
     /// Import mapping
     pub mapping: Option<Vec<FromToLink>>,
     /// Folder containing patch files
-    pub patch_dir: Option<PathBuf>,
+    pub patch_dir: Option<String>,
     // /// Dependency containing patches
     // pub patch_repo: Option<PartialDependency>,
     /// include from upstream
@@ -830,7 +877,7 @@ impl Validate for PartialVendorPackage {
                 None => return Err(Error::new("external import name missing")),
             },
             target_dir: match self.target_dir {
-                Some(target_dir) => target_dir,
+                Some(target_dir) => env_path_from_string(target_dir)?,
                 None => return Err(Error::new("external import target dir missing")),
             },
             upstream: match self.upstream {
@@ -843,7 +890,10 @@ impl Validate for PartialVendorPackage {
                 Some(mapping) => mapping,
                 None => Vec::new(),
             },
-            patch_dir: self.patch_dir,
+            patch_dir: match self.patch_dir {
+                Some(patch_dir) => Some(env_path_from_string(patch_dir)?),
+                None => None,
+            },
             include_from_upstream: match self.include_from_upstream {
                 Some(include_from_upstream) => include_from_upstream,
                 None => vec![String::from("**")],
@@ -906,4 +956,15 @@ pub enum LockedSource {
     Git(String),
     /// A registry.
     Registry(String),
+}
+
+fn env_path_from_string(path_str: String) -> Result<PathBuf> {
+    Ok(PathBuf::from(
+        subst::substitute(&path_str, &subst::Env).map_err(|cause| {
+            Error::chain(
+                format!("Unable to substitute with env: {}", path_str),
+                cause,
+            )
+        })?,
+    ))
 }

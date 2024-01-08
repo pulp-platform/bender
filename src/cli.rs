@@ -353,7 +353,7 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
     let manifest = partial
         .validate()
         .map_err(|cause| Error::chain(format!("Error in manifest {:?}.", path), cause))?;
-    Ok(manifest.prefix_paths(path.parent().unwrap()))
+    Ok(manifest.prefix_paths(path.parent().unwrap())?)
 }
 
 /// Load a configuration by traversing a directory hierarchy upwards.
@@ -413,7 +413,7 @@ fn load_config(from: &Path) -> Result<Config> {
 
     // Assemble and merge the default configuration.
     let default_cfg = PartialConfig {
-        database: Some(from.join(".bender")),
+        database: Some(from.join(".bender").to_str().unwrap().to_string()),
         git: Some("git".into()),
         overrides: None,
         plugins: None,
@@ -445,7 +445,7 @@ fn maybe_load_config(path: &Path) -> Result<Option<PartialConfig>> {
         .map_err(|cause| Error::chain(format!("Cannot open config {:?}.", path), cause))?;
     let partial: PartialConfig = serde_yaml::from_reader(file)
         .map_err(|cause| Error::chain(format!("Syntax error in config {:?}.", path), cause))?;
-    Ok(Some(partial.prefix_paths(path.parent().unwrap())))
+    Ok(Some(partial.prefix_paths(path.parent().unwrap())?))
 }
 
 /// Read a lock file.
@@ -462,14 +462,14 @@ fn read_lockfile(path: &Path, root_dir: &Path) -> Result<Locked> {
             .packages
             .iter()
             .map(|pack| {
-                if let LockedSource::Path(path) = &pack.1.source {
+                Ok(if let LockedSource::Path(path) = &pack.1.source {
                     (
                         pack.0.clone(),
                         LockedPackage {
                             revision: pack.1.revision.clone(),
                             version: pack.1.version.clone(),
                             source: LockedSource::Path(if path.is_relative() {
-                                path.clone().prefix_paths(root_dir)
+                                path.clone().prefix_paths(root_dir)?
                             } else {
                                 path.clone()
                             }),
@@ -478,9 +478,9 @@ fn read_lockfile(path: &Path, root_dir: &Path) -> Result<Locked> {
                     )
                 } else {
                     (pack.0.clone(), pack.1.clone())
-                }
+                })
             })
-            .collect(),
+            .collect::<Result<_>>()?,
     })
 }
 
