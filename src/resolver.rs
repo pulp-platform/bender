@@ -273,7 +273,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     DependencyVersions::Path => (0..1).collect(),
                     DependencyVersions::Registry(ref _rv) => {
                         return Err(Error::new(format!(
-                            "Resolution of registry dependency `{}` not yet imlemented",
+                            "Resolution of registry dependency `{}` not yet implemented",
                             dep.name
                         )));
                     }
@@ -592,7 +592,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                                 State::Picked(ids.first().copied().unwrap(), ids.clone())
                             }
                             DependencyVersions::Registry(..) => {
-                                return Err(Error::new(format!("Version picking for registry dependency `{}` not yet imlemented", dep.name)));
+                                return Err(Error::new(format!("Version picking for registry dependency `{}` not yet implemented", dep.name)));
                             }
                         }
                     }
