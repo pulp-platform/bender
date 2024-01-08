@@ -3,10 +3,13 @@
 
 //! The `script` subcommand.
 
+use std::path::PathBuf;
+
 use clap::builder::PossibleValue;
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 use common_path::common_path_all;
 use indexmap::IndexSet;
+use tera::{Context, Tera};
 use tokio::runtime::Runtime;
 
 use crate::error::*;
@@ -306,7 +309,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     // Generate the corresponding output.
     match format.as_str() {
-        "flist" => emit_flist(sess, matches, srcs),
+        "flist" => emit_flist(sess, matches, srcs, targets),
         "vsim" => emit_vsim_tcl(sess, matches, targets, srcs, abort_on_error),
         "vcs" => emit_vcs_sh(sess, matches, targets, srcs),
         "verilator" => emit_verilator_sh(sess, matches, targets, srcs),
@@ -704,50 +707,84 @@ fn emit_verilator_sh(
 }
 
 /// Emit a flat file list
-fn emit_flist(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>) -> Result<()> {
-    let mut lines = vec![];
+fn emit_flist(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>, targets: TargetSet,
+) -> Result<()> {
     let mut inc_dirs = Vec::new();
     let mut files = vec![];
+    let mut defines: Vec<(String, Option<String>)> = vec![];
     for src in srcs {
-        inc_dirs = src.clone().get_incdirs();
+        inc_dirs.append(&mut src.clone().get_incdirs());
         files.append(&mut src.files.clone());
+        defines.extend(src.defines
+            .iter()
+            .map(|(k, &v)| (k.to_string(), v.map(String::from))));
     }
 
-    let mut root = format!("{}/", sess.root.to_str().unwrap());
-    if matches.get_flag("relative-path") {
-        root = "".to_string();
-    }
+    let root = if matches.get_flag("relative-path") {
+        PathBuf::from("")
+    } else {
+        sess.root.to_path_buf()
+    };
 
-    for i in &inc_dirs {
+    let inc_dirs: IndexSet<PathBuf> = inc_dirs.iter().map(|i| {
         if i.starts_with(sess.root) {
-            lines.push(format!(
-                "+incdir+{}{}",
-                root,
-                i.strip_prefix(sess.root).unwrap().to_str().unwrap()
-            ));
+            root.join(i.strip_prefix(sess.root).unwrap())
         } else {
-            lines.push(format!("+incdir+{}", i.to_str().unwrap()));
+            i.to_path_buf()
         }
-    }
+    }).collect();
 
-    for file in files {
-        let p = match file {
-            SourceFile::File(p) => p,
-            _ => continue,
-        };
-        if p.starts_with(sess.root) {
-            lines.push(format!(
-                "{}{}",
-                root,
-                p.strip_prefix(sess.root).unwrap().to_str().unwrap()
-            ));
-        } else {
-            lines.push(p.to_str().unwrap().to_string());
+    let files: IndexSet<PathBuf> = files.iter().filter_map(|file| {
+        match file {
+            SourceFile::File(p) => Some(p),
+            _ => None,
         }
-    }
-    println!("{}", lines.join("\n"));
+    }).map(|file| {
+        if file.starts_with(sess.root) {
+            root.join(file.strip_prefix(sess.root).unwrap())
+        } else {
+            file.to_path_buf()
+        }
+    }).collect();
+
+    defines.extend(
+        targets
+            .iter()
+            .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
+    );
+    add_defines_from_matches(&mut defines, matches);
+    defines.sort();
+
+    let mut tera_flist = Tera::default();
+    let mut context_flist = Context::new();
+    context_flist.insert("inc_dirs", &inc_dirs);
+    context_flist.insert("defines", &defines);
+    context_flist.insert("files", &files);
+    println!(
+        "{}",
+        tera_flist
+            .render_str(FLIST_TPL, &context_flist)
+            .map_err(|e| { Error::chain("Failed to render flist template.", e) })?
+    );
+
     Ok(())
 }
+
+static FLIST_TPL: &str = "\
+{% for incdir in inc_dirs %}\
++incdir+{{ incdir }}
+{% endfor %}\
+{% for define in defines %}\
+{% if define.1 %}\
++define+{{ define.0 }}={{ define.1}}
+{% else %}\
++define+{{ define.0 }}
+{% endif %}\
+{% endfor %}\
+{% for file in files %}\
+{{ file }}
+{% endfor %}\
+";
 
 /// Emit a Synopsys Design Compiler compilation script.
 fn emit_synopsys_tcl(
