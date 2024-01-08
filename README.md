@@ -332,7 +332,7 @@ It will also look recursively upwards from the current working directory for the
 - `.bender.yml`
 - `Bender.local`
 
-The contents of these files are merged as they are encountered, such that a configuration in `foo/bar/.bender.yml` will overwrite a configuration in `foo/.bender.yml`.
+The contents of these files are merged as they are encountered, such that a configuration in `foo/.bender.yml` will overwrite a configuration in `foo/bar/.bender.yml`.
 
 The configuration file generally looks as follows:
 
