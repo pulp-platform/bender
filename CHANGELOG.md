@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Added
 - Add macOS binary for releases
 - Add `init` command to initialize a Bender.yml file of an IP.
+- Allow environment variables in dependency and sources paths.
 
 ## 0.27.4 - 2023-11-14
 ### Added
