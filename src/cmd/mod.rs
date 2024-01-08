@@ -11,6 +11,7 @@ pub mod checkout;
 pub mod clone;
 pub mod config;
 pub mod fusesoc;
+pub mod init;
 pub mod packages;
 pub mod parents;
 pub mod path;
