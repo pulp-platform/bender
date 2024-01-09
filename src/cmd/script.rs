@@ -509,9 +509,9 @@ fn emit_template(
         all_files.append(&mut src.files.clone());
     }
     let all_defines = if !matches.get_flag("only-includes") && !matches.get_flag("only-sources") {
-        all_defines
+        all_defines.into_iter().collect()
     } else {
-        vec![]
+        IndexSet::new()
     };
     tera_context.insert("all_defines", &all_defines);
 
@@ -557,7 +557,7 @@ fn emit_template(
                                 .iter()
                                 .map(|(k, &v)| (k.to_string(), v.map(String::from))),
                         );
-                        local_defines
+                        local_defines.into_iter().collect()
                     },
                     incdirs: src
                         .clone()
@@ -583,10 +583,10 @@ fn emit_template(
     for src in &split_srcs {
         match src.file_type.as_str() {
             "verilog" => {
-                all_verilog.append(&mut src.files.clone());
+                all_verilog.append(&mut src.files.clone().into_iter().collect());
             }
             "vhdl" => {
-                all_vhdl.append(&mut src.files.clone());
+                all_vhdl.append(&mut src.files.clone().into_iter().collect());
             }
             _ => {}
         }
@@ -659,8 +659,8 @@ fn emit_template(
 
 #[derive(Debug, Serialize)]
 struct TplSrcStruct {
-    defines: Vec<(String, Option<String>)>,
-    incdirs: Vec<PathBuf>,
-    files: Vec<PathBuf>,
+    defines: IndexSet<(String, Option<String>)>,
+    incdirs: IndexSet<PathBuf>,
+    files: IndexSet<PathBuf>,
     file_type: String,
 }
