@@ -1,6 +1,6 @@
-{% for file in all_files %}{#                                               loop over all files
-#}{% if relativize_path %}{#                                                  make path relative if necessary
-#}{% if file is starting_with(root) %}{#                                      keep path unless it starts with common root
+{% for file in all_files %}{#                                           loop over all files
+#}{% if relativize_path %}{#                                            make path relative if necessary
+#}{% if file is starting_with(root) %}{#                                keep path unless it starts with common root
 #}{{ file | replace(from=root, to='') | trim_start_matches(pat='/') }}
 {% else %}{#
 #}{{ file }}

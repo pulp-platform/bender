@@ -61,7 +61,7 @@ impl PrefixPaths for Manifest {
             export_include_dirs: self
                 .export_include_dirs
                 .into_iter()
-                .map(|src| Ok(src.prefix_paths(prefix)?))
+                .map(|src| src.prefix_paths(prefix))
                 .collect::<Result<_>>()?,
             plugins: self.plugins.prefix_paths(prefix)?,
             frozen: self.frozen,
@@ -661,10 +661,9 @@ where
     V: PrefixPaths,
 {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
-        Ok(self
-            .into_iter()
+        self.into_iter()
             .map(|(k, v)| Ok((k, v.prefix_paths(prefix)?)))
-            .collect::<Result<_>>()?)
+            .collect()
     }
 }
 
@@ -674,10 +673,7 @@ where
     V: PrefixPaths,
 {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
-        Ok(self
-            .into_iter()
-            .map(|v| Ok(v.prefix_paths(prefix)?))
-            .collect::<Result<_>>()?)
+        self.into_iter().map(|v| v.prefix_paths(prefix)).collect()
     }
 }
 
