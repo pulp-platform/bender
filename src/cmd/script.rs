@@ -327,6 +327,13 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             targets,
             srcs,
         ),
+        "flist-plus" => emit_template(
+            sess,
+            include_str!("../script_fmt/flist-plus.tera"),
+            matches,
+            targets,
+            srcs,
+        ),
         "vsim" => emit_template(
             sess,
             include_str!("../script_fmt/vsim_tcl.tera"),

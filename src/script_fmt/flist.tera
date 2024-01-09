@@ -1,14 +1,4 @@
-{% for incdir in all_incdirs %}{#                                             loop over all include directories
-#}{% if relativize_path %}{#                                                  make path relative if necessary
-#}+incdir+{{ incdir | replace(from=root, to='') }}
-{% else %}{#
-#}+incdir+{{ incdir }}
-{% endif %}{#
-#}{% endfor %}{#
-#}{% for define in all_defines %}{#                                           loop over all defines
-#}+define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}
-{% endfor %}{#
-#}{% for file in all_files %}{#                                               loop over all files
+{% for file in all_files %}{#                                               loop over all files
 #}{% if relativize_path %}{#                                                  make path relative if necessary
 #}{% if file is starting_with(root) %}{#                                      keep path unless it starts with common root
 #}{{ file | replace(from=root, to='') | trim_start_matches(pat='/') }}
