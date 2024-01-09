@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use clap::builder::PossibleValue;
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use tera::{Context, Tera};
 use tokio::runtime::Runtime;
 
@@ -464,7 +464,7 @@ fn relativize_path(path: &std::path::Path, root: &std::path::Path) -> String {
 
 static HEADER_AUTOGEN: &str = "This script was generated automatically by bender.";
 
-fn add_defines_from_matches(defines: &mut Vec<(String, Option<String>)>, matches: &ArgMatches) {
+fn add_defines_from_matches(defines: &mut IndexMap<String, Option<String>>, matches: &ArgMatches) {
     if let Some(d) = matches.get_many::<String>("define") {
         defines.extend(d.map(|t| {
             let mut parts = t.splitn(2, '=');
@@ -491,17 +491,19 @@ fn emit_template(
     // tera_context.insert("srcs", &srcs);
     tera_context.insert("abort_on_error", &!matches.get_flag("no-abort-on-error"));
 
-    let mut defines: Vec<(String, Option<String>)> = vec![];
-    defines.extend(
+    let mut target_defines: IndexMap<String, Option<String>> = IndexMap::new();
+    target_defines.extend(
         targets
             .iter()
             .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
     );
-    add_defines_from_matches(&mut defines, matches);
-    defines.sort();
-    tera_context.insert("global_defines", &defines);
+    target_defines.sort_keys();
 
-    let mut all_defines = defines.clone();
+    let mut global_defines = target_defines.clone();
+    add_defines_from_matches(&mut global_defines, matches);
+    tera_context.insert("global_defines", &global_defines);
+
+    let mut all_defines = IndexMap::new();
     let mut all_incdirs = vec![];
     let mut all_files = vec![];
     let mut all_verilog = vec![];
@@ -515,6 +517,8 @@ fn emit_template(
         all_incdirs.append(&mut src.clone().get_incdirs());
         all_files.append(&mut src.files.clone());
     }
+    all_defines.extend(target_defines.clone());
+    add_defines_from_matches(&mut all_defines, matches);
     let all_defines = if !matches.get_flag("only-includes") && !matches.get_flag("only-sources") {
         all_defines.into_iter().collect()
     } else {
@@ -522,6 +526,7 @@ fn emit_template(
     };
     tera_context.insert("all_defines", &all_defines);
 
+    all_incdirs.sort();
     let all_incdirs: IndexSet<PathBuf> =
         if !matches.get_flag("only-defines") && !matches.get_flag("only-sources") {
             all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
@@ -558,20 +563,26 @@ fn emit_template(
             |src, ty, files| {
                 split_srcs.push(TplSrcStruct {
                     defines: {
-                        let mut local_defines = defines.clone();
+                        let mut local_defines = IndexMap::new();
                         local_defines.extend(
                             src.defines
                                 .iter()
                                 .map(|(k, &v)| (k.to_string(), v.map(String::from))),
                         );
+                        local_defines.extend(target_defines.clone());
+                        add_defines_from_matches(&mut local_defines, matches);
                         local_defines.into_iter().collect()
                     },
-                    incdirs: src
-                        .clone()
-                        .get_incdirs()
-                        .iter()
-                        .map(|p| p.to_path_buf())
-                        .collect(),
+                    incdirs: {
+                        let mut incdirs = src
+                            .clone()
+                            .get_incdirs()
+                            .iter()
+                            .map(|p| p.to_path_buf())
+                            .collect::<IndexSet<_>>();
+                        incdirs.sort();
+                        incdirs
+                    },
                     files: files
                         .iter()
                         .map(|f| match f {
