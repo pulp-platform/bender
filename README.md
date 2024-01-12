@@ -413,7 +413,7 @@ The `bender config` command prints the currently active configuration as JSON to
 
 ### `script` --- Generate tool-specific scripts
 
-The `bender script <format>` command can generate scripts to feed the source code of a package and its dependencies into a vendor tool.
+The `bender script <format>` command can generate scripts to feed the source code of a package and its dependencies into a vendor tool. These scripts are rendered using internally stored templates with the [tera](https://tera.netlify.app/) crate, but custom templates can also be used.
 
 Supported formats:
 
@@ -422,10 +422,14 @@ Supported formats:
 - `vcs`:  A Tcl compilation script for VCS.
 - `verilator`: Command line arguments for Verilator.
 - `synopsys`: A Tcl compilation script for Synopsys DC and DE.
+- `formality`: A Tcl compilation script for Formality (as reference design).
 - `riviera`: A Tcl compilation script for Aldec Riviera-PRO.
 - `genus`:  A Tcl compilation script for Cadence Genus.
 - `vivado`: A Tcl file addition script for Xilinx Vivado.
 - `vivado-sim`: Same as `vivado`, but specifically for simulation targets.
+- `precision`: A Tcl compilation script for Mentor Precision.
+- `template`: A custom [tera](https://tera.netlify.app/) template, provided using the `--template` flag.
+- `template_json`: The json struct used to render the [tera](https://tera.netlify.app/) template.
 
 Furthermore, similar flags to the `sources` command exist.
 

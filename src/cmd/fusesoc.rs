@@ -425,44 +425,41 @@ fn get_fuse_file_str(
                         },
                     )
                 })
-                .chain(
-                    vec![(
-                        "files_rtl".to_string(),
-                        FuseSoCFileSet {
-                            file_type: Some("systemVerilogSource".to_string()),
-                            // logical_name: None,
-                            files: {
-                                if src_packages[0]
+                .chain(vec![(
+                    "files_rtl".to_string(),
+                    FuseSoCFileSet {
+                        file_type: Some("systemVerilogSource".to_string()),
+                        // logical_name: None,
+                        files: {
+                            if src_packages[0]
+                                .export_incdirs
+                                .get(pkg)
+                                .unwrap_or(&IndexSet::new())
+                                .is_empty()
+                            {
+                                Vec::new()
+                            } else {
+                                src_packages[0]
                                     .export_incdirs
                                     .get(pkg)
                                     .unwrap_or(&IndexSet::new())
-                                    .is_empty()
-                                {
-                                    Vec::new()
-                                } else {
-                                    src_packages[0]
-                                        .export_incdirs
-                                        .get(pkg)
-                                        .unwrap_or(&IndexSet::new())
-                                        .iter()
-                                        .flat_map(|incdir| {
-                                            get_include_files(
-                                                &incdir.to_path_buf(),
-                                                pkg_manifest_paths[pkg].clone(),
-                                            )
-                                        })
-                                        .collect()
-                                }
-                            },
-                            depend: src_packages[0]
-                                .dependencies
-                                .iter()
-                                .map(|dep| fuse_depend_string[dep].clone())
-                                .collect(),
+                                    .iter()
+                                    .flat_map(|incdir| {
+                                        get_include_files(
+                                            &incdir.to_path_buf(),
+                                            pkg_manifest_paths[pkg].clone(),
+                                        )
+                                    })
+                                    .collect()
+                            }
                         },
-                    )]
-                    .into_iter(),
-                )
+                        depend: src_packages[0]
+                            .dependencies
+                            .iter()
+                            .map(|dep| fuse_depend_string[dep].clone())
+                            .collect(),
+                    },
+                )])
                 .into_group_map()
                 .into_iter()
                 .map(|(k, v)| {

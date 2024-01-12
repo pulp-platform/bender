@@ -3,10 +3,14 @@
 
 //! The `script` subcommand.
 
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
+
 use clap::builder::PossibleValue;
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
-use common_path::common_path_all;
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
+use tera::{Context, Tera};
 use tokio::runtime::Runtime;
 
 use crate::error::*;
@@ -51,6 +55,8 @@ pub fn new() -> Command {
                     PossibleValue::new("vivado"),
                     PossibleValue::new("vivado-sim"),
                     PossibleValue::new("precision"),
+                    PossibleValue::new("template"),
+                    PossibleValue::new("template_json"),
                 ]),
         )
         .arg(
@@ -139,9 +145,9 @@ pub fn new() -> Command {
         .arg(
             Arg::new("compilation_mode")
                 .long("compilation-mode")
-                .help("Choose compilation mode for Riviera-PRO option: separate/common (Riviera-PRO only)")
+                .help("Choose compilation mode option: separate/common")
                 .num_args(1)
-                .default_value("common")
+                .default_value("separate")
                 .value_parser([
                     PossibleValue::new("separate"),
                     PossibleValue::new("common"),
@@ -171,6 +177,14 @@ pub fn new() -> Command {
                 .help("Specify package to exclude from sources")
                 .num_args(1)
                 .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
+        )
+        .arg(
+            Arg::new("template")
+                .long("template")
+                .required_if_eq("format", "template")
+                .help("Path to a file containing the tera template string to be formatted.")
+                .num_args(1)
                 .value_parser(value_parser!(String)),
         )
 }
@@ -211,18 +225,14 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             "vivado" => concat(vivado_targets, &["synthesis"]),
             "vivado-sim" => concat(vivado_targets, &["simulation"]),
             "precision" => vec!["precision", "fpga", "synthesis"],
+            "template" => vec![],
+            "template_json" => vec![],
             _ => unreachable!(),
         }
     } else {
         vec![]
     };
 
-    let abort_on_error = !matches.get_flag("no-abort-on-error");
-    //////riviera compilation mode
-    let mut riviera_separate_compilation_mode = false;
-    if matches.get_one::<String>("compilation_mode").unwrap() == "separate" {
-        riviera_separate_compilation_mode = true;
-    }
     // Filter the sources by target.
     let targets = matches
         .get_many::<String>("target")
@@ -288,6 +298,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         && format != "vsim"
         && format != "vcs"
         && format != "riviera"
+        && format != "template"
+        && format != "template_json"
     {
         return Err(Error::new(
             "vsim/vcs-only options can only be used for 'vcs', 'vsim' or 'riviera' format!",
@@ -298,6 +310,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         || matches.get_flag("only-sources")
         || matches.get_flag("no-simset"))
         && !format.starts_with("vivado")
+        && format != "template"
+        && format != "template_json"
     {
         return Err(Error::new(
             "Vivado-only options can only be used for 'vivado' format!",
@@ -306,38 +320,97 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     // Generate the corresponding output.
     match format.as_str() {
-        "flist" => emit_flist(sess, matches, srcs),
-        "vsim" => emit_vsim_tcl(sess, matches, targets, srcs, abort_on_error),
-        "vcs" => emit_vcs_sh(sess, matches, targets, srcs),
-        "verilator" => emit_verilator_sh(sess, matches, targets, srcs),
-        "synopsys" => emit_synopsys_tcl(
+        "flist" => emit_template(
             sess,
+            include_str!("../script_fmt/flist.tera"),
             matches,
             targets,
             srcs,
-            abort_on_error,
-            synopsys_dc_cmd,
         ),
-        "formality" => emit_synopsys_tcl(
+        "flist-plus" => emit_template(
             sess,
+            include_str!("../script_fmt/flist-plus.tera"),
             matches,
             targets,
             srcs,
-            abort_on_error,
-            synopsys_formality_cmd,
         ),
-        "riviera" => emit_riviera_tcl(
+        "vsim" => emit_template(
             sess,
+            include_str!("../script_fmt/vsim_tcl.tera"),
             matches,
             targets,
             srcs,
-            abort_on_error,
-            riviera_separate_compilation_mode,
         ),
-        "genus" => emit_genus_tcl(sess, matches, targets, srcs),
-        "vivado" => emit_vivado_tcl(sess, matches, targets, srcs),
-        "vivado-sim" => emit_vivado_tcl(sess, matches, targets, srcs),
-        "precision" => emit_precision_tcl(sess, matches, targets, srcs, abort_on_error),
+        "vcs" => emit_template(
+            sess,
+            include_str!("../script_fmt/vcs_sh.tera"),
+            matches,
+            targets,
+            srcs,
+        ),
+        "verilator" => emit_template(
+            sess,
+            include_str!("../script_fmt/verilator_sh.tera"),
+            matches,
+            targets,
+            srcs,
+        ),
+        "synopsys" => emit_template(
+            sess,
+            include_str!("../script_fmt/synopsys_tcl.tera"),
+            matches,
+            targets,
+            srcs,
+        ),
+        "formality" => emit_template(
+            sess,
+            include_str!("../script_fmt/formality_tcl.tera"),
+            matches,
+            targets,
+            srcs,
+        ),
+        "riviera" => emit_template(
+            sess,
+            include_str!("../script_fmt/riviera_tcl.tera"),
+            matches,
+            targets,
+            srcs,
+        ),
+        "genus" => emit_template(
+            sess,
+            include_str!("../script_fmt/genus_tcl.tera"),
+            matches,
+            targets,
+            srcs,
+        ),
+        "vivado" => emit_template(
+            sess,
+            include_str!("../script_fmt/vivado_tcl.tera"),
+            matches,
+            targets,
+            srcs,
+        ),
+        "vivado-sim" => emit_template(
+            sess,
+            include_str!("../script_fmt/vivado_tcl.tera"),
+            matches,
+            targets,
+            srcs,
+        ),
+        "precision" => emit_template(
+            sess,
+            include_str!("../script_fmt/precision_tcl.tera"),
+            matches,
+            targets,
+            srcs,
+        ),
+        "template" => {
+            let custom_tpl_path = Path::new(matches.get_one::<String>("template").unwrap());
+            let custom_tpl_str =
+                &String::from_utf8(fs::read(custom_tpl_path)?).map_err(|e| Error::chain("", e))?;
+            emit_template(sess, custom_tpl_str, matches, targets, srcs)
+        }
+        "template_json" => emit_template(sess, JSON, matches, targets, srcs),
         _ => unreachable!(),
     }
 }
@@ -378,10 +451,6 @@ enum SourceType {
     Vhdl,
 }
 
-fn quote(s: &(impl std::fmt::Display + ?Sized)) -> String {
-    format!("\"{}\"", s)
-}
-
 fn relativize_path(path: &std::path::Path, root: &std::path::Path) -> String {
     if path.starts_with(root) {
         format!(
@@ -395,59 +464,7 @@ fn relativize_path(path: &std::path::Path, root: &std::path::Path) -> String {
 
 static HEADER_AUTOGEN: &str = "This script was generated automatically by bender.";
 
-fn header_tcl(sess: &Session) -> String {
-    let mut lines = vec![];
-    lines.push(format!("# {}", HEADER_AUTOGEN));
-    lines.push(format!("set ROOT {}", quote(sess.root.to_str().unwrap())));
-    lines.join("\n")
-}
-
-fn header_sh(sess: &Session) -> String {
-    let mut lines = vec![];
-    lines.push("#!/usr/bin/env bash".to_string());
-    lines.push(format!("# {}", HEADER_AUTOGEN));
-    lines.push(format!("ROOT={}", quote(sess.root.to_str().unwrap())));
-    lines.join("\n")
-}
-
-fn tcl_catch_prefix(cmd: &str, do_prefix: bool) -> String {
-    let prefix = if do_prefix { "if {[catch {" } else { "" };
-    format!("{}{}", prefix, cmd)
-}
-
-fn tcl_catch_postfix() -> &'static str {
-    "}]} {return 1}"
-}
-
-fn synopsys_dc_cmd(ty: SourceType) -> String {
-    format!(
-        "analyze -format {}",
-        match ty {
-            SourceType::Verilog => {
-                "sv"
-            }
-            SourceType::Vhdl => {
-                "vhdl"
-            }
-        }
-    )
-}
-
-fn synopsys_formality_cmd(ty: SourceType) -> String {
-    format!(
-        "{} -r",
-        match ty {
-            SourceType::Verilog => {
-                "read_sverilog"
-            }
-            SourceType::Vhdl => {
-                "read_vhdl"
-            }
-        }
-    )
-}
-
-fn add_defines_from_matches(defines: &mut Vec<(String, Option<String>)>, matches: &ArgMatches) {
+fn add_defines_from_matches(defines: &mut IndexMap<String, Option<String>>, matches: &ArgMatches) {
     if let Some(d) = matches.get_many::<String>("define") {
         defines.extend(d.map(|t| {
             let mut parts = t.splitn(2, '=');
@@ -458,819 +475,80 @@ fn add_defines_from_matches(defines: &mut Vec<(String, Option<String>)>, matches
     }
 }
 
-/// Emit a vsim compilation script.
-fn emit_vsim_tcl(
-    sess: &Session,
-    matches: &ArgMatches,
-    targets: TargetSet,
-    srcs: Vec<SourceGroup>,
-    abort_on_error: bool,
-) -> Result<()> {
-    println!("{}", header_tcl(sess));
-    for src in srcs {
-        separate_files_in_group(
-            src,
-            |f| match f {
-                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
-                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
-                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
-                    _ => None,
-                },
-                _ => None,
-            },
-            |src, ty, files| {
-                let mut lines = vec![];
-                match ty {
-                    SourceType::Verilog => {
-                        lines.push(tcl_catch_prefix("vlog -incr -sv", abort_on_error));
-                        if let Some(args) = matches.get_many::<String>("vlog-arg") {
-                            lines.extend(args.map(Into::into));
-                        }
-                        let mut defines: Vec<(String, Option<String>)> = vec![];
-                        defines.extend(
-                            src.defines
-                                .iter()
-                                .map(|(k, &v)| (k.to_string(), v.map(String::from))),
-                        );
-                        defines.extend(
-                            targets
-                                .iter()
-                                .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
-                        );
-                        add_defines_from_matches(&mut defines, matches);
-                        defines.sort();
-                        for (k, v) in defines {
-                            let mut s = format!("+define+{}", k.to_uppercase());
-                            if let Some(v) = v {
-                                s.push('=');
-                                s.push_str(&v);
-                            }
-                            lines.push(s);
-                        }
-                        for i in src.clone().get_incdirs() {
-                            lines
-                                .push(quote(&format!("+incdir+{}", relativize_path(i, sess.root))));
-                        }
-                    }
-                    SourceType::Vhdl => {
-                        lines.push(tcl_catch_prefix("vcom -2008", abort_on_error));
-                        if let Some(args) = matches.get_many::<String>("vcom-arg") {
-                            lines.extend(args.map(Into::into));
-                        }
-                    }
-                }
-                for file in files {
-                    let p = match file {
-                        SourceFile::File(p) => p,
-                        _ => continue,
-                    };
-                    lines.push(quote(&relativize_path(p, sess.root)));
-                }
-                println!();
-                println!("{}", lines.join(" \\\n    "));
-                if abort_on_error {
-                    println!("{}", tcl_catch_postfix());
-                }
-            },
-        );
-    }
-    Ok(())
-}
+static JSON: &str = "json";
 
-/// Emit a vcs compilation script.
-fn emit_vcs_sh(
+fn emit_template(
     sess: &Session,
+    template: &str,
     matches: &ArgMatches,
     targets: TargetSet,
     srcs: Vec<SourceGroup>,
 ) -> Result<()> {
-    println!("{}", header_sh(sess));
-    for src in srcs {
-        separate_files_in_group(
-            src,
-            |f| match f {
-                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
-                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
-                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
-                    _ => None,
-                },
-                _ => None,
-            },
-            |src, ty, files| {
-                let mut lines = vec![];
-                match ty {
-                    SourceType::Verilog => {
-                        lines.push(format!(
-                            "{} -sverilog",
-                            matches.get_one::<String>("vlogan-bin").unwrap()
-                        ));
-                        // Default flags
-                        lines.push("-full64".to_owned());
-                        if let Some(args) = matches.get_many::<String>("vlog-arg") {
-                            lines.extend(args.map(Into::into));
-                        }
-                        let mut defines: Vec<(String, Option<String>)> = vec![];
-                        defines.extend(
-                            src.defines
-                                .iter()
-                                .map(|(k, &v)| (k.to_string(), v.map(String::from))),
-                        );
-                        defines.extend(
-                            targets
-                                .iter()
-                                .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
-                        );
-                        add_defines_from_matches(&mut defines, matches);
-                        defines.sort();
-                        for (k, v) in defines {
-                            let mut s = format!("+define+{}", k.to_uppercase());
-                            if let Some(v) = v {
-                                s.push('=');
-                                s.push('"');
-                                s.push_str(&v);
-                                s.push('"');
-                            }
-                            lines.push(s);
-                        }
-                        for i in src.clone().get_incdirs() {
-                            lines
-                                .push(quote(&format!("+incdir+{}", relativize_path(i, sess.root))));
-                        }
-                    }
-                    SourceType::Vhdl => {
-                        lines.push(matches.get_one::<String>("vhdlan-bin").unwrap().to_owned());
-                        if let Some(args) = matches.get_many::<String>("vcom-arg") {
-                            lines.extend(args.map(Into::into));
-                        }
-                    }
-                }
-                for file in files {
-                    let p = match file {
-                        SourceFile::File(p) => p,
-                        _ => continue,
-                    };
-                    lines.push(quote(&relativize_path(p, sess.root)));
-                }
-                println!();
-                println!("{}", lines.join(" \\\n    "));
-            },
-        );
-    }
-    Ok(())
-}
+    let mut tera_obj = Tera::default();
+    let mut tera_context = Context::new();
+    tera_context.insert("HEADER_AUTOGEN", HEADER_AUTOGEN);
+    tera_context.insert("root", sess.root);
+    // tera_context.insert("srcs", &srcs);
+    tera_context.insert("abort_on_error", &!matches.get_flag("no-abort-on-error"));
 
-/// Emit a verilator compilation script.
-#[allow(clippy::single_match)]
-fn emit_verilator_sh(
-    sess: &Session,
-    matches: &ArgMatches,
-    targets: TargetSet,
-    srcs: Vec<SourceGroup>,
-) -> Result<()> {
-    for src in srcs {
-        separate_files_in_group(
-            src,
-            |f| match f {
-                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
-                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
-                    _ => None,
-                },
-                _ => None,
-            },
-            |src, ty, files| {
-                let mut lines = vec![];
-                match ty {
-                    SourceType::Verilog => {
-                        // Default flags
-                        if let Some(args) = matches.get_many::<String>("vlog-arg") {
-                            lines.extend(args.map(Into::into));
-                        }
-                        let mut defines: Vec<(String, Option<String>)> = vec![];
-                        defines.extend(
-                            src.defines
-                                .iter()
-                                .map(|(k, &v)| (k.to_string(), v.map(String::from))),
-                        );
-                        defines.extend(
-                            targets
-                                .iter()
-                                .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
-                        );
-                        add_defines_from_matches(&mut defines, matches);
-                        defines.sort();
-                        for (k, v) in defines {
-                            let mut s = format!("+define+{}", k.to_uppercase());
-                            if let Some(v) = v {
-                                s.push('=');
-                                s.push_str(&v);
-                            }
-                            lines.push(s);
-                        }
-                        for i in src.clone().get_incdirs() {
-                            if i.starts_with(sess.root) {
-                                lines.push(format!(
-                                    "+incdir+{}/{}",
-                                    sess.root.to_str().unwrap(),
-                                    i.strip_prefix(sess.root).unwrap().to_str().unwrap()
-                                ));
-                            } else {
-                                lines.push(format!("+incdir+{}", i.to_str().unwrap()));
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-                for file in files {
-                    let p = match file {
-                        SourceFile::File(p) => p,
-                        _ => continue,
-                    };
-                    if p.starts_with(sess.root) {
-                        lines.push(format!(
-                            "{}/{}",
-                            sess.root.to_str().unwrap(),
-                            p.strip_prefix(sess.root).unwrap().to_str().unwrap()
-                        ));
-                    } else {
-                        lines.push(p.to_str().unwrap().to_string());
-                    }
-                }
-                println!();
-                println!("{}", lines.join("\n"));
-            },
-        );
-    }
-    Ok(())
-}
-
-/// Emit a flat file list
-fn emit_flist(sess: &Session, matches: &ArgMatches, srcs: Vec<SourceGroup>) -> Result<()> {
-    let mut lines = vec![];
-    let mut inc_dirs = Vec::new();
-    let mut files = vec![];
-    for src in srcs {
-        inc_dirs = src.clone().get_incdirs();
-        files.append(&mut src.files.clone());
-    }
-
-    let mut root = format!("{}/", sess.root.to_str().unwrap());
-    if matches.get_flag("relative-path") {
-        root = "".to_string();
-    }
-
-    for i in &inc_dirs {
-        if i.starts_with(sess.root) {
-            lines.push(format!(
-                "+incdir+{}{}",
-                root,
-                i.strip_prefix(sess.root).unwrap().to_str().unwrap()
-            ));
-        } else {
-            lines.push(format!("+incdir+{}", i.to_str().unwrap()));
-        }
-    }
-
-    for file in files {
-        let p = match file {
-            SourceFile::File(p) => p,
-            _ => continue,
-        };
-        if p.starts_with(sess.root) {
-            lines.push(format!(
-                "{}{}",
-                root,
-                p.strip_prefix(sess.root).unwrap().to_str().unwrap()
-            ));
-        } else {
-            lines.push(p.to_str().unwrap().to_string());
-        }
-    }
-    println!("{}", lines.join("\n"));
-    Ok(())
-}
-
-/// Emit a Synopsys Design Compiler compilation script.
-fn emit_synopsys_tcl(
-    sess: &Session,
-    matches: &ArgMatches,
-    targets: TargetSet,
-    srcs: Vec<SourceGroup>,
-    abort_on_error: bool,
-    cmd_str: fn(ty: SourceType) -> String,
-) -> Result<()> {
-    println!("{}", header_tcl(sess));
-    println!("set search_path_initial $search_path");
-    let relativize_path = |p: &std::path::Path| quote(&relativize_path(p, sess.root));
-    for src in srcs {
-        // Adjust the search path.
-        println!();
-        println!("set search_path $search_path_initial");
-        for i in src.clone().get_incdirs() {
-            println!("lappend search_path {}", relativize_path(i));
-        }
-
-        // Emit analyze commands.
-        separate_files_in_group(
-            src,
-            |f| match f {
-                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
-                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
-                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
-                    _ => None,
-                },
-                _ => None,
-            },
-            |src, ty, files| {
-                let mut lines = vec![tcl_catch_prefix(&cmd_str(ty), abort_on_error)];
-
-                // Add defines.
-                let mut defines: Vec<(String, Option<String>)> = vec![];
-                defines.extend(
-                    src.defines
-                        .iter()
-                        .map(|(k, &v)| (k.to_string(), v.map(String::from))),
-                );
-                defines.extend(
-                    targets
-                        .iter()
-                        .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
-                );
-                add_defines_from_matches(&mut defines, matches);
-                defines.sort();
-                // The `-define` flag is only specified for Verilog files.
-                if let SourceType::Verilog = ty {
-                    if !defines.is_empty() {
-                        lines.push("-define {".to_owned());
-                        for (k, v) in defines {
-                            let mut s = format!("    {}", k);
-                            if let Some(v) = v {
-                                s.push('=');
-                                s.push_str(&v);
-                            }
-                            lines.push(s);
-                        }
-                        lines.push("}".to_owned());
-                    }
-                }
-
-                // Add files.
-                lines.push("[list".to_owned());
-                for file in files {
-                    let p = match file {
-                        SourceFile::File(p) => p,
-                        _ => continue,
-                    };
-                    lines.push(format!("    {}", relativize_path(p)));
-                }
-                lines.push("]".to_owned());
-                println!();
-                println!("{}", lines.join(" \\\n    "));
-                if abort_on_error {
-                    println!("{}", tcl_catch_postfix());
-                }
-            },
-        );
-    }
-    println!();
-    println!("set search_path $search_path_initial");
-    Ok(())
-}
-
-/// Emit a Cadence Genus compilation script.
-fn emit_genus_tcl(
-    sess: &Session,
-    matches: &ArgMatches,
-    targets: TargetSet,
-    srcs: Vec<SourceGroup>,
-) -> Result<()> {
-    println!("# This script was generated automatically by bender.");
-    println!("if [ info exists search_path ] {{");
-    println!("  set search_path_initial $search_path");
-    println!("}} else {{");
-    println!("  set search_path_initial {{}}");
-    println!("}}");
-    println!("set ROOT \"{}\"", sess.root.to_str().unwrap());
-    let relativize_path = |p: &std::path::Path| {
-        if p.starts_with(sess.root) {
-            format!(
-                "\"$ROOT/{}\"",
-                p.strip_prefix(sess.root).unwrap().to_str().unwrap()
-            )
-        } else {
-            format!("\"{}\"", p.to_str().unwrap())
-        }
-    };
-    for src in srcs {
-        // Adjust the search path.
-        println!();
-        println!("set search_path $search_path_initial");
-        for i in src.clone().get_incdirs() {
-            println!("lappend search_path {}", relativize_path(i));
-        }
-
-        println!("set_db init_hdl_search_path $search_path");
-
-        // Emit analyze commands.
-        separate_files_in_group(
-            src,
-            |f| match f {
-                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
-                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
-                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
-                    _ => None,
-                },
-                _ => None,
-            },
-            |src, ty, files| {
-                let mut lines = vec![];
-                match ty {
-                    SourceType::Verilog => {
-                        lines.push("read_hdl -language sv".to_owned());
-                    }
-                    SourceType::Vhdl => {
-                        lines.push("read_hdl -language vhdl".to_owned());
-                    }
-                }
-
-                // Add defines.
-                let mut defines: Vec<(String, Option<String>)> = vec![];
-                defines.extend(
-                    src.defines
-                        .iter()
-                        .map(|(k, &v)| (k.to_string(), v.map(String::from))),
-                );
-                defines.extend(
-                    targets
-                        .iter()
-                        .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
-                );
-                add_defines_from_matches(&mut defines, matches);
-                defines.sort();
-                if !defines.is_empty() {
-                    lines.push("-define {".to_owned());
-                    for (k, v) in defines {
-                        let mut s = format!("    {}", k);
-                        if let Some(v) = v {
-                            s.push('=');
-                            s.push_str(&v);
-                        }
-                        lines.push(s);
-                    }
-                    lines.push("}".to_owned());
-                }
-
-                // Add files.
-                lines.push("[list".to_owned());
-                for file in files {
-                    let p = match file {
-                        SourceFile::File(p) => p,
-                        _ => continue,
-                    };
-                    lines.push(format!("    {}", relativize_path(p)));
-                }
-                lines.push("]".to_owned());
-                println!();
-                println!("{}", lines.join(" \\\n    "));
-            },
-        );
-    }
-    println!();
-    println!("set search_path $search_path_initial");
-    Ok(())
-}
-
-/// Emit a script to add sources to Vivado.
-fn emit_vivado_tcl(
-    sess: &Session,
-    matches: &ArgMatches,
-    targets: TargetSet,
-    srcs: Vec<SourceGroup>,
-) -> Result<()> {
-    // Determine the components that are part of the output.
-    #[derive(Default)]
-    struct OutputComponents {
-        include_dirs: bool,
-        defines: bool,
-        sources: bool,
-    }
-    let mut output_components = OutputComponents::default();
-    if !matches.get_flag("only-defines")
-        && !matches.get_flag("only-includes")
-        && !matches.get_flag("only-sources")
-    {
-        // Print everything if user specified no restriction.
-        output_components = OutputComponents {
-            include_dirs: true,
-            defines: true,
-            sources: true,
-        };
-    } else {
-        if matches.get_flag("only-defines") {
-            output_components.defines = true;
-        }
-        if matches.get_flag("only-includes") {
-            output_components.include_dirs = true;
-        }
-        if matches.get_flag("only-sources") {
-            output_components.sources = true;
-        }
-    }
-
-    println!("{}", header_tcl(sess));
-    let mut include_dirs = vec![];
-    let mut defines: Vec<(String, Option<String>)> = vec![];
-    let filesets = if matches.get_flag("no-simset") {
-        vec![""]
-    } else {
-        vec!["", " -simset"]
-    };
-    for src in srcs {
-        for i in src.clone().get_incdirs() {
-            include_dirs.push(relativize_path(i, sess.root));
-        }
-        separate_files_in_group(
-            src,
-            |f| match f {
-                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
-                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
-                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
-                    _ => None,
-                },
-                _ => None,
-            },
-            |src, _ty, files| {
-                let mut lines =
-                    vec!["add_files -norecurse -fileset [current_fileset] [list".to_owned()];
-                for file in files {
-                    let p = match file {
-                        SourceFile::File(p) => p,
-                        _ => continue,
-                    };
-                    lines.push(relativize_path(p, sess.root));
-                }
-                if output_components.sources {
-                    println!("{} \\\n]", lines.join(" \\\n    "));
-                }
-                defines.extend(
-                    src.defines
-                        .iter()
-                        .map(|(k, &v)| (k.to_string(), v.map(String::from))),
-                );
-            },
-        );
-    }
-    if !include_dirs.is_empty() && output_components.include_dirs {
-        include_dirs.sort();
-        include_dirs.dedup();
-        for arg in &filesets {
-            println!();
-            println!(
-                "set_property include_dirs [list \\\n    {} \\\n] [current_fileset{}]",
-                include_dirs.join(" \\\n    "),
-                arg
-            );
-        }
-    }
-    defines.extend(
+    let mut target_defines: IndexMap<String, Option<String>> = IndexMap::new();
+    target_defines.extend(
         targets
             .iter()
             .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
     );
-    add_defines_from_matches(&mut defines, matches);
-    if !defines.is_empty() && output_components.defines {
-        defines.sort();
-        defines.dedup();
-        for arg in &filesets {
-            println!();
-            println!("set_property verilog_define [list \\");
-            for (k, v) in &defines {
-                let s = match v {
-                    Some(s) => format!("{}={}", k, s),
-                    None => k.to_string(),
-                };
-                println!("    {} \\", s);
-            }
-            println!("] [current_fileset{}]", arg);
-        }
-    }
-    Ok(())
-}
+    target_defines.sort_keys();
 
-/// Emit a riviera compilation script.
-fn emit_riviera_tcl(
-    sess: &Session,
-    matches: &ArgMatches,
-    targets: TargetSet,
-    srcs: Vec<SourceGroup>,
-    abort_on_error: bool,
-    riviera_separate_compilation_mode: bool,
-) -> Result<()> {
-    println!("{}", header_tcl(sess));
-    println!("vlib work");
+    let mut global_defines = target_defines.clone();
+    add_defines_from_matches(&mut global_defines, matches);
+    tera_context.insert("global_defines", &global_defines);
 
-    if riviera_separate_compilation_mode {
-        for src in srcs {
-            separate_files_in_group(
-                src,
-                |f| match f {
-                    SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
-                        Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
-                        Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
-                        _ => None,
-                    },
-                    _ => None,
-                },
-                |src, ty, files| {
-                    let mut lines = vec![];
-                    match ty {
-                        SourceType::Verilog => {
-                            lines.push(tcl_catch_prefix("vlog -sv", abort_on_error));
-                            if let Some(args) = matches.get_many::<String>("vlog-arg") {
-                                lines.extend(args.map(Into::into));
-                            }
-                            let mut defines: Vec<(String, Option<String>)> = vec![];
-                            defines.extend(
-                                src.defines
-                                    .iter()
-                                    .map(|(k, &v)| (k.to_string(), v.map(String::from))),
-                            );
-                            defines.extend(
-                                targets
-                                    .iter()
-                                    .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
-                            );
-                            add_defines_from_matches(&mut defines, matches);
-                            defines.sort();
-                            for (k, v) in defines {
-                                let mut s = format!("+define+{}", k.to_uppercase());
-                                if let Some(v) = v {
-                                    s.push('=');
-                                    s.push_str(&v);
-                                }
-                                lines.push(s);
-                            }
-                            for i in src.clone().get_incdirs() {
-                                lines.push(quote(&format!(
-                                    "+incdir+{}",
-                                    relativize_path(i, sess.root)
-                                )));
-                            }
-                        }
-                        SourceType::Vhdl => {
-                            lines.push(tcl_catch_prefix("vcom -2008", abort_on_error));
-                            if let Some(args) = matches.get_many::<String>("vcom-arg") {
-                                lines.extend(args.map(Into::into));
-                            }
-                        }
-                    }
-                    for file in files {
-                        let p = match file {
-                            SourceFile::File(p) => p,
-                            _ => continue,
-                        };
-                        lines.push(quote(&relativize_path(p, sess.root)));
-                    }
-                    println!();
-                    println!("{}", lines.join(" \\\n    "));
-                    if abort_on_error {
-                        println!("{}", tcl_catch_postfix());
-                    }
-                },
-            );
-        }
-    } else {
-        let mut lines = vec![];
-        let mut file_lines = vec![];
-        let mut inc_dirs = Vec::new();
-        let mut files = vec![];
-        let mut defines: Vec<(String, Option<String>)> = vec![];
-        let mut t: bool = false;
-        for src in srcs {
-            inc_dirs = src.clone().get_incdirs();
-            files.append(&mut src.files.clone());
-            defines.extend(
-                src.defines
-                    .iter()
-                    .map(|(k, &v)| (k.to_string(), v.map(String::from))),
-            );
-        }
-        for file in files {
-            let p = match file {
-                SourceFile::File(p) => p,
-                _ => continue,
-            };
-            if p.to_str().unwrap().contains(".sv")
-                || p.to_str().unwrap().contains(".v")
-                || p.to_str().unwrap().contains(".vp")
-            {
-                t = true;
-            } else if p.to_str().unwrap().contains(".vhd") || p.to_str().unwrap().contains(".vhdl")
-            {
-                t = false;
-            }
-            file_lines.push(quote(&relativize_path(p, sess.root)));
-        }
-        if t {
-            lines.push(tcl_catch_prefix("vlog -sv", abort_on_error));
-            if let Some(args) = matches.get_many::<String>("vlog-arg") {
-                lines.extend(args.map(Into::into));
-            }
-            defines.extend(
-                targets
-                    .iter()
-                    .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
-            );
-            add_defines_from_matches(&mut defines, matches);
-            defines.sort();
-            for (k, v) in defines {
-                let mut s = format!("+define+{}", k.to_uppercase());
-                if let Some(v) = v {
-                    s.push('=');
-                    s.push_str(&v);
-                }
-                lines.push(s);
-            }
-
-            for i in &inc_dirs {
-                lines.push(quote(&format!("+incdir+{}", relativize_path(i, sess.root))));
-            }
-        } else {
-            lines.push(tcl_catch_prefix("vcom -2008", abort_on_error));
-            if let Some(args) = matches.get_many::<String>("vcom-arg") {
-                lines.extend(args.map(Into::into));
-            }
-        }
-        lines.extend(file_lines.iter().cloned());
-        println!("{}", lines.join("\\\n"));
-        if abort_on_error {
-            println!("{}", tcl_catch_postfix());
-        }
-    }
-    Ok(())
-}
-
-/// Emit a script to add sources to Mentor Precision
-fn emit_precision_tcl(
-    sess: &Session,
-    matches: &ArgMatches,
-    targets: TargetSet,
-    srcs: Vec<SourceGroup>,
-    abort_on_error: bool,
-) -> Result<()> {
-    // Find the common_path between session and all source files
-    let mut file_paths = vec![sess.root];
+    let mut all_defines = IndexMap::new();
+    let mut all_incdirs = vec![];
+    let mut all_files = vec![];
+    let mut all_verilog = vec![];
+    let mut all_vhdl = vec![];
     for src in &srcs {
-        for file in &src.files {
-            let p = match file {
-                SourceFile::File(p) => p,
-                _ => continue,
-            };
-            file_paths.push(p)
-        }
-    }
-    let root = common_path_all(file_paths).unwrap();
-
-    // Print the script header
-    println!("# {}", HEADER_AUTOGEN);
-    println!("# Precision does not take relative paths into account when specifying include dirs.");
-    println!("# Define the common ROOT anyway if needed for patching file paths. ");
-    println!("set ROOT {}", root.to_str().unwrap());
-    println!("set_input_dir $ROOT");
-    println!("setup_design -search_path $ROOT");
-
-    // Find all the include dirs as precision only allows to set these globally
-    let mut defines: Vec<(String, Option<String>)> = vec![];
-    for src in &srcs {
-        defines.extend(
+        all_defines.extend(
             src.defines
                 .iter()
                 .map(|(k, &v)| (k.to_string(), v.map(String::from))),
         );
+        all_incdirs.append(&mut src.clone().get_incdirs());
+        all_files.append(&mut src.files.clone());
     }
-    defines.extend(
-        targets
-            .iter()
-            .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
-    );
-    add_defines_from_matches(&mut defines, matches);
-    defines.sort();
-    if !defines.is_empty() {
-        let mut lines = vec!["setup_design -defines { \\".to_owned()];
-        for (k, v) in defines {
-            let mut s = format!("    +define+{}", k);
-            if let Some(v) = v {
-                s.push('=');
-                s.push_str(&v);
-            }
-            s.push_str(" \\");
-            lines.push(s);
-        }
-        lines.push("}".to_owned());
-        println!("\n# Set globally all defines for the (S)Verilog sources.");
-        println!("{}", lines.join("\n"));
-    }
+    all_defines.extend(target_defines.clone());
+    add_defines_from_matches(&mut all_defines, matches);
+    let all_defines = if !matches.get_flag("only-includes") && !matches.get_flag("only-sources") {
+        all_defines.into_iter().collect()
+    } else {
+        IndexSet::new()
+    };
+    tera_context.insert("all_defines", &all_defines);
 
-    // Add the source files depending on group
+    all_incdirs.sort();
+    let all_incdirs: IndexSet<PathBuf> =
+        if !matches.get_flag("only-defines") && !matches.get_flag("only-sources") {
+            all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
+        } else {
+            IndexSet::new()
+        };
+    tera_context.insert("all_incdirs", &all_incdirs);
+    let all_files: IndexSet<PathBuf> =
+        if !matches.get_flag("only-defines") && !matches.get_flag("only-includes") {
+            all_files
+                .into_iter()
+                .filter_map(|file| match file {
+                    SourceFile::File(p) => Some(p.to_path_buf()),
+                    _ => None,
+                })
+                .collect()
+        } else {
+            IndexSet::new()
+        };
+    tera_context.insert("all_files", &all_files);
+
+    let mut split_srcs = vec![];
     for src in srcs {
         separate_files_in_group(
             src,
@@ -1283,40 +561,124 @@ fn emit_precision_tcl(
                 _ => None,
             },
             |src, ty, files| {
-                let mut lines = vec![];
-                match ty {
-                    SourceType::Verilog => {
-                        lines.push(tcl_catch_prefix("add_input_file", abort_on_error));
-                        lines.push("-format SystemVerilog2012".to_owned());
-                        if !src.clone().get_incdirs().is_empty() {
-                            lines.push("-search_path {".to_owned());
-                            for i in src.clone().get_incdirs() {
-                                lines.push(format!("    {}", i.to_str().unwrap()));
-                            }
-                            lines.push("}".to_owned());
-                        }
-                    }
-                    SourceType::Vhdl => {
-                        lines.push(tcl_catch_prefix("add_input_file", abort_on_error));
-                        lines.push("-format vhdl_2008".to_owned());
-                    }
-                }
-                lines.push("{".to_owned());
-                for file in files {
-                    let p = match file {
-                        SourceFile::File(p) => p,
-                        _ => continue,
-                    };
-                    lines.push(format!("    {}", p.to_str().unwrap()));
-                }
-                lines.push("} \\".to_owned());
-                println!();
-                println!("{}", lines.join(" \\\n    "));
-                if abort_on_error {
-                    println!("{}", tcl_catch_postfix());
-                }
+                split_srcs.push(TplSrcStruct {
+                    defines: {
+                        let mut local_defines = IndexMap::new();
+                        local_defines.extend(
+                            src.defines
+                                .iter()
+                                .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+                        );
+                        local_defines.extend(target_defines.clone());
+                        add_defines_from_matches(&mut local_defines, matches);
+                        local_defines.into_iter().collect()
+                    },
+                    incdirs: {
+                        let mut incdirs = src
+                            .clone()
+                            .get_incdirs()
+                            .iter()
+                            .map(|p| p.to_path_buf())
+                            .collect::<IndexSet<_>>();
+                        incdirs.sort();
+                        incdirs
+                    },
+                    files: files
+                        .iter()
+                        .map(|f| match f {
+                            SourceFile::File(p) => p.to_path_buf(),
+                            SourceFile::Group(_) => unreachable!(),
+                        })
+                        .collect(),
+                    file_type: match ty {
+                        SourceType::Verilog => "verilog".to_string(),
+                        SourceType::Vhdl => "vhdl".to_string(),
+                    },
+                });
             },
         );
     }
+    for src in &split_srcs {
+        match src.file_type.as_str() {
+            "verilog" => {
+                all_verilog.append(&mut src.files.clone().into_iter().collect());
+            }
+            "vhdl" => {
+                all_vhdl.append(&mut src.files.clone().into_iter().collect());
+            }
+            _ => {}
+        }
+    }
+    let split_srcs = if !matches.get_flag("only-defines") && !matches.get_flag("only-includes") {
+        split_srcs
+    } else {
+        vec![]
+    };
+    tera_context.insert("srcs", &split_srcs);
+
+    let all_verilog: IndexSet<PathBuf> =
+        if !matches.get_flag("only-defines") && !matches.get_flag("only-includes") {
+            all_verilog.into_iter().collect()
+        } else {
+            IndexSet::new()
+        };
+    let all_vhdl: IndexSet<PathBuf> =
+        if !matches.get_flag("only-defines") && !matches.get_flag("only-includes") {
+            all_vhdl.into_iter().collect()
+        } else {
+            IndexSet::new()
+        };
+    tera_context.insert("all_verilog", &all_verilog);
+    tera_context.insert("all_vhdl", &all_vhdl);
+
+    let vlog_args: Vec<String> = if let Some(args) = matches.get_many::<String>("vlog-arg") {
+        args.map(Into::into).collect()
+    } else {
+        [].to_vec()
+    };
+    tera_context.insert("vlog_args", &vlog_args);
+    let vcom_args: Vec<String> = if let Some(args) = matches.get_many::<String>("vcom-arg") {
+        args.map(Into::into).collect()
+    } else {
+        [].to_vec()
+    };
+    tera_context.insert("vcom_args", &vcom_args);
+
+    tera_context.insert("vlogan_bin", &matches.get_one::<String>("vlogan-bin"));
+    tera_context.insert("vhdlan_bin", &matches.get_one::<String>("vhdlan-bin"));
+    tera_context.insert("relativize_path", &matches.get_flag("relative-path"));
+    tera_context.insert(
+        "compilation_mode",
+        &matches.get_one::<String>("compilation_mode"),
+    );
+
+    let vivado_filesets = if matches.get_flag("no-simset") {
+        vec![""]
+    } else {
+        vec!["", " -simset"]
+    };
+
+    tera_context.insert("vivado_filesets", &vivado_filesets);
+
+    if template == "json" {
+        println!("{:#}", tera_context.into_json());
+        return Ok(());
+    }
+
+    print!(
+        "{}",
+        tera_obj
+            .render_str(template, &tera_context)
+            .map_err(|e| { Error::chain("Failed to render template.", e) })?
+    );
+
     Ok(())
+}
+
+#[derive(Debug, Serialize)]
+struct TplSrcStruct {
+    defines: IndexSet<(String, Option<String>)>,
+    incdirs: IndexSet<PathBuf>,
+    files: IndexSet<PathBuf>,
+    file_type: String,
 }

@@ -1,0 +1,46 @@
+# {{ HEADER_AUTOGEN }}
+set ROOT "{{ root }}"
+{% if compilation_mode == 'separate' %}{#                                                                       Individual block for each source file group
+#}{% for group in srcs %}
+{% if abort_on_error %}if {[catch { {% endif %}{#                                                               Catch errors immediately
+#}{% if group.file_type == 'verilog' %}vlog -incr -sv \{#                                                       Compile verilog (& systemverilog) files with vlog -sv #}
+    {% for tmp_arg in vlog_args %}{{ tmp_arg }} \
+    {% endfor %}{#                                                                                              Add all vlog arguments
+#}{% for define in group.defines %}+define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %} \
+    {% endfor %}{#                                                                                              Add group's defines
+#}{% for incdir in group.incdirs %}"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}" \
+    {% endfor %}{#                                                                                              Add group's include directories
+#}{% elif group.file_type == 'vhdl' %}vcom -2008 \{#                                                            Compile VHDL files with vcom #}
+    {% for tmp_arg in vcom_args %}{{ tmp_arg }} \
+    {% endfor %}{#                                                                                              Add all vcom arguments
+#}{% endif %}{#
+#}{% for file in group.files %}"{{ file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
+    {% endif %}{% endfor %}{#                                                                                   Add group's files
+#}{% if abort_on_error %}\
+}]} {return 1}{% endif %}
+{% endfor %}{#
+#}{% else %}{# compilation_mode == 'common' #}{#                                                                Common block for all files
+#}{% for file in all_verilog %}{% if loop.first %}{#                                                            Loop over verilog files
+#}{% if abort_on_error %}if {[catch { {% endif %}{#                                                             Catch errors immediately
+#}vlog -incr -sv \{#                                                                                            Compile verilog (& systemverilog) files with vlog -sv #}
+    {% for tmp_arg in vlog_args %}{{ tmp_arg }} \
+    {% endfor %}{#                                                                                              Add all vlog arguments
+#}{% for define in all_defines %}+define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %} \
+    {% endfor %}{#                                                                                              Add all defines
+#}{% for incdir in all_incdirs %}"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}" \
+    {% endfor %}{#                                                                                              Add all include directories
+#}{% endif %}"{{ file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
+    {% endif %}{#                                                                                               Add all verilog files
+#}{% if loop.last %}{% if abort_on_error %} \
+}]} {return 1}{% endif %}
+{% endif %}{% endfor %}{#
+#}{% for file in all_vhdl %}{% if loop.first %}{#                                                               Loop over VHDL files
+#}{% if abort_on_error %}if {[catch { {% endif %}{#                                                             Catch errors immediately
+#}vcom -2008 \{#                                                                                                Compile VHDL files with vcom #}
+    {% for tmp_arg in vcom_args %}{{ tmp_arg }} \
+    {% endfor %}{#                                                                                              Add all vcom arguments
+#}{% endif %}"{{ file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
+    {% endif %}{#                                                                                               Add all VHDL files
+#}{% if loop.last %}{% if abort_on_error %} \
+}]} {return 1}{% endif %}
+{% endif %}{% endfor %}{% endif %}

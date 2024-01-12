@@ -281,7 +281,7 @@ pub fn main() -> Result<()> {
             if matches.get_flag("no-checkout") {
                 Ok(())
             } else {
-                cmd::checkout::run(&sess, &matches)
+                cmd::checkout::run(&sess, matches)
             }
         }
         Some(("vendor", matches)) => cmd::vendor::run(&sess, matches),
@@ -353,7 +353,7 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
     let manifest = partial
         .validate()
         .map_err(|cause| Error::chain(format!("Error in manifest {:?}.", path), cause))?;
-    Ok(manifest.prefix_paths(path.parent().unwrap())?)
+    manifest.prefix_paths(path.parent().unwrap())
 }
 
 /// Load a configuration by traversing a directory hierarchy upwards.
