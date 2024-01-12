@@ -698,10 +698,7 @@ pub fn copy_recursively(
             )?;
         } else if filetype.is_symlink() {
             let orig = std::fs::read_link(entry.path());
-            std::os::unix::fs::symlink(
-                orig.unwrap(),
-                destination.as_ref().join(entry.file_name()),
-            )?;
+            symlink_dir(orig.unwrap(), destination.as_ref().join(entry.file_name()))?;
         } else {
             std::fs::copy(entry.path(), destination.as_ref().join(entry.file_name())).map_err(
                 |cause| {
@@ -740,4 +737,14 @@ pub fn extend_paths(
             }
         })
         .collect::<Result<_>>()
+}
+
+#[cfg(unix)]
+fn symlink_dir(p: PathBuf, q: PathBuf) -> Result<()> {
+    Ok(std::os::unix::fs::symlink(p, q)?)
+}
+
+#[cfg(windows)]
+fn symlink_dir(p: PathBuf, q: PathBuf) -> Result<()> {
+    Ok(std::os::windows::fs::symlink_dir(p, q)?)
 }

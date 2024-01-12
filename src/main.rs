@@ -24,6 +24,9 @@ extern crate subst;
 extern crate tempfile;
 extern crate typed_arena;
 
+#[cfg(windows)]
+extern crate dunce;
+
 #[macro_use]
 pub mod error;
 pub mod cli;

@@ -7,7 +7,6 @@
 
 use std;
 use std::fmt;
-use std::fs::canonicalize;
 use std::io::Write;
 use std::iter::FromIterator;
 use std::mem::swap;
@@ -15,6 +14,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+
+#[cfg(unix)]
+use std::fs::canonicalize;
+
+#[cfg(windows)]
+use dunce::canonicalize;
 
 use crate::futures::{FutureExt, TryFutureExt};
 use async_recursion::async_recursion;
