@@ -82,7 +82,8 @@ pub fn main() -> Result<()> {
         .subcommand(cmd::checkout::new())
         .subcommand(cmd::vendor::new())
         .subcommand(cmd::fusesoc::new())
-        .subcommand(cmd::init::new());
+        .subcommand(cmd::init::new())
+        .subcommand(cmd::clean::new());
 
     // Add the `--debug` option in debug builds.
     let app = if cfg!(debug_assertions) {
@@ -131,6 +132,10 @@ pub fn main() -> Result<()> {
             .map_err(|cause| Error::chain("Cannot find root directory of package.", cause))?,
     };
     debugln!("main: root dir {:?}", root_dir);
+
+    if let Some(("clean", matches)) = matches.subcommand() {
+        return cmd::clean::run(&root_dir, matches);
+    }
 
     // Parse the manifest file of the package.
     let manifest_path = root_dir.join("Bender.yml");
