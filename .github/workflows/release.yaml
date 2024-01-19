@@ -127,7 +127,7 @@ jobs:
           rustup target add aarch64-apple-darwin
           cargo install universal2
       - name: MacOS Build
-        run: cargo universal2 --release
+        run: cargo-universal2 --release
       - name: Get Artifact Name
         run: |
           if [[ "$GITHUB_REF" =~ ^refs/tags/v.*$ ]]; then \
@@ -142,6 +142,41 @@ jobs:
       - name: Create Package
         run: |
           gtar -czf $ARTIFACT_PATHNAME -C "./target/universal2-apple-darwin/release" --owner=0 --group=0 bender
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ${{ env.ARTIFACT_PATHNAME }}
+          asset_name: ${{ env.ARTIFACT_NAME }}
+          asset_content_type: application/tar.gz
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Build
+        run: cargo build --release
+      - name: Get Artifact Name
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" =~ ^refs/tags/v.*$ ]]; then \
+            PKG_VERSION=$(echo $GITHUB_REF | sed -n 's/^refs\/tags\/v//p'); \
+          else \
+            PKG_VERSION=$(echo $GITHUB_REF | sed -n 's/^refs\/tags\///p'); \
+          fi
+          ARTIFACT_PATHNAME="bender-$PKG_VERSION-x86_64-pc-windows-msvc.tar.gz"
+          ARTIFACT_NAME=$(basename $ARTIFACT_PATHNAME)
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
+          echo "ARTIFACT_PATHNAME=${ARTIFACT_PATHNAME}" >> $GITHUB_ENV
+      - name: Create Package
+        run: |
+          cp target/release/bender.exe .
+          & 'C:\Program Files\Git\usr\bin\tar.exe' czf $Env:ARTIFACT_PATHNAME --owner=0 --group=0 bender.exe
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         env:

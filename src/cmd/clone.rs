@@ -288,7 +288,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
                     }
                     None => None,
                 };
-                std::os::unix::fs::symlink(&pkg_path, link_path).map_err(|cause| {
+                symlink_dir(&pkg_path, link_path).map_err(|cause| {
                     Error::chain(
                         format!(
                             "Failed to create symlink to {:?} at path {:?}.",
@@ -306,4 +306,14 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(unix)]
+fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
+    Ok(std::os::unix::fs::symlink(p, q)?)
+}
+
+#[cfg(windows)]
+fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
+    Ok(std::os::windows::fs::symlink_dir(p, q)?)
 }

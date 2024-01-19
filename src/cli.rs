@@ -5,9 +5,14 @@
 
 use std;
 use std::ffi::OsString;
-use std::fs::{canonicalize, metadata};
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
+
+#[cfg(unix)]
+use std::fs::{canonicalize, metadata};
+
+#[cfg(windows)]
+use dunce::canonicalize;
 
 use clap::parser::ValuesRef;
 use clap::{Arg, ArgAction, Command};
@@ -251,7 +256,7 @@ pub fn main() -> Result<()> {
                     }
                     None => None,
                 };
-                std::os::unix::fs::symlink(&pkg_path, path).map_err(|cause| {
+                symlink_dir(&pkg_path, path).map_err(|cause| {
                     Error::chain(
                         format!(
                             "Failed to create symlink to {:?} at path {:?}.",
@@ -291,10 +296,21 @@ pub fn main() -> Result<()> {
     }
 }
 
+#[cfg(target_family = "unix")]
+fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
+    Ok(std::os::unix::fs::symlink(p, q)?)
+}
+
+#[cfg(target_os = "windows")]
+fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
+    Ok(std::os::windows::fs::symlink_dir(p, q)?)
+}
+
 /// Find the root directory of a package.
 ///
 /// Traverses the directory hierarchy upwards until a `Bender.yml` file is found.
 fn find_package_root(from: &Path) -> Result<PathBuf> {
+    #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
 
     // Canonicalize the path. This will resolve any intermediate links.
@@ -304,7 +320,9 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
 
     // Look up the device at the current path. This information will then be
     // used to stop at filesystem boundaries.
+    #[cfg(unix)]
     let limit_rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
+    #[cfg(unix)]
     debugln!("find_package_root: limit rdev = {:?}", limit_rdev);
 
     // Step upwards through the path hierarchy.
@@ -326,13 +344,16 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
         }
 
         // Abort if we have crossed the filesystem boundary.
-        let rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
-        debugln!("find_package_root: rdev = {:?}", rdev);
-        if rdev != limit_rdev {
-            return Err(Error::new(format!(
-                "No manifest (`Bender.yml` file) found. Stopped searching at filesystem boundary {:?}.",
-                tested_path
-            )));
+        #[cfg(unix)]
+        {
+            let rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
+            debugln!("find_package_root: rdev = {:?}", rdev);
+            if rdev != limit_rdev {
+                return Err(Error::new(format!(
+                    "No manifest (`Bender.yml` file) found. Stopped searching at filesystem boundary {:?}.",
+                    tested_path
+                )));
+            }
         }
     }
 
@@ -358,7 +379,9 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
 
 /// Load a configuration by traversing a directory hierarchy upwards.
 fn load_config(from: &Path) -> Result<Config> {
+    #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
+
     let mut out = PartialConfig::new();
 
     // Canonicalize the path. This will resolve any intermediate links.
@@ -368,7 +391,9 @@ fn load_config(from: &Path) -> Result<Config> {
 
     // Look up the device at the current path. This information will then be
     // used to stop at filesystem boundaries.
+    #[cfg(unix)]
     let limit_rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
+    #[cfg(unix)]
     debugln!("load_config: limit rdev = {:?}", limit_rdev);
 
     // Step upwards through the path hierarchy.
@@ -390,10 +415,13 @@ fn load_config(from: &Path) -> Result<Config> {
         }
 
         // Abort if we have crossed the filesystem boundary.
-        let rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
-        debugln!("load_config: rdev = {:?}", rdev);
-        if rdev != limit_rdev {
-            break;
+        #[cfg(unix)]
+        {
+            let rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
+            debugln!("load_config: rdev = {:?}", rdev);
+            if rdev != limit_rdev {
+                break;
+            }
         }
     }
 

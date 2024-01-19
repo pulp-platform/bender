@@ -954,6 +954,7 @@ pub enum LockedSource {
     Registry(String),
 }
 
+#[cfg(unix)]
 fn env_path_from_string(path_str: String) -> Result<PathBuf> {
     Ok(PathBuf::from(
         subst::substitute(&path_str, &subst::Env).map_err(|cause| {
@@ -963,4 +964,9 @@ fn env_path_from_string(path_str: String) -> Result<PathBuf> {
             )
         })?,
     ))
+}
+
+#[cfg(windows)]
+fn env_path_from_string(path_str: String) -> Result<PathBuf> {
+    Ok(PathBuf::from(path_str))
 }
