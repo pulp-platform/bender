@@ -31,6 +31,7 @@ jobs:
           - rhel:8.6
           - rhel:8.7
           - rhel:8.8
+          - rhel:8.9
           - rhel:9.0
           - rhel:9.1
           - rhel:9.2
@@ -38,6 +39,7 @@ jobs:
           - almalinux:8.6
           - almalinux:8.7
           - almalinux:8.8
+          - almalinux:8.9
           - almalinux:9.0
           - almalinux:9.1
           - almalinux:9.2
