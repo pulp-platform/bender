@@ -5,10 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+## 0.28.0 - 2024-01-19
 ### Added
 - Add macOS binary for releases
 - Add `init` command to initialize a Bender.yml file of an IP.
 - Allow environment variables in dependency and sources paths.
+- Add windows binary and compatibility for release.
+
+### Fixed
+- Documentation and Error Message fixes.
 
 ### Changed
 - Complete revamp of script generation, now using templates. Script formats are homogenized and custom templates are enabled.
