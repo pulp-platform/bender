@@ -133,10 +133,6 @@ pub fn main() -> Result<()> {
     };
     debugln!("main: root dir {:?}", root_dir);
 
-    if let Some(("clean", matches)) = matches.subcommand() {
-        return cmd::clean::run(&root_dir, matches);
-    }
-
     // Parse the manifest file of the package.
     let manifest_path = root_dir.join("Bender.yml");
     let manifest = read_manifest(&manifest_path)?;
@@ -156,6 +152,11 @@ pub fn main() -> Result<()> {
         matches.get_flag("local"),
         force_fetch,
     );
+
+    // Execute the `clean` subcommand if requested.
+    if let Some(("clean", intern_matches)) = matches.subcommand() {
+        return cmd::clean::run(&sess, intern_matches.get_flag("force"));
+    }
 
     // Read the existing lockfile.
     let lock_path = root_dir.join("Bender.lock");
