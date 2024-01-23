@@ -519,7 +519,9 @@ fn emit_template(
     }
     all_defines.extend(target_defines.clone());
     add_defines_from_matches(&mut all_defines, matches);
-    let all_defines = if !matches.get_flag("only-includes") && !matches.get_flag("only-sources") {
+    let all_defines = if (!matches.get_flag("only-includes") && !matches.get_flag("only-sources"))
+        || matches.get_flag("only-defines")
+    {
         all_defines.into_iter().collect()
     } else {
         IndexSet::new()
@@ -527,25 +529,29 @@ fn emit_template(
     tera_context.insert("all_defines", &all_defines);
 
     all_incdirs.sort();
-    let all_incdirs: IndexSet<PathBuf> =
-        if !matches.get_flag("only-defines") && !matches.get_flag("only-sources") {
-            all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
-        } else {
-            IndexSet::new()
-        };
+    let all_incdirs: IndexSet<PathBuf> = if (!matches.get_flag("only-defines")
+        && !matches.get_flag("only-sources"))
+        || matches.get_flag("only-includes")
+    {
+        all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
+    } else {
+        IndexSet::new()
+    };
     tera_context.insert("all_incdirs", &all_incdirs);
-    let all_files: IndexSet<PathBuf> =
-        if !matches.get_flag("only-defines") && !matches.get_flag("only-includes") {
-            all_files
-                .into_iter()
-                .filter_map(|file| match file {
-                    SourceFile::File(p) => Some(p.to_path_buf()),
-                    _ => None,
-                })
-                .collect()
-        } else {
-            IndexSet::new()
-        };
+    let all_files: IndexSet<PathBuf> = if (!matches.get_flag("only-defines")
+        && !matches.get_flag("only-includes"))
+        || matches.get_flag("only-sources")
+    {
+        all_files
+            .into_iter()
+            .filter_map(|file| match file {
+                SourceFile::File(p) => Some(p.to_path_buf()),
+                _ => None,
+            })
+            .collect()
+    } else {
+        IndexSet::new()
+    };
     tera_context.insert("all_files", &all_files);
 
     let mut split_srcs = vec![];
