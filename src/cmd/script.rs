@@ -45,6 +45,7 @@ pub fn new() -> Command {
                 .num_args(1)
                 .value_parser([
                     PossibleValue::new("flist"),
+                    PossibleValue::new("flist-plus"),
                     PossibleValue::new("vsim"),
                     PossibleValue::new("vcs"),
                     PossibleValue::new("verilator"),
@@ -215,6 +216,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let format_targets: Vec<&str> = if !matches.get_flag("no-default-target") {
         match format.as_str() {
             "flist" => vec!["flist"],
+            "flist-plus" => vec!["flist"],
             "vsim" => vec!["vsim", "simulation"],
             "vcs" => vec!["vcs", "simulation"],
             "verilator" => vec!["verilator", "synthesis"],
