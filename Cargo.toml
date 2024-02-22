@@ -1,6 +1,6 @@
 [package]
 name = "bender"
-version = "0.28.0"
+version = "0.28.1"
 authors = ["Fabian Schuiki <fschuiki@iis.ee.ethz.ch>", "Andreas Kurth <akurth@iis.ee.ethz.ch>", "Michael Rogenmoser <michael@rogenmoser.us>"]
 repository = "https://github.com/pulp-platform/bender"
 description = "A dependency management tool for hardware projects."
