@@ -222,7 +222,13 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     let mut mod_package = locked.packages[dep].clone();
     mod_package.revision = None;
     mod_package.version = None;
-    mod_package.source = LockedSource::Path(path.join(path_mod).join(dep));
+    mod_package.source = LockedSource::Path(
+        path.join(path_mod)
+            .join(dep)
+            .strip_prefix(path)
+            .unwrap_or(&path.join(path_mod).join(dep))
+            .to_path_buf(),
+    );
     locked.packages.insert(dep.to_string(), mod_package);
 
     let file = File::create(path.join("Bender.lock"))
