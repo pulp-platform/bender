@@ -77,6 +77,7 @@ pub fn main() -> Result<()> {
         .subcommand(cmd::clone::new())
         .subcommand(cmd::packages::new())
         .subcommand(cmd::sources::new())
+        .subcommand(cmd::completion::new())
         .subcommand(cmd::config::new())
         .subcommand(cmd::script::new())
         .subcommand(cmd::checkout::new())
@@ -99,7 +100,7 @@ pub fn main() -> Result<()> {
     };
 
     // Parse the arguments.
-    let matches = app.get_matches();
+    let matches = app.clone().get_matches();
 
     // Enable debug outputs if needed.
     if matches.contains_id("debug") && matches.get_flag("debug") {
@@ -108,6 +109,11 @@ pub fn main() -> Result<()> {
 
     if let Some(("init", matches)) = matches.subcommand() {
         return cmd::init::run(matches);
+    }
+
+    if let Some(("completion", matches)) = matches.subcommand() {
+        let mut app = app;
+        return cmd::completion::run(matches, &mut app);
     }
 
     let mut force_fetch = false;

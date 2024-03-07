@@ -18,6 +18,7 @@ tokio = { version = "1.27", features = ["full"] }
 async-recursion = "1.0"
 
 clap = { version = "4.0", features = ["derive"] }
+clap_complete = "4.0"
 semver = { version = "1.0", features = ["serde"] }
 blake2 = "0.10"
 typed-arena = "2"

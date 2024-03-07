@@ -445,7 +445,7 @@ Calling update with the `--fetch/-f` flag will force all git dependencies to be 
 
 ### `clone` --- Clone dependency to make modifications
 
-The `bender clone <PKG>` command checks out the package `PKG` into a directory (default `working_dir`, can be overridden with `-p / --path <DIR>`). 
+The `bender clone <PKG>` command checks out the package `PKG` into a directory (default `working_dir`, can be overridden with `-p / --path <DIR>`).
 To ensure the package is correctly linked in bender, the `Bender.local` file is modified to include a `path` dependency override, linking to the corresponding package.
 
 This can be used for development of dependent packages within the parent repository, allowing to test uncommitted and committed changes, without the worry that bender would update the dependency.
@@ -534,6 +534,23 @@ This branch can then be rebased and a pull request can be opened from it as usua
 
 Note: when using mappings in your `vendor_package`, the patches will be relative to the mapped directory.
 Hence, for upstreaming, you might need to use `git am --directory=<mapping.from>` instead of plain `git am`.
+
+### `completion` --- Generate shell completion script
+
+The `bender completion <SHELL>` command prints a completion script for the given shell.
+
+Installation and usage of these scripts is shell-dependent. Please refer to your shell's documentation
+for information on how to install and use the generated script
+([bash](https://www.gnu.org/software/bash/manual/html_node/Programmable-Completion.html),
+[zsh](https://zsh.sourceforge.io/Doc/Release/Completion-System.html),
+[fish](https://fishshell.com/docs/current/completions.html)).
+
+Supported shells:
+- `bash`
+- `elvish`
+- `fish`
+- `powershell`
+- `zsh`
 
 [aur-bender]: https://aur.archlinux.org/packages/bender
 [releases]: https://github.com/pulp-platform/bender/releases
