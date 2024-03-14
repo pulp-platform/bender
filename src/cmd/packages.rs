@@ -24,7 +24,8 @@ pub fn new() -> Command {
             .long("flat")
             .num_args(0)
             .action(ArgAction::SetTrue)
-            .help("Do not group packages by topological rank. If the `--graph` option is specified, print multiple lines per package, one for each dependency.")
+            .help("Do not group packages by topological rank")
+            .long_help("Do not group packages by topological rank. If the `--graph` option is specified, print multiple lines per package, one for each dependency.")
         )
 }
 
