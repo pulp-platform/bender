@@ -35,7 +35,8 @@ pub fn new() -> Command {
     Command::new("vendor")
         .subcommand_required(true).arg_required_else_help(true)
         .about("Copy source code from upstream external repositories into this repository")
-        .long_about("Copy source code from upstream external repositories into this repository. Functions similar to the lowrisc vendor.py script. Type bender vendor <SUBCOMMAND> --help for more information about the subcommands.")
+        .long_about("Copy source code from upstream external repositories into this repository. Functions similar to the lowrisc vendor.py script.")
+        .after_help("Type 'bender vendor <SUBCOMMAND> --help' for more information about a vendor subcommand.")
         .subcommand(Command::new("diff")
             .about("Display a diff of the local tree and the upstream tree with patches applied.")
             .arg(

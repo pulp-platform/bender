@@ -37,6 +37,9 @@ pub fn main() -> Result<()> {
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .about("A dependency management tool for hardware projects.")
+        .after_help(
+            "Type 'bender <SUBCOMMAND> --help' for more information about a bender subcommand.",
+        )
         .arg(
             Arg::new("dir")
                 .short('d')
