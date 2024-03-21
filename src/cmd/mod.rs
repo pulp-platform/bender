@@ -9,6 +9,7 @@
 
 pub mod checkout;
 pub mod clone;
+pub mod completion;
 pub mod config;
 pub mod fusesoc;
 pub mod init;

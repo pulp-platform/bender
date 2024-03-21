@@ -27,7 +27,7 @@ use crate::target::TargetSpec;
 /// Assemble the `fusesoc` subcommand.
 pub fn new() -> Command {
     Command::new("fusesoc")
-        .about("Creates a FuseSoC `.core` file for all dependencies where none is present.")
+        .about("Creates a FuseSoC `.core` file for all dependencies where none is present")
         .arg(
             Arg::new("single")
                 .long("single")
