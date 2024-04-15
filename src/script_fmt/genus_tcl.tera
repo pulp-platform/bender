@@ -2,7 +2,7 @@
 if [ info exists search_path ] {{ '{{' }}
   set search_path_initial $search_path
 {{ '}}' }}
-set ROOT = "{{ root }}"
+set ROOT "{{ root }}"
 {% if compilation_mode == 'separate' %}{% for group in srcs %}
 set search_path $search_path_initial
 {% for incdir in group.incdirs %}lappend search_path "$ROOT{{ incdir | replace(from=root, to='') }}"
