@@ -1,7 +1,9 @@
 # {{ HEADER_AUTOGEN }}
-if [ info exists search_path ] {{ '{{' }}
-  set search_path_initial $search_path
-{{ '}}' }}
+if [ info exists search_path ] {
+    set search_path_initial $search_path
+} else {
+    set search_path_initial {}
+}
 set ROOT "{{ root }}"
 {% if compilation_mode == 'separate' %}{% for group in srcs %}
 set search_path $search_path_initial
