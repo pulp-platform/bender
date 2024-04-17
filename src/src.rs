@@ -53,7 +53,12 @@ impl<'ctx> SourceGroup<'ctx> {
                     let group = group.simplify();
 
                     // Discard empty groups.
-                    if group.files.is_empty() && group.package.is_none() {
+                    if group.files.is_empty()
+                        && group.include_dirs.is_empty()
+                        && group.defines.is_empty()
+                        && group.target.is_wildcard()
+                        && group.package.is_none()
+                    {
                         return None;
                     }
 
@@ -221,7 +226,7 @@ impl<'ctx> SourceGroup<'ctx> {
         let mut files = vec![];
         let subfiles = std::mem::take(&mut self.files);
         let flush_files = |files: &mut Vec<SourceFile<'ctx>>, into: &mut Vec<SourceGroup<'ctx>>| {
-            if files.is_empty() {
+            if files.is_empty() && self.package.is_none() {
                 return;
             }
             let files = std::mem::take(files);
