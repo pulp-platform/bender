@@ -53,7 +53,7 @@ impl<'ctx> SourceGroup<'ctx> {
                     let group = group.simplify();
 
                     // Discard empty groups.
-                    if group.files.is_empty() {
+                    if group.files.is_empty() && group.package.is_none() {
                         return None;
                     }
 

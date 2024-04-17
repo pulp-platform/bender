@@ -34,6 +34,7 @@ use crate::config::{self, Config, Manifest};
 use crate::error::*;
 // use crate::future_throttle::FutureThrottle;
 use crate::git::Git;
+use crate::src::SourceFile::Group;
 use crate::src::SourceGroup;
 use crate::target::TargetSpec;
 use crate::util::try_modification_time;
@@ -1250,8 +1251,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 let files = manifests
                     .into_iter()
                     .flatten()
-                    .filter_map(|m| {
-                        m.sources.as_ref().map(|s| {
+                    .map(|m| {
                             // Collect include dirs from export_include_dirs of package and direct dependencies
                             let mut export_include_dirs: IndexMap<String, IndexSet<&Path>> =
                                 IndexMap::new();
@@ -1277,7 +1277,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             }
                             self.sess
                                 .load_sources(
-                                    s,
+                                    &m.sources,
                                     Some(m.package.name.as_str()),
                                     m.dependencies.keys().cloned().collect(),
                                     export_include_dirs,
@@ -1286,9 +1286,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                         Err(_) => None,
                                     },
                                 )
-                                .into()
-                        })
                     })
+                    .map(|sg| Group(Box::new(sg)))
                     .collect();
 
                 // Create a source group for this rank.

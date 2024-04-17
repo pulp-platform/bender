@@ -82,18 +82,15 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     let name = &sess.manifest.package.name;
 
-    let srcs = match &sess.manifest.sources {
-        Some(sources) => Ok(sess
-            .load_sources(
-                sources,
-                Some(name.as_str()),
-                sess.manifest.dependencies.keys().cloned().collect(),
-                IndexMap::new(),
-                version_string.clone(),
-            )
-            .flatten()),
-        None => Err(Error::new("Error in loading sources")),
-    }?;
+    let srcs = sess
+        .load_sources(
+            &sess.manifest.sources,
+            Some(name.as_str()),
+            sess.manifest.dependencies.keys().cloned().collect(),
+            IndexMap::new(),
+            version_string.clone(),
+        )
+        .flatten();
 
     let core_path = &sess.root.join(format!("{}.core", name));
 

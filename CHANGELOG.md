@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Make panic an error when lockfile is not up to date with dependencies.
 - Fix Readme dependency version indication for exact match.
 - Fix vendor file copying for symbolic links.
+- Fix sources & scripts export for packages with empty source lists
 
 ### Added
 - Add `completion` command to generate shell autocomplete integration.
