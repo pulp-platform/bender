@@ -35,7 +35,7 @@ pub struct Manifest {
     /// The dependencies.
     pub dependencies: IndexMap<String, Dependency>,
     /// The source files.
-    pub sources: Option<Sources>,
+    pub sources: Sources,
     /// The include directories exported to dependent packages.
     pub export_include_dirs: Vec<PathBuf>,
     /// The plugin binaries.
@@ -53,11 +53,7 @@ impl PrefixPaths for Manifest {
         Ok(Manifest {
             package: self.package,
             dependencies: self.dependencies.prefix_paths(prefix)?,
-            sources: self
-                .sources
-                .map_or(Ok::<Option<Sources>, Error>(None), |src| {
-                    Ok(Some(src.prefix_paths(prefix)?))
-                })?,
+            sources: self.sources.prefix_paths(prefix)?,
             export_include_dirs: self
                 .export_include_dirs
                 .into_iter()
@@ -355,7 +351,12 @@ impl Validate for PartialManifest {
         Ok(Manifest {
             package: pkg,
             dependencies: deps,
-            sources: srcs,
+            sources: srcs.unwrap_or(Sources {
+                target: TargetSpec::Wildcard,
+                include_dirs: vec![],
+                defines: IndexMap::new(),
+                files: vec![],
+            }),
             export_include_dirs: exp_inc_dirs
                 .iter()
                 .map(|path| env_path_from_string(path.to_string()))
