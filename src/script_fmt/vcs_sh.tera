@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # {{ HEADER_AUTOGEN }}
+{% if abort_on_error %}# Set propagation of error to exit on first error
+set -e
+{% endif %}
 ROOT="{{ root }}"
 {% if compilation_mode == 'separate' %}{% for group in srcs %}
 {% if group.file_type == 'verilog' %}{{ vlogan_bin }} -sverilog \
