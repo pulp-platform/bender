@@ -147,7 +147,10 @@ pub fn main() -> Result<()> {
     debugln!("main: {:#?}", manifest);
 
     // Gather and parse the tool configuration.
-    let config = load_config(&root_dir)?;
+    let config = load_config(
+        &root_dir,
+        matches!(matches.subcommand(), Some(("update", _))),
+    )?;
     debugln!("main: {:#?}", config);
 
     // Assemble the session.
@@ -387,7 +390,7 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
 }
 
 /// Load a configuration by traversing a directory hierarchy upwards.
-fn load_config(from: &Path) -> Result<Config> {
+fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
     #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
 
@@ -408,13 +411,13 @@ fn load_config(from: &Path) -> Result<Config> {
     // Step upwards through the path hierarchy.
     for _ in 0..100 {
         // Load the optional local configuration.
-        if let Some(cfg) = maybe_load_config(&path.join("Bender.local"))? {
+        if let Some(cfg) = maybe_load_config(&path.join("Bender.local"), warn_config_loaded)? {
             out = out.merge(cfg);
         }
 
         debugln!("load_config: looking in {:?}", path);
 
-        if let Some(cfg) = maybe_load_config(&path.join(".bender.yml"))? {
+        if let Some(cfg) = maybe_load_config(&path.join(".bender.yml"), warn_config_loaded)? {
             out = out.merge(cfg);
         }
 
@@ -438,13 +441,13 @@ fn load_config(from: &Path) -> Result<Config> {
     if let Some(mut home) = dirs::home_dir() {
         home.push(".config");
         home.push("bender.yml");
-        if let Some(cfg) = maybe_load_config(&home)? {
+        if let Some(cfg) = maybe_load_config(&home, warn_config_loaded)? {
             out = out.merge(cfg);
         }
     }
 
     // Load the global configuration.
-    if let Some(cfg) = maybe_load_config(Path::new("/etc/bender.yml"))? {
+    if let Some(cfg) = maybe_load_config(Path::new("/etc/bender.yml"), warn_config_loaded)? {
         out = out.merge(cfg);
     }
 
@@ -472,7 +475,7 @@ fn load_config(from: &Path) -> Result<Config> {
 }
 
 /// Load a configuration file if it exists.
-fn maybe_load_config(path: &Path) -> Result<Option<PartialConfig>> {
+fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<PartialConfig>> {
     use std::fs::File;
     debugln!("maybe_load_config: {:?}", path);
     if !path.exists() {
@@ -482,6 +485,9 @@ fn maybe_load_config(path: &Path) -> Result<Option<PartialConfig>> {
         .map_err(|cause| Error::chain(format!("Cannot open config {:?}.", path), cause))?;
     let partial: PartialConfig = serde_yaml::from_reader(file)
         .map_err(|cause| Error::chain(format!("Syntax error in config {:?}.", path), cause))?;
+    if warn_config_loaded {
+        warnln!("Using config at {:?} for overrides.", path)
+    };
     Ok(Some(partial.prefix_paths(path.parent().unwrap())?))
 }
 
