@@ -417,7 +417,8 @@ The `bender script <format>` command can generate scripts to feed the source cod
 
 Supported formats:
 
-- `flist`: A flat file list amenable to be directly inlined into the invocation command of a tool, e.g. `verilate $(bender script flist)`.
+- `flist`: A flat whitespace-separated file list.
+- `flist-plus`: A flat file list amenable to be directly inlined into the invocation command of a tool, e.g. `verilate $(bender script flist)`.
 - `vsim`: A Tcl compilation script for Mentor ModelSim/QuestaSim.
 - `vcs`:  A Tcl compilation script for VCS.
 - `verilator`: Command line arguments for Verilator.
