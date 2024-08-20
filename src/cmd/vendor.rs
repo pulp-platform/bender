@@ -323,7 +323,7 @@ pub fn init(
 
     // Check if includes exist
     for path in vendor_package.include_from_upstream.clone() {
-        if !PathBuf::from(extend_paths(&[path.clone()], dep_path)?[0].clone()).exists() {
+        if !PathBuf::from(extend_paths(&[path.clone()], dep_path, true)?[0].clone()).exists() {
             warnln!("{} not found in upstream, continuing.", path);
         }
     }
@@ -333,7 +333,7 @@ pub fn init(
         true => copy_recursively(
             &link_from,
             &link_to,
-            &extend_paths(&vendor_package.include_from_upstream, dep_path)?,
+            &extend_paths(&vendor_package.include_from_upstream, dep_path, false)?,
             &vendor_package
                 .exclude_from_upstream
                 .clone()
@@ -474,6 +474,7 @@ pub fn diff(
             &extend_paths(
                 &vendor_package.include_from_upstream,
                 &vendor_package.target_dir,
+                false,
             )?,
             &vendor_package
                 .exclude_from_upstream
@@ -792,12 +793,13 @@ pub fn copy_recursively(
 pub fn extend_paths(
     include_from_upstream: &[String],
     prefix: impl AsRef<Path>,
+    dir_only: bool,
 ) -> Result<Vec<String>> {
     include_from_upstream
         .iter()
         .map(|pattern| {
             let pattern_long = PathBuf::from(pattern).prefix_paths(prefix.as_ref())?;
-            if pattern_long.is_dir() {
+            if pattern_long.is_dir() && !dir_only {
                 Ok(String::from(pattern_long.join("**").to_str().unwrap()))
             } else {
                 Ok(String::from(pattern_long.to_str().unwrap()))
