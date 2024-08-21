@@ -15,6 +15,7 @@ use crate::error::*;
 use crate::git::Git;
 use crate::sess::{DependencySource, Session};
 use glob::Pattern;
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -28,6 +29,8 @@ pub struct PatchLink {
     pub from_prefix: PathBuf,
     /// prefix for local
     pub to_prefix: PathBuf,
+    /// subdirs and files to exclude
+    pub exclude: Vec<PathBuf>,
 }
 
 /// Assemble the `vendor` subcommand.
@@ -128,6 +131,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 patch_dir: link.patch_dir,
                 from_prefix: link.from,
                 to_prefix: link.to,
+                exclude: vec![],
             })
         }
 
@@ -138,25 +142,59 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     patch_dir: vendor_package.patch_dir.clone(),
                     from_prefix: PathBuf::from(""),
                     to_prefix: PathBuf::from(""),
+                    exclude: vec![],
                 }],
                 _ => patch_links,
             }
         };
 
+        // sort patch_links so more specific links have priority
+        // 1. file links over directory links eg 'a/file -> c/file' before 'b/ -> c/'
+        // 2. subdirs (deeper paths) first eg 'a/aa/ -> c/aa' before 'a/ab -> c/'
+        let mut sorted_links: Vec<_> = patch_links.clone();
+        sorted_links.sort_by(|a, b| {
+            let a_is_file = a.to_prefix.is_file();
+            let b_is_file = b.to_prefix.is_file();
+
+            if a_is_file != b_is_file {
+                return b_is_file.cmp(&a_is_file);
+            }
+
+            let a_depth = a.to_prefix.iter().count();
+            let b_depth = b.to_prefix.iter().count();
+
+            b_depth.cmp(&a_depth)
+        });
+
+        // Add all subdirs and files to the exclude list of above dirs
+        // avoids duplicate handling of the same changes
+        let mut seen_paths: HashSet<PathBuf> = HashSet::new();
+        for patch_link in sorted_links.iter_mut() {
+            patch_link.exclude = seen_paths
+                .iter()
+                .filter(|path| path.starts_with(&patch_link.to_prefix)) // subdir?
+                .cloned()
+                .collect();
+
+            seen_paths.insert(patch_link.to_prefix.clone());
+        }
         let git = Git::new(tmp_path, &sess.config.git);
 
         match matches.subcommand() {
             Some(("diff", matches)) => {
                 // Apply patches
-                patch_links.clone().into_iter().try_for_each(|patch_link| {
-                    apply_patches(&rt, git, vendor_package.name.clone(), patch_link).map(|_| ())
-                })?;
+                sorted_links
+                    .clone()
+                    .into_iter()
+                    .try_for_each(|patch_link| {
+                        apply_patches(&rt, git, vendor_package.name.clone(), patch_link).map(|_| ())
+                    })?;
 
                 // Stage applied patches to clean working tree
                 rt.block_on(git.add_all())?;
 
                 // Print diff for each link
-                patch_links.into_iter().try_for_each(|patch_link| {
+                sorted_links.into_iter().try_for_each(|patch_link| {
                     let get_diff = diff(&rt, git, vendor_package, patch_link, dep_path.clone())
                         .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
                     if !get_diff.is_empty() {
@@ -176,7 +214,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             }
 
             Some(("init", matches)) => {
-                patch_links.clone().into_iter().try_for_each(|patch_link| {
+                sorted_links.into_iter().rev().try_for_each(|patch_link| {
                     stageln!("Copying", "{} files from upstream", vendor_package.name);
                     // Remove existing directories before importing them again
                     let target_path = patch_link
@@ -209,7 +247,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             Some(("patch", matches)) => {
                 // Apply patches
                 let mut num_patches = 0;
-                patch_links
+                sorted_links
                     .clone()
                     .into_iter()
                     .try_for_each(|patch_link| {
@@ -225,7 +263,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 }
 
                 // Generate patch
-                patch_links.clone().into_iter().try_for_each( |patch_link| {
+                sorted_links.into_iter().try_for_each( |patch_link| {
                     match patch_link.patch_dir.clone() {
                         Some(patch_dir) => {
                             if matches.get_flag("plain") {
@@ -285,7 +323,7 @@ pub fn init(
 
     // Check if includes exist
     for path in vendor_package.include_from_upstream.clone() {
-        if !PathBuf::from(extend_paths(&[path.clone()], dep_path)?[0].clone()).exists() {
+        if !PathBuf::from(extend_paths(&[path.clone()], dep_path, true)?[0].clone()).exists() {
             warnln!("{} not found in upstream, continuing.", path);
         }
     }
@@ -295,7 +333,7 @@ pub fn init(
         true => copy_recursively(
             &link_from,
             &link_to,
-            &extend_paths(&vendor_package.include_from_upstream, dep_path)?,
+            &extend_paths(&vendor_package.include_from_upstream, dep_path, false)?,
             &vendor_package
                 .exclude_from_upstream
                 .clone()
@@ -364,24 +402,32 @@ pub fn apply_patches(
                 })
                 .and_then(|_| {
                     git.spawn_with(|c| {
-                        let current_patch_target = if !patch_link
+                        let is_file = patch_link
                             .from_prefix
                             .clone()
                             .prefix_paths(git.path)
                             .unwrap()
-                            .is_file()
-                        {
-                            patch_link.from_prefix.as_path()
+                            .is_file();
+
+                        let current_patch_target = if is_file {
+                            patch_link.from_prefix.parent().unwrap().to_str().unwrap()
                         } else {
-                            patch_link.from_prefix.parent().unwrap()
-                        }
-                        .to_str()
-                        .unwrap();
+                            patch_link.from_prefix.as_path().to_str().unwrap()
+                        };
+
                         c.arg("apply")
                             .arg("--directory")
                             .arg(current_patch_target)
                             .arg("-p1")
-                            .arg(&patch)
+                            .arg(&patch);
+
+                        // limit to specific file for file links
+                        if is_file {
+                            let file_path = patch_link.from_prefix.to_str().unwrap();
+                            c.arg("--include").arg(file_path);
+                        }
+
+                        c
                     })
                 })
                 .await
@@ -428,6 +474,7 @@ pub fn diff(
             &extend_paths(
                 &vendor_package.include_from_upstream,
                 &vendor_package.target_dir,
+                false,
             )?,
             &vendor_package
                 .exclude_from_upstream
@@ -559,30 +606,47 @@ pub fn gen_format_patch(
     // We assume that patch_dir matches Some() was checked outside this function.
     let patch_dir = patch_link.patch_dir.clone().unwrap();
 
+    // If the patch link maps a file, we operate in the file's parent directory
+    // Therefore, only get the diff for that file.
+    let include_pathspec = if !to_path.is_dir() {
+        patch_link
+            .to_prefix
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string()
+    } else {
+        ".".to_string()
+    };
+
+    // Build the exclude pathspec to diff only the applicable files
+    let exclude_pathspecs: Vec<String> = patch_link
+        .exclude
+        .iter()
+        .map(|path| format!(":!{}", path.to_str().unwrap()))
+        .collect();
+
+    let mut diff_args = vec![
+        "diff".to_string(),
+        "--relative".to_string(),
+        "--cached".to_string(),
+    ];
+
+    diff_args.push(include_pathspec);
+    for exclude_path in exclude_pathspecs {
+        diff_args.push(exclude_path);
+    }
+
     // Get staged changes in dependency
     let get_diff_cached = rt
-        .block_on(async {
-            git_parent
-                .spawn_with(|c| {
-                    c.arg("diff")
-                        .arg("--relative")
-                        .arg("--cached")
-                        .arg(if !to_path.is_dir() {
-                            // If the patch link maps a file, we operate in the file's parent
-                            // directory. Therefore, only get the diff for that file.
-                            patch_link.to_prefix.file_name().unwrap().to_str().unwrap()
-                        } else {
-                            "."
-                        })
-                })
-                .await
-        })
+        .block_on(async { git_parent.spawn_with(|c| c.args(&diff_args)).await })
         .map_err(|cause| Error::chain("Failed to generate diff", cause))?;
 
     if !get_diff_cached.is_empty() {
         // Write diff into new temp dir. TODO: pipe directly to "git apply"
         let tmp_format_dir = TempDir::new()?;
-        let tmp_format_path = tmp_format_dir.path();
+        let tmp_format_path = tmp_format_dir.into_path();
         let diff_cached_path = tmp_format_path.join("staged.diff");
         std::fs::write(diff_cached_path.clone(), get_diff_cached)?;
 
@@ -729,12 +793,13 @@ pub fn copy_recursively(
 pub fn extend_paths(
     include_from_upstream: &[String],
     prefix: impl AsRef<Path>,
+    dir_only: bool,
 ) -> Result<Vec<String>> {
     include_from_upstream
         .iter()
         .map(|pattern| {
             let pattern_long = PathBuf::from(pattern).prefix_paths(prefix.as_ref())?;
-            if pattern_long.is_dir() {
+            if pattern_long.is_dir() && !dir_only {
                 Ok(String::from(pattern_long.join("**").to_str().unwrap()))
             } else {
                 Ok(String::from(pattern_long.to_str().unwrap()))

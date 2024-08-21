@@ -892,7 +892,7 @@ impl Validate for PartialVendorPackage {
             },
             include_from_upstream: match self.include_from_upstream {
                 Some(include_from_upstream) => include_from_upstream,
-                None => vec![String::from("**")],
+                None => vec![String::from("")],
             },
             exclude_from_upstream: {
                 let mut excl = match self.exclude_from_upstream {
