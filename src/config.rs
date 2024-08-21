@@ -882,10 +882,7 @@ impl Validate for PartialVendorPackage {
                 })?,
                 None => return Err(Error::new("external import upstream missing")),
             },
-            mapping: match self.mapping {
-                Some(mapping) => mapping,
-                None => Vec::new(),
-            },
+            mapping: self.mapping.unwrap_or_default(),
             patch_dir: match self.patch_dir {
                 Some(patch_dir) => Some(env_path_from_string(patch_dir)?),
                 None => None,
@@ -895,10 +892,7 @@ impl Validate for PartialVendorPackage {
                 None => vec![String::from("")],
             },
             exclude_from_upstream: {
-                let mut excl = match self.exclude_from_upstream {
-                    Some(exclude_from_upstream) => exclude_from_upstream,
-                    None => Vec::new(),
-                };
+                let mut excl = self.exclude_from_upstream.unwrap_or_default();
                 excl.push(String::from(".git"));
                 excl
             },

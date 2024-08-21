@@ -25,7 +25,7 @@ typed-arena = "2"
 dirs = "5"
 pathdiff = "0.2"
 common-path = "1.0.0"
-itertools = "0.12"
+itertools = "0.13"
 is-terminal = "0.4"
 tabwriter = "1.2.1"
 indexmap = { version = "2", features = ["serde"] }
