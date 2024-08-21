@@ -179,8 +179,25 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         // Translate the name-based graph into an ID-based graph.
         let graph: IndexMap<DependencyRef, IndexSet<DependencyRef>> = graph_names
             .into_iter()
-            .map(|(k, v)| (k, v.iter().map(|name| names[name]).collect()))
-            .collect();
+            .map(|(k, v)| {
+                (
+                    k,
+                    v.iter()
+                        .map(|name| match names.get(name) {
+                            Some(id) => Ok(*id),
+                            None => Err(Error::new(format!(
+                                "Failed to match dependency {}, please run `bender update`!",
+                                name
+                            ))),
+                        })
+                        .collect::<Result<_>>(),
+                )
+            })
+            .map(|(k, v)| match v {
+                Ok(v) => Ok((k, v)),
+                Err(e) => Err(e),
+            })
+            .collect::<Result<_>>()?;
 
         // Determine the topological ordering of the packages.
         let pkgs = {
