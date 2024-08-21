@@ -15,6 +15,7 @@ use crate::error::*;
 use crate::git::Git;
 use crate::sess::{DependencySource, Session};
 use glob::Pattern;
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -28,6 +29,8 @@ pub struct PatchLink {
     pub from_prefix: PathBuf,
     /// prefix for local
     pub to_prefix: PathBuf,
+    /// subdirs and files to exclude
+    pub exclude: Vec<PathBuf>,
 }
 
 /// Assemble the `vendor` subcommand.
@@ -128,6 +131,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 patch_dir: link.patch_dir,
                 from_prefix: link.from,
                 to_prefix: link.to,
+                exclude: vec![],
             })
         }
 
@@ -138,6 +142,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     patch_dir: vendor_package.patch_dir.clone(),
                     from_prefix: PathBuf::from(""),
                     to_prefix: PathBuf::from(""),
+                    exclude: vec![],
                 }],
                 _ => patch_links,
             }
@@ -145,7 +150,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
         // sort patch_links so more specific links have priority
         // 1. file links over directory links eg 'a/file -> c/file' before 'b/ -> c/'
-        // 2. deeper paths first eg 'a/aa/ -> c/aa' before 'a/ab -> c/'
+        // 2. subdirs (deeper paths) first eg 'a/aa/ -> c/aa' before 'a/ab -> c/'
         let mut sorted_links: Vec<_> = patch_links.clone();
         sorted_links.sort_by(|a, b| {
             let a_is_file = a.to_prefix.is_file();
@@ -160,6 +165,19 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
             b_depth.cmp(&a_depth)
         });
+
+        // Add all subdirs and files to the exclude list of above dirs
+        // avoids duplicate handling of the same changes
+        let mut seen_paths: HashSet<PathBuf> = HashSet::new();
+        for patch_link in sorted_links.iter_mut() {
+            patch_link.exclude = seen_paths
+                .iter()
+                .filter(|path| path.starts_with(&patch_link.to_prefix)) // subdir?
+                .cloned()
+                .collect();
+
+            seen_paths.insert(patch_link.to_prefix.clone());
+        }
         let git = Git::new(tmp_path, &sess.config.git);
 
         match matches.subcommand() {
@@ -401,7 +419,15 @@ pub fn apply_patches(
                             .arg("--directory")
                             .arg(current_patch_target)
                             .arg("-p1")
-                            .arg(&patch)
+                            .arg(&patch);
+
+                        // limit to specific file for file links
+                        if is_file {
+                            let file_path = patch_link.from_prefix.to_str().unwrap();
+                            c.arg("--include").arg(file_path);
+                        }
+
+                        c
                     })
                 })
                 .await
@@ -579,30 +605,47 @@ pub fn gen_format_patch(
     // We assume that patch_dir matches Some() was checked outside this function.
     let patch_dir = patch_link.patch_dir.clone().unwrap();
 
+    // If the patch link maps a file, we operate in the file's parent directory
+    // Therefore, only get the diff for that file.
+    let include_pathspec = if !to_path.is_dir() {
+        patch_link
+            .to_prefix
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string()
+    } else {
+        ".".to_string()
+    };
+
+    // Build the exclude pathspec to diff only the applicable files
+    let exclude_pathspecs: Vec<String> = patch_link
+        .exclude
+        .iter()
+        .map(|path| format!(":!{}", path.to_str().unwrap()))
+        .collect();
+
+    let mut diff_args = vec![
+        "diff".to_string(),
+        "--relative".to_string(),
+        "--cached".to_string(),
+    ];
+
+    diff_args.push(include_pathspec);
+    for exclude_path in exclude_pathspecs {
+        diff_args.push(exclude_path);
+    }
+
     // Get staged changes in dependency
     let get_diff_cached = rt
-        .block_on(async {
-            git_parent
-                .spawn_with(|c| {
-                    c.arg("diff")
-                        .arg("--relative")
-                        .arg("--cached")
-                        .arg(if !to_path.is_dir() {
-                            // If the patch link maps a file, we operate in the file's parent
-                            // directory. Therefore, only get the diff for that file.
-                            patch_link.to_prefix.file_name().unwrap().to_str().unwrap()
-                        } else {
-                            "."
-                        })
-                })
-                .await
-        })
+        .block_on(async { git_parent.spawn_with(|c| c.args(&diff_args)).await })
         .map_err(|cause| Error::chain("Failed to generate diff", cause))?;
 
     if !get_diff_cached.is_empty() {
         // Write diff into new temp dir. TODO: pipe directly to "git apply"
         let tmp_format_dir = TempDir::new()?;
-        let tmp_format_path = tmp_format_dir.path();
+        let tmp_format_path = tmp_format_dir.into_path();
         let diff_cached_path = tmp_format_path.join("staged.diff");
         std::fs::write(diff_cached_path.clone(), get_diff_cached)?;
 
