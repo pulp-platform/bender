@@ -143,20 +143,40 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             }
         };
 
+        // sort patch_links so more specific links have priority
+        // 1. file links over directory links eg 'a/file -> c/file' before 'b/ -> c/'
+        // 2. deeper paths first eg 'a/aa/ -> c/aa' before 'a/ab -> c/'
+        let mut sorted_links: Vec<_> = patch_links.clone();
+        sorted_links.sort_by(|a, b| {
+            let a_is_file = a.to_prefix.is_file();
+            let b_is_file = b.to_prefix.is_file();
+
+            if a_is_file != b_is_file {
+                return b_is_file.cmp(&a_is_file);
+            }
+
+            let a_depth = a.to_prefix.iter().count();
+            let b_depth = b.to_prefix.iter().count();
+
+            b_depth.cmp(&a_depth)
+        });
         let git = Git::new(tmp_path, &sess.config.git);
 
         match matches.subcommand() {
             Some(("diff", matches)) => {
                 // Apply patches
-                patch_links.clone().into_iter().try_for_each(|patch_link| {
-                    apply_patches(&rt, git, vendor_package.name.clone(), patch_link).map(|_| ())
-                })?;
+                sorted_links
+                    .clone()
+                    .into_iter()
+                    .try_for_each(|patch_link| {
+                        apply_patches(&rt, git, vendor_package.name.clone(), patch_link).map(|_| ())
+                    })?;
 
                 // Stage applied patches to clean working tree
                 rt.block_on(git.add_all())?;
 
                 // Print diff for each link
-                patch_links.into_iter().try_for_each(|patch_link| {
+                sorted_links.into_iter().try_for_each(|patch_link| {
                     let get_diff = diff(&rt, git, vendor_package, patch_link, dep_path.clone())
                         .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
                     if !get_diff.is_empty() {
@@ -176,7 +196,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             }
 
             Some(("init", matches)) => {
-                patch_links.clone().into_iter().try_for_each(|patch_link| {
+                sorted_links.into_iter().rev().try_for_each(|patch_link| {
                     stageln!("Copying", "{} files from upstream", vendor_package.name);
                     // Remove existing directories before importing them again
                     let target_path = patch_link
@@ -209,7 +229,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             Some(("patch", matches)) => {
                 // Apply patches
                 let mut num_patches = 0;
-                patch_links
+                sorted_links
                     .clone()
                     .into_iter()
                     .try_for_each(|patch_link| {
@@ -225,7 +245,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 }
 
                 // Generate patch
-                patch_links.clone().into_iter().try_for_each( |patch_link| {
+                sorted_links.into_iter().try_for_each( |patch_link| {
                     match patch_link.patch_dir.clone() {
                         Some(patch_dir) => {
                             if matches.get_flag("plain") {
@@ -364,19 +384,19 @@ pub fn apply_patches(
                 })
                 .and_then(|_| {
                     git.spawn_with(|c| {
-                        let current_patch_target = if !patch_link
+                        let is_file = patch_link
                             .from_prefix
                             .clone()
                             .prefix_paths(git.path)
                             .unwrap()
-                            .is_file()
-                        {
-                            patch_link.from_prefix.as_path()
+                            .is_file();
+
+                        let current_patch_target = if is_file {
+                            patch_link.from_prefix.parent().unwrap().to_str().unwrap()
                         } else {
-                            patch_link.from_prefix.parent().unwrap()
-                        }
-                        .to_str()
-                        .unwrap();
+                            patch_link.from_prefix.as_path().to_str().unwrap()
+                        };
+
                         c.arg("apply")
                             .arg("--directory")
                             .arg(current_patch_target)
