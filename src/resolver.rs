@@ -17,6 +17,7 @@ use indexmap::{IndexMap, IndexSet};
 use is_terminal::IsTerminal;
 use itertools::Itertools;
 use semver::{Version, VersionReq};
+use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
 use crate::config::{self, Locked, LockedPackage, LockedSource, Manifest};
@@ -626,14 +627,23 @@ impl<'ctx> DependencyResolver<'ctx> {
                         con, name
                     );
                     let mut cons = Vec::new();
+                    let mut constr_align = String::from("");
                     for &(pkg_name, ref con, ref dsrc) in all_cons {
-                        let _ = write!(
-                            msg,
-                            "\n- package `{}` requires `{}` at `{}`",
+                        constr_align.push_str(&format!(
+                            "\n- package `{}`\trequires\t`{}` at `{}`",
                             pkg_name, con, dsrc
-                        );
+                        ));
                         cons.push((con, dsrc));
                     }
+                    let mut tw = TabWriter::new(vec![]);
+                    write!(&mut tw, "{}", constr_align).unwrap();
+                    tw.flush().unwrap();
+                    let _ = write!(
+                        msg,
+                        "{}",
+                        String::from_utf8(tw.into_inner().unwrap()).unwrap()
+                    );
+
                     cons = cons.into_iter().unique().collect();
                     if let Some((cnstr, src, _)) = self.locked.get(name) {
                         let _ = write!(
