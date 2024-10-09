@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Enable updating of individual dependencies (and recursive dependencies if desired).
 - Add support for glob in manifest source files.
 - `parents`: Print currently selected version.
+- `packages`: Add `--version` flag to print currently used versions.
 
 ### Changed
 - `update`: Clean up alignment of manual resolution output.

@@ -3,10 +3,13 @@
 
 //! The `packages` subcommand.
 
+use std::io::Write;
+
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use tabwriter::TabWriter;
 
 use crate::error::*;
-use crate::sess::Session;
+use crate::sess::{DependencySource, Session};
 
 /// Assemble the `packages` subcommand.
 pub fn new() -> Command {
@@ -27,12 +30,23 @@ pub fn new() -> Command {
             .help("Do not group packages by topological rank")
             .long_help("Do not group packages by topological rank. If the `--graph` option is specified, print multiple lines per package, one for each dependency.")
         )
+        .arg(Arg::new("version")
+            .long("version")
+            .num_args(0)
+            .action(ArgAction::SetTrue)
+            .help("Print the version of each package")
+            .long_help("Print the version of each package. Implies --flat. More detailed information is available per dependency using the `parents` subcommand.")
+    )
 }
 
 /// Execute the `packages` subcommand.
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let graph = matches.get_flag("graph");
     let flat = matches.get_flag("flat");
+    let version = matches.get_flag("version");
+    if graph && version {
+        return Err(Error::new("cannot specify both --graph and --version"));
+    }
     if graph {
         for (&pkg, deps) in sess.graph().iter() {
             let pkg_name = sess.dependency_name(pkg);
@@ -56,9 +70,29 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             }
         }
     } else {
+        let mut version_str = String::from("");
         for pkgs in sess.packages().iter() {
             let pkg_names = pkgs.iter().map(|&id| sess.dependency_name(id));
-            if flat {
+            let pkg_sources = pkgs.iter().map(|&id| sess.dependency(id));
+            if version {
+                for pkg_source in pkg_sources {
+                    version_str.push_str(&format!(
+                        "{}:\t{}\tat {}\t{}\n",
+                        pkg_source.name,
+                        match pkg_source.version {
+                            Some(ref v) => format!("v{}", v),
+                            None => "".to_string(),
+                        },
+                        pkg_source.source,
+                        match pkg_source.source {
+                            DependencySource::Path { .. } => " as path".to_string(),
+                            DependencySource::Git(_) =>
+                                format!(" with hash {}", pkg_source.version()),
+                            _ => "".to_string(),
+                        }
+                    ));
+                }
+            } else if flat {
                 // Print one line per package.
                 for pkg_name in pkg_names {
                     println!("{}", pkg_name);
@@ -74,6 +108,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 }
                 println!();
             }
+        }
+        if version {
+            let mut tw = TabWriter::new(vec![]);
+            write!(&mut tw, "{}", version_str).unwrap();
+            tw.flush().unwrap();
+            print!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
         }
     }
     Ok(())
