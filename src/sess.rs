@@ -849,43 +849,53 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .await?;
 
         // Perform the checkout if necessary.
-        // TODO MICHAERO: May need proper chaining to previous future using and_then
         if !path.exists() {
             stageln!("Checkout", "{} ({})", name, url);
 
             // First generate a tag to be cloned in the database. This is
             // necessary since `git clone` does not accept commits, but only
             // branches or tags for shallow clones.
-            let tag_name_0 = format!("bender-tmp-{}", revision);
+            let tag_name_0 = format!("bender-tmp-{}", revision).clone();
             let tag_name_1 = tag_name_0.clone();
+            let tag_name_2 = tag_name_0.clone();
             let git = self.git_database(name, url, false, Some(revision)).await?;
-            git.spawn_with(move |c| {
-                c.arg("tag")
-                    .arg(tag_name_0)
-                    .arg(revision)
-                    .arg("--force")
-                    .arg("--no-sign")
-            })
-            .map_err(move |cause| {
-                warnln!(
-                    "Please ensure the commits are available on the remote or run bender update"
-                );
-                Error::chain(
-                    format!(
-                        "Failed to checkout commit {} for {} given in Bender.lock.\n",
-                        revision, name
-                    ),
-                    cause,
-                )
-            })
-            .await?;
+            match git
+                .spawn_with(move |c| {
+                    c.arg("tag")
+                        .arg(tag_name_0)
+                        .arg(revision)
+                        .arg("--force")
+                        .arg("--no-sign")
+                })
+                .await
+            {
+                Ok(r) => Ok(r),
+                Err(cause) => {
+                    debugln!(
+                        "checkout_git: failed to tag commit {:?}, attempting fetch.",
+                        cause
+                    );
+                    // Attempt to fetch from remote and retry, as commits seem unavailable.
+                    git.spawn_with(move |c| c.arg("fetch").arg("--all")).await?;
+                    git.spawn_with(move |c| c.arg("tag").arg(tag_name_1).arg(revision).arg("--force").arg("--no-sign")).map_err(|cause| {
+                        warnln!("Please ensure the commits are available on the remote or run bender update");
+                        Error::chain(
+                            format!(
+                                "Failed to checkout commit {} for {} given in Bender.lock.\n",
+                                revision, name
+                            ),
+                            cause,
+                        )
+                    }).await
+                }
+            }?;
             git.spawn_with(move |c| {
                 c.arg("clone")
                     .arg(git.path)
                     .arg(path)
                     .arg("--recursive")
                     .arg("--branch")
-                    .arg(tag_name_1)
+                    .arg(tag_name_2)
             })
             .await?;
         }

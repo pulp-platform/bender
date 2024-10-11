@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Fixed
 - Fix `update` failing pull of inexistent commit when multiple repositories are indicated.
+- Fix checkout for commit not yet fetched.
 
 ### Added
 - `update`: Update repositories in checkout dir if conditions match:
