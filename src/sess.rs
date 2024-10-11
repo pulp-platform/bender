@@ -1032,16 +1032,17 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                         cause,
                                     )
                                 })?;
-                            let mut full = partial.validate_ignore_sources().map_err(|cause| {
-                                Error::chain(
-                                    format!(
-                                        "Error in manifest of dependency `{}` at revision \
+                            let mut full =
+                                partial.validate_ignore_sources("").map_err(|cause| {
+                                    Error::chain(
+                                        format!(
+                                            "Error in manifest of dependency `{}` at revision \
                                              `{}`.",
-                                        dep.0, used_git_rev
-                                    ),
-                                    cause,
-                                )
-                            })?;
+                                            dep.0, used_git_rev
+                                        ),
+                                        cause,
+                                    )
+                                })?;
                             self.sub_dependency_fixing(
                                 &mut full.dependencies,
                                 full.package.name.clone(),
@@ -1163,7 +1164,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     cause,
                                 )
                             })?;
-                        let mut full = partial.validate_ignore_sources().map_err(|cause| {
+                        let mut full = partial.validate_ignore_sources("").map_err(|cause| {
                             Error::chain(
                                 format!(
                                     "Error in manifest of dependency `{}` at revision \
