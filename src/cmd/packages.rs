@@ -6,10 +6,14 @@
 use std::io::Write;
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use indexmap::IndexSet;
 use tabwriter::TabWriter;
+use tokio::runtime::Runtime;
 
 use crate::error::*;
-use crate::sess::{DependencySource, Session};
+use crate::sess::{DependencySource, Session, SessionIo};
+use crate::src::SourceGroup;
+use crate::target::TargetSpec;
 
 /// Assemble the `packages` subcommand.
 pub fn new() -> Command {
@@ -36,7 +40,13 @@ pub fn new() -> Command {
             .action(ArgAction::SetTrue)
             .help("Print the version of each package")
             .long_help("Print the version of each package. Implies --flat. More detailed information is available per dependency using the `parents` subcommand.")
-    )
+        )
+        .arg(Arg::new("targets")
+            .long("targets")
+            .num_args(0)
+            .action(ArgAction::SetTrue)
+            .help("Print the targets available for each package")
+        )
 }
 
 /// Execute the `packages` subcommand.
@@ -47,7 +57,59 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     if graph && version {
         return Err(Error::new("cannot specify both --graph and --version"));
     }
-    if graph {
+    let targets = matches.get_flag("targets");
+    if targets {
+        if graph {
+            return Err(Error::new("cannot specify both --graph and --targets"));
+        }
+        let rt = Runtime::new()?;
+        let io = SessionIo::new(sess);
+        let srcs = rt.block_on(io.sources(false, &[]))?;
+        let mut target_str = String::from("");
+        for pkgs in sess.packages().iter() {
+            let pkg_names = pkgs.iter().map(|&id| sess.dependency_name(id));
+            for pkg_name in pkg_names {
+                target_str.push_str(&format!(
+                    "{}:\t{:?}\n",
+                    pkg_name,
+                    srcs.filter_packages(&IndexSet::from([pkg_name.into()]))
+                        .unwrap_or_else(|| SourceGroup {
+                            package: Default::default(),
+                            independent: true,
+                            target: TargetSpec::Wildcard,
+                            include_dirs: Default::default(),
+                            export_incdirs: Default::default(),
+                            defines: Default::default(),
+                            files: Default::default(),
+                            dependencies: Default::default(),
+                            version: None,
+                        })
+                        .get_avail_targets()
+                ));
+            }
+        }
+        target_str.push_str(&format!(
+            "{}:\t{:?}\n",
+            &sess.manifest.package.name,
+            srcs.filter_packages(&IndexSet::from([sess.manifest.package.name.clone()]))
+                .unwrap_or_else(|| SourceGroup {
+                    package: Default::default(),
+                    independent: true,
+                    target: TargetSpec::Wildcard,
+                    include_dirs: Default::default(),
+                    export_incdirs: Default::default(),
+                    defines: Default::default(),
+                    files: Default::default(),
+                    dependencies: Default::default(),
+                    version: None,
+                })
+                .get_avail_targets()
+        ));
+        let mut tw = TabWriter::new(vec![]);
+        write!(&mut tw, "{}", target_str).unwrap();
+        tw.flush().unwrap();
+        print!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
+    } else if graph {
         let mut graph_str = String::from("");
         for (&pkg, deps) in sess.graph().iter() {
             let pkg_name = sess.dependency_name(pkg);

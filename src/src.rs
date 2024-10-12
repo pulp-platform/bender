@@ -268,6 +268,20 @@ impl<'ctx> SourceGroup<'ctx> {
         }
         flush_files(&mut files, into);
     }
+
+    /// Get available targets in sourcegroup.
+    pub fn get_avail_targets(&self) -> IndexSet<String> {
+        let mut targets = self.target.get_avail();
+        for file in &self.files {
+            match file {
+                SourceFile::File(_) => {}
+                SourceFile::Group(group) => {
+                    targets.extend(group.get_avail_targets());
+                }
+            }
+        }
+        targets
+    }
 }
 
 /// A source file.
