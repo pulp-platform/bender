@@ -154,6 +154,13 @@ impl<'git, 'ctx> Git<'ctx> {
             .map(|_| ())
     }
 
+    /// Fetch the specified ref of a remote.
+    pub async fn fetch_ref(self, remote: &str, reference: &str) -> Result<()> {
+        self.spawn_with(|c| c.arg("fetch").arg(remote).arg(reference))
+            .await
+            .map(|_| ())
+    }
+
     /// Stage all local changes.
     pub async fn add_all(self) -> Result<()> {
         self.spawn_with(|c| c.arg("add").arg("--all"))

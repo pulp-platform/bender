@@ -460,7 +460,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             DependencySource::Path(_) => Ok(DependencyVersions::Path),
             DependencySource::Git(ref url) => {
-                let db = self.git_database(&dep.name, url, force_fetch).await?;
+                let db = self.git_database(&dep.name, url, force_fetch, None).await?;
                 self.git_versions_func(db)
                     .await
                     .map(DependencyVersions::Git)
@@ -477,6 +477,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         name: &str,
         url: &str,
         force_fetch: bool,
+        fetch_ref: Option<&str>,
     ) -> Result<Git<'ctx>> {
         // TODO: Make the assembled future shared and keep it in a lookup table.
         //       Then use that table to return the future if it already exists.
@@ -533,6 +534,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .and_then(|_| git.spawn_with(|c| c.arg("init").arg("--bare")))
             .and_then(|_| git.spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url)))
             .and_then(|_| git.fetch("origin"))
+            .and_then(|_| async {
+                if let Some(reference) = fetch_ref {
+                    git.fetch_ref("origin", reference).await
+                } else {
+                    Ok(())
+                }
+            })
             .await
             .map_err(move |cause| {
                 if url3.contains("git@") {
@@ -559,6 +567,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 Ok(())
             })
             .and_then(|_| git.fetch("origin"))
+            .and_then(|_| async {
+                if let Some(reference) = fetch_ref {
+                    git.fetch_ref("origin", reference).await
+                } else {
+                    Ok(())
+                }
+            })
             .await
             .map_err(move |cause| {
                 if url3.contains("git@") {
@@ -841,7 +856,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             // branches or tags for shallow clones.
             let tag_name_0 = format!("bender-tmp-{}", revision);
             let tag_name_1 = tag_name_0.clone();
-            let git = self.git_database(name, url, false).await?;
+            let git = self.git_database(name, url, false, Some(revision)).await?;
             git.spawn_with(move |c| c.arg("tag").arg(tag_name_0).arg(revision).arg("--force"))
 		.map_err(move |cause| {
 		    warnln!("Please ensure the commits are available on the remote or run bender update");
@@ -1041,7 +1056,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             (DepSrc::Git(url), DepVer::Git(rev)) => {
                 let dep_name = self.sess.intern_string(dep.name.as_str());
                 // TODO MICHAERO: May need proper chaining using and_then
-                let db = self.git_database(&dep.name, url, false).await?;
+                let db = self.git_database(&dep.name, url, false, None).await?;
                 let entries = db.list_files(rev, Some("Bender.yml")).await?;
                 let data = match entries.into_iter().next() {
                     None => Ok(None),
