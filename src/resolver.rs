@@ -8,23 +8,20 @@
 use std::fmt;
 use std::fmt::Write as _;
 use std::fs;
+use std::io::{self, Write};
 use std::mem;
 
 use futures::future::join_all;
 use indexmap::{IndexMap, IndexSet};
-use tokio::runtime::Runtime;
-
-use itertools::Itertools;
-
 use is_terminal::IsTerminal;
-
-use std::io::{self, Write};
+use itertools::Itertools;
+use tokio::runtime::Runtime;
 
 use crate::config::{self, Manifest};
 use crate::error::*;
 use crate::sess::{
-    self, DependencyConstraint, DependencyRef, DependencyVersion, DependencyVersions, Session,
-    SessionIo,
+    DependencyConstraint, DependencyRef, DependencySource, DependencyVersion, DependencyVersions,
+    Session, SessionIo,
 };
 
 /// A dependency resolver.
@@ -139,7 +136,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 let pkg = match src.versions {
                     DependencyVersions::Path => {
                         let path = match sess_src {
-                            sess::DependencySource::Path(p) => p,
+                            DependencySource::Path(p) => p,
                             _ => unreachable!(),
                         };
                         config::LockedPackage {
@@ -157,7 +154,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     }
                     DependencyVersions::Git(ref gv) => {
                         let url = match sess_src {
-                            sess::DependencySource::Git(u) => u,
+                            DependencySource::Git(u) => u,
                             _ => unreachable!(),
                         };
                         let pick = src.state.pick().unwrap();
@@ -196,7 +193,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         entry
             .sources
             .entry(dep)
-            .or_insert_with(|| DependencySource::new(dep, versions));
+            .or_insert_with(|| DependencyReference::new(dep, versions));
     }
 
     fn register_dependencies_in_manifest(
@@ -352,7 +349,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         &self,
         name: &str,
         con: &DependencyConstraint,
-        src: &DependencySource<'ctx>,
+        src: &DependencyReference<'ctx>,
     ) -> Result<Option<indexmap::IndexSet<usize>>> {
         use self::DependencyConstraint as DepCon;
         use self::DependencyVersions as DepVer;
@@ -446,7 +443,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         &mut self,
         name: &'ctx str,
         con: &DependencyConstraint,
-        src: &mut DependencySource<'ctx>,
+        src: &mut DependencyReference<'ctx>,
         all_cons: &[(&str, DependencyConstraint)],
         rt: &Runtime,
         io: &SessionIo<'ctx, 'ctx>,
@@ -693,7 +690,7 @@ struct Dependency<'ctx> {
     /// The name of the dependency.
     name: &'ctx str,
     /// The set of sources for this dependency.
-    sources: IndexMap<DependencyRef, DependencySource<'ctx>>,
+    sources: IndexMap<DependencyRef, DependencyReference<'ctx>>,
     /// The picked manifest for this dependency.
     manifest: Option<&'ctx config::Manifest>,
 }
@@ -712,7 +709,7 @@ impl<'ctx> Dependency<'ctx> {
     ///
     /// This is currently defined as the very first source found for this
     /// dependency.
-    fn source(&self) -> &DependencySource<'ctx> {
+    fn source(&self) -> &DependencyReference<'ctx> {
         let min = self.sources.keys().min().unwrap();
         &self.sources[min]
     }
@@ -722,7 +719,7 @@ impl<'ctx> Dependency<'ctx> {
 ///
 /// A dependency may have multiple sources. See `Dependency`.
 #[derive(Debug)]
-struct DependencySource<'ctx> {
+struct DependencyReference<'ctx> {
     /// The ID of this dependency.
     id: DependencyRef,
     /// The available versions of the dependency.
@@ -735,10 +732,10 @@ struct DependencySource<'ctx> {
     state: State,
 }
 
-impl<'ctx> DependencySource<'ctx> {
+impl<'ctx> DependencyReference<'ctx> {
     /// Create a new dependency source.
-    fn new(id: DependencyRef, versions: DependencyVersions<'ctx>) -> DependencySource<'ctx> {
-        DependencySource {
+    fn new(id: DependencyRef, versions: DependencyVersions<'ctx>) -> DependencyReference<'ctx> {
+        DependencyReference {
             id,
             versions,
             pick: None,
