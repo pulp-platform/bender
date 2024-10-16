@@ -16,6 +16,7 @@ use futures::future::join_all;
 use indexmap::{IndexMap, IndexSet};
 use is_terminal::IsTerminal;
 use itertools::Itertools;
+use semver::{Version, VersionReq};
 use tokio::runtime::Runtime;
 
 use crate::config::{self, Locked, LockedPackage, LockedSource, Manifest};
@@ -35,6 +36,8 @@ pub struct DependencyResolver<'ctx> {
     decisions: IndexMap<&'ctx str, (DependencyConstraint, DependencySource)>,
     /// Checkout Directory overrides in case checkout_dir is defined and contains unmodified folders.
     checked_out: IndexMap<String, config::Dependency>,
+    /// Lockfile data.
+    locked: IndexMap<&'ctx str, (DependencyConstraint, DependencySource)>,
 }
 
 impl<'ctx> DependencyResolver<'ctx> {
@@ -46,6 +49,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             table: IndexMap::new(),
             decisions: IndexMap::new(),
             checked_out: IndexMap::new(),
+            locked: IndexMap::new(),
         }
     }
 
@@ -58,9 +62,19 @@ impl<'ctx> DependencyResolver<'ctx> {
     }
 
     /// Resolve dependencies.
-    pub fn resolve(mut self, ignore_checkout: bool) -> Result<Locked> {
+    pub fn resolve(
+        mut self,
+        existing: Option<&'ctx Locked>,
+        ignore_checkout: bool,
+    ) -> Result<Locked> {
         let rt = Runtime::new()?;
         let io = SessionIo::new(self.sess);
+
+        // Load the dependencies in the lockfile.
+        if existing.is_some() {
+            debugln!("resolve: registering lockfile dependencies");
+            self.register_dependencies_in_lockfile(existing.unwrap())?;
+        }
 
         // Store path dependencies already in checkout_dir
         if let Some(checkout) = self.sess.manifest.workspace.checkout_dir.clone() {
@@ -197,6 +211,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         Ok(Locked { packages })
     }
 
+    /// Register a dependency in the table.
     fn register_dependency(
         &mut self,
         name: &'ctx str,
@@ -269,6 +284,60 @@ impl<'ctx> DependencyResolver<'ctx> {
                 )));
             }
             self.register_dependency(name, id, versions[&id].clone());
+        }
+        Ok(())
+    }
+
+    /// Register all dependencies in the lockfile.
+    fn register_dependencies_in_lockfile(&mut self, locked: &'ctx Locked) -> Result<()> {
+        // Map the dependencies to unique IDs.
+        let names: IndexMap<&str, (DependencyConstraint, DependencySource)> = locked
+            .packages
+            .iter()
+            .map(|(name, locked_package)| {
+                let name = name.as_str();
+                debugln!("resolve: registering {} from lockfile", &name);
+                let dep = match &locked_package.source {
+                    LockedSource::Path(p) => config::Dependency::Path(p.clone()),
+                    LockedSource::Registry(..) => {
+                        unreachable!("Registry dependencies not yet supported.");
+                    }
+                    LockedSource::Git(u) => {
+                        if let Some(version) = &locked_package.version {
+                            let parsed_version = Version::parse(version).unwrap();
+                            config::Dependency::GitVersion(
+                                u.clone(),
+                                VersionReq {
+                                    comparators: vec![semver::Comparator {
+                                        op: semver::Op::Exact,
+                                        major: parsed_version.major,
+                                        minor: Some(parsed_version.minor),
+                                        patch: Some(parsed_version.patch),
+                                        pre: parsed_version.pre,
+                                    }],
+                                },
+                            )
+                        } else {
+                            config::Dependency::GitRevision(
+                                u.clone(),
+                                locked_package.revision.clone().unwrap(),
+                            )
+                        }
+                    }
+                };
+                // Checked out not indexed yet.
+                // Overrides not considered because already locked.
+                (
+                    name,
+                    (
+                        DependencyConstraint::from(&dep),
+                        DependencySource::from(&dep),
+                    ),
+                )
+            })
+            .collect();
+        for (name, (cnstr, src)) in names {
+            self.locked.insert(name, (cnstr, src));
         }
         Ok(())
     }

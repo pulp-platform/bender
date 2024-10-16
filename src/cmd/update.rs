@@ -49,7 +49,11 @@ pub fn setup(matches: &ArgMatches) -> Result<bool> {
 }
 
 /// Execute an update (for the `update` subcommand or because no lockfile exists).
-pub fn run<'ctx>(matches: &ArgMatches, sess: &'ctx Session<'ctx>) -> Result<Locked> {
+pub fn run<'ctx>(
+    matches: &ArgMatches,
+    sess: &'ctx Session<'ctx>,
+    existing: Option<&'ctx Locked>,
+) -> Result<Locked> {
     if sess.manifest.frozen {
         return Err(Error::new(format!(
             "Refusing to update dependencies because the package is frozen.
@@ -62,7 +66,7 @@ pub fn run<'ctx>(matches: &ArgMatches, sess: &'ctx Session<'ctx>) -> Result<Lock
         sess.root.join("Bender.lock")
     );
     let res = DependencyResolver::new(sess);
-    let locked_new = res.resolve(matches.get_flag("ignore-checkout-dir"))?;
+    let locked_new = res.resolve(existing, matches.get_flag("ignore-checkout-dir"))?;
     write_lockfile(&locked_new, &sess.root.join("Bender.lock"), sess.root)?;
     Ok(locked_new)
 }
