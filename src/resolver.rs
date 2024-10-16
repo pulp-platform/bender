@@ -635,6 +635,13 @@ impl<'ctx> DependencyResolver<'ctx> {
                         cons.push((con, dsrc));
                     }
                     cons = cons.into_iter().unique().collect();
+                    if let Some((cnstr, src, _)) = self.locked.get(name) {
+                        let _ = write!(
+                            msg,
+                            "\n\nThe previous lockfile required `{}` at `{}`",
+                            cnstr, src
+                        );
+                    }
                     // Let user resolve conflict if both stderr and stdin go to a TTY.
                     if std::io::stderr().is_terminal() && std::io::stdin().is_terminal() {
                         let decision = if let Some(d) = self.decisions.get(name) {
