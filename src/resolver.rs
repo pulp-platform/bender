@@ -37,7 +37,7 @@ pub struct DependencyResolver<'ctx> {
     /// Checkout Directory overrides in case checkout_dir is defined and contains unmodified folders.
     checked_out: IndexMap<String, config::Dependency>,
     /// Lockfile data.
-    locked: IndexMap<&'ctx str, (DependencyConstraint, DependencySource)>,
+    locked: IndexMap<&'ctx str, (DependencyConstraint, DependencySource, Option<&'ctx str>)>,
 }
 
 impl<'ctx> DependencyResolver<'ctx> {
@@ -80,32 +80,53 @@ impl<'ctx> DependencyResolver<'ctx> {
         if let Some(checkout) = self.sess.manifest.workspace.checkout_dir.clone() {
             if checkout.exists() {
                 for dir in fs::read_dir(&checkout).unwrap() {
+                    let depname = dir
+                        .as_ref()
+                        .unwrap()
+                        .path()
+                        .file_name()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_string();
+                    let is_git_repo = dir.as_ref().unwrap().path().join(".git").exists();
+                    let commits_match = if is_git_repo {
+                        match self.locked.get(depname.as_str()) {
+                            Some((_, _, Some(hash))) => {
+                                let mut output = SysCommand::new(&self.sess.config.git)
+                                    .arg("rev-parse")
+                                    .arg("HEAD")
+                                    .current_dir(dir.as_ref().unwrap().path())
+                                    .output()?
+                                    .stdout;
+                                output.pop();
+                                output == hash.as_bytes()
+                            }
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    };
+                    // Only act if the avoiding flag is not set and any of the following match
+                    //  - the dependency is not a git repo
+                    //  - the dependency's current commit is not the lockfile's commit
+                    //  - the dependency is not in a clean state (i.e., was modified)
                     if !(ignore_checkout)
-                        && (!(dir.as_ref().unwrap().path().join(".git").exists()) || // If not a git repo
-                            // TODO: || // if not the lockfile's commit
-                            !(SysCommand::new(&self.sess.config.git) // If not in a clean state
+                        && (!is_git_repo
+                            || !commits_match
+                            || !(SysCommand::new(&self.sess.config.git) // If not in a clean state
                                 .arg("status")
                                 .arg("--porcelain")
                                 .current_dir(dir.as_ref().unwrap().path())
                                 .output()?
                                 .stdout
-                                .is_empty()
-                            ))
+                                .is_empty()))
                     {
                         warnln!("Dependency `{}` in checkout_dir `{}` is not in a clean state. Setting as path dependency.",
                             dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
                             &checkout.display());
-                        self.checked_out.insert(
-                            dir.as_ref()
-                                .unwrap()
-                                .path()
-                                .file_name()
-                                .unwrap()
-                                .to_str()
-                                .unwrap()
-                                .to_string(),
-                            config::Dependency::Path(dir.unwrap().path()),
-                        );
+                        self.checked_out
+                            .insert(depname, config::Dependency::Path(dir.unwrap().path()));
                     }
                 }
             }
@@ -291,7 +312,7 @@ impl<'ctx> DependencyResolver<'ctx> {
     /// Register all dependencies in the lockfile.
     fn register_dependencies_in_lockfile(&mut self, locked: &'ctx Locked) -> Result<()> {
         // Map the dependencies to unique IDs.
-        let names: IndexMap<&str, (DependencyConstraint, DependencySource)> = locked
+        let names: IndexMap<&str, (DependencyConstraint, DependencySource, Option<&str>)> = locked
             .packages
             .iter()
             .map(|(name, locked_package)| {
@@ -325,6 +346,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                         }
                     }
                 };
+                let hash = match &locked_package.source {
+                    LockedSource::Git(..) => locked_package.revision.as_deref(),
+                    _ => None,
+                };
                 // Checked out not indexed yet.
                 // Overrides not considered because already locked.
                 (
@@ -332,12 +357,13 @@ impl<'ctx> DependencyResolver<'ctx> {
                     (
                         DependencyConstraint::from(&dep),
                         DependencySource::from(&dep),
+                        hash,
                     ),
                 )
             })
             .collect();
-        for (name, (cnstr, src)) in names {
-            self.locked.insert(name, (cnstr, src));
+        for (name, (cnstr, src, hash)) in names {
+            self.locked.insert(name, (cnstr, src, hash));
         }
         Ok(())
     }
