@@ -30,6 +30,13 @@ pub fn new() -> Command {
                 .action(ArgAction::SetTrue)
                 .help("Disables checkout of dependencies"),
         )
+        .arg(
+            Arg::new("ignore-checkout-dir")
+                .long("ignore-checkout-dir")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
+                .help("Overwrites modified dependencies in `checkout_dir` if specified"),
+        )
 }
 
 /// Execute the `update` subcommand.
@@ -42,7 +49,7 @@ pub fn setup(matches: &ArgMatches) -> Result<bool> {
 }
 
 /// Execute an update (for the `update` subcommand or because no lockfile exists).
-pub fn run<'ctx>(sess: &'ctx Session<'ctx>) -> Result<Locked> {
+pub fn run<'ctx>(matches: &ArgMatches, sess: &'ctx Session<'ctx>) -> Result<Locked> {
     if sess.manifest.frozen {
         return Err(Error::new(format!(
             "Refusing to update dependencies because the package is frozen.
@@ -55,7 +62,7 @@ pub fn run<'ctx>(sess: &'ctx Session<'ctx>) -> Result<Locked> {
         sess.root.join("Bender.lock")
     );
     let res = DependencyResolver::new(sess);
-    let locked_new = res.resolve()?;
+    let locked_new = res.resolve(matches.get_flag("ignore-checkout-dir"))?;
     write_lockfile(&locked_new, &sess.root.join("Bender.lock"), sess.root)?;
     Ok(locked_new)
 }

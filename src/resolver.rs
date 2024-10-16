@@ -10,6 +10,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, Write};
 use std::mem;
+use std::process::Command as SysCommand;
 
 use futures::future::join_all;
 use indexmap::{IndexMap, IndexSet};
@@ -57,25 +58,41 @@ impl<'ctx> DependencyResolver<'ctx> {
     }
 
     /// Resolve dependencies.
-    pub fn resolve(mut self) -> Result<config::Locked> {
+    pub fn resolve(mut self, ignore_checkout: bool) -> Result<Locked> {
         let rt = Runtime::new()?;
         let io = SessionIo::new(self.sess);
 
         // Store path dependencies already in checkout_dir
         if let Some(checkout) = self.sess.manifest.workspace.checkout_dir.clone() {
             if checkout.exists() {
-                for dir in fs::read_dir(checkout).unwrap() {
-                    self.checked_out.insert(
-                        dir.as_ref()
-                            .unwrap()
-                            .path()
-                            .file_name()
-                            .unwrap()
-                            .to_str()
-                            .unwrap()
-                            .to_string(),
-                        config::Dependency::Path(dir.unwrap().path()),
-                    );
+                for dir in fs::read_dir(&checkout).unwrap() {
+                    if !(ignore_checkout)
+                        && (!(dir.as_ref().unwrap().path().join(".git").exists()) || // If not a git repo
+                            // TODO: || // if not the lockfile's commit
+                            !(SysCommand::new(&self.sess.config.git) // If not in a clean state
+                                .arg("status")
+                                .arg("--porcelain")
+                                .current_dir(dir.as_ref().unwrap().path())
+                                .output()?
+                                .stdout
+                                .is_empty()
+                            ))
+                    {
+                        warnln!("Dependency `{}` in checkout_dir `{}` is not in a clean state. Setting as path dependency.",
+                            dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
+                            &checkout.display());
+                        self.checked_out.insert(
+                            dir.as_ref()
+                                .unwrap()
+                                .path()
+                                .file_name()
+                                .unwrap()
+                                .to_str()
+                                .unwrap()
+                                .to_string(),
+                            config::Dependency::Path(dir.unwrap().path()),
+                        );
+                    }
                 }
             }
         }
