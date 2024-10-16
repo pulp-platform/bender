@@ -54,7 +54,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             let all_deps = deps.iter().map(|&id| sess.dependency(id));
             for current_dep in all_deps {
                 if dep == current_dep.name.as_str() {
-                    let dep_manifest = rt.block_on(io.dependency_manifest(pkg)).unwrap();
+                    let dep_manifest = rt.block_on(io.dependency_manifest(pkg, false)).unwrap();
                     // Filter out dependencies without a manifest
                     if dep_manifest.is_none() {
                         warnln!("{} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());

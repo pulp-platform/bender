@@ -5,6 +5,7 @@
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
 
+use crate::cmd;
 use crate::config::Locked;
 use crate::error::*;
 use crate::lockfile::*;
@@ -69,4 +70,13 @@ pub fn run<'ctx>(
     let locked_new = res.resolve(existing, matches.get_flag("ignore-checkout-dir"))?;
     write_lockfile(&locked_new, &sess.root.join("Bender.lock"), sess.root)?;
     Ok(locked_new)
+}
+
+/// Execute the final checkout (if not disabled).
+pub fn run_final<'ctx>(sess: &'ctx Session<'ctx>, matches: &ArgMatches) -> Result<()> {
+    if matches.get_flag("no-checkout") {
+        Ok(())
+    } else {
+        cmd::checkout::run(sess, matches, true)
+    }
 }

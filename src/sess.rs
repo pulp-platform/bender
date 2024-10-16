@@ -740,7 +740,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     }
 
     /// Ensure that a dependency is checked out and obtain its path.
-    pub async fn checkout(&'io self, dep_id: DependencyRef) -> Result<&'ctx Path> {
+    pub async fn checkout(&'io self, dep_id: DependencyRef, forcibly: bool) -> Result<&'ctx Path> {
         // Check if the checkout is already in the cache.
         if let Some(&cached) = self.sess.cache.checkout.lock().unwrap().get(&dep_id) {
             return Ok(cached);
@@ -771,6 +771,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     checkout_dir,
                     self.sess.intern_string(url),
                     self.sess.intern_string(dep.revision.as_ref().unwrap()),
+                    forcibly,
                 )
                 .await
                 .and_then(move |path| {
@@ -795,6 +796,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         path: &'ctx Path,
         url: &'ctx str,
         revision: &'ctx str,
+        forcibly: bool,
     ) -> Result<&'ctx Path> {
         // First check if we have to get rid of the current checkout. This is
         // the case if it either does not exist or the checked out revision does
@@ -804,7 +806,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 if exists {
                     // Never scrap checkouts the user asked for explicitly in
                     // the workspace configuration.
-                    if self.sess.manifest.workspace.checkout_dir.is_some() {
+                    if self.sess.manifest.workspace.checkout_dir.is_some() && !forcibly {
                         return Ok(false);
                     }
 
@@ -1150,6 +1152,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     pub async fn dependency_manifest(
         &'io self,
         dep_id: DependencyRef,
+        forcibly: bool,
     ) -> Result<Option<&'ctx Manifest>> {
         // Check if the manifest is already in the cache.
         if let Some(&cached) = self
@@ -1166,7 +1169,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // Otherwise ensure that there is a checkout of the dependency and read
         // the manifest there.
         self.sess.stats.num_calls_dependency_manifest.increment();
-        self.checkout(dep_id)
+        self.checkout(dep_id, forcibly)
             .await
             .and_then(move |path| {
                 let manifest_path = path.join("Bender.yml");
@@ -1194,7 +1197,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     ///
     /// Loads and returns the source file manifest for the root package and all
     /// its dependencies..
-    pub async fn sources(&'io self) -> Result<SourceGroup<'ctx>> {
+    pub async fn sources(&'io self, forcibly: bool) -> Result<SourceGroup<'ctx>> {
         // Check if we already have the source manifest.
         if let Some(ref cached) = *self.sess.sources.lock().unwrap() {
             return Ok((*cached).clone());
@@ -1208,7 +1211,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .map(move |pkgs| async move {
                     join_all(
                         pkgs.iter()
-                            .map(move |&pkg| async move { self.dependency_manifest(pkg).await })
+                            .map(move |&pkg| async move {
+                                self.dependency_manifest(pkg, forcibly).await
+                            })
                             .collect::<Vec<_>>(),
                     )
                     .await
@@ -1338,7 +1343,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     }
 
     /// Load the plugins declared by any of the dependencies.
-    pub async fn plugins(&'io self) -> Result<&'ctx Plugins> {
+    pub async fn plugins(&'io self, forcibly: bool) -> Result<&'ctx Plugins> {
         // Check if we already have the list of plugins.
         if let Some(cached) = *self.sess.plugins.lock().unwrap() {
             return Ok(cached);
@@ -1353,7 +1358,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     join_all(
                         pkgs.iter()
                             .map(move |&pkg| async move {
-                                self.dependency_manifest(pkg).await.map(move |m| (pkg, m))
+                                self.dependency_manifest(pkg, forcibly)
+                                    .await
+                                    .map(move |m| (pkg, m))
                             })
                             .collect::<Vec<_>>(),
                     )

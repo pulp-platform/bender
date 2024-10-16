@@ -183,7 +183,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
-    let srcs = rt.block_on(io.sources())?;
+    let srcs = rt.block_on(io.sources(false))?;
 
     let dep_pkgs = sess.packages();
     let mut pkg_manifest_paths = dep_pkgs

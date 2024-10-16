@@ -178,7 +178,7 @@ pub fn main() -> Result<()> {
             // Checkout if we are running update or package path does not exist yet
             if matches.subcommand_name() == Some("update") || !pkg_path.clone().exists() {
                 let rt = Runtime::new()?;
-                rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?))?;
+                rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?, false))?;
             }
 
             // Convert to relative path
@@ -256,14 +256,8 @@ pub fn main() -> Result<()> {
         Some(("sources", matches)) => cmd::sources::run(&sess, matches),
         Some(("config", matches)) => cmd::config::run(&sess, matches),
         Some(("script", matches)) => cmd::script::run(&sess, matches),
-        Some(("checkout", matches)) => cmd::checkout::run(&sess, matches),
-        Some(("update", matches)) => {
-            if matches.get_flag("no-checkout") {
-                Ok(())
-            } else {
-                cmd::checkout::run(&sess, matches)
-            }
-        }
+        Some(("checkout", matches)) => cmd::checkout::run(&sess, matches, false),
+        Some(("update", matches)) => cmd::update::run_final(&sess, matches),
         Some(("vendor", matches)) => cmd::vendor::run(&sess, matches),
         Some(("fusesoc", matches)) => cmd::fusesoc::run(&sess, matches),
         Some((plugin, matches)) => execute_plugin(&sess, plugin, matches.get_many::<OsString>("")),
@@ -465,7 +459,7 @@ fn execute_plugin(
     // Obtain a list of declared plugins.
     let runtime = Runtime::new()?;
     let io = SessionIo::new(sess);
-    let plugins = runtime.block_on(io.plugins())?;
+    let plugins = runtime.block_on(io.plugins(false))?;
 
     // Lookup the requested plugin and complain if it does not exist.
     let plugin = match plugins.get(plugin) {
