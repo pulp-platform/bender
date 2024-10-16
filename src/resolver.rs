@@ -83,7 +83,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Load the plugin dependencies.
         self.register_dependencies_in_manifest(
             &self.sess.config.plugins,
-            self.sess.manifest,
+            &self.sess.manifest.package.name,
             &rt,
             &io,
         )?;
@@ -91,7 +91,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Load the dependencies in the root manifest.
         self.register_dependencies_in_manifest(
             &self.sess.manifest.dependencies,
-            self.sess.manifest,
+            &self.sess.manifest.package.name,
             &rt,
             &io,
         )?;
@@ -196,10 +196,11 @@ impl<'ctx> DependencyResolver<'ctx> {
             .or_insert_with(|| DependencyReference::new(dep, versions));
     }
 
+    /// Register all dependencies in a manifest, ensuring link to sess.
     fn register_dependencies_in_manifest(
         &mut self,
         deps: &'ctx IndexMap<String, config::Dependency>,
-        manifest: &'ctx config::Manifest,
+        calling_package: &str,
         rt: &Runtime,
         io: &SessionIo<'ctx, 'ctx>,
     ) -> Result<()> {
@@ -210,7 +211,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 let name = name.as_str();
                 let dep = self.checked_out.get(name).unwrap_or(dep);
                 let dep = self.sess.config.overrides.get(name).unwrap_or(dep);
-                (name, self.sess.load_dependency(name, dep, manifest))
+                (name, self.sess.load_dependency(name, dep, calling_package))
             })
             .collect();
         let ids: IndexSet<DependencyRef> = names.iter().map(|(_, &id)| id).collect();
@@ -240,14 +241,14 @@ impl<'ctx> DependencyResolver<'ctx> {
                 return Err(Error::new(format!(
                     "Please ensure no packages with same name as top package\n\
                     \tCurrently {} is called in {}",
-                    name, manifest.package.name
+                    name, calling_package
                 )));
             }
-            if name == manifest.package.name {
+            if name == calling_package {
                 return Err(Error::new(format!(
                     "Please ensure no packages with same name as calling package\n\
                     \tCurrently {} is called in {}",
-                    name, manifest.package.name
+                    name, calling_package
                 )));
             }
             self.register_dependency(name, id, versions[&id].clone());
@@ -658,7 +659,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         for (name, manifest) in manifests {
             if let Some(m) = manifest {
                 debugln!("resolve: for `{}` loaded manifest {:#?}", name, m);
-                self.register_dependencies_in_manifest(&m.dependencies, m, rt, io)?;
+                self.register_dependencies_in_manifest(&m.dependencies, &m.package.name, rt, io)?;
             }
             let existing = &mut self.table.get_mut(name).unwrap().manifest;
             *existing = manifest;

@@ -126,13 +126,13 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         &self,
         name: &str,
         cfg: &config::Dependency,
-        manifest: &config::Manifest,
+        calling_package: &str,
     ) -> DependencyRef {
         debugln!(
             "sess: load dependency `{}` as {:?} for package `{}`",
             name,
             cfg,
-            manifest.package.name
+            calling_package
         );
         let src = DependencySource::from(cfg);
         self.deps
