@@ -32,8 +32,8 @@ pub struct DependencyResolver<'ctx> {
     /// The version table which is used to perform resolution.
     table: IndexMap<&'ctx str, Dependency<'ctx>>,
     /// A cache of decisions made by the user during the resolution.
-    decisions: IndexMap<&'ctx str, DependencyConstraint>,
-    /// Checkout Directory overrides in case checkout_dir is defined and contains folders.
+    decisions: IndexMap<&'ctx str, (DependencyConstraint, DependencySource)>,
+    /// Checkout Directory overrides in case checkout_dir is defined and contains unmodified folders.
     checked_out: IndexMap<String, config::Dependency>,
 }
 
@@ -307,7 +307,8 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Gather the constraints from the available manifests. Group them by
         // constraint.
         let cons_map = {
-            let mut map = IndexMap::<&str, Vec<(&str, DependencyConstraint)>>::new();
+            let mut map =
+                IndexMap::<&str, Vec<(&str, DependencyConstraint, DependencySource)>>::new();
             let dep_iter = once(self.sess.manifest)
                 .chain(self.table.values().filter_map(|dep| dep.manifest))
                 .flat_map(|m| {
@@ -326,7 +327,11 @@ impl<'ctx> DependencyResolver<'ctx> {
                 });
             for (name, pkg_name, dep) in dep_iter {
                 let v = map.entry(name.as_str()).or_default();
-                v.push((pkg_name, DependencyConstraint::from(dep)));
+                v.push((
+                    pkg_name,
+                    DependencyConstraint::from(dep),
+                    DependencySource::from(dep),
+                ));
             }
             map
         };
@@ -351,10 +356,26 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Impose the constraints on the dependencies.
         let mut table = mem::take(&mut self.table);
         for (name, cons) in cons_map {
-            for (_, con) in &cons {
-                debugln!("resolve: impose `{}` on `{}`", con, name);
-                for src in table.get_mut(name).unwrap().sources.values_mut() {
-                    self.impose(name, con, src, &cons, rt, io)?;
+            for (_, con, dsrc) in &cons {
+                debugln!("resolve: impose `{}` at `{}` on `{}`", con, dsrc, name);
+                let mut count = 0;
+                for (id, src) in table.get_mut(name).unwrap().sources.iter_mut() {
+                    if self.sess.dependency_source(*id) == *dsrc {
+                        self.impose(name, con, src, &cons, rt, io)?;
+                        count += 1;
+                    }
+                }
+                debugln!(
+                    "resolve: imposed {} constraint out of {} on `{}`",
+                    count,
+                    table.get_mut(name).unwrap().sources.len(),
+                    name
+                );
+                if count == 0 {
+                    return Err(Error::new(format!(
+                        "Constraint matching failed for `{}` at `{}`.",
+                        name, dsrc
+                    )));
                 }
             }
         }
@@ -462,7 +483,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         name: &'ctx str,
         con: &DependencyConstraint,
         src: &mut DependencyReference<'ctx>,
-        all_cons: &[(&str, DependencyConstraint)],
+        all_cons: &[(&str, DependencyConstraint, DependencySource)],
         rt: &Runtime,
         io: &SessionIo<'ctx, 'ctx>,
     ) -> Result<()> {
@@ -510,15 +531,19 @@ impl<'ctx> DependencyResolver<'ctx> {
                         con, name
                     );
                     let mut cons = Vec::new();
-                    for &(pkg_name, ref con) in all_cons {
-                        let _ = write!(msg, "\n- package `{}` requires `{}`", pkg_name, con);
-                        cons.push(con);
+                    for &(pkg_name, ref con, ref dsrc) in all_cons {
+                        let _ = write!(
+                            msg,
+                            "\n- package `{}` requires `{}` at `{}`",
+                            pkg_name, con, dsrc
+                        );
+                        cons.push((con, dsrc));
                     }
                     cons = cons.into_iter().unique().collect();
                     // Let user resolve conflict if both stderr and stdin go to a TTY.
                     if std::io::stderr().is_terminal() && std::io::stdin().is_terminal() {
                         let decision = if let Some(d) = self.decisions.get(name) {
-                            d.clone()
+                            d.0.clone()
                         } else {
                             eprintln!(
                                 "{}\n\nTo resolve this conflict manually, \
@@ -526,7 +551,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                                 msg, name
                             );
                             for (idx, e) in cons.iter().enumerate() {
-                                eprintln!("{}) `{}`", idx, e);
+                                eprintln!("{}) `{}` at `{}`", idx, e.0, e.1);
                             }
                             loop {
                                 eprint!("Enter a number or hit enter to abort: ");
@@ -550,8 +575,9 @@ impl<'ctx> DependencyResolver<'ctx> {
                                         continue;
                                     }
                                 };
-                                self.decisions.insert(name, (*decision).clone());
-                                break Ok((*decision).clone());
+                                self.decisions
+                                    .insert(name, (decision.0.clone(), decision.1.clone()));
+                                break Ok(decision.0.clone());
                             }?
                         };
                         match self.req_indices(name, &decision, src) {
@@ -840,7 +866,9 @@ impl<'a> fmt::Debug for TableDumper<'a> {
     }
 }
 
-struct ConstraintsDumper<'a>(&'a IndexMap<&'a str, Vec<(&'a str, DependencyConstraint)>>);
+struct ConstraintsDumper<'a>(
+    &'a IndexMap<&'a str, Vec<(&'a str, DependencyConstraint, DependencySource)>>,
+);
 
 impl<'a> fmt::Debug for ConstraintsDumper<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -850,8 +878,8 @@ impl<'a> fmt::Debug for ConstraintsDumper<'a> {
         for name in names {
             let cons = self.0.get(name).unwrap();
             write!(f, "\n    \"{}\":", name)?;
-            for &(pkg_name, ref con) in cons {
-                write!(f, " {} ({});", con, pkg_name)?;
+            for &(pkg_name, ref con, ref src) in cons {
+                write!(f, " {} at {} ({});", con, src, pkg_name)?;
             }
         }
         write!(f, "\n}}")?;
