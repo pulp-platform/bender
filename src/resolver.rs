@@ -17,7 +17,7 @@ use is_terminal::IsTerminal;
 use itertools::Itertools;
 use tokio::runtime::Runtime;
 
-use crate::config::{self, Manifest};
+use crate::config::{self, Locked, LockedPackage, LockedSource, Manifest};
 use crate::error::*;
 use crate::sess::{
     DependencyConstraint, DependencyRef, DependencySource, DependencyVersion, DependencyVersions,
@@ -139,10 +139,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                             DependencySource::Path(p) => p,
                             _ => unreachable!(),
                         };
-                        config::LockedPackage {
+                        LockedPackage {
                             revision: None,
                             version: None,
-                            source: config::LockedSource::Path(path),
+                            source: LockedSource::Path(path),
                             dependencies: deps,
                         }
                     }
@@ -166,10 +166,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                             .map(|(v, _)| v)
                             .max()
                             .map(|v| v.to_string());
-                        config::LockedPackage {
+                        LockedPackage {
                             revision: Some(String::from(rev)),
                             version,
-                            source: config::LockedSource::Git(url),
+                            source: LockedSource::Git(url),
                             dependencies: deps,
                         }
                     }
@@ -177,7 +177,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 Ok((name.to_string(), pkg))
             })
             .collect::<Result<_>>()?;
-        Ok(config::Locked { packages })
+        Ok(Locked { packages })
     }
 
     fn register_dependency(
