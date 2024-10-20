@@ -26,7 +26,7 @@ jobs:
           toolchain: ${{ matrix.rust}}
           components: rustfmt
       - name: Build
-        run: cargo build
+        run: cargo build --all-features
       - name: Cargo Test
         run: cargo test --all
       - name: Format (fix with `cargo fmt`)
@@ -43,7 +43,7 @@ jobs:
         with:
           toolchain: stable
       - name: Build
-        run: cargo build
+        run: cargo build --all-features
       - name: Cargo Test
         run: cargo test --all
       - name: Run unit-tests
