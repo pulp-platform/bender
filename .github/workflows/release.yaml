@@ -57,7 +57,7 @@ jobs:
             -v "$GITHUB_WORKSPACE:/source" \
             -v "$GITHUB_WORKSPACE/target/$tgtname:/source/target" \
             $tgtname \
-            cargo build --release;
+            cargo build --release --all-features;
         shell: bash
       - name: OS Create Package
         run: |
@@ -93,7 +93,7 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
           echo "${CARGO_HOME:-$HOME/.cargo}/bin" >> $GITHUB_PATH
       - name: GNU Build
-        run: cargo build --release
+        run: cargo build --release --all-features
       - name: GNU Create Package
         run: .github/scripts/package.sh
         shell: bash

@@ -218,8 +218,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     // Filter the sources by target.
     let targets = matches
         .get_many::<String>("target")
-        .map(|t| TargetSet::new(t))
-        .unwrap_or_else(|| TargetSet::empty());
+        .map(TargetSet::new)
+        .unwrap_or_else(TargetSet::empty);
     srcs = srcs
         .filter_targets(&targets)
         .unwrap_or_else(|| SourceGroup {
@@ -277,7 +277,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             0 => LevelFilter::Warn,
             1 => LevelFilter::Info,
             2 => LevelFilter::Debug,
-            3 | _ => LevelFilter::Trace,
+            _ => LevelFilter::Trace,
         })
         .with_utc_timestamps()
         .init()
@@ -347,7 +347,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     };
 
     // fill in file list from srcs
-    let mut file_list: Vec<FileBundle> = srcs.iter().map(|x| FileBundle::from(x)).collect();
+    let mut file_list: Vec<FileBundle> = srcs.iter().map(FileBundle::from).collect();
     for bundle in &mut file_list {
         bundle.include_dirs.extend(include_dirs.clone());
         bundle.defines.extend(defines.clone());
@@ -380,7 +380,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         Some(file) => {
             info!("Setting output to `{}`", file);
             let path = Path::new(file);
-            Box::new(BufWriter::new(File::create(&path).unwrap_or_else(|e| {
+            Box::new(BufWriter::new(File::create(path).unwrap_or_else(|e| {
                 eprintln!("could not create `{}`: {}", file, e);
                 process::exit(1);
             }))) as Box<dyn Write>
@@ -433,12 +433,11 @@ impl<'a> From<&SourceGroup<'a>> for FileBundle {
                 group
                     .export_incdirs
                     .iter()
-                    .map(|(_, v)| {
+                    .flat_map(|(_, v)| {
                         v.iter()
                             .map(|path| path.to_str().unwrap().to_string())
                             .collect::<Vec<String>>()
                     })
-                    .flatten()
                     .collect::<Vec<String>>(),
             ]),
             export_incdirs: HashMap::new(),
@@ -448,10 +447,7 @@ impl<'a> From<&SourceGroup<'a>> for FileBundle {
                 .map(|(k, v)| {
                     (
                         k.to_string(),
-                        match v {
-                            Some(x) => Some(x.to_string()),
-                            None => None,
-                        },
+                        v.as_ref().map(|x| x.to_string()),
                     )
                 })
                 .collect(),
