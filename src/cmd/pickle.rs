@@ -11,7 +11,8 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 
-use clap::{Arg, ArgMatches, Command};
+use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
+use indexmap::IndexSet;
 use itertools::concat;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
@@ -25,7 +26,7 @@ use crate::target::{TargetSet, TargetSpec};
 use morty::*;
 
 /// Assemble the `pickle` subcommand.
-pub fn new<'a>() -> Command<'a> {
+pub fn new() -> Command {
     Command::new("pickle")
         .about("Beta: Pickle the SystemVerilog source files in the project")
         .arg(
@@ -33,21 +34,25 @@ pub fn new<'a>() -> Command<'a> {
                 .short('t')
                 .long("target")
                 .help("Filter sources by target")
-                .takes_value(true)
-                .multiple_occurrences(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("package")
                 .short('p')
                 .long("package")
                 .help("Specify package to show sources for")
-                .takes_value(true)
-                .multiple_occurrences(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("no_deps")
                 .short('n')
                 .long("no-deps")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
                 .help("Exclude all dependencies, i.e. only top level or specified package(s)"),
         )
         .arg(
@@ -55,37 +60,42 @@ pub fn new<'a>() -> Command<'a> {
                 .short('e')
                 .long("exclude")
                 .help("Specify package to exclude from sources")
-                .takes_value(true)
-                .multiple_occurrences(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("inc")
                 .short('I')
                 .value_name("DIR")
                 .help("Add a search path for SystemVerilog includes")
-                .multiple_occurrences(true)
-                .takes_value(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("exclude_rename")
                 .long("exclude-rename")
                 .value_name("MODULE|INTERFACE|PACKAGE")
                 .help("Add module, interface, package which should not be renamed")
-                .multiple_occurrences(true)
-                .takes_value(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("exclude_sv")
                 .long("exclude_sv")
                 .value_name("MODULE|INTERFACE|PACKAGE")
                 .help("Do not include SV module, interface, package in the pickled file list")
-                .multiple_occurrences(true)
-                .takes_value(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("v")
                 .short('v')
-                .multiple_occurrences(true)
+                .num_args(0)
+                .action(ArgAction::Count)
                 .help("Sets the level of verbosity"),
         )
         .arg(
@@ -94,15 +104,16 @@ pub fn new<'a>() -> Command<'a> {
                 .long("prefix")
                 .value_name("PREFIX")
                 .help("Prepend a name to all global names")
-                .takes_value(true),
+                .num_args(1),
         )
         .arg(
             Arg::new("def")
                 .short('D')
                 .value_name("DEFINE")
                 .help("Define a preprocesor macro")
-                .multiple_occurrences(true)
-                .takes_value(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("suffix")
@@ -110,16 +121,21 @@ pub fn new<'a>() -> Command<'a> {
                 .long("suffix")
                 .value_name("SUFFIX")
                 .help("Append a name to all global names")
-                .takes_value(true),
+                .num_args(1)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("preproc")
                 .short('E')
+                .num_args(0)
+                .action(ArgAction::SetTrue)
                 .help("Write preprocessed input files to stdout"),
         )
         .arg(
             Arg::new("strip_comments")
                 .long("strip-comments")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
                 .help("Strip comments from the output"),
         )
         .arg(
@@ -127,22 +143,25 @@ pub fn new<'a>() -> Command<'a> {
                 .long("doc")
                 .value_name("OUTDIR")
                 .help("Generate documentation in a directory")
-                .takes_value(true),
+                .num_args(1)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("output")
                 .short('o')
                 .value_name("FILE")
                 .help("Write output to file")
-                .takes_value(true),
+                .num_args(1)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("library_file")
                 .long("library-file")
                 .help("File to search for SystemVerilog modules")
                 .value_name("FILE")
-                .takes_value(true)
-                .multiple_occurrences(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("library_dir")
@@ -150,31 +169,36 @@ pub fn new<'a>() -> Command<'a> {
                 .long("library-dir")
                 .help("Directory to search for SystemVerilog modules")
                 .value_name("DIR")
-                .takes_value(true)
-                .multiple_occurrences(true),
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("top_module")
                 .long("top")
                 .value_name("TOP_MODULE")
                 .help("Top module, strip all unneeded modules")
-                .takes_value(true),
+                .num_args(1)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("graph_file")
                 .long("graph_file")
                 .value_name("FILE")
                 .help("Output a DOT graph of the parsed modules")
-                .takes_value(true),
+                .num_args(1)
+                .value_parser(value_parser!(String)),
         )
         .arg(
             Arg::new("ignore_unparseable")
                 .short('i')
+                .num_args(0)
+                .action(ArgAction::SetTrue)
                 .help("Ignore files that cannot be parsed"),
         )
 }
 
-fn get_package_strings<I>(packages: I) -> HashSet<String>
+fn get_package_strings<I>(packages: I) -> IndexSet<String>
 where
     I: IntoIterator,
     I::Item: AsRef<str>,
@@ -193,7 +217,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     // Filter the sources by target.
     let targets = matches
-        .values_of("target")
+        .get_many::<String>("target")
         .map(|t| TargetSet::new(t))
         .unwrap_or_else(|| TargetSet::empty());
     srcs = srcs
@@ -207,28 +231,29 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             defines: Default::default(),
             files: Default::default(),
             dependencies: Default::default(),
+            version: None,
         });
 
     // Filter the sources by specified packages.
     let packages = &srcs.get_package_list(
         sess,
         &matches
-            .values_of("package")
-            .map(|p| get_package_strings(p))
-            .unwrap_or_else(|| HashSet::new()),
+            .get_many::<String>("package")
+            .map(get_package_strings)
+            .unwrap_or_default(),
         &matches
-            .values_of("exclude")
-            .map(|p| get_package_strings(p))
-            .unwrap_or_else(|| HashSet::new()),
-        matches.is_present("no_deps"),
+            .get_many::<String>("exclude")
+            .map(get_package_strings)
+            .unwrap_or_default(),
+        matches.get_flag("no_deps"),
     );
 
-    if matches.is_present("package")
-        || matches.is_present("exclude")
-        || matches.is_present("no_deps")
+    if matches.contains_id("package")
+        || matches.contains_id("exclude")
+        || matches.get_flag("no_deps")
     {
         srcs = srcs
-            .filter_packages(&packages)
+            .filter_packages(packages)
             .unwrap_or_else(|| SourceGroup {
                 package: Default::default(),
                 independent: true,
@@ -238,12 +263,13 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 defines: Default::default(),
                 files: Default::default(),
                 dependencies: Default::default(),
+                version: None,
             });
     }
 
     let srcs = srcs.flatten();
 
-    let logger_level = matches.occurrences_of("v");
+    let logger_level = matches.get_count("v");
 
     // Instantiate a new logger with the verbosity level the user requested.
     SimpleLogger::new()
@@ -258,7 +284,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         .unwrap();
 
     // Handle user defines.
-    let defines: HashMap<_, _> = match matches.values_of("def") {
+    let defines: HashMap<_, _> = match matches.get_many::<String>("def") {
         Some(args) => args
             .map(|x| {
                 let mut iter = x.split('=');
@@ -273,7 +299,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     // Prepare a list of include paths.
     let include_dirs: Vec<_> = matches
-        .values_of("inc")
+        .get_many::<String>("inc")
         .into_iter()
         .flatten()
         .map(|x| x.to_string())
@@ -286,7 +312,11 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     // we first accumulate all library files from the 'library_dir' and 'library_file' options into
     // a vector of paths, and then construct the library hashmap.
-    for dir in matches.values_of("library_dir").into_iter().flatten() {
+    for dir in matches
+        .get_many::<String>("library_dir")
+        .into_iter()
+        .flatten()
+    {
         for entry in std::fs::read_dir(dir).unwrap_or_else(|e| {
             eprintln!("error accessing library directory `{}`: {}", dir, e);
             process::exit(1)
@@ -296,7 +326,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         }
     }
 
-    if let Some(library_names) = matches.values_of("library_file") {
+    if let Some(library_names) = matches.get_many::<String>("library_file") {
         let files = library_names.map(PathBuf::from).collect();
         library_paths.push(files);
     }
@@ -325,18 +355,28 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     println!("{:?}", file_list);
 
     let (mut exclude_rename, mut exclude_sv) = (HashSet::new(), HashSet::new());
-    exclude_rename.extend(matches.values_of("exclude_rename").into_iter().flatten());
-    exclude_sv.extend(matches.values_of("exclude_sv").into_iter().flatten());
+    exclude_rename.extend(
+        matches
+            .get_many::<String>("exclude_rename")
+            .into_iter()
+            .flatten(),
+    );
+    exclude_sv.extend(
+        matches
+            .get_many::<String>("exclude_sv")
+            .into_iter()
+            .flatten(),
+    );
 
-    let strip_comments = matches.is_present("strip_comments");
+    let strip_comments = matches.get_flag("strip_comments");
 
     let syntax_trees = build_syntax_tree(
         &file_list,
         strip_comments,
-        matches.is_present("ignore_unparseable"),
+        matches.get_flag("ignore_unparseable"),
     )?;
 
-    let out = match matches.value_of("output") {
+    let out = match matches.get_one::<String>("output") {
         Some(file) => {
             info!("Setting output to `{}`", file);
             let path = Path::new(file);
@@ -349,7 +389,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     };
 
     // Just preprocess.
-    if matches.is_present("preproc") {
+    if matches.get_flag("preproc") {
         just_preprocess(syntax_trees, out)?;
         return Ok(());
     }
@@ -357,24 +397,24 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     info!("Finished reading {} source files.", syntax_trees.len());
 
     // Emit documentation if requested.
-    if let Some(dir) = matches.value_of("docdir") {
+    if let Some(dir) = matches.get_one::<String>("docdir") {
         info!("Generating documentation in `{}`", dir);
         build_doc(syntax_trees, dir)?;
         return Ok(());
     }
 
-    do_pickle(
-        matches.value_of("prefix"),
-        matches.value_of("suffix"),
-        exclude_rename,
-        exclude_sv,
+    let pickle = do_pickle(
+        matches.get_one::<String>("prefix").map(|x| x.as_str()),
+        matches.get_one::<String>("suffix").map(|x| x.as_str()),
+        exclude_rename.iter().map(|x| x.as_str()).collect(),
+        exclude_sv.iter().map(|x| x.as_str()).collect(),
         library_bundle,
         syntax_trees,
         out,
-        matches.value_of("top_module"),
+        matches.get_one::<String>("top_module").map(|x| x.as_str()),
     )?;
 
-    if let Some(graph_file) = matches.value_of("graph_file") {
+    if let Some(graph_file) = matches.get_one::<String>("graph_file") {
         write_dot_graph(&pickle, graph_file)?;
     }
 
