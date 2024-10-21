@@ -58,6 +58,7 @@ pub fn main() -> Result<()> {
         .subcommand(cmd::path::new())
         .subcommand(cmd::parents::new())
         .subcommand(cmd::clone::new())
+        .subcommand(cmd::clean::new())
         .subcommand(cmd::packages::new())
         .subcommand(cmd::sources::new())
         .subcommand(cmd::completion::new())
@@ -138,6 +139,10 @@ pub fn main() -> Result<()> {
         matches.get_flag("local"),
         force_fetch,
     );
+
+    if let Some(("clean", intern_matches)) = matches.subcommand() {
+        return cmd::clean::run(&sess, intern_matches, &root_dir);
+    }
 
     // Read the existing lockfile.
     let lock_path = root_dir.join("Bender.lock");
