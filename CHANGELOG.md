@@ -7,6 +7,21 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Fixed
 - Put `vcs`, `vsim`, and `riviera` defines in quotes.
+- Fix `genus` script initialization.
+- Update Readme with for script formats.
+- Fix vendor file mappings when combining into a single directory.
+- Make panic an error when lockfile is not up to date with dependencies.
+- Fix Readme dependency version indication for exact match.
+- Fix vendor file copying for symbolic links.
+
+### Added
+- Add `completion` command to generate shell autocomplete integration.
+- Add abort on error for `vcs` script type.
+- Add warning to update command when using overrides.
+- Add support for branchless commits in dependency repositories.
+
+### Changed
+- Bump dependencies.
 
 ## 0.28.1 - 2024-02-22
 ### Added

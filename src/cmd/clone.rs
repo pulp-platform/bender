@@ -125,8 +125,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
             .arg("add")
             .arg("origin")
             .arg(
-                &sess
-                    .dependency(sess.dependency_with_name(dep)?)
+                sess.dependency(sess.dependency_with_name(dep)?)
                     .source
                     .to_str(),
             )
