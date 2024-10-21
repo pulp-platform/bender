@@ -279,6 +279,26 @@ where
     }
 }
 
+// Implement `PrefixPaths` for `StringOrStruct` wrapped prefixable values.
+impl<T> PrefixPaths for StringOrStruct<T>
+where
+    T: PrefixPaths,
+{
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(StringOrStruct(self.0.prefix_paths(prefix)?))
+    }
+}
+
+// Implement `Validate` for `SeqOrStruct` wrapped prefixable values.
+impl<T, F> PrefixPaths for SeqOrStruct<T, F>
+where
+    T: PrefixPaths,
+{
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(SeqOrStruct::new(self.0.prefix_paths(prefix)?))
+    }
+}
+
 /// A partial manifest.
 ///
 /// Validation turns this into a `Manifest`.
@@ -300,6 +320,42 @@ pub struct PartialManifest {
     pub workspace: Option<PartialWorkspace>,
     /// External Import dependencies
     pub vendor_package: Option<Vec<PartialVendorPackage>>,
+}
+
+impl PartialManifest {
+    /// Before fully cloning a git repo locally a manifest is read without the source files present. Since validate by default now
+    /// checks to make sure source files actually exist this will error out when verifying a dependency manifest. To get around this,
+    /// the initial check of a dependency manifest that is done before cloning the dependency will ignore whether source files exist
+    pub fn validate_ignore_sources(mut self) -> Result<Manifest> {
+        self.sources = Some(SeqOrStruct::new(PartialSources::new_empty()));
+        self.validate()
+    }
+}
+
+impl PrefixPaths for PartialManifest {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(PartialManifest {
+            package: self.package,
+            dependencies: self.dependencies.prefix_paths(prefix)?,
+            sources: self.sources.map_or(
+                Ok::<Option<SeqOrStruct<PartialSources, PartialSourceFile>>, Error>(None),
+                |src| Ok(Some(src.prefix_paths(prefix)?)),
+            )?,
+            export_include_dirs: match self.export_include_dirs {
+                Some(vec_inc) => Some(
+                    vec_inc
+                        .into_iter()
+                        .map(|src| src.prefix_paths(prefix))
+                        .collect::<Result<_>>()?,
+                ),
+                None => None,
+            },
+            plugins: self.plugins.prefix_paths(prefix)?,
+            frozen: self.frozen,
+            workspace: self.workspace.prefix_paths(prefix)?,
+            vendor_package: self.vendor_package.prefix_paths(prefix)?,
+        })
+    }
 }
 
 impl Validate for PartialManifest {
@@ -484,6 +540,30 @@ pub struct PartialSources {
     pub files: Vec<PartialSourceFile>,
 }
 
+impl PartialSources {
+    /// Create new empty PartialSources struct so partial sources can be emptied out
+    /// when calling validate on db of git repo since source files won't actually be present
+    pub fn new_empty() -> Self {
+        PartialSources {
+            target: None,
+            include_dirs: None,
+            defines: None,
+            files: Vec::new(),
+        }
+    }
+}
+
+impl PrefixPaths for PartialSources {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(PartialSources {
+            target: self.target,
+            include_dirs: self.include_dirs.prefix_paths(prefix)?,
+            defines: self.defines,
+            files: self.files.prefix_paths(prefix)?,
+        })
+    }
+}
+
 impl From<Vec<PartialSourceFile>> for PartialSources {
     fn from(v: Vec<PartialSourceFile>) -> Self {
         PartialSources {
@@ -541,6 +621,17 @@ pub enum PartialSourceFile {
     File(String),
     /// A subgroup of sources.
     Group(Box<PartialSources>),
+}
+
+impl PrefixPaths for PartialSourceFile {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(match self {
+            PartialSourceFile::File(path) => PartialSourceFile::File(path.prefix_paths(prefix)?),
+            PartialSourceFile::Group(group) => {
+                PartialSourceFile::Group(Box::new(group.prefix_paths(prefix)?))
+            }
+        })
+    }
 }
 
 // Custom serialization for partial source files.
@@ -601,7 +692,15 @@ impl Validate for PartialSourceFile {
     type Error = Error;
     fn validate(self) -> Result<SourceFile> {
         match self {
-            PartialSourceFile::File(path) => Ok(SourceFile::File(env_path_from_string(path)?)),
+            PartialSourceFile::File(path) => {
+                let env_path_buf = env_path_from_string(path.clone())?;
+                if env_path_buf.exists() && env_path_buf.is_file() {
+                    Ok(SourceFile::File(env_path_buf))
+                } else {
+                    eprintln!("Error: file {} doesn't exist", &path);
+                    Err(Error::new(format!("Error: file {} doesn't exist", &path)))
+                }
+            }
             PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate()?))),
         }
     }
@@ -666,6 +765,23 @@ pub struct PartialWorkspace {
     pub checkout_dir: Option<String>,
     /// The locally linked packages.
     pub package_links: Option<IndexMap<String, String>>,
+}
+
+impl PrefixPaths for PartialWorkspace {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(PartialWorkspace {
+            checkout_dir: self.checkout_dir.prefix_paths(prefix)?,
+            package_links: match self.package_links {
+                Some(idx_map) => Some(
+                    idx_map
+                        .into_iter()
+                        .map(|(k, v)| Ok((k.prefix_paths(prefix)?, v)))
+                        .collect::<Result<_>>()?,
+                ),
+                None => None,
+            },
+        })
+    }
 }
 
 impl Validate for PartialWorkspace {
@@ -933,6 +1049,42 @@ pub struct PartialVendorPackage {
     pub include_from_upstream: Option<Vec<String>>,
     /// exclude from upstream
     pub exclude_from_upstream: Option<Vec<String>>,
+}
+
+impl PrefixPaths for PartialVendorPackage {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        let patch_root = self.patch_dir.prefix_paths(prefix)?;
+        Ok(PartialVendorPackage {
+            name: self.name,
+            target_dir: self.target_dir.prefix_paths(prefix)?,
+            upstream: self.upstream,
+            mapping: match self.mapping {
+                Some(mapping_vec) => Some(mapping_vec
+                    .into_iter()
+                    .map(|ftl| {
+                        Ok(FromToLink {
+                            from: ftl.from,
+                            to: ftl.to,
+                            patch_dir: ftl.patch_dir.map_or(
+                                Ok::<Option<PathBuf>, Error>(None),
+                                |dir| {
+                                    Ok(Some({
+                                        dir.prefix_paths(Path::new(&patch_root.clone().expect(
+                                "A mapping has a local patch_dir, but no global patch_dir is defined.",
+                            )))?
+                                    }))
+                                },
+                            )?,
+                        })
+                    })
+                    .collect::<Result<_>>()?),
+                None => None,
+            },
+            patch_dir: patch_root,
+            include_from_upstream: self.include_from_upstream,
+            exclude_from_upstream: self.exclude_from_upstream,
+        })
+    }
 }
 
 impl Validate for PartialVendorPackage {

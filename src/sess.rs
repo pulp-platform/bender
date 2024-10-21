@@ -29,7 +29,7 @@ use semver::Version;
 use typed_arena::Arena;
 
 use crate::cli::read_manifest;
-use crate::config::Validate;
+//use crate::config::Validate;
 use crate::config::{self, Config, Manifest};
 use crate::error::*;
 // use crate::future_throttle::FutureThrottle;
@@ -1032,7 +1032,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                         cause,
                                     )
                                 })?;
-                            let mut full = partial.validate().map_err(|cause| {
+                            let mut full = partial.validate_ignore_sources().map_err(|cause| {
                                 Error::chain(
                                     format!(
                                         "Error in manifest of dependency `{}` at revision \
@@ -1163,7 +1163,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     cause,
                                 )
                             })?;
-                        let mut full = partial.validate().map_err(|cause| {
+                        let mut full = partial.validate_ignore_sources().map_err(|cause| {
                             Error::chain(
                                 format!(
                                     "Error in manifest of dependency `{}` at revision \

@@ -123,6 +123,13 @@ where
 #[derive(Debug)]
 pub struct SeqOrStruct<T, F>(pub T, PhantomData<F>);
 
+impl<T, F> SeqOrStruct<T, F> {
+    /// Method for creating new SeqOrStruct to keep PhantomData private
+    pub fn new(item: T) -> Self {
+        SeqOrStruct(item, PhantomData)
+    }
+}
+
 impl<T, F> Serialize for SeqOrStruct<T, F>
 where
     T: Serialize,
