@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - `update`: Tell user the lockfile version when solving a conflict.
 - Print dependency updates executed.
 - Enable updating of individual dependencies (and recursive dependencies if desired).
+- Add support for glob in manifest source files.
 
 ### Changed
 - `update`: Clean up alignment of manual resolution output.
