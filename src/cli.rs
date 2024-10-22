@@ -153,8 +153,10 @@ pub fn main() -> Result<()> {
             // execute pre-dependency-fetch commands
             if command == "fusesoc" && matches.get_flag("single") {
                 return cmd::fusesoc::run_single(&sess, matches);
-            } else if command == "update" || locked_existing.is_none() {
+            } else if command == "update" {
                 cmd::update::run(matches, &sess, locked_existing.as_ref())?
+            } else if locked_existing.is_none() {
+                cmd::update::run_plain(false, &sess, locked_existing.as_ref())?
             } else {
                 debugln!("main: lockfile {:?} up-to-date", lock_path);
                 locked_existing.unwrap()

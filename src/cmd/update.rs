@@ -49,9 +49,19 @@ pub fn setup(matches: &ArgMatches) -> Result<bool> {
     Ok(force_fetch)
 }
 
-/// Execute an update (for the `update` subcommand or because no lockfile exists).
+/// Execute an update (for the `update` subcommand).
 pub fn run<'ctx>(
     matches: &ArgMatches,
+    sess: &'ctx Session<'ctx>,
+    existing: Option<&'ctx Locked>,
+) -> Result<Locked> {
+    let ignore_checkout_dir = matches.get_flag("ignore-checkout-dir");
+    run_plain(ignore_checkout_dir, sess, existing)
+}
+
+/// Execute an update (for the `update` subcommand or because no lockfile exists).
+pub fn run_plain<'ctx>(
+    ignore_checkout_dir: bool,
     sess: &'ctx Session<'ctx>,
     existing: Option<&'ctx Locked>,
 ) -> Result<Locked> {
@@ -67,14 +77,7 @@ pub fn run<'ctx>(
         sess.root.join("Bender.lock")
     );
     let res = DependencyResolver::new(sess);
-    let locked_new = res.resolve(
-        existing,
-        if matches.contains_id("ignore-checkout-dir") {
-            matches.get_flag("ignore-checkout-dir")
-        } else {
-            false
-        },
-    )?;
+    let locked_new = res.resolve(existing, ignore_checkout_dir)?;
     write_lockfile(&locked_new, &sess.root.join("Bender.lock"), sess.root)?;
     Ok(locked_new)
 }
