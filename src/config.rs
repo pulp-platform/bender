@@ -11,7 +11,9 @@
 use std;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
+use std::fs::File;
 use std::hash::Hash;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -600,6 +602,10 @@ pub struct PartialSources {
     pub defines: Option<IndexMap<String, Option<String>>>,
     /// The source file paths.
     pub files: Vec<PartialSourceFile>,
+    /// The list of external flists to include.
+    pub external_flists: Option<Vec<String>>,
+    /// The absolute prefix for the external flists to include. Not intended to be user-modifiable.
+    pub external_flist_prefix: Option<PathBuf>,
     /// Unknown extra fields
     #[serde(flatten)]
     extra: HashMap<String, Value>,
@@ -614,6 +620,8 @@ impl PartialSources {
             include_dirs: None,
             defines: None,
             files: Vec::new(),
+            external_flists: None,
+            external_flist_prefix: None,
             extra: HashMap::new(),
         }
     }
@@ -626,6 +634,11 @@ impl PrefixPaths for PartialSources {
             include_dirs: self.include_dirs.prefix_paths(prefix)?,
             defines: self.defines,
             files: self.files.prefix_paths(prefix)?,
+            external_flists: self.external_flists.prefix_paths(prefix)?,
+            external_flist_prefix: match self.external_flist_prefix {
+                Some(_) => self.external_flist_prefix.prefix_paths(prefix)?,
+                None => Some(prefix.to_path_buf()),
+            },
             extra: self.extra,
         })
     }
@@ -638,6 +651,8 @@ impl From<Vec<PartialSourceFile>> for PartialSources {
             include_dirs: None,
             defines: None,
             files: v,
+            external_flists: None,
+            external_flist_prefix: None,
             extra: HashMap::new(),
         }
     }
@@ -647,9 +662,103 @@ impl Validate for PartialSources {
     type Output = Sources;
     type Error = Error;
     fn validate(self, package_name: &str, pre_output: bool) -> Result<Sources> {
+        let external_flists: Result<Vec<_>> = self
+            .external_flists
+            .clone()
+            .unwrap_or_default()
+            .iter()
+            .map(|path| env_path_from_string(path.to_string()))
+            .collect();
+
+        let external_flist_list: Result<Vec<Vec<String>>> = external_flists?
+            .into_iter()
+            .map(|filename| {
+                let file = File::open(&filename).map_err(|cause| {
+                    Error::chain(
+                        format!("Unable to open external flist file {:?}", filename),
+                        cause,
+                    )
+                })?;
+                let reader = BufReader::new(file);
+                let lines: Vec<String> = reader
+                    .lines()
+                    .map(|line| {
+                        line.map_err(|cause| {
+                            Error::chain(
+                                format!("Error reading external flist file {:?}", filename),
+                                cause,
+                            )
+                        })
+                    })
+                    .collect::<Result<Vec<String>>>()?;
+                Ok(lines)
+            })
+            .collect();
+
+        let external_flist_groups: Result<Vec<PartialSourceFile>> = external_flist_list?
+            .into_iter()
+            .map(|flist| {
+                Ok(PartialSourceFile::Group(Box::new(PartialSources {
+                    target: None,
+                    include_dirs: Some(
+                        flist
+                            .clone()
+                            .into_iter()
+                            .filter_map(|file| {
+                                if file.starts_with("+incdir+") {
+                                    Some(file.trim_start_matches("+incdir+").to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .map(|dir| {
+                                dir.prefix_paths(self.external_flist_prefix.as_ref().unwrap())
+                            })
+                            .collect::<Result<_>>()?,
+                    ),
+                    defines: Some(
+                        flist
+                            .clone()
+                            .into_iter()
+                            .filter_map(|file| {
+                                if let Some(stripped) = file.strip_prefix("+define+") {
+                                    if let Some(eq_idx) = stripped.find("=") {
+                                        Some((
+                                            stripped[..eq_idx].to_string(),
+                                            Some(stripped[eq_idx + 1..].to_string()),
+                                        ))
+                                    } else {
+                                        Some((stripped.to_string(), None))
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect(),
+                    ),
+                    files: flist
+                        .into_iter()
+                        .filter_map(|file| {
+                            if file.starts_with("+") {
+                                None
+                            } else {
+                                // prefix path
+                                Some(PartialSourceFile::File(file))
+                            }
+                        })
+                        .map(|file| file.prefix_paths(self.external_flist_prefix.as_ref().unwrap()))
+                        .collect::<Result<Vec<_>>>()?,
+                    external_flists: None,
+                    external_flist_prefix: None,
+                    extra: HashMap::new(),
+                })))
+            })
+            .collect();
+
         let post_env_files: Vec<PartialSourceFile> = self
             .files
             .into_iter()
+            .chain(external_flist_groups?.into_iter())
             .map(|file| match file {
                 PartialSourceFile::File(file) => {
                     Ok(PartialSourceFile::File(env_string_from_string(file)?))
@@ -680,6 +789,7 @@ impl Validate for PartialSources {
             .iter()
             .map(|path| env_path_from_string(path.to_string()))
             .collect();
+
         let defines = self.defines.unwrap_or_default();
         let files: Result<Vec<_>> = post_glob_files
             .into_iter()
