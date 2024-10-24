@@ -224,7 +224,7 @@ pub fn main() -> Result<()> {
                 })?;
                 if !meta.file_type().is_symlink() {
                     warnln!(
-                        "Skipping link to package {} at {:?} since there is something there",
+                        "[W01] Skipping link to package {} at {:?} since there is something there",
                         pkg_name,
                         path
                     );
@@ -471,7 +471,7 @@ fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<Par
     let partial: PartialConfig = serde_yaml::from_reader(file)
         .map_err(|cause| Error::chain(format!("Syntax error in config {:?}.", path), cause))?;
     if warn_config_loaded {
-        warnln!("Using config at {:?} for overrides.", path)
+        warnln!("[W02] Using config at {:?} for overrides.", path)
     };
     Ok(Some(partial.prefix_paths(path.parent().unwrap())?))
 }

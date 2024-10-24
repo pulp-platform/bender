@@ -558,10 +558,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .await
                 .map_err(move |cause| {
                     if url3.contains("git@") {
-                        warnln!("Please ensure your public ssh key is added to the git server.");
+                        warnln!("[W07] Please ensure your public ssh key is added to the git server.");
                     }
                     warnln!(
-                        "Please ensure the url is correct and you have access to the repository."
+                        "[W07] Please ensure the url is correct and you have access to the repository."
                     );
                     Error::chain(
                         format!("Failed to initialize git database in {:?}.", db_dir),
@@ -591,10 +591,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .await
                 .map_err(move |cause| {
                     if url3.contains("git@") {
-                        warnln!("Please ensure your public ssh key is added to the git server.");
+                        warnln!("[W07] Please ensure your public ssh key is added to the git server.");
                     }
                     warnln!(
-                        "Please ensure the url is correct and you have access to the repository."
+                        "[W07] Please ensure the url is correct and you have access to the repository."
                     );
                     Error::chain(
                         format!("Failed to update git database in {:?}.", db_dir),
@@ -875,7 +875,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         CheckoutState::ToCheckout
                     } else {
                         warnln!(
-                            "Workspace checkout directory set and has uncommitted changes, not updating {} at {}.\n\
+                            "[W19] Workspace checkout directory set and has uncommitted changes, not updating {} at {}.\n\
                             \tRun `bender checkout --force` to overwrite the dependency at your own risk.",
                             name,
                             path.display()
@@ -884,7 +884,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     }
                 } else {
                     warnln!(
-                        "Workspace checkout directory set and remote url doesn't match, not updating {} at {}.\n\
+                        "[W19] Workspace checkout directory set and remote url doesn't match, not updating {} at {}.\n\
                         \tRun `bender checkout --force` to overwrite the dependency at your own risk.",
                         name,
                         path.display()
@@ -943,7 +943,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         .spawn_with(move |c| c.arg("fetch").arg("--all"))
                         .await?;
                     git.clone().spawn_with(move |c| c.arg("tag").arg(tag_name_1).arg(revision).arg("--force").arg("--no-sign")).map_err(|cause| {
-                        warnln!("Please ensure the commits are available on the remote or run bender update");
+                        warnln!("[W08] Please ensure the commits are available on the remote or run bender update");
                         Error::chain(
                             format!(
                                 "Failed to checkout commit {} for {} given in Bender.lock.\n",
@@ -1001,7 +1001,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         for dep in (dep_iter_mut).iter_mut() {
             if let (_, config::Dependency::Path(ref path)) = dep {
                 if !path.starts_with("/") {
-                    warnln!("Path dependencies ({:?}) in git dependencies ({:?}) currently not fully supported. Your mileage may vary.", dep.0, top_package_name);
+                    warnln!("[W09] Path dependencies ({:?}) in git dependencies ({:?}) currently not fully supported. Your mileage may vary.", dep.0, top_package_name);
 
                     let sub_entries = db
                         .clone()
@@ -1117,14 +1117,14 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         match (&dep.source, version) {
             (DepSrc::Path(path), DepVer::Path) => {
                 if !path.starts_with("/") {
-                    warnln!("There may be issues in the path for {:?}.", dep.name);
+                    warnln!("[W10] There may be issues in the path for {:?}.", dep.name);
                 }
                 let manifest_path = path.join("Bender.yml");
                 if manifest_path.exists() {
                     match read_manifest(&manifest_path) {
                         Ok(m) => {
                             if dep.name != m.package.name {
-                                warnln!("Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
+                                warnln!("[W11] Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
                                     dep.name, m.package.name); // TODO: This should be an error
                             }
                             Ok(Some(self.sess.intern_manifest(m)))
@@ -1149,7 +1149,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     ) {
                         Ok(m) => {
                             if dep.name != m.package.name {
-                                warnln!("Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
+                                warnln!("[W11] Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
                                     dep.name, m.package.name); // TODO: This should be an error
                             }
                             Ok(Some(self.sess.intern_manifest(m)))
@@ -1157,7 +1157,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Err(e) => Err(e),
                     }
                 } else {
-                    warnln!("Manifest not found for {:?} at {:?}", dep.name, dep.source);
+                    warnln!(
+                        "[W12] Manifest not found for {:?} at {:?}",
+                        dep.name,
+                        dep.source
+                    );
                     Ok(None)
                 }
             }
@@ -1212,7 +1216,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Ok(Some(self.sess.intern_manifest(full)))
                     }
                     None => {
-                        warnln!("Manifest not found for {:?}", dep.name);
+                        warnln!("[W12] Manifest not found for {:?}", dep.name);
                         Ok(None)
                     }
                 };
@@ -1229,7 +1233,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         None => "dead",
                     }
                 {
-                    warnln!("Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
+                    warnln!("[W11] Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
                             dep.name, match manifest {
                                 Some(x) => &x.package.name,
                                 None => "dead"
@@ -1385,7 +1389,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             if !m.dependencies.is_empty() {
                                 for i in m.dependencies.keys() {
                                     if !all_export_include_dirs.contains_key(i) {
-                                        warnln!("Name issue with {:?}, `export_include_dirs` not handled\n\tCould relate to name mismatch, see `bender update`", i);
+                                        warnln!("[W13] Name issue with {:?}, `export_include_dirs` not handled\n\tCould relate to name mismatch, see `bender update`", i);
                                         export_include_dirs.insert(i.clone(), IndexSet::new());
                                     } else {
                                         export_include_dirs.insert(
@@ -1694,7 +1698,7 @@ impl<'ctx> DependencyTable<'ctx> {
             if let DependencySource::Path(path) = &entry.source {
                 if !path.exists() {
                     warnln!(
-                        "Dependency `{}` has source path `{}` which does not exist",
+                        "[W22] Dependency `{}` has source path `{}` which does not exist",
                         entry.name,
                         path.display()
                     );
