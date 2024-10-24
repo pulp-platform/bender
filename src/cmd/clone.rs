@@ -152,7 +152,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
                 Err(Error::new("git fetch failed".to_string()))?;
             }
         } else {
-            warnln!("fetch not performed due to --local argument.");
+            warnln!("[W14] fetch not performed due to --local argument.");
         }
 
         println!(
@@ -263,7 +263,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
                 })?;
                 if !meta.file_type().is_symlink() {
                     warnln!(
-                        "Skipping link to package {} at {:?} since there is something there",
+                        "[W15] Skipping link to package {} at {:?} since there is something there",
                         pkg_name,
                         link_path
                     );

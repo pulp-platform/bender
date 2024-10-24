@@ -65,7 +65,9 @@ pub fn new() -> Command {
 pub fn setup(matches: &ArgMatches) -> Result<bool> {
     let force_fetch = matches.get_flag("fetch");
     if matches.get_flag("local") && matches.get_flag("fetch") {
-        warnln!("As --local argument is set for bender command, no fetching will be performed.");
+        warnln!(
+            "[W14] As --local argument is set for bender command, no fetching will be performed."
+        );
     }
     Ok(force_fetch)
 }

@@ -103,7 +103,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     //  - the dependency is not in a clean state (i.e., was modified)
                     if !ignore_checkout {
                         if !is_git_repo {
-                            warnln!("Dependency `{}` in checkout_dir `{}` is not a git repository. Setting as path dependency.\n\
+                            warnln!("[W06] Dependency `{}` in checkout_dir `{}` is not a git repository. Setting as path dependency.\n\
                                     \tPlease use `bender clone` to work on git dependencies.\n\
                                     \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
                                 dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
@@ -118,7 +118,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                             .stdout
                             .is_empty())
                         {
-                            warnln!("Dependency `{}` in checkout_dir `{}` is not in a clean state. Setting as path dependency.\n\
+                            warnln!("[W06] Dependency `{}` in checkout_dir `{}` is not in a clean state. Setting as path dependency.\n\
                                     \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
                                 dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
                                 &checkout.display());
@@ -375,7 +375,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                                     Some(r) => r.clone(),
                                     None => {
                                         warnln!(
-                                            "No revision found in lock file for git dependency `{}`",
+                                            "[W21] No revision found in lock file for git dependency `{}`",
                                             name
                                         );
                                         return None;
@@ -632,7 +632,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                             return Err(e);
                         }
                         warnln!(
-                            "Ignoring error for `{}` at `{}`: {}",
+                            "[W20] Ignoring error for `{}` at `{}`: {}",
                             name,
                             self.sess.dependency_source(*con_src),
                             e

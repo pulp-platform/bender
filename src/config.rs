@@ -401,7 +401,7 @@ impl Validate for PartialManifest {
                 if !pre_output {
                     p.extra.iter().for_each(|(k, _)| {
                         warnln!(
-                            "Ignoring unknown field `{}` in manifest package for {}.",
+                            "[W03] Ignoring unknown field `{}` in manifest package for {}.",
                             k,
                             p.name
                         );
@@ -455,7 +455,7 @@ impl Validate for PartialManifest {
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
                 warnln!(
-                    "Ignoring unknown field `{}` in manifest for {}.",
+                    "[W03] Ignoring unknown field `{}` in manifest for {}.",
                     k,
                     pkg.name
                 );
@@ -548,7 +548,7 @@ impl Validate for PartialDependency {
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
                 warnln!(
-                    "Ignoring unknown field `{}` in a dependency in manifest for {}.",
+                    "[W03] Ignoring unknown field `{}` in a dependency in manifest for {}.",
                     k,
                     package_name
                 );
@@ -808,14 +808,14 @@ impl Validate for PartialSources {
         let files = files?;
         if files.is_empty() && !pre_output {
             warnln!(
-                "No source files specified in a sourcegroup in manifest for {}.",
+                "[W04] No source files specified in a sourcegroup in manifest for {}.",
                 package_name
             );
         }
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
                 warnln!(
-                    "Ignoring unknown field `{}` in sources in manifest for {}.",
+                    "[W03] Ignoring unknown field `{}` in sources in manifest for {}.",
                     k,
                     package_name
                 );
@@ -954,7 +954,7 @@ impl GlobFile for PartialSourceFile {
                     })
                     .collect::<Result<Vec<PartialSourceFile>>>()?;
                 if out.is_empty() {
-                    warnln!("No files found for glob pattern {:?}", path);
+                    warnln!("[W05] No files found for glob pattern {:?}", path);
                 }
                 Ok(out)
             } else {
@@ -1011,7 +1011,7 @@ impl Validate for PartialWorkspace {
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
                 warnln!(
-                    "Ignoring unknown field `{}` in workspace configuration in manifest for {}.",
+                    "[W03] Ignoring unknown field `{}` in workspace configuration in manifest for {}.",
                     k,
                     package_name
                 );

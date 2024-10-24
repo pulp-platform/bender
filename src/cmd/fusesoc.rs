@@ -156,7 +156,7 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
     })?;
 
     if fuse_depend_string.len() > 1 {
-        warnln!("Depend strings may be wrong for the included dependencies!");
+        warnln!("[W16] Depend strings may be wrong for the included dependencies!");
     }
 
     Ok(())
