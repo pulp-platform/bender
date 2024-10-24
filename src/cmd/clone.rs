@@ -151,7 +151,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
             {
                 Err(Error::new("git fetch failed".to_string()))?;
             }
-        } else {
+        } else if !sess.suppress_warnings.contains("W14") {
             warnln!("[W14] fetch not performed due to --local argument.");
         }
 

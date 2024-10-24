@@ -103,11 +103,13 @@ impl<'ctx> DependencyResolver<'ctx> {
                     //  - the dependency is not in a clean state (i.e., was modified)
                     if !ignore_checkout {
                         if !is_git_repo {
-                            warnln!("[W06] Dependency `{}` in checkout_dir `{}` is not a git repository. Setting as path dependency.\n\
-                                    \tPlease use `bender clone` to work on git dependencies.\n\
-                                    \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
-                                dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
-                                &checkout.display());
+                            if !self.sess.suppress_warnings.contains("W06") {
+                                warnln!("[W06] Dependency `{}` in checkout_dir `{}` is not a git repository. Setting as path dependency.\n\
+                                        \tPlease use `bender clone` to work on git dependencies.\n\
+                                        \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
+                                    dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
+                                    &checkout.display());
+                            }
                             self.checked_out
                                 .insert(depname, config::Dependency::Path(dir.unwrap().path()));
                         } else if !(SysCommand::new(&self.sess.config.git) // If not in a clean state
@@ -118,10 +120,12 @@ impl<'ctx> DependencyResolver<'ctx> {
                             .stdout
                             .is_empty())
                         {
-                            warnln!("[W06] Dependency `{}` in checkout_dir `{}` is not in a clean state. Setting as path dependency.\n\
-                                    \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
-                                dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
-                                &checkout.display());
+                            if !self.sess.suppress_warnings.contains("W06") {
+                                warnln!("[W06] Dependency `{}` in checkout_dir `{}` is not in a clean state. Setting as path dependency.\n\
+                                        \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
+                                    dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
+                                    &checkout.display());
+                            }
                             self.checked_out
                                 .insert(depname, config::Dependency::Path(dir.unwrap().path()));
                         }

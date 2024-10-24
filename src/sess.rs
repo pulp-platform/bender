@@ -78,6 +78,8 @@ pub struct Session<'ctx> {
     pub git_throttle: Arc<Semaphore>,
     /// A toggle to disable remote fetches & clones
     pub local_only: bool,
+    /// A list of warnings to suppress.
+    pub suppress_warnings: IndexSet<String>,
 }
 
 impl<'sess, 'ctx: 'sess> Session<'ctx> {
@@ -91,6 +93,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         local_only: bool,
         force_fetch: bool,
         git_throttle: usize,
+        suppress_warnings: IndexSet<String>,
     ) -> Session<'ctx> {
         Session {
             root,
@@ -116,6 +119,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             cache: Default::default(),
             git_throttle: Arc::new(Semaphore::new(git_throttle)),
             local_only,
+            suppress_warnings,
         }
     }
 
@@ -557,12 +561,14 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 })
                 .await
                 .map_err(move |cause| {
-                    if url3.contains("git@") {
+                    if url3.contains("git@") && !self.sess.suppress_warnings.contains("W07") {
                         warnln!("[W07] Please ensure your public ssh key is added to the git server.");
                     }
-                    warnln!(
-                        "[W07] Please ensure the url is correct and you have access to the repository."
-                    );
+                    if !self.sess.suppress_warnings.contains("W07") {
+                        warnln!(
+                            "[W07] Please ensure the url is correct and you have access to the repository."
+                        );
+                    }
                     Error::chain(
                         format!("Failed to initialize git database in {:?}.", db_dir),
                         cause,
@@ -590,12 +596,14 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 })
                 .await
                 .map_err(move |cause| {
-                    if url3.contains("git@") {
+                    if url3.contains("git@") && !self.sess.suppress_warnings.contains("W07") {
                         warnln!("[W07] Please ensure your public ssh key is added to the git server.");
                     }
-                    warnln!(
-                        "[W07] Please ensure the url is correct and you have access to the repository."
-                    );
+                    if !self.sess.suppress_warnings.contains("W07") {
+                        warnln!(
+                            "[W07] Please ensure the url is correct and you have access to the repository."
+                        );
+                    }
                     Error::chain(
                         format!("Failed to update git database in {:?}.", db_dir),
                         cause,
@@ -943,7 +951,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         .spawn_with(move |c| c.arg("fetch").arg("--all"))
                         .await?;
                     git.clone().spawn_with(move |c| c.arg("tag").arg(tag_name_1).arg(revision).arg("--force").arg("--no-sign")).map_err(|cause| {
-                        warnln!("[W08] Please ensure the commits are available on the remote or run bender update");
+                        if !self.sess.suppress_warnings.contains("W08") {
+                            warnln!("[W08] Please ensure the commits are available on the remote or run bender update");
+                        }
                         Error::chain(
                             format!(
                                 "Failed to checkout commit {} for {} given in Bender.lock.\n",
@@ -1001,7 +1011,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         for dep in (dep_iter_mut).iter_mut() {
             if let (_, config::Dependency::Path(ref path)) = dep {
                 if !path.starts_with("/") {
-                    warnln!("[W09] Path dependencies ({:?}) in git dependencies ({:?}) currently not fully supported. Your mileage may vary.", dep.0, top_package_name);
+                    if !self.sess.suppress_warnings.contains("W09") {
+                        warnln!("[W09] Path dependencies ({:?}) in git dependencies ({:?}) currently not fully supported. \
+                        Your mileage may vary.", dep.0, top_package_name);
+                    }
 
                     let sub_entries = db
                         .clone()
@@ -1116,14 +1129,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         use self::DependencyVersion as DepVer;
         match (&dep.source, version) {
             (DepSrc::Path(path), DepVer::Path) => {
-                if !path.starts_with("/") {
+                if !path.starts_with("/") && !self.sess.suppress_warnings.contains("W10") {
                     warnln!("[W10] There may be issues in the path for {:?}.", dep.name);
                 }
                 let manifest_path = path.join("Bender.yml");
                 if manifest_path.exists() {
                     match read_manifest(&manifest_path) {
                         Ok(m) => {
-                            if dep.name != m.package.name {
+                            if dep.name != m.package.name
+                                && !self.sess.suppress_warnings.contains("W11")
+                            {
                                 warnln!("[W11] Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
                                     dep.name, m.package.name); // TODO: This should be an error
                             }
@@ -1148,7 +1163,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             .join(format!("{}_manifest.yml", dep.name)),
                     ) {
                         Ok(m) => {
-                            if dep.name != m.package.name {
+                            if dep.name != m.package.name
+                                && !self.sess.suppress_warnings.contains("W11")
+                            {
                                 warnln!("[W11] Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
                                     dep.name, m.package.name); // TODO: This should be an error
                             }
@@ -1157,11 +1174,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Err(e) => Err(e),
                     }
                 } else {
-                    warnln!(
-                        "[W12] Manifest not found for {:?} at {:?}",
-                        dep.name,
-                        dep.source
-                    );
+                    if !self.sess.suppress_warnings.contains("W12") {
+                        warnln!(
+                            "[W12] Manifest not found for {:?} at {:?}",
+                            dep.name,
+                            dep.source
+                        );
+                    }
                     Ok(None)
                 }
             }
@@ -1216,7 +1235,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Ok(Some(self.sess.intern_manifest(full)))
                     }
                     None => {
-                        warnln!("[W12] Manifest not found for {:?}", dep.name);
+                        if !self.sess.suppress_warnings.contains("W12") {
+                            warnln!("[W12] Manifest not found for {:?}", dep.name);
+                        }
                         Ok(None)
                     }
                 };
@@ -1232,6 +1253,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Some(x) => &x.package.name,
                         None => "dead",
                     }
+                    && !self.sess.suppress_warnings.contains("W11")
                 {
                     warnln!("[W11] Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
                             dep.name, match manifest {
@@ -1389,7 +1411,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             if !m.dependencies.is_empty() {
                                 for i in m.dependencies.keys() {
                                     if !all_export_include_dirs.contains_key(i) {
-                                        warnln!("[W13] Name issue with {:?}, `export_include_dirs` not handled\n\tCould relate to name mismatch, see `bender update`", i);
+                                        if !self.sess.suppress_warnings.contains("W13") {
+                                            warnln!("[W13] Name issue with {:?}, `export_include_dirs` not handled\n\tCould relate to name mismatch, see `bender update`", i);
+                                        }
                                         export_include_dirs.insert(i.clone(), IndexSet::new());
                                     } else {
                                         export_include_dirs.insert(
