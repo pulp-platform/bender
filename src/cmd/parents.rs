@@ -10,6 +10,7 @@ use indexmap::IndexMap;
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
+use crate::config::Dependency;
 use crate::error::*;
 use crate::sess::{DependencyConstraint, DependencySource};
 use crate::sess::{Session, SessionIo};
@@ -18,11 +19,18 @@ use crate::sess::{Session, SessionIo};
 pub fn new() -> Command {
     Command::new("parents")
         .about("List packages calling this dependency")
+        .alias("parent")
         .arg(
             Arg::new("name")
                 .required(true)
                 .num_args(1)
                 .help("Package names to get the parents for"),
+        )
+        .arg(
+            Arg::new("targets")
+                .long("targets")
+                .num_args(0)
+                .help("Print the passed targets to the dependency"),
         )
 }
 
@@ -36,18 +44,30 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let parent_array = {
         let mut map = IndexMap::<String, Vec<String>>::new();
         if sess.manifest.dependencies.contains_key(dep) {
-            let dep_str = format!(
-                "{}",
-                DependencyConstraint::from(&sess.manifest.dependencies[dep])
-            );
-            let dep_source = format!(
-                "{}",
-                DependencySource::from(&sess.manifest.dependencies[dep])
-            );
-            map.insert(
-                sess.manifest.package.name.clone(),
-                vec![dep_str, dep_source],
-            );
+            if matches.get_flag("targets") {
+                map.insert(
+                    sess.manifest.package.name.clone(),
+                    match sess.manifest.dependencies.get(dep).unwrap() {
+                        Dependency::Version(_, tgts) => tgts.clone(),
+                        Dependency::Path(_, tgts) => tgts.clone(),
+                        Dependency::GitRevision(_, _, tgts) => tgts.clone(),
+                        Dependency::GitVersion(_, _, tgts) => tgts.clone(),
+                    },
+                );
+            } else {
+                let dep_str = format!(
+                    "{}",
+                    DependencyConstraint::from(&sess.manifest.dependencies[dep])
+                );
+                let dep_source = format!(
+                    "{}",
+                    DependencySource::from(&sess.manifest.dependencies[dep])
+                );
+                map.insert(
+                    sess.manifest.package.name.clone(),
+                    vec![dep_str, dep_source],
+                );
+            }
         }
         for (&pkg, deps) in sess.graph().iter() {
             let pkg_name = sess.dependency_name(pkg);
@@ -66,19 +86,31 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     }
                     let dep_manifest = dep_manifest.unwrap();
                     if dep_manifest.dependencies.contains_key(dep) {
-                        map.insert(
-                            pkg_name.to_string(),
-                            vec![
-                                format!(
-                                    "{}",
-                                    DependencyConstraint::from(&dep_manifest.dependencies[dep])
-                                ),
-                                format!(
-                                    "{}",
-                                    DependencySource::from(&dep_manifest.dependencies[dep])
-                                ),
-                            ],
-                        );
+                        if matches.get_flag("targets") {
+                            map.insert(
+                                pkg_name.to_string(),
+                                match dep_manifest.dependencies.get(dep).unwrap() {
+                                    Dependency::Version(_, tgts) => tgts.clone(),
+                                    Dependency::Path(_, tgts) => tgts.clone(),
+                                    Dependency::GitRevision(_, _, tgts) => tgts.clone(),
+                                    Dependency::GitVersion(_, _, tgts) => tgts.clone(),
+                                },
+                            );
+                        } else {
+                            map.insert(
+                                pkg_name.to_string(),
+                                vec![
+                                    format!(
+                                        "{}",
+                                        DependencyConstraint::from(&dep_manifest.dependencies[dep])
+                                    ),
+                                    format!(
+                                        "{}",
+                                        DependencySource::from(&dep_manifest.dependencies[dep])
+                                    ),
+                                ],
+                            );
+                        }
                     } else if !sess.suppress_warnings.contains("W17") {
                         // Filter out dependencies with mismatching manifest
                         warnln!("[W17] {} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
@@ -88,6 +120,18 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         }
         map
     };
+
+    if matches.get_flag("targets") {
+        let mut res = String::from("");
+        for (k, v) in parent_array.iter() {
+            res.push_str(&format!("    {}\tpasses: {:?}\n", k, v).to_string());
+        }
+        let mut tw = TabWriter::new(vec![]);
+        write!(&mut tw, "{}", res).unwrap();
+        tw.flush().unwrap();
+        print!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
+        return Ok(());
+    }
 
     if parent_array.is_empty() {
         let _ = writeln!(std::io::stdout(), "No parents found for {}.", dep);
