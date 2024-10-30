@@ -455,10 +455,12 @@ impl<'ctx> DependencyResolver<'ctx> {
             for (_, con, dsrc) in &cons {
                 debugln!("resolve: impose `{}` at `{}` on `{}`", con, dsrc, name);
                 let mut count = 0;
-                for (id, src) in table.get_mut(name).unwrap().sources.iter_mut() {
+                let table_item = table.get_mut(name).unwrap();
+                for (id, src) in table_item.sources.iter_mut() {
                     if self.sess.dependency_source(*id) == *dsrc {
                         self.impose(name, con, src, &cons, rt, io)?;
                         count += 1;
+                        table_item.picked_source = Some(*id);
                     }
                 }
                 debugln!(
@@ -845,6 +847,8 @@ impl<'ctx> DependencyResolver<'ctx> {
 struct Dependency<'ctx> {
     /// The name of the dependency.
     name: &'ctx str,
+    /// The picked ID among the sources.
+    picked_source: Option<DependencyRef>,
     /// The set of sources for this dependency.
     sources: IndexMap<DependencyRef, DependencyReference<'ctx>>,
     /// The picked manifest for this dependency.
@@ -856,18 +860,21 @@ impl<'ctx> Dependency<'ctx> {
     fn new(name: &'ctx str) -> Dependency<'ctx> {
         Dependency {
             name,
+            picked_source: None,
             sources: IndexMap::new(),
             manifest: None,
         }
     }
 
     /// Return the main source for this dependency.
-    ///
-    /// This is currently defined as the very first source found for this
-    /// dependency.
     fn source(&self) -> &DependencyReference<'ctx> {
-        let min = self.sources.keys().min().unwrap();
-        &self.sources[min]
+        match self.picked_source {
+            Some(id) => &self.sources[&id],
+            None => {
+                let min = self.sources.keys().min().unwrap();
+                &self.sources[min]
+            }
+        }
     }
 }
 
