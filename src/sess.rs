@@ -21,9 +21,9 @@ use std::fs::canonicalize;
 #[cfg(windows)]
 use dunce::canonicalize;
 
-use crate::futures::{FutureExt, TryFutureExt};
 use async_recursion::async_recursion;
 use futures::future::{self, join_all};
+use futures::TryFutureExt;
 use indexmap::{IndexMap, IndexSet};
 use semver::Version;
 use typed_arena::Arena;
@@ -798,47 +798,85 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         revision: &'ctx str,
         forcibly: bool,
     ) -> Result<&'ctx Path> {
+        #[derive(Eq, PartialEq)]
+        enum CheckoutState {
+            Clean,
+            ToCheckout,
+            ToClone,
+        }
+        let local_git = Git::new(path, &self.sess.config.git);
         let clear = if path.exists() {
             // Scrap checkouts with the wrong tag.
-            let checkout_already_good = Git::new(path, &self.sess.config.git)
-                .current_checkout()
-                .then(|current| async {
-                    match current {
-                        Ok(Some(current)) => {
-                            debugln!(
-                                "checkout_git: currently `{}` (want `{}`)",
-                                current,
-                                revision
-                            );
-                            current != revision
+            let current_checkout = local_git.clone().current_checkout().await;
+            let checkout_already_good = match current_checkout {
+                Ok(Some(current)) => {
+                    debugln!(
+                        "checkout_git: currently `{}` (want `{}`)",
+                        current,
+                        revision
+                    );
+                    if current == revision {
+                        CheckoutState::Clean
+                    } else {
+                        if let Ok(db) = self.git_database(name, url, false, None).await {
+                            if let Ok(remote) = local_git.clone().remote_url("origin").await {
+                                if remote == db.path.to_str().unwrap() {
+                                    CheckoutState::ToCheckout
+                                } else {
+                                    CheckoutState::ToClone
+                                }
+                            } else {
+                                CheckoutState::ToClone
+                            }
+                        } else {
+                            CheckoutState::ToClone
                         }
-                        _ => true,
                     }
-                })
-                .await;
+                }
+                _ => CheckoutState::ToClone,
+            };
 
             // Never scrap checkouts the user asked for explicitly in
             // the workspace configuration.
-            if !checkout_already_good
+            if (checkout_already_good != CheckoutState::Clean)
                 && self.sess.manifest.workspace.checkout_dir.is_some()
                 && !forcibly
             {
-                // TODO: If is git repo, remote source is correct, and no unstaged changes, do a fetch and checkout (without cleaning the repo).
-                warnln!(
-                    "Workspace checkout directory set, not updating {} at {}.\n\
-                    \tTo ensure proper checkout you may need to run `bender checkout --force`.",
-                    name,
-                    path.display()
-                );
-                false
+                // If no unstaged changes, do a fetch and checkout (without cleaning the repo).
+                if checkout_already_good == CheckoutState::ToCheckout {
+                    if local_git
+                        .clone()
+                        .spawn_with(|c| c.arg("status").arg("--porcelain"))
+                        .await
+                        .is_ok()
+                    {
+                        CheckoutState::ToCheckout
+                    } else {
+                        warnln!(
+                            "Workspace checkout directory set and has uncommitted changes, not updating {} at {}.\n\
+                            \tRun `bender checkout --force` to overwrite the dependency at your own risk.",
+                            name,
+                            path.display()
+                        );
+                        CheckoutState::Clean
+                    }
+                } else {
+                    warnln!(
+                        "Workspace checkout directory set and remote url doesn't match, not updating {} at {}.\n\
+                        \tRun `bender checkout --force` to overwrite the dependency at your own risk.",
+                        name,
+                        path.display()
+                    );
+                    CheckoutState::Clean
+                }
             } else {
                 checkout_already_good
             }
         } else {
             // Don't do anything if there is no checkout.
-            false
+            CheckoutState::ToClone
         };
-        if clear {
+        if path.exists() && clear == CheckoutState::ToClone {
             debugln!("checkout_git: clear checkout {:?}", path);
             std::fs::remove_dir_all(path).map_err(|cause| {
                 Error::chain(
@@ -851,7 +889,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         }?;
 
         // Perform the checkout if necessary.
-        if !path.exists() {
+        if clear != CheckoutState::Clean {
             stageln!("Checkout", "{} ({})", name, url);
 
             // First generate a tag to be cloned in the database. This is
@@ -891,15 +929,27 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     }).await
                 }
             }?;
-            git.spawn_with(move |c| {
-                c.arg("clone")
-                    .arg(git.path)
-                    .arg(path)
-                    .arg("--recursive")
-                    .arg("--branch")
-                    .arg(tag_name_2)
-            })
-            .await?;
+            if clear == CheckoutState::ToClone {
+                git.clone()
+                    .spawn_with(move |c| {
+                        c.arg("clone")
+                            .arg(git.path)
+                            .arg(path)
+                            .arg("--recursive")
+                            .arg("--branch")
+                            .arg(tag_name_2)
+                    })
+                    .await?;
+            } else if clear == CheckoutState::ToCheckout {
+                local_git
+                    .clone()
+                    .spawn_with(move |c| c.arg("fetch").arg("--all").arg("--tags").arg("--prune"))
+                    .await?;
+                local_git
+                    .clone()
+                    .spawn_with(move |c| c.arg("checkout").arg(tag_name_2).arg("--force"))
+                    .await?;
+            }
         }
         Ok(path)
     }

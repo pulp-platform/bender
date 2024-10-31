@@ -124,7 +124,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                                 .is_empty()))
                     {
                         warnln!("Dependency `{}` in checkout_dir `{}` is not in a clean state. Setting as path dependency.\n\
-                                    \tTo override this behavior, use `bender update --ignore-checkout-dir`.",
+                                    \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
                             dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
                             &checkout.display());
                         self.checked_out
