@@ -15,7 +15,7 @@ pub fn new() -> Command {
     .about("Checkout all dependencies referenced in the Lock file")
     .arg(
         Arg::new("forcibly")
-            .long("checkout-force")
+            .long("force")
             .num_args(0)
             .action(ArgAction::SetTrue)
             .help("Force update of dependencies in a custom checkout_dir. Please use carefully to avoid losing work."),

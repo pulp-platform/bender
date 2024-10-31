@@ -807,6 +807,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     // Never scrap checkouts the user asked for explicitly in
                     // the workspace configuration.
                     if self.sess.manifest.workspace.checkout_dir.is_some() && !forcibly {
+                        // TODO: If is git repo, remote source is correct, and no unstaged changes, do a fetch and checkout (without cleaning the repo).
+                        warnln!(
+                            "Workspace checkout directory set, not updating {} at {}.\n\
+                            \tTo ensure proper checkout you may need to run `bender checkout --force`.",
+                            name,
+                            path.display()
+                        );
                         return Ok(false);
                     }
 
