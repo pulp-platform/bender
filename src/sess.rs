@@ -798,62 +798,58 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         revision: &'ctx str,
         forcibly: bool,
     ) -> Result<&'ctx Path> {
-        // First check if we have to get rid of the current checkout. This is
-        // the case if it either does not exist or the checked out revision does
-        // not match what we expect.
-        future::lazy(|_| Ok(path.exists()))
-            .and_then(|exists| async move {
-                if exists {
-                    // Never scrap checkouts the user asked for explicitly in
-                    // the workspace configuration.
-                    if self.sess.manifest.workspace.checkout_dir.is_some() && !forcibly {
-                        // TODO: If is git repo, remote source is correct, and no unstaged changes, do a fetch and checkout (without cleaning the repo).
-                        warnln!(
-                            "Workspace checkout directory set, not updating {} at {}.\n\
-                            \tTo ensure proper checkout you may need to run `bender checkout --force`.",
-                            name,
-                            path.display()
-                        );
-                        return Ok(false);
-                    }
-
-                    // Scrap checkouts with the wrong tag.
-
-                    Git::new(path, &self.sess.config.git)
-                        .current_checkout()
-                        .then(|current| async {
-                            Ok(match current {
-                                Ok(Some(current)) => {
-                                    debugln!(
-                                        "checkout_git: currently `{}` (want `{}`)",
-                                        current,
-                                        revision
-                                    );
-                                    current != revision
-                                }
-                                _ => true,
-                            })
-                        })
-                        .await
-                } else {
-                    // Don't do anything if there is no checkout.
-                    Ok(false)
-                }
-            })
-            .and_then(|clear| async move {
-                if clear {
-                    debugln!("checkout_git: clear checkout {:?}", path);
-                    std::fs::remove_dir_all(path).map_err(|cause| {
-                        Error::chain(
-                            format!("Failed to remove checkout directory {:?}.", path),
-                            cause,
-                        )
+        let clear = if path.exists() {
+            // Scrap checkouts with the wrong tag.
+            let checkout_already_good =
+                Git::new(path, &self.sess.config.git, self.sess.git_throttle.clone())
+                    .current_checkout()
+                    .then(|current| async {
+                        match current {
+                            Ok(Some(current)) => {
+                                debugln!(
+                                    "checkout_git: currently `{}` (want `{}`)",
+                                    current,
+                                    revision
+                                );
+                                current != revision
+                            }
+                            _ => true,
+                        }
                     })
-                } else {
-                    Ok(())
-                }
+                    .await;
+
+            // Never scrap checkouts the user asked for explicitly in
+            // the workspace configuration.
+            if !checkout_already_good
+                && self.sess.manifest.workspace.checkout_dir.is_some()
+                && !forcibly
+            {
+                // TODO: If is git repo, remote source is correct, and no unstaged changes, do a fetch and checkout (without cleaning the repo).
+                warnln!(
+                    "Workspace checkout directory set, not updating {} at {}.\n\
+                    \tTo ensure proper checkout you may need to run `bender checkout --force`.",
+                    name,
+                    path.display()
+                );
+                false
+            } else {
+                checkout_already_good
+            }
+        } else {
+            // Don't do anything if there is no checkout.
+            false
+        };
+        if clear {
+            debugln!("checkout_git: clear checkout {:?}", path);
+            std::fs::remove_dir_all(path).map_err(|cause| {
+                Error::chain(
+                    format!("Failed to remove checkout directory {:?}.", path),
+                    cause,
+                )
             })
-            .await?;
+        } else {
+            Ok(())
+        }?;
 
         // Perform the checkout if necessary.
         if !path.exists() {
