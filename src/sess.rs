@@ -424,6 +424,16 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             version,
         }
     }
+
+    /// Get folder name of a git dependency with url
+    pub fn git_db_name(&self, name: &str, url: &str) -> String {
+        // Determine the name of the database as the given name and the first
+        // 8 bytes (16 hex characters) of the URL's BLAKE2 hash.
+        use blake2::{Blake2b512, Digest};
+        let hash = &format!("{:016x}", Blake2b512::digest(url.as_bytes()))[..16];
+        let db_name = format!("{}-{}", name, hash);
+        db_name
+    }
 }
 
 /// An event loop to perform IO within a session.
@@ -485,11 +495,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         //       whole process faster for later calls.
         self.sess.stats.num_calls_git_database.increment();
 
-        // Determine the name of the database as the given name and the first
-        // 8 bytes (16 hex characters) of the URL's BLAKE2 hash.
-        use blake2::{Blake2b512, Digest};
-        let hash = &format!("{:016x}", Blake2b512::digest(url.as_bytes()))[..16];
-        let db_name = format!("{}-{}", name, hash);
+        let db_name = self.sess.git_db_name(name, url);
 
         // Determine the location of the git database and create it if its does
         // not yet exist.

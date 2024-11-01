@@ -10,6 +10,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, Write};
 use std::mem;
+use std::path::PathBuf;
 use std::process::Command as SysCommand;
 
 use futures::future::join_all;
@@ -22,6 +23,7 @@ use tokio::runtime::Runtime;
 
 use crate::config::{self, Locked, LockedPackage, LockedSource, Manifest};
 use crate::error::*;
+use crate::git::Git;
 use crate::sess::{
     DependencyConstraint, DependencyRef, DependencySource, DependencyVersion, DependencyVersions,
     Session, SessionIo,
@@ -91,44 +93,59 @@ impl<'ctx> DependencyResolver<'ctx> {
                         .unwrap()
                         .to_string();
                     let is_git_repo = dir.as_ref().unwrap().path().join(".git").exists();
-                    let commits_match = if is_git_repo {
-                        match self.locked.get(depname.as_str()) {
-                            Some((_, _, Some(hash))) => {
-                                let mut output = SysCommand::new(&self.sess.config.git)
-                                    .arg("rev-parse")
-                                    .arg("HEAD")
-                                    .current_dir(dir.as_ref().unwrap().path())
-                                    .output()?
-                                    .stdout;
-                                output.pop();
-                                output == hash.as_bytes()
+
+                    let full_url = self.locked.get(depname.as_str()).map(|(_, src, _)| src);
+                    let url_correct = match full_url {
+                        Some(DependencySource::Git(u)) => {
+                            let dep_path = dir.as_ref().unwrap().path();
+                            let dep_git = Git::new(dep_path.as_path(), &self.sess.config.git);
+                            let output = rt
+                                .block_on(dep_git.remote_url("origin"))
+                                .unwrap_or("".to_string());
+
+                            if let Some(remote_name) = PathBuf::from(output).file_name() {
+                                remote_name.to_str().unwrap() == self.sess.git_db_name(&depname, u)
+                            } else {
+                                false
                             }
-                            _ => false,
                         }
-                    } else {
-                        false
+                        _ => false,
                     };
+
                     // Only act if the avoiding flag is not set and any of the following match
                     //  - the dependency is not a git repo
-                    //  - the dependency's current commit is not the lockfile's commit
+                    //  - the dependency's remote url is not correct
                     //  - the dependency is not in a clean state (i.e., was modified)
-                    if !(ignore_checkout)
-                        && (!is_git_repo
-                            || !commits_match
-                            || !(SysCommand::new(&self.sess.config.git) // If not in a clean state
-                                .arg("status")
-                                .arg("--porcelain")
-                                .current_dir(dir.as_ref().unwrap().path())
-                                .output()?
-                                .stdout
-                                .is_empty()))
-                    {
-                        warnln!("Dependency `{}` in checkout_dir `{}` is not in a clean state. Setting as path dependency.\n\
+                    if !ignore_checkout {
+                        if !is_git_repo {
+                            warnln!("Dependency `{}` in checkout_dir `{}` is not a git repository. Setting as path dependency.\n\
                                     \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
-                            dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
-                            &checkout.display());
-                        self.checked_out
-                            .insert(depname, config::Dependency::Path(dir.unwrap().path()));
+                                dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
+                                &checkout.display());
+                            self.checked_out
+                                .insert(depname, config::Dependency::Path(dir.unwrap().path()));
+                        } else if !url_correct {
+                            warnln!("Dependency `{}` in checkout_dir `{}` is linked to the wrong upstream. Setting as path dependency.\n\
+                                    \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
+                                dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
+                                &checkout.display());
+                            self.checked_out
+                                .insert(depname, config::Dependency::Path(dir.unwrap().path()));
+                        } else if !(SysCommand::new(&self.sess.config.git) // If not in a clean state
+                            .arg("status")
+                            .arg("--porcelain")
+                            .current_dir(dir.as_ref().unwrap().path())
+                            .output()?
+                            .stdout
+                            .is_empty())
+                        {
+                            warnln!("Dependency `{}` in checkout_dir `{}` is not in a clean state. Setting as path dependency.\n\
+                                    \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
+                                dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
+                                &checkout.display());
+                            self.checked_out
+                                .insert(depname, config::Dependency::Path(dir.unwrap().path()));
+                        }
                     }
                 }
             }
