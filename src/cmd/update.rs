@@ -3,10 +3,14 @@
 
 //! The `update` subcommand.
 
+use std::collections::BTreeMap;
+use std::io::Write;
+
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use tabwriter::TabWriter;
 
 use crate::cmd;
-use crate::config::Locked;
+use crate::config::{Locked, LockedPackage};
 use crate::error::*;
 use crate::lockfile::*;
 use crate::resolver::DependencyResolver;
@@ -78,6 +82,70 @@ pub fn run_plain<'ctx>(
     );
     let res = DependencyResolver::new(sess);
     let locked_new = res.resolve(existing, ignore_checkout_dir)?;
+    let update_map: BTreeMap<String, (Option<LockedPackage>, Option<LockedPackage>)> = locked_new
+        .packages
+        .iter()
+        .filter_map(|(name, dep)| {
+            if let Some(existing) = existing {
+                if let Some(existing_dep) = existing.packages.get(name) {
+                    if existing_dep.revision != dep.revision {
+                        Some((
+                            name.clone(),
+                            (Some(existing_dep.clone()), Some(dep.clone())),
+                        ))
+                    } else {
+                        None
+                    }
+                } else {
+                    Some((name.clone(), (None, Some(dep.clone()))))
+                }
+            } else {
+                Some((name.clone(), (None, Some(dep.clone()))))
+            }
+        })
+        .collect();
+    let removed_map: BTreeMap<String, (Option<LockedPackage>, Option<LockedPackage>)> =
+        if let Some(existing_unwrapped) = existing {
+            existing_unwrapped
+                .packages
+                .iter()
+                .filter_map(|(name, dep)| {
+                    if !locked_new.packages.contains_key(name) {
+                        Some((name.clone(), (Some(dep.clone()), None)))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            BTreeMap::new()
+        };
+    let update_map: BTreeMap<String, (Option<LockedPackage>, Option<LockedPackage>)> =
+        update_map.into_iter().chain(removed_map).collect();
+    let mut update_str = String::from("");
+    for (name, (existing_dep, new_dep)) in update_map.clone() {
+        update_str.push_str(&format!("\x1B[32;1m{:>12}\x1B[0m {}:\t", "Updating", name));
+        if let Some(existing_dep) = existing_dep {
+            update_str.push_str(
+                &existing_dep
+                    .version
+                    .unwrap_or(existing_dep.revision.unwrap_or("path".to_string())),
+            );
+        }
+        update_str.push_str("\t-> ");
+        if let Some(new_dep) = new_dep {
+            update_str.push_str(
+                &new_dep
+                    .version
+                    .unwrap_or(new_dep.revision.unwrap_or("path".to_string())),
+            );
+        }
+        update_str.push('\n');
+    }
+    let mut tw = TabWriter::new(vec![]);
+    write!(&mut tw, "{}", update_str).unwrap();
+    tw.flush().unwrap();
+    println!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
     write_lockfile(&locked_new, &sess.root.join("Bender.lock"), sess.root)?;
     Ok(locked_new)
 }
