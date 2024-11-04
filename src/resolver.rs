@@ -636,12 +636,14 @@ impl<'ctx> DependencyResolver<'ctx> {
                         if id == con_src {
                             return Err(e);
                         }
-                        warnln!(
-                            "[W20] Ignoring error for `{}` at `{}`: {}",
-                            name,
-                            self.sess.dependency_source(*con_src),
-                            e
-                        );
+                        if !self.sess.suppress_warnings.contains("W20") {
+                            warnln!(
+                                "[W20] Ignoring error for `{}` at `{}`: {}",
+                                name,
+                                self.sess.dependency_source(*con_src),
+                                e
+                            );
+                        }
                         Ok((*id, IndexSet::new()))
                     }
                 }
