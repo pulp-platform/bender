@@ -479,6 +479,16 @@ impl<'ctx> DependencyResolver<'ctx> {
                         self.impose(name, con, src, &cons, rt, io)?;
                         count += 1;
                         table_item.picked_source = Some(*id);
+                    } else {
+                        match self.impose(name, con, src, &cons, rt, io) {
+                            Ok(_) => {
+                                count += 1;
+                                table_item.picked_source = Some(*id);
+                            }
+                            Err(cause) => {
+                                warnln!("{}", cause);
+                            }
+                        };
                     }
                 }
                 debugln!(
