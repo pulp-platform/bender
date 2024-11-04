@@ -112,7 +112,7 @@ pub fn main() -> Result<()> {
 
     let suppressed_warnings: IndexSet<String> =
         if suppressed_warnings.contains("all") || suppressed_warnings.contains("Wall") {
-            (1..19).map(|i| format!("W{:02}", i)).collect()
+            (1..20).map(|i| format!("W{:02}", i)).collect()
         } else {
             suppressed_warnings
         };
