@@ -97,21 +97,21 @@ pub fn new() -> Command {
                 .long("only-defines")
                 .num_args(0)
                 .action(ArgAction::SetTrue)
-                .help("Only output commands to define macros (Vivado only)"),
+                .help("Only output commands to define macros (Vivado/flist only)"),
         )
         .arg(
             Arg::new("only-includes")
                 .long("only-includes")
                 .num_args(0)
                 .action(ArgAction::SetTrue)
-                .help("Only output commands to define include directories (Vivado only)"),
+                .help("Only output commands to define include directories (Vivado/flist only)"),
         )
         .arg(
             Arg::new("only-sources")
                 .long("only-sources")
                 .num_args(0)
                 .action(ArgAction::SetTrue)
-                .help("Only output commands to define source files (Vivado only)"),
+                .help("Only output commands to define source files (Vivado/flist only)"),
         )
         .arg(
             Arg::new("no-simset")
@@ -309,12 +309,18 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     }
     if (matches.get_flag("only-defines")
         || matches.get_flag("only-includes")
-        || matches.get_flag("only-sources")
-        || matches.get_flag("no-simset"))
+        || matches.get_flag("only-sources"))
         && !format.starts_with("vivado")
         && format != "template"
         && format != "template_json"
+        && !format.starts_with("flist")
     {
+        return Err(Error::new(
+            "only-x options can only be used for 'vivado', 'flist', or custom format!",
+        ));
+    }
+
+    if matches.get_flag("no-simset") && !format.starts_with("vivado") {
         return Err(Error::new(
             "Vivado-only options can only be used for 'vivado' format!",
         ));
