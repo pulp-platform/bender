@@ -33,61 +33,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
 
-    let parent_array = {
-        let mut map = IndexMap::<String, Vec<String>>::new();
-        if sess.manifest.dependencies.contains_key(dep) {
-            let dep_str = format!(
-                "{}",
-                DependencyConstraint::from(&sess.manifest.dependencies[dep])
-            );
-            let dep_source = format!(
-                "{}",
-                DependencySource::from(&sess.manifest.dependencies[dep])
-            );
-            map.insert(
-                sess.manifest.package.name.clone(),
-                vec![dep_str, dep_source],
-            );
-        }
-        for (&pkg, deps) in sess.graph().iter() {
-            let pkg_name = sess.dependency_name(pkg);
-            let all_deps = deps.iter().map(|&id| sess.dependency(id));
-            for current_dep in all_deps {
-                if dep == current_dep.name.as_str() {
-                    let dep_manifest = rt
-                        .block_on(io.dependency_manifest(pkg, false, &[]))
-                        .unwrap();
-                    // Filter out dependencies without a manifest
-                    if dep_manifest.is_none() {
-                        if !sess.suppress_warnings.contains("W17") {
-                            warnln!("[W17] {} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
-                        }
-                        continue;
-                    }
-                    let dep_manifest = dep_manifest.unwrap();
-                    if dep_manifest.dependencies.contains_key(dep) {
-                        map.insert(
-                            pkg_name.to_string(),
-                            vec![
-                                format!(
-                                    "{}",
-                                    DependencyConstraint::from(&dep_manifest.dependencies[dep])
-                                ),
-                                format!(
-                                    "{}",
-                                    DependencySource::from(&dep_manifest.dependencies[dep])
-                                ),
-                            ],
-                        );
-                    } else if !sess.suppress_warnings.contains("W17") {
-                        // Filter out dependencies with mismatching manifest
-                        warnln!("[W17] {} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
-                    }
-                }
-            }
-        }
-        map
-    };
+    let parent_array = get_parent_array(sess, &rt, &io, dep);
 
     if parent_array.is_empty() {
         let _ = writeln!(std::io::stdout(), "No parents found for {}.", dep);
@@ -146,4 +92,66 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Get parents array
+pub fn get_parent_array(
+    sess: &Session,
+    rt: &Runtime,
+    io: &SessionIo,
+    dep: &str,
+) -> IndexMap<String, Vec<String>> {
+    let mut map = IndexMap::<String, Vec<String>>::new();
+    if sess.manifest.dependencies.contains_key(dep) {
+        let dep_str = format!(
+            "{}",
+            DependencyConstraint::from(&sess.manifest.dependencies[dep])
+        );
+        let dep_source = format!(
+            "{}",
+            DependencySource::from(&sess.manifest.dependencies[dep])
+        );
+        map.insert(
+            sess.manifest.package.name.clone(),
+            vec![dep_str, dep_source],
+        );
+    }
+    for (&pkg, deps) in sess.graph().iter() {
+        let pkg_name = sess.dependency_name(pkg);
+        let all_deps = deps.iter().map(|&id| sess.dependency(id));
+        for current_dep in all_deps {
+            if dep == current_dep.name.as_str() {
+                let dep_manifest = rt
+                    .block_on(io.dependency_manifest(pkg, false, &[]))
+                    .unwrap();
+                // Filter out dependencies without a manifest
+                if dep_manifest.is_none() {
+                    if !sess.suppress_warnings.contains("W17") {
+                        warnln!("[W17] {} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
+                    }
+                    continue;
+                }
+                let dep_manifest = dep_manifest.unwrap();
+                if dep_manifest.dependencies.contains_key(dep) {
+                    map.insert(
+                        pkg_name.to_string(),
+                        vec![
+                            format!(
+                                "{}",
+                                DependencyConstraint::from(&dep_manifest.dependencies[dep])
+                            ),
+                            format!(
+                                "{}",
+                                DependencySource::from(&dep_manifest.dependencies[dep])
+                            ),
+                        ],
+                    );
+                } else if !sess.suppress_warnings.contains("W17") {
+                    // Filter out dependencies with mismatching manifest
+                    warnln!("[W17] {} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
+                }
+            }
+        }
+    }
+    map
 }
