@@ -48,6 +48,14 @@ pub fn new() -> Command {
                 .num_args(1..)
                 .help("Dependencies to update"),
         )
+        .arg(
+            Arg::new("recursive")
+                .long("recursive")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
+                .requires("dep")
+                .help("Update requested dependencies recursively, i.e., including their dependencies"),
+        )
 }
 
 /// Execute the `update` subcommand.
@@ -69,14 +77,14 @@ pub fn run<'ctx>(
 
     let mut keep_locked = match existing {
         Some(existing) => existing.packages.keys().collect(),
-        None => Vec::new(),
+        None => IndexSet::new(),
     };
 
-    let requested = match matches.get_many::<String>("dep") {
+    let mut requested = match matches.get_many::<String>("dep") {
         Some(deps) => deps.map(|dep| dep.to_string()).collect(),
         None => {
-            keep_locked = Vec::new();
-            Vec::new()
+            keep_locked = IndexSet::new();
+            IndexSet::new()
         }
     };
 
@@ -88,7 +96,23 @@ pub fn run<'ctx>(
             )));
         }
     }
-    keep_locked.retain(|dep| !requested.contains(dep));
+
+    // Unlock dependencies recursively
+    if matches.get_flag("recursive") {
+        if let Some(existing_locked) = existing {
+            let mut nochange = true;
+            while nochange {
+                nochange = false;
+                for dep in requested.clone().iter() {
+                    for needed_dep in existing_locked.packages[dep].dependencies.iter() {
+                        nochange |= requested.insert(needed_dep.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    keep_locked.retain(|dep| !requested.contains(*dep));
 
     run_plain(ignore_checkout_dir, sess, existing, keep_locked)
 }
@@ -98,7 +122,7 @@ pub fn run_plain<'ctx>(
     ignore_checkout_dir: bool,
     sess: &'ctx Session<'ctx>,
     existing: Option<&'ctx Locked>,
-    keep_locked: Vec<&'ctx String>,
+    keep_locked: IndexSet<&'ctx String>,
 ) -> Result<(Locked, Vec<String>)> {
     if sess.manifest.frozen {
         return Err(Error::new(format!(

@@ -77,7 +77,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         mut self,
         existing: Option<&'ctx Locked>,
         ignore_checkout: bool,
-        keep_locked: Vec<&'ctx String>,
+        keep_locked: IndexSet<&'ctx String>,
     ) -> Result<Locked> {
         let rt = Runtime::new()?;
         let io = SessionIo::new(self.sess);
@@ -367,7 +367,7 @@ impl<'ctx> DependencyResolver<'ctx> {
     fn register_dependencies_in_lockfile(
         &mut self,
         locked: &'ctx Locked,
-        keep_locked: Vec<&'ctx String>,
+        keep_locked: IndexSet<&'ctx String>,
         rt: &Runtime,
         io: &SessionIo<'ctx, 'ctx>,
     ) -> Result<()> {
