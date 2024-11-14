@@ -40,7 +40,15 @@ pub struct DependencyResolver<'ctx> {
     /// Checkout Directory overrides in case checkout_dir is defined and contains unmodified folders.
     checked_out: IndexMap<String, config::Dependency>,
     /// Lockfile data.
-    locked: IndexMap<&'ctx str, (DependencyConstraint, DependencySource, Option<&'ctx str>)>,
+    locked: IndexMap<
+        &'ctx str,
+        (
+            DependencyConstraint,
+            DependencySource,
+            Option<&'ctx str>,
+            bool,
+        ),
+    >,
 }
 
 impl<'ctx> DependencyResolver<'ctx> {
@@ -97,7 +105,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     let is_git_repo = dir.as_ref().unwrap().path().join(".git").exists();
 
                     // TODO this compares to lockfile's url, but ideally we check if the new url is the same, but we don't know that one yet...
-                    let full_url = self.locked.get(depname.as_str()).map(|(_, src, _)| src);
+                    let full_url = self.locked.get(depname.as_str()).map(|(_, src, _, _)| src);
                     let url_correct = match full_url {
                         Some(DependencySource::Git(u)) => {
                             let dep_path = dir.as_ref().unwrap().path();
@@ -415,12 +423,15 @@ impl<'ctx> DependencyResolver<'ctx> {
             })
             .collect();
         for (name, (cnstr, src, hash)) in names {
-            self.locked.insert(name, (cnstr, src, hash));
+            self.locked.insert(
+                name,
+                (cnstr, src, hash, keep_locked.contains(&&name.to_string())),
+            );
         }
 
         // Keep locked deps locked.
         for dep in keep_locked {
-            let (cnstr, src, hash) = self.locked.get(dep.as_str()).unwrap().clone();
+            let (cnstr, src, hash, _) = self.locked.get(dep.as_str()).unwrap().clone();
             let config_dep: config::Dependency = match src {
                 DependencySource::Registry => {
                     unreachable!("Registry dependencies not yet supported.");
@@ -507,14 +518,20 @@ impl<'ctx> DependencyResolver<'ctx> {
                         pkg_name,
                         self.sess.config.overrides.get(name).unwrap_or(dep),
                     )
+                })
+                .map(|(name, pkg_name, dep)| {
+                    (
+                        name,
+                        pkg_name,
+                        match self.locked.get(name.as_str()) {
+                            Some((cnstr, src, _, true)) => (cnstr.clone(), src.clone()),
+                            _ => (DependencyConstraint::from(dep), DependencySource::from(dep)),
+                        },
+                    )
                 });
-            for (name, pkg_name, dep) in dep_iter {
+            for (name, pkg_name, (dep_constr, dep_src)) in dep_iter {
                 let v = map.entry(name.as_str()).or_default();
-                v.push((
-                    pkg_name,
-                    DependencyConstraint::from(dep),
-                    DependencySource::from(dep),
-                ));
+                v.push((pkg_name, dep_constr, dep_src));
             }
             map
         };
@@ -744,7 +761,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     );
 
                     cons = cons.into_iter().unique().collect();
-                    if let Some((cnstr, src, _)) = self.locked.get(name) {
+                    if let Some((cnstr, src, _, _)) = self.locked.get(name) {
                         let _ = write!(
                             msg,
                             "\n\nThe previous lockfile required `{}` at `{}`",
