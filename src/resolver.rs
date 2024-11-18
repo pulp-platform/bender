@@ -462,7 +462,6 @@ impl<'ctx> DependencyResolver<'ctx> {
             };
 
             self.register_locked_dependency(dep, depref, depversions, locked_index);
-            println!("Locked {} at {}", dep, locked_index);
         }
         Ok(())
     }
