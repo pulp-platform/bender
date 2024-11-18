@@ -352,11 +352,17 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                 let env_path_buf =
                     crate::config::env_path_from_string(path.to_string_lossy().to_string())?;
                 let exists = env_path_buf.exists() && env_path_buf.is_file();
-                if exists {
+                if exists || suppress_warnings.contains("E31") {
+                    if !(exists || suppress_warnings.contains("W31")) {
+                        warnln!(
+                            "[W31] File {} doesn't exist.",
+                            env_path_buf.to_string_lossy()
+                        );
+                    }
                     Ok(SourceFile::File(path))
                 } else {
                     Err(Error::new(format!(
-                        "File {} doesn't exist",
+                        "[E31] File {} doesn't exist",
                         env_path_buf.to_string_lossy()
                     )))
                 }
