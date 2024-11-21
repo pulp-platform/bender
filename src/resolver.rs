@@ -5,6 +5,7 @@
 
 #![deny(missing_docs)]
 
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Write as _;
 use std::fs;
@@ -429,27 +430,38 @@ impl<'ctx> DependencyResolver<'ctx> {
             );
         }
 
+        let depversions: HashMap<_, _> = rt
+            .block_on(join_all(keep_locked.iter().map(|dep| {
+                let (cnstr, src, hash, _) = self.locked.get(dep.as_str()).unwrap().clone();
+                let config_dep: config::Dependency = match src {
+                    DependencySource::Registry => {
+                        unreachable!("Registry dependencies not yet supported.");
+                        // TODO should probably be config::Dependeny::Version(vers, str?)
+                    }
+                    DependencySource::Path(p) => config::Dependency::Path(p),
+                    DependencySource::Git(u) => match cnstr {
+                        DependencyConstraint::Version(v) => config::Dependency::GitVersion(u, v),
+                        DependencyConstraint::Revision(r) => config::Dependency::GitRevision(u, r),
+                        _ => unreachable!(),
+                    },
+                };
+                // Map the dependencies to unique IDs.
+                let depref = self.sess.load_dependency(dep, &config_dep, "");
+                async move {
+                    Ok::<(_, _), Error>((
+                        dep.to_string(),
+                        (hash, io.dependency_versions(depref, false).await?, depref),
+                    ))
+                }
+            })))
+            .into_iter()
+            .collect::<Result<HashMap<_, _>>>()?;
+
         // Keep locked deps locked.
         for dep in keep_locked {
-            let (cnstr, src, hash, _) = self.locked.get(dep.as_str()).unwrap().clone();
-            let config_dep: config::Dependency = match src {
-                DependencySource::Registry => {
-                    unreachable!("Registry dependencies not yet supported.");
-                    // TODO should probably be config::Dependeny::Version(vers, str?)
-                }
-                DependencySource::Path(p) => config::Dependency::Path(p),
-                DependencySource::Git(u) => match cnstr {
-                    DependencyConstraint::Version(v) => config::Dependency::GitVersion(u, v),
-                    DependencyConstraint::Revision(r) => config::Dependency::GitRevision(u, r),
-                    _ => unreachable!(),
-                },
-            };
-            // Map the dependencies to unique IDs.
-            let depref = self.sess.load_dependency(dep, &config_dep, "");
-            let depversions: DependencyVersions =
-                rt.block_on(io.dependency_versions(depref, false))?;
+            let (hash, depversion, depref) = depversions.get(dep.as_str()).unwrap().clone();
 
-            let locked_index = match &depversions {
+            let locked_index = match &depversion {
                 DependencyVersions::Path => 0,
                 DependencyVersions::Registry(_) => {
                     unreachable!("Registry dependencies not yet supported.")
@@ -461,7 +473,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     .unwrap(),
             };
 
-            self.register_locked_dependency(dep, depref, depversions, locked_index);
+            self.register_locked_dependency(dep, depref, depversion, locked_index);
         }
         Ok(())
     }

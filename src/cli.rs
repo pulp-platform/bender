@@ -16,6 +16,7 @@ use dunce::canonicalize;
 
 use clap::parser::ValuesRef;
 use clap::{Arg, ArgAction, Command};
+use indexmap::IndexSet;
 use serde_yaml;
 use tokio::runtime::Runtime;
 

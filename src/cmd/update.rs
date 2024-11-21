@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::io::Write;
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use indexmap::IndexSet;
 use tabwriter::TabWriter;
 
 use crate::cmd;
@@ -54,7 +55,9 @@ pub fn new() -> Command {
                 .num_args(0)
                 .action(ArgAction::SetTrue)
                 .requires("dep")
-                .help("Update requested dependencies recursively, i.e., including their dependencies"),
+                .help(
+                    "Update requested dependencies recursively, i.e., including their dependencies",
+                ),
         )
 }
 
