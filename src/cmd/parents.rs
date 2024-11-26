@@ -33,7 +33,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
 
-    let parent_array = get_parent_array(sess, &rt, &io, dep);
+    let parent_array = get_parent_array(sess, &rt, &io, dep)?;
 
     if parent_array.is_empty() {
         let _ = writeln!(std::io::stdout(), "No parents found for {}.", dep);
@@ -100,7 +100,7 @@ pub fn get_parent_array(
     rt: &Runtime,
     io: &SessionIo,
     dep: &str,
-) -> IndexMap<String, Vec<String>> {
+) -> Result<IndexMap<String, Vec<String>>> {
     let mut map = IndexMap::<String, Vec<String>>::new();
     if sess.manifest.dependencies.contains_key(dep) {
         let dep_str = format!(
@@ -121,9 +121,7 @@ pub fn get_parent_array(
         let all_deps = deps.iter().map(|&id| sess.dependency(id));
         for current_dep in all_deps {
             if dep == current_dep.name.as_str() {
-                let dep_manifest = rt
-                    .block_on(io.dependency_manifest(pkg, false, &[]))
-                    .unwrap();
+                let dep_manifest = rt.block_on(io.dependency_manifest(pkg, false, &[]))?;
                 // Filter out dependencies without a manifest
                 if dep_manifest.is_none() {
                     if !sess.suppress_warnings.contains("W17") {
@@ -153,5 +151,5 @@ pub fn get_parent_array(
             }
         }
     }
-    map
+    Ok(map)
 }
