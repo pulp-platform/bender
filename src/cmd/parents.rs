@@ -41,7 +41,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
 
-    let parent_array = get_parent_array(sess, &rt, &io, dep, matches.get_flag("targets"));
+    let parent_array = get_parent_array(sess, &rt, &io, dep, matches.get_flag("targets"))?;
 
     if matches.get_flag("targets") {
         let mut res = String::from("");
@@ -121,7 +121,7 @@ pub fn get_parent_array(
     io: &SessionIo,
     dep: &str,
     targets: bool,
-) -> IndexMap<String, Vec<String>> {
+) -> Result<IndexMap<String, Vec<String>>> {
     let mut map = IndexMap::<String, Vec<String>>::new();
     if sess.manifest.dependencies.contains_key(dep) {
         if targets {
@@ -154,9 +154,7 @@ pub fn get_parent_array(
         let all_deps = deps.iter().map(|&id| sess.dependency(id));
         for current_dep in all_deps {
             if dep == current_dep.name.as_str() {
-                let dep_manifest = rt
-                    .block_on(io.dependency_manifest(pkg, false, &[]))
-                    .unwrap();
+                let dep_manifest = rt.block_on(io.dependency_manifest(pkg, false, &[]))?;
                 // Filter out dependencies without a manifest
                 if dep_manifest.is_none() {
                     if !sess.suppress_warnings.contains("W17") {
@@ -198,5 +196,5 @@ pub fn get_parent_array(
             }
         }
     }
-    map
+    Ok(map)
 }

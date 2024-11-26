@@ -72,7 +72,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     for pkg in pkgs {
         let pkg_name = sess.dependency_name(*pkg);
-        let parent_array = get_parent_array(sess, &rt, &io, pkg_name, false);
+        let parent_array = get_parent_array(sess, &rt, &io, pkg_name, false)?;
         let current_version = sess.dependency(*pkg).version.clone();
         let current_version_unwrapped = if current_version.is_some() {
             format!("{}", current_version.clone().unwrap())
