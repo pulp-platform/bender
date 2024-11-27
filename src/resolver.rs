@@ -122,6 +122,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                         {
                             if !self.sess.suppress_warnings.contains("W06") {
                                 warnln!("[W06] Dependency `{}` in checkout_dir `{}` is not in a clean state. Setting as path dependency.\n\
+                                        \tPlease use `bender clone` to work on git dependencies.\n\
                                         \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
                                     dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
                                     &checkout.display());
