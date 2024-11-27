@@ -172,7 +172,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             any_changes = self.pick()?;
 
             // Close the dependency set.
-            self.close(&rt, &io)?;
+            any_changes |= self.close(&rt, &io)?;
         }
         debugln!("resolve: resolved after {} iterations", iteration);
 
@@ -893,7 +893,7 @@ impl<'ctx> DependencyResolver<'ctx> {
     }
 
     /// Close the set of dependencies.
-    fn close(&mut self, rt: &Runtime, io: &SessionIo<'ctx, 'ctx>) -> Result<()> {
+    fn close(&mut self, rt: &Runtime, io: &SessionIo<'ctx, 'ctx>) -> Result<bool> {
         debugln!("resolve: computing closure over dependencies");
         let manifests: Vec<(&str, Option<&Manifest>)> = {
             let mut sub_deps = Vec::new();
@@ -910,15 +910,17 @@ impl<'ctx> DependencyResolver<'ctx> {
                 .into_iter()
                 .collect::<Result<Vec<(&str, Option<&Manifest>)>>>()?
         };
+        let mut any_changes = false;
         for (name, manifest) in manifests {
             if let Some(m) = manifest {
                 debugln!("resolve: for `{}` loaded manifest {:#?}", name, m);
                 self.register_dependencies_in_manifest(&m.dependencies, &m.package.name, rt, io)?;
             }
             let existing = &mut self.table.get_mut(name).unwrap().manifest;
+            any_changes |= existing.is_none() && manifest.is_some();
             *existing = manifest;
         }
-        Ok(())
+        Ok(any_changes)
     }
 }
 
