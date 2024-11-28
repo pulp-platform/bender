@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Add warnings for unknown fields in manifest.
 - Add support to indicate and read in external file lists in manifest.
 - Enumerate warnings and add `--suppress` flag to hide warnings.
+- Add `snapshot` command.
 
 ### Changed
 - `update`: Clean up alignment of manual resolution output.
