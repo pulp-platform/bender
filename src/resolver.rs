@@ -348,7 +348,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         let names: IndexMap<&str, (DependencyConstraint, DependencySource, Option<&str>)> = locked
             .packages
             .iter()
-            .map(|(name, locked_package)| {
+            .filter_map(|(name, locked_package)| {
                 let name = name.as_str();
                 debugln!("resolve: registering {} from lockfile", &name);
                 let dep = match &locked_package.source {
@@ -374,7 +374,16 @@ impl<'ctx> DependencyResolver<'ctx> {
                         } else {
                             config::Dependency::GitRevision(
                                 u.clone(),
-                                locked_package.revision.clone().unwrap(),
+                                match &locked_package.revision {
+                                    Some(r) => r.clone(),
+                                    None => {
+                                        warnln!(
+                                            "No revision found in lock file for git dependency `{}`",
+                                            name
+                                        );
+                                        return None;
+                                    }
+                                },
                             )
                         }
                     }
@@ -385,14 +394,14 @@ impl<'ctx> DependencyResolver<'ctx> {
                 };
                 // Checked out not indexed yet.
                 // Overrides not considered because already locked.
-                (
+                Some((
                     name,
                     (
                         DependencyConstraint::from(&dep),
                         DependencySource::from(&dep),
                         hash,
                     ),
-                )
+                ))
             })
             .collect();
         for (name, (cnstr, src, hash)) in names {
