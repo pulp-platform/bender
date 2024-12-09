@@ -368,7 +368,6 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             lic_vec.clone(),
         )?;
 
-        // println!("{}", fuse_str);
         fs::write(&generate_files[pkg], fuse_str).map_err(|cause| {
             Error::chain(format!("Unable to write corefile for {:?}.", &pkg), cause)
         })?;

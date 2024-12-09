@@ -52,7 +52,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
                 )))?;
             }
             _ => {
-                println!("A non-path override is already present, proceeding anyways");
+                eprintln!("A non-path override is already present, proceeding anyways");
             }
         }
     }
@@ -71,8 +71,8 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
 
     // Copy dependency to dir for proper workflow
     if path.join(path_mod).join(dep).exists() {
-        println!("{} already has a directory in {}.", dep, path_mod);
-        println!("Please manually ensure the correct checkout.");
+        eprintln!("{} already has a directory in {}.", dep, path_mod);
+        eprintln!("Please manually ensure the correct checkout.");
     } else {
         let rt = Runtime::new()?;
         let io = SessionIo::new(sess);
@@ -105,7 +105,6 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
                 if !command.unwrap().success() {
                     Err(Error::new(format!("Copying {} failed", dep,)))?;
                 }
-                // println!("{:?}", command);
             }
         }
 
@@ -155,7 +154,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
             warnln!("[W14] fetch not performed due to --local argument.");
         }
 
-        println!(
+        eprintln!(
             "{} checkout added in {:?}",
             dep,
             path.join(path_mod).join(dep)
@@ -212,7 +211,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         )))?
     };
 
-    println!("{} dependency added to Bender.local", dep);
+    eprintln!("{} dependency added to Bender.local", dep);
 
     // Update Bender.lock to enforce usage
     use std::fs::File;
@@ -238,7 +237,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     serde_yaml_ng::to_writer(&file, &locked)
         .map_err(|cause| Error::chain(format!("Cannot write lockfile {:?}.", path), cause))?;
 
-    println!("Lockfile updated");
+    eprintln!("Lockfile updated");
 
     // Update any possible workspace symlinks
     for (link_path, pkg_name) in &sess.manifest.workspace.package_links {
@@ -309,7 +308,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
                     std::env::set_current_dir(d).unwrap();
                 }
             }
-            println!("{} symlink updated", dep);
+            eprintln!("{} symlink updated", dep);
         }
     }
 

@@ -207,7 +207,7 @@ pub fn run_plain<'ctx>(
     let mut tw = TabWriter::new(vec![]);
     write!(&mut tw, "{}", update_str).unwrap();
     tw.flush().unwrap();
-    println!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
+    eprintln!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
     write_lockfile(&locked_new, &sess.root.join("Bender.lock"), sess.root)?;
     Ok((locked_new, update_map.keys().cloned().collect()))
 }
