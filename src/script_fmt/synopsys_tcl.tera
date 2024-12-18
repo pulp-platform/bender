@@ -5,7 +5,7 @@ set search_path_initial $search_path
 #}{% for group in srcs %}
 set search_path $search_path_initial
 {% for incdir in group.incdirs %}{#                                                                                 Add group's include directories
-#}lappend search_path "$ROOT{{ incdir | replace(from=root, to='') }}"
+#}lappend search_path "{{ incdir | replace(from=root, to='$ROOT') }}"
 {% endfor %}
 {% if abort_on_error %}if {0 == [{% endif %}{#                                                                      Catch errors immediately
 #}analyze -format {% if group.file_type == 'verilog' %}sv{% elif group.file_type == 'vhdl' %}vhdl{% endif %} \{#    Analyze command for SystemVerilog or VHDL #}
@@ -24,7 +24,7 @@ set search_path $search_path_initial
 #}{% for file in all_verilog %}{#                                                                                   Loop over verilog files
 #}{% if loop.first %}set search_path $search_path_initial
 {% for incdir in all_incdirs %}{#                                                                                   Add all include directories
-#}lappend search_path "$ROOT{{ incdir | replace(from=root, to='') }}"
+#}lappend search_path "{{ incdir | replace(from=root, to='$ROOT') }}"
 {% endfor %}
 {% if abort_on_error %}if {0 == [{% endif %}{#                                                                      Catch errors immediately
 #}analyze -format sv \{#                                                                                            Analyze command for SystemVerilog #}
