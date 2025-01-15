@@ -281,7 +281,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     )
                     .unwrap();
                 }
-                println!("{}", msg);
+                let _ = writeln!(std::io::stdout(), "{}", msg);
                 // Let user resolve conflict if both stderr and stdin go to a TTY.
                 if std::io::stderr().is_terminal() && std::io::stdin().is_terminal() {
                     index = {

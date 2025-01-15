@@ -4,6 +4,7 @@
 //! The `config` subcommand.
 
 use std;
+use std::io::Write;
 
 use clap::{ArgMatches, Command};
 use serde_json;
@@ -23,6 +24,6 @@ pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
         let handle = stdout.lock();
         serde_json::to_writer_pretty(handle, sess.config)
     };
-    println!();
+    let _ = writeln!(std::io::stdout(),);
     result.map_err(|cause| Error::chain("Failed to serialize configuration.", cause))
 }
