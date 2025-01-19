@@ -6,7 +6,7 @@ set ROOT "{{ root }}"
 #}{% if group.file_type == 'verilog' %}vlog -incr -sv \{#                                                       Compile verilog (& systemverilog) files with vlog -sv #}
     {% for tmp_arg in vlog_args %}{{ tmp_arg }} \
     {% endfor %}{#                                                                                              Add all vlog arguments
-#}{% for define in group.defines %}"+define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}" \
+#}{% for define in group.defines %}"+define+{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}" \
     {% endfor %}{#                                                                                              Add group's defines
 #}{% for incdir in group.incdirs %}"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}" \
     {% endfor %}{#                                                                                              Add group's include directories
@@ -25,7 +25,7 @@ set ROOT "{{ root }}"
 #}vlog -incr -sv \{#                                                                                            Compile verilog (& systemverilog) files with vlog -sv #}
     {% for tmp_arg in vlog_args %}{{ tmp_arg }} \
     {% endfor %}{#                                                                                              Add all vlog arguments
-#}{% for define in all_defines %}"+define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}" \
+#}{% for define in all_defines %}"+define+{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}" \
     {% endfor %}{#                                                                                              Add all defines
 #}{% for incdir in all_incdirs %}"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}" \
     {% endfor %}{#                                                                                              Add all include directories

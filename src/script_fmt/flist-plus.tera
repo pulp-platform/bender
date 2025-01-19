@@ -10,7 +10,7 @@
 {% endif %}{#
 #}{% endfor %}{#
 #}{% for define in all_defines %}{#                                           loop over all defines
-#}+define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}
+#}+define+{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}
 {% endfor %}{#
 #}{% for file in all_files %}{#                                               loop over all files
 #}{% if relativize_path %}{#                                                  make path relative if necessary

@@ -7,7 +7,7 @@ setup_design -search_path $ROOT
 {% for define in all_defines %}{% if loop.first %}
 # Set globally all defines for the (S)Verilog sources.
 setup_design -defines { \
-    {% endif %}+define+{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %}
+    {% endif %}+define+{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %}
 
 {% else %} \
     {% endif %}{% endfor %}{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if abort_on_error %}if {[catch { {% endif %}add_input_file \
