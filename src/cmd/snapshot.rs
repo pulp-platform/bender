@@ -61,7 +61,6 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 if let DependencySource::Path(dep_path) =
                     sess.dependency_source(sess.dependency_with_name(name)?)
                 {
-                    // println!("Dep path: {:?}", dep_path);
                     if dep_path == *override_path {
                         // check state, skip & warn if dirty
                         if !SysCommand::new(&sess.config.git)
@@ -112,6 +111,52 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     }
                 }
             }
+        }
+    }
+
+    // Update the Bender.local to keep changes
+    let local_path = sess.root.join("Bender.local");
+    if local_path.exists() && !snapshot_list.is_empty() {
+        let local_file_str = match std::fs::read_to_string(&local_path) {
+            Err(why) => Err(Error::new(format!(
+                "Reading Bender.local failed with msg:\n\t{}",
+                why
+            )))?,
+            Ok(local_file_str) => local_file_str,
+        };
+        let mut new_str = String::new();
+        if local_file_str.contains("overrides:") {
+            let split = local_file_str.split('\n');
+            let test = split.clone().next_back().unwrap().is_empty();
+            for i in split {
+                for (name, _, _) in &snapshot_list {
+                    if i.contains(name) {
+                        new_str.push('#');
+                    }
+                }
+                new_str.push_str(i);
+                new_str.push('\n');
+                if i.contains("overrides:") {
+                    for (name, url, hash) in &snapshot_list {
+                        let dep_str = format!(
+                            "  {}: {{ git: \"{}\", rev: \"{}\" }} # Temporary override by Bender using `bender snapshot` command\n",
+                            name, url, hash
+                        );
+                        new_str.push_str(&dep_str);
+                    }
+                }
+            }
+            if test {
+                // Ensure trailing newline is not duplicated
+                new_str.pop();
+            }
+            if let Err(why) = std::fs::write(local_path, new_str) {
+                Err(Error::new(format!(
+                    "Writing new Bender.local failed with msg:\n\t{}",
+                    why
+                )))?
+            }
+            eprintln!("Bender.local updated with snapshots.");
         }
     }
 
