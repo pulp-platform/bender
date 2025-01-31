@@ -107,6 +107,35 @@ impl<'ctx> SourceGroup<'ctx> {
         )
     }
 
+    /// Assigns target to SourceGroup without target
+    pub fn assign_target(&self, target: String) -> SourceGroup<'ctx> {
+        let files = self
+            .files
+            .iter()
+            .filter_map(|file| match *file {
+                SourceFile::Group(ref group) => Some(group.assign_target(target.clone()))
+                    .map(|g| SourceFile::Group(Box::new(g))),
+                ref other => Some(other.clone()),
+            })
+            .collect();
+
+        SourceGroup {
+            package: self.package,
+            independent: self.independent,
+            target: if self.target.is_wildcard() {
+                TargetSpec::Name(target)
+            } else {
+                self.target.clone()
+            },
+            include_dirs: self.include_dirs.clone(),
+            export_incdirs: self.export_incdirs.clone(),
+            defines: self.defines.clone(),
+            files,
+            dependencies: self.dependencies.clone(),
+            version: self.version.clone(),
+        }
+    }
+
     /// Recursively get dependency names.
     fn get_deps(
         &self,
