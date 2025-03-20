@@ -290,6 +290,7 @@ Individual commands may also set tool-specific targets:
 
 - `vsim`
 - `vcs`
+- `xm`
 - `verilator`
 - `synopsys`
 - `riviera`
@@ -421,6 +422,7 @@ Supported formats:
 - `flist-plus`: A flat file list amenable to be directly inlined into the invocation command of a tool, e.g. `verilate $(bender script flist)`.
 - `vsim`: A Tcl compilation script for Mentor ModelSim/QuestaSim.
 - `vcs`:  A Tcl compilation script for VCS.
+- `xm`:  A Tcl compilation script for Cadence Xcelium.
 - `verilator`: Command line arguments for Verilator.
 - `synopsys`: A Tcl compilation script for Synopsys DC and DE.
 - `formality`: A Tcl compilation script for Formality (as reference design).
