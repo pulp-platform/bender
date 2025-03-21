@@ -781,12 +781,7 @@ impl Validate for PartialSourceFile {
         match self {
             PartialSourceFile::File(path) => {
                 let env_path_buf = env_path_from_string(path.clone())?;
-                if env_path_buf.exists() && env_path_buf.is_file() {
-                    Ok(SourceFile::File(env_path_buf))
-                } else {
-                    eprintln!("Error: file {} doesn't exist", &path);
-                    Err(Error::new(format!("Error: file {} doesn't exist", &path)))
-                }
+                Ok(SourceFile::File(env_path_buf))
             }
             PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(
                 srcs.validate(package_name, pre_output)?,
@@ -1279,7 +1274,7 @@ pub enum LockedSource {
 }
 
 #[cfg(unix)]
-fn env_path_from_string(path_str: String) -> Result<PathBuf> {
+pub(crate) fn env_path_from_string(path_str: String) -> Result<PathBuf> {
     Ok(PathBuf::from(
         subst::substitute(&path_str, &subst::Env).map_err(|cause| {
             Error::chain(
@@ -1291,6 +1286,6 @@ fn env_path_from_string(path_str: String) -> Result<PathBuf> {
 }
 
 #[cfg(windows)]
-fn env_path_from_string(path_str: String) -> Result<PathBuf> {
+pub(crate) fn env_path_from_string(path_str: String) -> Result<PathBuf> {
     Ok(PathBuf::from(path_str))
 }
