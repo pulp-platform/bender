@@ -7,6 +7,7 @@ description = "A dependency management tool for hardware projects."
 readme = "README.md"
 license = "Apache-2.0 OR MIT"
 edition = "2018"
+rust-version = "1.78.0"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
