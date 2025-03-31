@@ -1,0 +1,49 @@
+# {{HEADER_AUTOGEN}}
+set search_path_initial $search_path
+{% if compilation_mode == 'separate' %}{#                                                                           Individual block for each source file group
+#}{% for group in srcs %}
+set search_path $search_path_initial
+{% for incdir in group.incdirs %}{#                                                                                 Add group's include directories
+#}lappend search_path "{{ incdir }}"
+{% endfor %}
+{% if abort_on_error %}if {0 == [{% endif %}{#                                                                      Catch errors immediately
+#}analyze -format {% if group.file_type == 'verilog' %}sv{% elif group.file_type == 'vhdl' %}vhdl{% endif %} \{#    Analyze command for SystemVerilog or VHDL #}
+    {% for define in group.defines %}{#                                                                             Add group's defines
+#}{% if loop.first %}-define { \
+        {% endif %}{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %} \
+    } \
+    {% else %} \
+        {% endif %}{% endfor %}[list \
+    {% for file in group.files %}{#                                                                                 Add group's files
+#}{{ '    ' }}"{{ file  }}" \
+    {% endfor %}]
+{% if abort_on_error %}]} {return 1}{% endif %}
+{% endfor %}
+{% else %}{# compilation_mode == 'common' #}{#                                                                      Common block for all files
+#}{% for file in all_verilog %}{#                                                                                   Loop over verilog files
+#}{% if loop.first %}set search_path $search_path_initial
+{% for incdir in all_incdirs %}{#                                                                                   Add all include directories
+#}lappend search_path "{{ incdir }}"
+{% endfor %}
+{% if abort_on_error %}if {0 == [{% endif %}{#                                                                      Catch errors immediately
+#}analyze -format sv \{#                                                                                            Analyze command for SystemVerilog #}
+    {% for define in all_defines %}{#                                                                               Add all defines
+}
+#}{% if loop.first %}-define { \
+        {% endif %}{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %} \
+    } \
+    {% else %} \
+        {% endif %}{% endfor %}[list \
+    {% endif %}{{ '    ' }}"{{ file }}" \{#                                        Add all verilog files #}
+    {% if loop.last %}]
+{% if abort_on_error %}]} {return 1}{% endif %}
+{% endif %}{% endfor %}
+{% for file in all_vhdl %}{% if loop.first %}{#                                                                     Loop over all VHDL files
+#}{% if abort_on_error %}if {0 == [{% endif %}{#                                                                    Catch errors immediately
+#}analyze -format vhdl \{#                                                                                          Analyze command for VHDL #}
+    [list \
+    {% endif %}{{ '    ' }}"{{ file }}" \{#                                        Add all VHDL files #}
+    {% if loop.last %}]
+{% if abort_on_error %}]} {return 1}{% endif %}
+{% endif %}{% endfor %}
+{% endif %}set search_path $search_path_initial
