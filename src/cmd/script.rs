@@ -88,7 +88,7 @@ pub fn new() -> Command {
         .arg(
             Arg::new("vlog-arg")
                 .long("vlog-arg")
-                .help("Pass an argument to vlog calls (vsim/xm/vlogan/riviera only)")
+                .help("Pass an argument to vlog calls (vsim/xcelium/vlogan/riviera only)")
                 .num_args(1..)
                 .action(ArgAction::Append)
                 .value_parser(value_parser!(String)),
