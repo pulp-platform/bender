@@ -7,6 +7,7 @@ description = "A dependency management tool for hardware projects."
 readme = "README.md"
 license = "Apache-2.0 OR MIT"
 edition = "2018"
+rust-version = "1.78.0"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -22,10 +23,10 @@ clap_complete = "4.0"
 semver = { version = "1.0", features = ["serde"] }
 blake2 = "0.10"
 typed-arena = "2"
-dirs = "5"
+dirs = "6"
 pathdiff = "0.2"
 common-path = "1.0.0"
-itertools = "0.13"
+itertools = "0.14"
 is-terminal = "0.4"
 tabwriter = "1.2.1"
 indexmap = { version = "2", features = ["serde"] }
