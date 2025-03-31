@@ -20,6 +20,12 @@ fi
 echo "FROM $full_tgtname" >> $filename
 echo >> $filename
 if [ $(echo $full_tgtname | cut -d ':' -f 1) = "centos" ]; then
+  echo "RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo" >> $filename
+  echo "RUN sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo" >> $filename
+  echo "RUN sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo" >> $filename
+
+  echo "RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*" >> $filename
+  echo "RUN sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*" >> $filename
   echo 'RUN yum group install "Development Tools" -y && yum clean all' >> $filename
 fi
 if [ $(echo $full_tgtname | cut -d ':' -f 1) = "ubuntu" ]; then

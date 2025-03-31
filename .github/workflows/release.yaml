@@ -22,9 +22,10 @@ jobs:
           - ubuntu:18.04
           - ubuntu:20.04
           - ubuntu:22.04
-          - fedora:37
-          - fedora:38
+          - ubuntu:24.04
           - fedora:39
+          - fedora:40
+          - fedora:41
           - debian:10
           - debian:11
           - debian:12
@@ -32,20 +33,26 @@ jobs:
           - rhel:8.7
           - rhel:8.8
           - rhel:8.9
+          - rhel:8.10
           - rhel:9.0
           - rhel:9.1
           - rhel:9.2
           - rhel:9.3
+          - rhel:9.4
+          - rhel:9.5
           - almalinux:8.6
           - almalinux:8.7
           - almalinux:8.8
           - almalinux:8.9
+          - almalinux:8.10
           - almalinux:9.0
           - almalinux:9.1
           - almalinux:9.2
           - almalinux:9.3
+          - almalinux:9.4
+          - almalinux:9.5
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: OS Build
         run: |
           export full_tgtname=${{ matrix.os }}
@@ -64,61 +71,65 @@ jobs:
           tgtname=$(echo ${{ matrix.os }} | tr -d ':')
           .github/scripts/package.sh $tgtname;
         shell: bash
-      - name: Get Artifact Name
-        run: |
-          ARTIFACT_PATHNAME=$(ls ./bender-*.tar.gz | head -n 1)
-          ARTIFACT_NAME=$(basename $ARTIFACT_PATHNAME)
-          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
-          echo "ARTIFACT_PATHNAME=${ARTIFACT_PATHNAME}" >> $GITHUB_ENV
-        shell: bash
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: bender-*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ${{ env.ARTIFACT_PATHNAME }}
-          asset_name: ${{ env.ARTIFACT_NAME }}
-          asset_content_type: application/tar.gz
   release-gnu:
     runs-on: ubuntu-latest
     strategy: 
       fail-fast: false
     # Use container that supports old GLIBC versions and (hopefully) many linux OSs
-    container: quay.io/pypa/manylinux2014_x86_64
+    # container: quay.io/pypa/manylinux2014_x86_64
     steps:
-      - uses: actions/checkout@v3
-      - name: Install Rust
+      - uses: actions/checkout@v4
+      - name: Setup Dockerfile
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-          echo "${CARGO_HOME:-$HOME/.cargo}/bin" >> $GITHUB_PATH
-      - name: GNU Build
-        run: cargo build --release
+          touch Dockerfile
+          echo "FROM quay.io/pypa/manylinux2014_x86_64" >> Dockerfile
+          echo "RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo" >> Dockerfile
+          echo "RUN sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo" >> Dockerfile
+          echo "RUN sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo" >> Dockerfile
+
+          echo "RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*" >> Dockerfile
+          echo "RUN sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*" >> Dockerfile
+          echo "RUN yum group install "Development Tools" -y && yum clean all" >> Dockerfile
+          echo 'ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo' >> Dockerfile
+          echo 'ENV PATH $CARGO_HOME/bin:$PATH' >> Dockerfile
+          echo >> Dockerfile
+          echo 'RUN mkdir -p "$CARGO_HOME" && mkdir -p "$RUSTUP_HOME" && \' >> Dockerfile
+          echo '    curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable && \' >> Dockerfile
+          echo '    chmod -R a=rwX $CARGO_HOME' >> Dockerfile
+          echo >> Dockerfile
+          echo 'WORKDIR /source' >> Dockerfile
+      - name: OS build
+        run: |
+          docker build ./ -t manylinux
+          docker run \
+            -t --rm \
+            -v "$GITHUB_WORKSPACE:/source" \
+            -v "$GITHUB_WORKSPACE/target:/source/target" \
+            manylinux \
+            cargo build --release;
       - name: GNU Create Package
         run: .github/scripts/package.sh
         shell: bash
-      - name: Get Artifact Name
-        run: |
-          ARTIFACT_PATHNAME=$(ls ./bender-*.tar.gz | head -n 1)
-          ARTIFACT_NAME=$(basename $ARTIFACT_PATHNAME)
-          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
-          echo "ARTIFACT_PATHNAME=${ARTIFACT_PATHNAME}" >> $GITHUB_ENV
-        shell: bash
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: bender-*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ${{ env.ARTIFACT_PATHNAME }}
-          asset_name: ${{ env.ARTIFACT_NAME }}
-          asset_content_type: application/tar.gz
   release-macos:
     runs-on: macos-latest
     strategy:
       fail-fast: true
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
@@ -145,18 +156,16 @@ jobs:
         run: |
           gtar -czf $ARTIFACT_PATHNAME -C "./target/universal2-apple-darwin/release" --owner=0 --group=0 bender
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: bender-*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ${{ env.ARTIFACT_PATHNAME }}
-          asset_name: ${{ env.ARTIFACT_NAME }}
-          asset_content_type: application/tar.gz
   release-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -180,11 +189,9 @@ jobs:
           cp target/release/bender.exe .
           & 'C:\Program Files\Git\usr\bin\tar.exe' czf $Env:ARTIFACT_PATHNAME --owner=0 --group=0 bender.exe
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: bender-*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ${{ env.ARTIFACT_PATHNAME }}
-          asset_name: ${{ env.ARTIFACT_NAME }}
-          asset_content_type: application/tar.gz
