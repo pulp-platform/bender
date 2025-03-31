@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+# 0.28.2 - 2025-03-31
 ### Fixed
 - Put `vcs`, `vsim`, and `riviera` defines in quotes.
 - Fix `genus` script initialization.
@@ -13,6 +15,8 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Make panic an error when lockfile is not up to date with dependencies.
 - Fix Readme dependency version indication for exact match.
 - Fix vendor file copying for symbolic links.
+- Fix synopsys script include paths.
+- Fix checkout when system forces git signatures.
 
 ### Added
 - Add `completion` command to generate shell autocomplete integration.
