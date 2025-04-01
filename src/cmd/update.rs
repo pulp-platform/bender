@@ -42,6 +42,12 @@ pub fn new() -> Command {
                 .action(ArgAction::SetTrue)
                 .help("Overwrites modified dependencies in `checkout_dir` if specified"),
         )
+        .arg(
+            Arg::new("dep")
+                .required(false)
+                .num_args(1..)
+                .help("Dependencies to update"),
+        )
 }
 
 /// Execute the `update` subcommand.
@@ -60,7 +66,31 @@ pub fn run<'ctx>(
     existing: Option<&'ctx Locked>,
 ) -> Result<(Locked, Vec<String>)> {
     let ignore_checkout_dir = matches.get_flag("ignore-checkout-dir");
-    run_plain(ignore_checkout_dir, sess, existing)
+
+    let mut keep_locked = match existing {
+        Some(existing) => existing.packages.keys().collect(),
+        None => Vec::new(),
+    };
+
+    let requested = match matches.get_many::<String>("dep") {
+        Some(deps) => deps.map(|dep| dep.to_string()).collect(),
+        None => {
+            keep_locked = Vec::new();
+            Vec::new()
+        }
+    };
+
+    for dep in requested.iter() {
+        if !keep_locked.contains(&dep) {
+            return Err(Error::new(format!(
+                "Dependency {} is not present, cannot update {}.",
+                dep, dep
+            )));
+        }
+    }
+    keep_locked.retain(|dep| !requested.contains(dep));
+
+    run_plain(ignore_checkout_dir, sess, existing, keep_locked)
 }
 
 /// Execute an update (for the `update` subcommand or because no lockfile exists).
@@ -68,6 +98,7 @@ pub fn run_plain<'ctx>(
     ignore_checkout_dir: bool,
     sess: &'ctx Session<'ctx>,
     existing: Option<&'ctx Locked>,
+    keep_locked: Vec<&'ctx String>,
 ) -> Result<(Locked, Vec<String>)> {
     if sess.manifest.frozen {
         return Err(Error::new(format!(
@@ -80,8 +111,9 @@ pub fn run_plain<'ctx>(
         "main: lockfile {:?} outdated",
         sess.root.join("Bender.lock")
     );
+
     let res = DependencyResolver::new(sess);
-    let locked_new = res.resolve(existing, ignore_checkout_dir)?;
+    let locked_new = res.resolve(existing, ignore_checkout_dir, keep_locked)?;
     let update_map: BTreeMap<String, (Option<LockedPackage>, Option<LockedPackage>)> = locked_new
         .packages
         .iter()

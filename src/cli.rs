@@ -156,7 +156,7 @@ pub fn main() -> Result<()> {
             } else if command == "update" {
                 cmd::update::run(matches, &sess, locked_existing.as_ref())?
             } else if locked_existing.is_none() {
-                cmd::update::run_plain(false, &sess, locked_existing.as_ref())?
+                cmd::update::run_plain(false, &sess, locked_existing.as_ref(), Vec::new())?
             } else {
                 debugln!("main: lockfile {:?} up-to-date", lock_path);
                 (locked_existing.unwrap(), Vec::new())

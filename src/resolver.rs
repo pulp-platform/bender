@@ -69,6 +69,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         mut self,
         existing: Option<&'ctx Locked>,
         ignore_checkout: bool,
+        keep_locked: Vec<&'ctx String>,
     ) -> Result<Locked> {
         let rt = Runtime::new()?;
         let io = SessionIo::new(self.sess);
@@ -76,7 +77,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Load the dependencies in the lockfile.
         if existing.is_some() {
             debugln!("resolve: registering lockfile dependencies");
-            self.register_dependencies_in_lockfile(existing.unwrap())?;
+            self.register_dependencies_in_lockfile(existing.unwrap(), keep_locked, &rt, &io)?;
         }
 
         // Store path dependencies already in checkout_dir
@@ -92,8 +93,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                         .to_str()
                         .unwrap()
                         .to_string();
+
                     let is_git_repo = dir.as_ref().unwrap().path().join(".git").exists();
 
+                    // TODO this compares to lockfile's url, but ideally we check if the new url is the same, but we don't know that one yet...
                     let full_url = self.locked.get(depname.as_str()).map(|(_, src, _)| src);
                     let url_correct = match full_url {
                         Some(DependencySource::Git(u)) => {
@@ -268,6 +271,30 @@ impl<'ctx> DependencyResolver<'ctx> {
             .or_insert_with(|| DependencyReference::new(dep, versions));
     }
 
+    /// Register a locked dependency in the table.
+    fn register_locked_dependency(
+        &mut self,
+        name: &'ctx str,
+        dep: DependencyRef,
+        versions: DependencyVersions<'ctx>,
+        locked_index: usize,
+    ) {
+        let entry = self
+            .table
+            .entry(name)
+            .or_insert_with(|| Dependency::new(name));
+        entry.sources.insert(
+            dep,
+            DependencyReference {
+                id: dep,
+                versions,
+                pick: None,
+                options: None,
+                state: State::Locked(locked_index),
+            },
+        );
+    }
+
     /// Register all dependencies in a manifest, ensuring link to sess.
     fn register_dependencies_in_manifest(
         &mut self,
@@ -329,7 +356,13 @@ impl<'ctx> DependencyResolver<'ctx> {
     }
 
     /// Register all dependencies in the lockfile.
-    fn register_dependencies_in_lockfile(&mut self, locked: &'ctx Locked) -> Result<()> {
+    fn register_dependencies_in_lockfile(
+        &mut self,
+        locked: &'ctx Locked,
+        keep_locked: Vec<&'ctx String>,
+        rt: &Runtime,
+        io: &SessionIo<'ctx, 'ctx>,
+    ) -> Result<()> {
         // Map the dependencies to unique IDs.
         let names: IndexMap<&str, (DependencyConstraint, DependencySource, Option<&str>)> = locked
             .packages
@@ -383,6 +416,42 @@ impl<'ctx> DependencyResolver<'ctx> {
             .collect();
         for (name, (cnstr, src, hash)) in names {
             self.locked.insert(name, (cnstr, src, hash));
+        }
+
+        // Keep locked deps locked.
+        for dep in keep_locked {
+            let (cnstr, src, hash) = self.locked.get(dep.as_str()).unwrap().clone();
+            let config_dep: config::Dependency = match src {
+                DependencySource::Registry => {
+                    unreachable!("Registry dependencies not yet supported.");
+                    // TODO should probably be config::Dependeny::Version(vers, str?)
+                }
+                DependencySource::Path(p) => config::Dependency::Path(p),
+                DependencySource::Git(u) => match cnstr {
+                    DependencyConstraint::Version(v) => config::Dependency::GitVersion(u, v),
+                    DependencyConstraint::Revision(r) => config::Dependency::GitRevision(u, r),
+                    _ => unreachable!(),
+                },
+            };
+            // Map the dependencies to unique IDs.
+            let depref = self.sess.load_dependency(dep, &config_dep, "");
+            let depversions: DependencyVersions =
+                rt.block_on(io.dependency_versions(depref, false))?;
+
+            let locked_index = match &depversions {
+                DependencyVersions::Path => 0,
+                DependencyVersions::Registry(_) => {
+                    unreachable!("Registry dependencies not yet supported.")
+                }
+                DependencyVersions::Git(gv) => gv
+                    .revs
+                    .iter()
+                    .position(|rev| *rev == hash.unwrap())
+                    .unwrap(),
+            };
+
+            self.register_locked_dependency(dep, depref, depversions, locked_index);
+            println!("Locked {} at {}", dep, locked_index);
         }
         Ok(())
     }
@@ -645,7 +714,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Mark all other versions of the dependency as invalid.
         let new_ids = match src.state {
             State::Open => unreachable!(),
-            State::Locked(_) => unreachable!(), // TODO: This needs to do something.
+            State::Locked(id) => Ok(vec![id].into_iter().collect()),
             State::Constrained(ref ids) | State::Picked(_, ref ids) => {
                 let is_ids = indices
                     .intersection(ids)
@@ -739,7 +808,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         };
         match src.state {
             State::Open => unreachable!(),
-            State::Locked(_) => unreachable!(),
+            State::Locked(_) => Ok(()),
             State::Constrained(ref mut ids) | State::Picked(_, ref mut ids) => match new_ids {
                 Err(e) => Err(e),
                 Ok(is) => {
@@ -896,6 +965,11 @@ impl<'ctx> Dependency<'ctx> {
 
     /// Return the main source for this dependency.
     fn source(&self) -> &DependencyReference<'ctx> {
+        for src in self.sources.values() {
+            if let State::Locked(_) = src.state {
+                return src;
+            }
+        }
         match self.picked_source {
             Some(id) => &self.sources[&id],
             None => {
