@@ -109,6 +109,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     if !ignore_checkout {
                         if !is_git_repo {
                             warnln!("Dependency `{}` in checkout_dir `{}` is not a git repository. Setting as path dependency.\n\
+                                    \tPlease use `bender clone` to work on git dependencies.\n\
                                     \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
                                 dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
                                 &checkout.display());
