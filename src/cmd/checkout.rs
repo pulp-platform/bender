@@ -23,10 +23,15 @@ pub fn new() -> Command {
 }
 
 /// Execute the `checkout` subcommand.
-pub fn run(sess: &Session, matches: &ArgMatches, forcibly: bool) -> Result<()> {
+pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
+    run_plain(sess, matches.get_flag("forcibly"), &[])
+}
+
+/// Execute a checkout (for the `checkout` subcommand).
+pub fn run_plain(sess: &Session, forcibly: bool, update_list: &[String]) -> Result<()> {
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
-    let _srcs = rt.block_on(io.sources(forcibly || matches.get_flag("forcibly")))?;
+    let _srcs = rt.block_on(io.sources(forcibly, update_list))?;
 
     Ok(())
 }

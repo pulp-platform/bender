@@ -58,7 +58,7 @@ pub fn run<'ctx>(
     matches: &ArgMatches,
     sess: &'ctx Session<'ctx>,
     existing: Option<&'ctx Locked>,
-) -> Result<Locked> {
+) -> Result<(Locked, Vec<String>)> {
     let ignore_checkout_dir = matches.get_flag("ignore-checkout-dir");
     run_plain(ignore_checkout_dir, sess, existing)
 }
@@ -68,7 +68,7 @@ pub fn run_plain<'ctx>(
     ignore_checkout_dir: bool,
     sess: &'ctx Session<'ctx>,
     existing: Option<&'ctx Locked>,
-) -> Result<Locked> {
+) -> Result<(Locked, Vec<String>)> {
     if sess.manifest.frozen {
         return Err(Error::new(format!(
             "Refusing to update dependencies because the package is frozen.
@@ -147,14 +147,18 @@ pub fn run_plain<'ctx>(
     tw.flush().unwrap();
     println!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
     write_lockfile(&locked_new, &sess.root.join("Bender.lock"), sess.root)?;
-    Ok(locked_new)
+    Ok((locked_new, update_map.keys().cloned().collect()))
 }
 
 /// Execute the final checkout (if not disabled).
-pub fn run_final<'ctx>(sess: &'ctx Session<'ctx>, matches: &ArgMatches) -> Result<()> {
+pub fn run_final<'ctx>(
+    sess: &'ctx Session<'ctx>,
+    matches: &ArgMatches,
+    update_list: &[String],
+) -> Result<()> {
     if matches.get_flag("no-checkout") {
         Ok(())
     } else {
-        cmd::checkout::run(sess, matches, true)
+        cmd::checkout::run_plain(sess, matches.get_flag("ignore-checkout-dir"), update_list)
     }
 }

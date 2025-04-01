@@ -740,7 +740,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     }
 
     /// Ensure that a dependency is checked out and obtain its path.
-    pub async fn checkout(&'io self, dep_id: DependencyRef, forcibly: bool) -> Result<&'ctx Path> {
+    pub async fn checkout(
+        &'io self,
+        dep_id: DependencyRef,
+        forcibly: bool,
+        update_list: &[String],
+    ) -> Result<&'ctx Path> {
         // Check if the checkout is already in the cache.
         if let Some(&cached) = self.sess.cache.checkout.lock().unwrap().get(&dep_id) {
             return Ok(cached);
@@ -772,6 +777,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     self.sess.intern_string(url),
                     self.sess.intern_string(dep.revision.as_ref().unwrap()),
                     forcibly,
+                    update_list,
                 )
                 .await
                 .and_then(move |path| {
@@ -797,6 +803,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         url: &'ctx str,
         revision: &'ctx str,
         forcibly: bool,
+        update_list: &[String],
     ) -> Result<&'ctx Path> {
         #[derive(Eq, PartialEq)]
         enum CheckoutState {
@@ -817,20 +824,18 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     );
                     if current == revision {
                         CheckoutState::Clean
-                    } else {
-                        if let Ok(db) = self.git_database(name, url, false, None).await {
-                            if let Ok(remote) = local_git.clone().remote_url("origin").await {
-                                if remote == db.path.to_str().unwrap() {
-                                    CheckoutState::ToCheckout
-                                } else {
-                                    CheckoutState::ToClone
-                                }
+                    } else if let Ok(db) = self.git_database(name, url, false, None).await {
+                        if let Ok(remote) = local_git.clone().remote_url("origin").await {
+                            if remote == db.path.to_str().unwrap() {
+                                CheckoutState::ToCheckout
                             } else {
                                 CheckoutState::ToClone
                             }
                         } else {
                             CheckoutState::ToClone
                         }
+                    } else {
+                        CheckoutState::ToClone
                     }
                 }
                 _ => CheckoutState::ToClone,
@@ -841,6 +846,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             if (checkout_already_good != CheckoutState::Clean)
                 && self.sess.manifest.workspace.checkout_dir.is_some()
                 && !forcibly
+                && !update_list.contains(&name.to_string())
             {
                 // If no unstaged changes, do a fetch and checkout (without cleaning the repo).
                 if checkout_already_good == CheckoutState::ToCheckout {
@@ -1215,6 +1221,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         &'io self,
         dep_id: DependencyRef,
         forcibly: bool,
+        update_list: &[String],
     ) -> Result<Option<&'ctx Manifest>> {
         // Check if the manifest is already in the cache.
         if let Some(&cached) = self
@@ -1231,7 +1238,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // Otherwise ensure that there is a checkout of the dependency and read
         // the manifest there.
         self.sess.stats.num_calls_dependency_manifest.increment();
-        self.checkout(dep_id, forcibly)
+        self.checkout(dep_id, forcibly, update_list)
             .await
             .and_then(move |path| {
                 let manifest_path = path.join("Bender.yml");
@@ -1259,7 +1266,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     ///
     /// Loads and returns the source file manifest for the root package and all
     /// its dependencies..
-    pub async fn sources(&'io self, forcibly: bool) -> Result<SourceGroup<'ctx>> {
+    pub async fn sources(
+        &'io self,
+        forcibly: bool,
+        update_list: &[String],
+    ) -> Result<SourceGroup<'ctx>> {
         // Check if we already have the source manifest.
         if let Some(ref cached) = *self.sess.sources.lock().unwrap() {
             return Ok((*cached).clone());
@@ -1274,7 +1285,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     join_all(
                         pkgs.iter()
                             .map(move |&pkg| async move {
-                                self.dependency_manifest(pkg, forcibly).await
+                                self.dependency_manifest(pkg, forcibly, update_list).await
                             })
                             .collect::<Vec<_>>(),
                     )
@@ -1420,7 +1431,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     join_all(
                         pkgs.iter()
                             .map(move |&pkg| async move {
-                                self.dependency_manifest(pkg, forcibly)
+                                self.dependency_manifest(pkg, forcibly, &[])
                                     .await
                                     .map(move |m| (pkg, m))
                             })

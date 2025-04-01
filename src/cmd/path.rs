@@ -52,7 +52,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         let checkouts = rt
             .block_on(join_all(
                 ids.iter()
-                    .map(|&(_, id)| io.checkout(id, false))
+                    .map(|&(_, id)| io.checkout(id, false, &[]))
                     .collect::<Vec<_>>(),
             ))
             .into_iter()

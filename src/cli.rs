@@ -147,7 +147,7 @@ pub fn main() -> Result<()> {
     };
 
     // Resolve the dependencies if the lockfile does not exist or is outdated.
-    let locked = match matches.subcommand() {
+    let (locked, update_list) = match matches.subcommand() {
         Some((command, matches)) => {
             #[allow(clippy::unnecessary_unwrap)]
             // execute pre-dependency-fetch commands
@@ -159,7 +159,7 @@ pub fn main() -> Result<()> {
                 cmd::update::run_plain(false, &sess, locked_existing.as_ref())?
             } else {
                 debugln!("main: lockfile {:?} up-to-date", lock_path);
-                locked_existing.unwrap()
+                (locked_existing.unwrap(), Vec::new())
             }
         }
         None => {
@@ -180,7 +180,7 @@ pub fn main() -> Result<()> {
             // Checkout if we are running update or package path does not exist yet
             if matches.subcommand_name() == Some("update") || !pkg_path.clone().exists() {
                 let rt = Runtime::new()?;
-                rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?, false))?;
+                rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?, false, &[]))?;
             }
 
             // Convert to relative path
@@ -258,8 +258,8 @@ pub fn main() -> Result<()> {
         Some(("sources", matches)) => cmd::sources::run(&sess, matches),
         Some(("config", matches)) => cmd::config::run(&sess, matches),
         Some(("script", matches)) => cmd::script::run(&sess, matches),
-        Some(("checkout", matches)) => cmd::checkout::run(&sess, matches, false),
-        Some(("update", matches)) => cmd::update::run_final(&sess, matches),
+        Some(("checkout", matches)) => cmd::checkout::run(&sess, matches),
+        Some(("update", matches)) => cmd::update::run_final(&sess, matches, &update_list),
         Some(("vendor", matches)) => cmd::vendor::run(&sess, matches),
         Some(("fusesoc", matches)) => cmd::fusesoc::run(&sess, matches),
         Some((plugin, matches)) => execute_plugin(&sess, plugin, matches.get_many::<OsString>("")),

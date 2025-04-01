@@ -86,7 +86,7 @@ where
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
-    let mut srcs = rt.block_on(io.sources(false))?;
+    let mut srcs = rt.block_on(io.sources(false, &[]))?;
 
     if matches.get_flag("raw") {
         let stdout = std::io::stdout();
