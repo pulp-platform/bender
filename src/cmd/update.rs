@@ -67,7 +67,14 @@ pub fn run<'ctx>(
         sess.root.join("Bender.lock")
     );
     let res = DependencyResolver::new(sess);
-    let locked_new = res.resolve(existing, matches.get_flag("ignore-checkout-dir"))?;
+    let locked_new = res.resolve(
+        existing,
+        if matches.contains_id("ignore-checkout-dir") {
+            matches.get_flag("ignore-checkout-dir")
+        } else {
+            false
+        },
+    )?;
     write_lockfile(&locked_new, &sess.root.join("Bender.lock"), sess.root)?;
     Ok(locked_new)
 }
