@@ -21,9 +21,9 @@ use std::fs::canonicalize;
 #[cfg(windows)]
 use dunce::canonicalize;
 
-use crate::futures::{FutureExt, TryFutureExt};
 use async_recursion::async_recursion;
 use futures::future::{self, join_all};
+use futures::TryFutureExt;
 use indexmap::{IndexMap, IndexSet};
 use semver::Version;
 use typed_arena::Arena;
@@ -126,13 +126,13 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         &self,
         name: &str,
         cfg: &config::Dependency,
-        manifest: &config::Manifest,
+        calling_package: &str,
     ) -> DependencyRef {
         debugln!(
             "sess: load dependency `{}` as {:?} for package `{}`",
             name,
             cfg,
-            manifest.package.name
+            calling_package
         );
         let src = DependencySource::from(cfg);
         self.deps
@@ -424,6 +424,16 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             version,
         }
     }
+
+    /// Get folder name of a git dependency with url
+    pub fn git_db_name(&self, name: &str, url: &str) -> String {
+        // Determine the name of the database as the given name and the first
+        // 8 bytes (16 hex characters) of the URL's BLAKE2 hash.
+        use blake2::{Blake2b512, Digest};
+        let hash = &format!("{:016x}", Blake2b512::digest(url.as_bytes()))[..16];
+        let db_name = format!("{}-{}", name, hash);
+        db_name
+    }
 }
 
 /// An event loop to perform IO within a session.
@@ -485,11 +495,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         //       whole process faster for later calls.
         self.sess.stats.num_calls_git_database.increment();
 
-        // Determine the name of the database as the given name and the first
-        // 8 bytes (16 hex characters) of the URL's BLAKE2 hash.
-        use blake2::{Blake2b512, Digest};
-        let hash = &format!("{:016x}", Blake2b512::digest(url.as_bytes()))[..16];
-        let db_name = format!("{}-{}", name, hash);
+        let db_name = self.sess.git_db_name(name, url);
 
         // Determine the location of the git database and create it if its does
         // not yet exist.
@@ -740,7 +746,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     }
 
     /// Ensure that a dependency is checked out and obtain its path.
-    pub async fn checkout(&'io self, dep_id: DependencyRef) -> Result<&'ctx Path> {
+    pub async fn checkout(
+        &'io self,
+        dep_id: DependencyRef,
+        forcibly: bool,
+        update_list: &[String],
+    ) -> Result<&'ctx Path> {
         // Check if the checkout is already in the cache.
         if let Some(&cached) = self.sess.cache.checkout.lock().unwrap().get(&dep_id) {
             return Ok(cached);
@@ -771,6 +782,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     checkout_dir,
                     self.sess.intern_string(url),
                     self.sess.intern_string(dep.revision.as_ref().unwrap()),
+                    forcibly,
+                    update_list,
                 )
                 .await
                 .and_then(move |path| {
@@ -795,97 +808,160 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         path: &'ctx Path,
         url: &'ctx str,
         revision: &'ctx str,
+        forcibly: bool,
+        update_list: &[String],
     ) -> Result<&'ctx Path> {
-        // First check if we have to get rid of the current checkout. This is
-        // the case if it either does not exist or the checked out revision does
-        // not match what we expect.
-        future::lazy(|_| Ok(path.exists()))
-            .and_then(|exists| async move {
-                if exists {
-                    // Never scrap checkouts the user asked for explicitly in
-                    // the workspace configuration.
-                    if self.sess.manifest.workspace.checkout_dir.is_some() {
-                        return Ok(false);
+        #[derive(Eq, PartialEq)]
+        enum CheckoutState {
+            Clean,
+            ToCheckout,
+            ToClone,
+        }
+        let local_git = Git::new(path, &self.sess.config.git);
+        let clear = if path.exists() {
+            // Scrap checkouts with the wrong tag.
+            let current_checkout = local_git.clone().current_checkout().await;
+            let checkout_already_good = match current_checkout {
+                Ok(Some(current)) => {
+                    debugln!(
+                        "checkout_git: currently `{}` (want `{}`)",
+                        current,
+                        revision
+                    );
+                    if current == revision {
+                        CheckoutState::Clean
+                    } else if let Ok(db) = self.git_database(name, url, false, None).await {
+                        if let Ok(remote) = local_git.clone().remote_url("origin").await {
+                            if remote == db.path.to_str().unwrap() {
+                                CheckoutState::ToCheckout
+                            } else {
+                                CheckoutState::ToClone
+                            }
+                        } else {
+                            CheckoutState::ToClone
+                        }
+                    } else {
+                        CheckoutState::ToClone
                     }
+                }
+                _ => CheckoutState::ToClone,
+            };
 
-                    // Scrap checkouts with the wrong tag.
-
-                    Git::new(path, &self.sess.config.git)
-                        .current_checkout()
-                        .then(|current| async {
-                            Ok(match current {
-                                Ok(Some(current)) => {
-                                    debugln!(
-                                        "checkout_git: currently `{}` (want `{}`)",
-                                        current,
-                                        revision
-                                    );
-                                    current != revision
-                                }
-                                _ => true,
-                            })
-                        })
+            // Never scrap checkouts the user asked for explicitly in
+            // the workspace configuration.
+            if (checkout_already_good != CheckoutState::Clean)
+                && self.sess.manifest.workspace.checkout_dir.is_some()
+                && !forcibly
+                && !update_list.contains(&name.to_string())
+            {
+                // If no unstaged changes, do a fetch and checkout (without cleaning the repo).
+                if checkout_already_good == CheckoutState::ToCheckout {
+                    if local_git
+                        .clone()
+                        .spawn_with(|c| c.arg("status").arg("--porcelain"))
                         .await
+                        .is_ok()
+                    {
+                        CheckoutState::ToCheckout
+                    } else {
+                        warnln!(
+                            "Workspace checkout directory set and has uncommitted changes, not updating {} at {}.\n\
+                            \tRun `bender checkout --force` to overwrite the dependency at your own risk.",
+                            name,
+                            path.display()
+                        );
+                        CheckoutState::Clean
+                    }
                 } else {
-                    // Don't do anything if there is no checkout.
-                    Ok(false)
+                    warnln!(
+                        "Workspace checkout directory set and remote url doesn't match, not updating {} at {}.\n\
+                        \tRun `bender checkout --force` to overwrite the dependency at your own risk.",
+                        name,
+                        path.display()
+                    );
+                    CheckoutState::Clean
                 }
+            } else {
+                checkout_already_good
+            }
+        } else {
+            // Don't do anything if there is no checkout.
+            CheckoutState::ToClone
+        };
+        if path.exists() && clear == CheckoutState::ToClone {
+            debugln!("checkout_git: clear checkout {:?}", path);
+            std::fs::remove_dir_all(path).map_err(|cause| {
+                Error::chain(
+                    format!("Failed to remove checkout directory {:?}.", path),
+                    cause,
+                )
             })
-            .and_then(|clear| async move {
-                if clear {
-                    debugln!("checkout_git: clear checkout {:?}", path);
-                    std::fs::remove_dir_all(path).map_err(|cause| {
-                        Error::chain(
-                            format!("Failed to remove checkout directory {:?}.", path),
-                            cause,
-                        )
-                    })
-                } else {
-                    Ok(())
-                }
-            })
-            .await?;
+        } else {
+            Ok(())
+        }?;
 
         // Perform the checkout if necessary.
-        // TODO MICHAERO: May need proper chaining to previous future using and_then
-        if !path.exists() {
+        if clear != CheckoutState::Clean {
             stageln!("Checkout", "{} ({})", name, url);
 
             // First generate a tag to be cloned in the database. This is
             // necessary since `git clone` does not accept commits, but only
             // branches or tags for shallow clones.
-            let tag_name_0 = format!("bender-tmp-{}", revision);
+            let tag_name_0 = format!("bender-tmp-{}", revision).clone();
             let tag_name_1 = tag_name_0.clone();
+            let tag_name_2 = tag_name_0.clone();
             let git = self.git_database(name, url, false, Some(revision)).await?;
-            git.spawn_with(move |c| {
-                c.arg("tag")
-                    .arg(tag_name_0)
-                    .arg(revision)
-                    .arg("--force")
-                    .arg("--no-sign")
-            })
-            .map_err(move |cause| {
-                warnln!(
-                    "Please ensure the commits are available on the remote or run bender update"
-                );
-                Error::chain(
-                    format!(
-                        "Failed to checkout commit {} for {} given in Bender.lock.\n",
-                        revision, name
-                    ),
-                    cause,
-                )
-            })
-            .await?;
-            git.spawn_with(move |c| {
-                c.arg("clone")
-                    .arg(git.path)
-                    .arg(path)
-                    .arg("--recursive")
-                    .arg("--branch")
-                    .arg(tag_name_1)
-            })
-            .await?;
+            match git
+                .spawn_with(move |c| {
+                    c.arg("tag")
+                        .arg(tag_name_0)
+                        .arg(revision)
+                        .arg("--force")
+                        .arg("--no-sign")
+                })
+                .await
+            {
+                Ok(r) => Ok(r),
+                Err(cause) => {
+                    debugln!(
+                        "checkout_git: failed to tag commit {:?}, attempting fetch.",
+                        cause
+                    );
+                    // Attempt to fetch from remote and retry, as commits seem unavailable.
+                    git.spawn_with(move |c| c.arg("fetch").arg("--all")).await?;
+                    git.spawn_with(move |c| c.arg("tag").arg(tag_name_1).arg(revision).arg("--force").arg("--no-sign")).map_err(|cause| {
+                        warnln!("Please ensure the commits are available on the remote or run bender update");
+                        Error::chain(
+                            format!(
+                                "Failed to checkout commit {} for {} given in Bender.lock.\n",
+                                revision, name
+                            ),
+                            cause,
+                        )
+                    }).await
+                }
+            }?;
+            if clear == CheckoutState::ToClone {
+                git.clone()
+                    .spawn_with(move |c| {
+                        c.arg("clone")
+                            .arg(git.path)
+                            .arg(path)
+                            .arg("--recursive")
+                            .arg("--branch")
+                            .arg(tag_name_2)
+                    })
+                    .await?;
+            } else if clear == CheckoutState::ToCheckout {
+                local_git
+                    .clone()
+                    .spawn_with(move |c| c.arg("fetch").arg("--all").arg("--tags").arg("--prune"))
+                    .await?;
+                local_git
+                    .clone()
+                    .spawn_with(move |c| c.arg("checkout").arg(tag_name_2).arg("--force"))
+                    .await?;
+            }
         }
         Ok(path)
     }
@@ -1150,6 +1226,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     pub async fn dependency_manifest(
         &'io self,
         dep_id: DependencyRef,
+        forcibly: bool,
+        update_list: &[String],
     ) -> Result<Option<&'ctx Manifest>> {
         // Check if the manifest is already in the cache.
         if let Some(&cached) = self
@@ -1166,7 +1244,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // Otherwise ensure that there is a checkout of the dependency and read
         // the manifest there.
         self.sess.stats.num_calls_dependency_manifest.increment();
-        self.checkout(dep_id)
+        self.checkout(dep_id, forcibly, update_list)
             .await
             .and_then(move |path| {
                 let manifest_path = path.join("Bender.yml");
@@ -1194,7 +1272,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     ///
     /// Loads and returns the source file manifest for the root package and all
     /// its dependencies..
-    pub async fn sources(&'io self) -> Result<SourceGroup<'ctx>> {
+    pub async fn sources(
+        &'io self,
+        forcibly: bool,
+        update_list: &[String],
+    ) -> Result<SourceGroup<'ctx>> {
         // Check if we already have the source manifest.
         if let Some(ref cached) = *self.sess.sources.lock().unwrap() {
             return Ok((*cached).clone());
@@ -1208,7 +1290,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .map(move |pkgs| async move {
                     join_all(
                         pkgs.iter()
-                            .map(move |&pkg| async move { self.dependency_manifest(pkg).await })
+                            .map(move |&pkg| async move {
+                                self.dependency_manifest(pkg, forcibly, update_list).await
+                            })
                             .collect::<Vec<_>>(),
                     )
                     .await
@@ -1338,7 +1422,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     }
 
     /// Load the plugins declared by any of the dependencies.
-    pub async fn plugins(&'io self) -> Result<&'ctx Plugins> {
+    pub async fn plugins(&'io self, forcibly: bool) -> Result<&'ctx Plugins> {
         // Check if we already have the list of plugins.
         if let Some(cached) = *self.sess.plugins.lock().unwrap() {
             return Ok(cached);
@@ -1353,7 +1437,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     join_all(
                         pkgs.iter()
                             .map(move |&pkg| async move {
-                                self.dependency_manifest(pkg).await.map(move |m| (pkg, m))
+                                self.dependency_manifest(pkg, forcibly, &[])
+                                    .await
+                                    .map(move |m| (pkg, m))
                             })
                             .collect::<Vec<_>>(),
                     )

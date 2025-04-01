@@ -34,6 +34,7 @@ pub mod cmd;
 pub mod config;
 // pub mod future_throttle;
 pub mod git;
+pub mod lockfile;
 pub mod resolver;
 #[allow(clippy::bind_instead_of_map)]
 pub mod sess;

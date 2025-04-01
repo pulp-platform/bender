@@ -16,17 +16,15 @@ use dunce::canonicalize;
 
 use clap::parser::ValuesRef;
 use clap::{Arg, ArgAction, Command};
+use indexmap::IndexSet;
 use serde_yaml;
+use tokio::runtime::Runtime;
 
 use crate::cmd;
-use crate::config::{
-    Config, Locked, LockedPackage, LockedSource, Manifest, Merge, PartialConfig, PrefixPaths,
-    Validate,
-};
+use crate::config::{Config, Manifest, Merge, PartialConfig, PrefixPaths, Validate};
 use crate::error::*;
-use crate::resolver::DependencyResolver;
+use crate::lockfile::*;
 use crate::sess::{Session, SessionArenas, SessionIo};
-use tokio::runtime::Runtime;
 
 /// Inner main function which can return an error.
 pub fn main() -> Result<()> {
@@ -56,25 +54,7 @@ pub fn main() -> Result<()> {
                 .action(ArgAction::SetTrue)
                 .help("Disables fetching of remotes (e.g. for air-gapped computers)"),
         )
-        .subcommand(
-            Command::new("update")
-                .about("Update the dependencies")
-                .arg(
-                    Arg::new("fetch")
-                        .short('f')
-                        .long("fetch")
-                        .num_args(0)
-                        .action(ArgAction::SetTrue)
-                        .help("forces fetch of git dependencies"),
-                )
-                .arg(
-                    Arg::new("no-checkout")
-                        .long("no-checkout")
-                        .num_args(0)
-                        .action(ArgAction::SetTrue)
-                        .help("Disables checkout of dependencies"),
-                ),
-        )
+        .subcommand(cmd::update::new())
         .subcommand(cmd::path::new())
         .subcommand(cmd::parents::new())
         .subcommand(cmd::clone::new())
@@ -121,12 +101,7 @@ pub fn main() -> Result<()> {
 
     let mut force_fetch = false;
     if let Some(("update", intern_matches)) = matches.subcommand() {
-        force_fetch = intern_matches.get_flag("fetch");
-        if matches.get_flag("local") && intern_matches.get_flag("fetch") {
-            warnln!(
-                "As --local argument is set for bender command, no fetching will be performed."
-            );
-        }
+        force_fetch = cmd::update::setup(intern_matches)?;
     }
 
     // Determine the root working directory, which has either been provided via
@@ -173,28 +148,19 @@ pub fn main() -> Result<()> {
     };
 
     // Resolve the dependencies if the lockfile does not exist or is outdated.
-    let locked = match matches.subcommand() {
+    let (locked, update_list) = match matches.subcommand() {
         Some((command, matches)) => {
             #[allow(clippy::unnecessary_unwrap)]
             // execute pre-dependency-fetch commands
             if command == "fusesoc" && matches.get_flag("single") {
                 return cmd::fusesoc::run_single(&sess, matches);
-            } else if command == "update" || locked_existing.is_none() {
-                if manifest.frozen {
-                    return Err(Error::new(format!(
-                        "Refusing to update dependencies because the package is frozen.
-                        Remove the `frozen: true` from {:?} to proceed; there be dragons.",
-                        manifest_path
-                    )));
-                }
-                debugln!("main: lockfile {:?} outdated", lock_path);
-                let res = DependencyResolver::new(&sess);
-                let locked_new = res.resolve()?;
-                write_lockfile(&locked_new, &root_dir.join("Bender.lock"), &root_dir)?;
-                locked_new
+            } else if command == "update" {
+                cmd::update::run(matches, &sess, locked_existing.as_ref())?
+            } else if locked_existing.is_none() {
+                cmd::update::run_plain(false, &sess, locked_existing.as_ref(), IndexSet::new())?
             } else {
                 debugln!("main: lockfile {:?} up-to-date", lock_path);
-                locked_existing.unwrap()
+                (locked_existing.unwrap(), Vec::new())
             }
         }
         None => {
@@ -215,7 +181,7 @@ pub fn main() -> Result<()> {
             // Checkout if we are running update or package path does not exist yet
             if matches.subcommand_name() == Some("update") || !pkg_path.clone().exists() {
                 let rt = Runtime::new()?;
-                rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?))?;
+                rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?, false, &[]))?;
             }
 
             // Convert to relative path
@@ -294,13 +260,7 @@ pub fn main() -> Result<()> {
         Some(("config", matches)) => cmd::config::run(&sess, matches),
         Some(("script", matches)) => cmd::script::run(&sess, matches),
         Some(("checkout", matches)) => cmd::checkout::run(&sess, matches),
-        Some(("update", matches)) => {
-            if matches.get_flag("no-checkout") {
-                Ok(())
-            } else {
-                cmd::checkout::run(&sess, matches)
-            }
-        }
+        Some(("update", matches)) => cmd::update::run_final(&sess, matches, &update_list),
         Some(("vendor", matches)) => cmd::vendor::run(&sess, matches),
         Some(("fusesoc", matches)) => cmd::fusesoc::run(&sess, matches),
         Some((plugin, matches)) => execute_plugin(&sess, plugin, matches.get_many::<OsString>("")),
@@ -491,78 +451,6 @@ fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<Par
     Ok(Some(partial.prefix_paths(path.parent().unwrap())?))
 }
 
-/// Read a lock file.
-fn read_lockfile(path: &Path, root_dir: &Path) -> Result<Locked> {
-    debugln!("read_lockfile: {:?}", path);
-    use std::fs::File;
-    let file = File::open(path)
-        .map_err(|cause| Error::chain(format!("Cannot open lockfile {:?}.", path), cause))?;
-    let locked_loaded: Result<Locked> = serde_yaml::from_reader(file)
-        .map_err(|cause| Error::chain(format!("Syntax error in lockfile {:?}.", path), cause));
-    // Make relative paths absolute
-    Ok(Locked {
-        packages: locked_loaded?
-            .packages
-            .iter()
-            .map(|pack| {
-                Ok(if let LockedSource::Path(path) = &pack.1.source {
-                    (
-                        pack.0.clone(),
-                        LockedPackage {
-                            revision: pack.1.revision.clone(),
-                            version: pack.1.version.clone(),
-                            source: LockedSource::Path(if path.is_relative() {
-                                path.clone().prefix_paths(root_dir)?
-                            } else {
-                                path.clone()
-                            }),
-                            dependencies: pack.1.dependencies.clone(),
-                        },
-                    )
-                } else {
-                    (pack.0.clone(), pack.1.clone())
-                })
-            })
-            .collect::<Result<_>>()?,
-    })
-}
-
-/// Write a lock file.
-fn write_lockfile(locked: &Locked, path: &Path, root_dir: &Path) -> Result<()> {
-    debugln!("write_lockfile: {:?}", path);
-    // Adapt paths within main repo to be relative
-    let adapted_locked = Locked {
-        packages: locked
-            .packages
-            .iter()
-            .map(|pack| {
-                if let LockedSource::Path(path) = &pack.1.source {
-                    (
-                        pack.0.clone(),
-                        LockedPackage {
-                            revision: pack.1.revision.clone(),
-                            version: pack.1.version.clone(),
-                            source: LockedSource::Path(
-                                path.strip_prefix(root_dir).unwrap_or(path).to_path_buf(),
-                            ),
-                            dependencies: pack.1.dependencies.clone(),
-                        },
-                    )
-                } else {
-                    (pack.0.clone(), pack.1.clone())
-                }
-            })
-            .collect(),
-    };
-
-    use std::fs::File;
-    let file = File::create(path)
-        .map_err(|cause| Error::chain(format!("Cannot create lockfile {:?}.", path), cause))?;
-    serde_yaml::to_writer(file, &adapted_locked)
-        .map_err(|cause| Error::chain(format!("Cannot write lockfile {:?}.", path), cause))?;
-    Ok(())
-}
-
 /// Execute a plugin.
 fn execute_plugin(
     sess: &Session,
@@ -574,7 +462,7 @@ fn execute_plugin(
     // Obtain a list of declared plugins.
     let runtime = Runtime::new()?;
     let io = SessionIo::new(sess);
-    let plugins = runtime.block_on(io.plugins())?;
+    let plugins = runtime.block_on(io.plugins(false))?;
 
     // Lookup the requested plugin and complain if it does not exist.
     let plugin = match plugins.get(plugin) {

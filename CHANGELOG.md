@@ -5,8 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+### Fixed
+- Fix `update` failing pull of inexistent commit when multiple repositories are indicated.
+- Fix checkout for commit not yet fetched.
 
-# 0.28.2 - 2025-03-31
+### Added
+- `update`: Update repositories in checkout dir if conditions match:
+  - Folder is a git repository
+  - Git state is clean
+  - `--ignore-checkout-dir` flag to update IPs ignoring the state inside the checkout directory.
+- `update`: Tell user the lockfile version when solving a conflict.
+- Print dependency updates executed.
+- Enable updating of individual dependencies (and recursive dependencies if desired).
+
+### Changed
+- `update`: Clean up alignment of manual resolution output.
+- `checkout`: When using `checkout_dir`, overwrite existing dependencies if not changed, warning if not checked out, flag to force checkout.
+- `update`: Update `checkout_dir` if no internal changes.
+- Execute checkout instead of clone to checkout correct dependency versions when reasonable.
+
+## 0.28.2 - 2025-03-31
 ### Fixed
 - Put `vcs`, `vsim`, and `riviera` defines in quotes.
 - Fix `genus` script initialization.
