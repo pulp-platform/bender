@@ -16,9 +16,13 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
   - Commit matches with lockfile
   - `--ignore-checkout-dir` flag to update IPs ignoring the state inside the checkout directory.
 - `update`: Tell user the lockfile version when solving a conflict.
+- Print dependency updates executed.
 
 ### Changed
 - `update`: Clean up alignment of manual resolution output.
+- `checkout`: When using `checkout_dir`, overwrite existing dependencies if not changed, warning if not checked out, flag to force checkout.
+- `update`: Update `checkout_dir` if no internal changes.
+- Execute checkout instead of clone to checkout correct dependency versions when reasonable.
 
 ## 0.28.2 - 2025-03-31
 ### Fixed
