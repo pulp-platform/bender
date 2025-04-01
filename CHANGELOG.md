@@ -13,10 +13,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - `update`: Update repositories in checkout dir if conditions match:
   - Folder is a git repository
   - Git state is clean
-  - Commit matches with lockfile
   - `--ignore-checkout-dir` flag to update IPs ignoring the state inside the checkout directory.
 - `update`: Tell user the lockfile version when solving a conflict.
 - Print dependency updates executed.
+- Enable updating of individual dependencies (and recursive dependencies if desired).
 
 ### Changed
 - `update`: Clean up alignment of manual resolution output.
