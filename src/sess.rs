@@ -800,23 +800,22 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     ) -> Result<&'ctx Path> {
         let clear = if path.exists() {
             // Scrap checkouts with the wrong tag.
-            let checkout_already_good =
-                Git::new(path, &self.sess.config.git, self.sess.git_throttle.clone())
-                    .current_checkout()
-                    .then(|current| async {
-                        match current {
-                            Ok(Some(current)) => {
-                                debugln!(
-                                    "checkout_git: currently `{}` (want `{}`)",
-                                    current,
-                                    revision
-                                );
-                                current != revision
-                            }
-                            _ => true,
+            let checkout_already_good = Git::new(path, &self.sess.config.git)
+                .current_checkout()
+                .then(|current| async {
+                    match current {
+                        Ok(Some(current)) => {
+                            debugln!(
+                                "checkout_git: currently `{}` (want `{}`)",
+                                current,
+                                revision
+                            );
+                            current != revision
                         }
-                    })
-                    .await;
+                        _ => true,
+                    }
+                })
+                .await;
 
             // Never scrap checkouts the user asked for explicitly in
             // the workspace configuration.
