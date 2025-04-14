@@ -758,7 +758,7 @@ pub fn copy_recursively(
 
         let filetype = entry.file_type()?;
         let canonical_path_filetype =
-            std::fs::metadata(std::fs::canonicalize(entry.path()).unwrap())
+            std::fs::metadata(std::fs::canonicalize(entry.path()).expect(format!("Failed to canonicalize {}.", entry.path().to_str().unwrap()).as_str()))
                 .unwrap()
                 .file_type();
         if filetype.is_dir() {
