@@ -240,6 +240,13 @@ impl<'git, 'ctx> Git<'ctx> {
             .map(|raw| raw.lines().take(1).map(String::from).next())
     }
 
+    /// Determine the url of a remote.
+    pub async fn remote_url(self, remote: &str) -> Result<String> {
+        self.spawn_with(|c| c.arg("remote").arg("get-url").arg(remote))
+            .await
+            .map(|raw| raw.lines().take(1).map(String::from).next().unwrap())
+    }
+
     /// List files in the directory.
     ///
     /// Calls `git ls-tree` under the hood.
