@@ -188,6 +188,13 @@ pub fn new() -> Command {
                 .num_args(1)
                 .value_parser(value_parser!(String)),
         )
+        .arg(
+            Arg::new("assume_rtl")
+                .long("assume-rtl")
+                .help("Add the `rtl` target to any fileset without a target specification")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
+        )
 }
 
 fn get_package_strings<I>(packages: I) -> IndexSet<String>
@@ -245,6 +252,11 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             )
         })
         .unwrap_or_else(|| TargetSet::new(format_targets));
+
+    if matches.get_flag("assume_rtl") {
+        srcs = srcs.assign_target("rtl".to_string());
+    }
+
     srcs = srcs
         .filter_targets(&targets)
         .unwrap_or_else(|| SourceGroup {
