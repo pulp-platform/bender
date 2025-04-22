@@ -124,6 +124,33 @@ impl TargetSpec {
         matches!(*self, TargetSpec::Wildcard)
     }
 
+    /// Reduce this target specification to its simplest form.
+    pub fn reduce(&self) -> Self {
+        match self {
+            TargetSpec::Wildcard => Self::Wildcard,
+            TargetSpec::Name(n) => Self::Name(n.clone()),
+            TargetSpec::All(set) | TargetSpec::Any(set) => {
+                let set = set
+                    .iter()
+                    .map(|s| s.reduce())
+                    .filter(|s| !matches!(s, Self::Wildcard))
+                    .collect::<BTreeSet<_>>();
+                match set.len() {
+                    0 => Self::Wildcard,
+                    1 => set.iter().next().unwrap().clone(),
+                    _ => {
+                        if matches!(self, TargetSpec::All(_)) {
+                            Self::All(set)
+                        } else {
+                            Self::Any(set)
+                        }
+                    }
+                }
+            }
+            TargetSpec::Not(t) => Self::Not(Box::new(t.reduce())),
+        }
+    }
+
     /// Get list of available targets.
     pub fn get_avail(&self) -> IndexSet<String> {
         match *self {

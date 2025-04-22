@@ -511,7 +511,8 @@ fn emit_template(
 
     let mut all_defines = IndexMap::new();
     let mut all_incdirs = vec![];
-    let mut all_files = vec![];
+    let mut all_files = IndexSet::new();
+    let mut all_metadata = vec![];
     let mut all_verilog = vec![];
     let mut all_vhdl = vec![];
     for src in &srcs {
@@ -521,7 +522,23 @@ fn emit_template(
                 .map(|(k, &v)| (k.to_string(), v.map(String::from))),
         );
         all_incdirs.append(&mut src.clone().get_incdirs());
-        all_files.append(&mut src.files.clone());
+        let start_len = all_files.len();
+        all_files.extend(src.files.iter().filter_map(|file| match file {
+            SourceFile::File(p, _) => Some(p.to_string_lossy().to_string()),
+            SourceFile::Group(_) => None,
+        }));
+        let end_len = all_files.len();
+        if start_len < end_len {
+            let package = src.package.unwrap_or("None");
+            let target = src.target.reduce().to_string();
+            let meta = format!("Package({package}) Target({target})");
+            // If the previous package was the same, skip this one
+            if !matches!(all_metadata.last(), Some((old, _, _)) if old == &meta) {
+                all_metadata.push((meta, start_len, end_len));
+            } else {
+                all_metadata.last_mut().unwrap().2 = end_len;
+            }
+        }
     }
     all_defines.extend(target_defines.clone());
     all_defines.extend(srcs.iter().flat_map(|src| {
@@ -549,21 +566,32 @@ fn emit_template(
         IndexSet::new()
     };
     tera_context.insert("all_incdirs", &all_incdirs);
-    let all_files: IndexSet<PathBuf> = if (!matches.get_flag("only-defines")
-        && !matches.get_flag("only-includes"))
+
+    let all_files = if (!matches.get_flag("only-defines") && !matches.get_flag("only-includes"))
         || matches.get_flag("only-sources")
     {
         all_files
-            .into_iter()
-            .filter_map(|file| match file {
-                SourceFile::File(p, _) => Some(p.to_path_buf()),
-                _ => None,
-            })
-            .collect()
     } else {
         IndexSet::new()
     };
+
     tera_context.insert("all_files", &all_files);
+
+    let all_file_groups = if !all_files.is_empty() {
+        let mut prev_end = 0;
+        all_metadata
+            .into_iter()
+            .map(|(metadata, start, end)| {
+                assert!(start == prev_end);
+                prev_end = end;
+                let files = all_files[start..end].iter().cloned().collect();
+                PackageFiles { metadata, files }
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+    tera_context.insert("all_file_groups", &all_file_groups);
 
     let mut split_srcs = vec![];
     for src in srcs {
@@ -700,6 +728,12 @@ fn emit_template(
     );
 
     Ok(())
+}
+
+#[derive(Debug, Serialize)]
+struct PackageFiles {
+    metadata: String,
+    files: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
