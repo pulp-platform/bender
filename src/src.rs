@@ -293,7 +293,7 @@ impl<'ctx> SourceGroup<'ctx> {
         };
         for file in subfiles {
             match file {
-                SourceFile::File(_) => {
+                SourceFile::File(_, _) => {
                     files.push(file);
                 }
                 SourceFile::Group(grp) => {
@@ -345,13 +345,24 @@ impl<'ctx> SourceGroup<'ctx> {
     }
 }
 
+/// File types for a source file.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum SourceType {
+    /// A Verilog file.
+    Verilog,
+    // /// A SystemVerilog file.
+    // SystemVerilog,
+    /// A VHDL file.
+    Vhdl,
+}
+
 /// A source file.
 ///
 /// This can either be an individual file, or a subgroup of files.
 #[derive(Clone)]
 pub enum SourceFile<'ctx> {
     /// A file.
-    File(&'ctx Path),
+    File(&'ctx Path, &'ctx Option<SourceType>),
     /// A group of files.
     Group(Box<SourceGroup<'ctx>>),
 }
@@ -359,7 +370,7 @@ pub enum SourceFile<'ctx> {
 impl<'ctx> fmt::Debug for SourceFile<'ctx> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SourceFile::File(path) => fmt::Debug::fmt(path, f),
+            SourceFile::File(path, _) => fmt::Debug::fmt(path, f),
             SourceFile::Group(ref srcs) => fmt::Debug::fmt(srcs, f),
         }
     }
@@ -373,7 +384,7 @@ impl<'ctx> From<SourceGroup<'ctx>> for SourceFile<'ctx> {
 
 impl<'ctx> From<&'ctx Path> for SourceFile<'ctx> {
     fn from(path: &'ctx Path) -> SourceFile<'ctx> {
-        SourceFile::File(path)
+        SourceFile::File(path, &None)
     }
 }
 
@@ -422,7 +433,7 @@ impl<'ctx> Serialize for SourceFile<'ctx> {
         S: Serializer,
     {
         match *self {
-            SourceFile::File(path) => path.serialize(serializer),
+            SourceFile::File(path, _) => path.serialize(serializer),
             SourceFile::Group(ref group) => group.serialize(serializer),
         }
     }

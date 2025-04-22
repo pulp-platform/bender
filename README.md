@@ -150,6 +150,11 @@ sources:
   # Source files can use glob patterns to include all matching files:
   - src/more_stuff/**/*.sv
 
+  # Source files can have custom fileendings
+  - sv: vendor/encrypted_sv_src.svp
+  - v: vendor/encrypted_v_src.vp
+  - vhd: vendor/encrypted_vhd_src.e
+
   # File list in another external file, supporting simple file names, `+define+` and `+incdir+`
   - external_flists:
       - other_file_list.f
