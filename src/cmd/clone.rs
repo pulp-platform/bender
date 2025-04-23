@@ -94,6 +94,9 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         debugln!("main: checkouts {:#?}", checkouts);
         for c in checkouts {
             if let Some(s) = c.to_str() {
+                if !Path::new(s).exists() {
+                    Err(Error::new(format!("`{dep}` path `{s}` does not exist")))?;
+                }
                 let command = SysCommand::new("cp")
                     .arg("-rf")
                     .arg(s)

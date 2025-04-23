@@ -1669,6 +1669,15 @@ impl<'ctx> DependencyTable<'ctx> {
             debugln!("sess: reusing {:?}", id);
             id
         } else {
+            if let DependencySource::Path(path) = &entry.source {
+                if !path.exists() {
+                    warnln!(
+                        "Dependency `{}` has source path `{}` which does not exist",
+                        entry.name,
+                        path.display()
+                    );
+                }
+            }
             let id = DependencyRef(self.list.len());
             debugln!("sess: adding {:?} as {:?}", entry, id);
             self.list.push(entry);
