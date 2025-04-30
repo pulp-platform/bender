@@ -604,8 +604,6 @@ pub struct PartialSources {
     pub files: Vec<PartialSourceFile>,
     /// The list of external flists to include.
     pub external_flists: Option<Vec<String>>,
-    /// The absolute prefix for the external flists to include. Not intended to be user-modifiable.
-    pub external_flist_prefix: Option<PathBuf>,
     /// Unknown extra fields
     #[serde(flatten)]
     extra: HashMap<String, Value>,
@@ -621,7 +619,6 @@ impl PartialSources {
             defines: None,
             files: Vec::new(),
             external_flists: None,
-            external_flist_prefix: None,
             extra: HashMap::new(),
         }
     }
@@ -635,10 +632,6 @@ impl PrefixPaths for PartialSources {
             defines: self.defines,
             files: self.files.prefix_paths(prefix)?,
             external_flists: self.external_flists.prefix_paths(prefix)?,
-            external_flist_prefix: match self.external_flist_prefix {
-                Some(_) => self.external_flist_prefix.prefix_paths(prefix)?,
-                None => Some(prefix.to_path_buf()),
-            },
             extra: self.extra,
         })
     }
@@ -652,7 +645,6 @@ impl From<Vec<PartialSourceFile>> for PartialSources {
             defines: None,
             files: v,
             external_flists: None,
-            external_flist_prefix: None,
             extra: HashMap::new(),
         }
     }
@@ -670,7 +662,7 @@ impl Validate for PartialSources {
             .map(|path| env_path_from_string(path.to_string()))
             .collect();
 
-        let external_flist_list: Result<Vec<Vec<String>>> = external_flists?
+        let external_flist_list: Result<Vec<(PathBuf, Vec<String>)>> = external_flists?
             .into_iter()
             .map(|filename| {
                 let file = File::open(&filename).map_err(|cause| {
@@ -691,13 +683,13 @@ impl Validate for PartialSources {
                         })
                     })
                     .collect::<Result<Vec<String>>>()?;
-                Ok(lines)
+                Ok((filename.parent().unwrap().to_path_buf(), lines))
             })
             .collect();
 
         let external_flist_groups: Result<Vec<PartialSourceFile>> = external_flist_list?
             .into_iter()
-            .map(|flist| {
+            .map(|(flist_dir, flist)| {
                 Ok(PartialSourceFile::Group(Box::new(PartialSources {
                     target: None,
                     include_dirs: Some(
@@ -711,9 +703,7 @@ impl Validate for PartialSources {
                                     None
                                 }
                             })
-                            .map(|dir| {
-                                dir.prefix_paths(self.external_flist_prefix.as_ref().unwrap())
-                            })
+                            .map(|dir| dir.prefix_paths(&flist_dir))
                             .collect::<Result<_>>()?,
                     ),
                     defines: Some(
@@ -746,10 +736,9 @@ impl Validate for PartialSources {
                                 Some(PartialSourceFile::File(file))
                             }
                         })
-                        .map(|file| file.prefix_paths(self.external_flist_prefix.as_ref().unwrap()))
+                        .map(|file| file.prefix_paths(&flist_dir))
                         .collect::<Result<Vec<_>>>()?,
                     external_flists: None,
-                    external_flist_prefix: None,
                     extra: HashMap::new(),
                 })))
             })
