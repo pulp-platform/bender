@@ -882,21 +882,25 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     {
                         CheckoutState::ToCheckout
                     } else {
+                        if !self.sess.suppress_warnings.contains("W19") {
+                            warnln!(
+                                "[W19] Workspace checkout directory set and has uncommitted changes, not updating {} at {}.\n\
+                                \tRun `bender checkout --force` to overwrite the dependency at your own risk.",
+                                name,
+                                path.display()
+                            );
+                        }
+                        CheckoutState::Clean
+                    }
+                } else {
+                    if !self.sess.suppress_warnings.contains("W19") {
                         warnln!(
-                            "[W19] Workspace checkout directory set and has uncommitted changes, not updating {} at {}.\n\
+                            "[W19] Workspace checkout directory set and remote url doesn't match, not updating {} at {}.\n\
                             \tRun `bender checkout --force` to overwrite the dependency at your own risk.",
                             name,
                             path.display()
                         );
-                        CheckoutState::Clean
                     }
-                } else {
-                    warnln!(
-                        "[W19] Workspace checkout directory set and remote url doesn't match, not updating {} at {}.\n\
-                        \tRun `bender checkout --force` to overwrite the dependency at your own risk.",
-                        name,
-                        path.display()
-                    );
                     CheckoutState::Clean
                 }
             } else {
