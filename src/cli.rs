@@ -351,7 +351,7 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
     partial
         .prefix_paths(path.parent().unwrap())
         .map_err(|cause| Error::chain(format!("Error in manifest prefixing {:?}.", path), cause))?
-        .validate("")
+        .validate("", false)
         .map_err(|cause| Error::chain(format!("Error in manifest {:?}.", path), cause))
 }
 
@@ -428,7 +428,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
 
     // Validate the configuration.
     let mut out = out
-        .validate("")
+        .validate("", false)
         .map_err(|cause| Error::chain("Invalid configuration:", cause))?;
 
     out.overrides = out

@@ -1033,7 +1033,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     )
                                 })?;
                             let mut full =
-                                partial.validate_ignore_sources("").map_err(|cause| {
+                                partial.validate_ignore_sources("", true).map_err(|cause| {
                                     Error::chain(
                                         format!(
                                             "Error in manifest of dependency `{}` at revision \
@@ -1164,16 +1164,17 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     cause,
                                 )
                             })?;
-                        let mut full = partial.validate_ignore_sources("").map_err(|cause| {
-                            Error::chain(
-                                format!(
-                                    "Error in manifest of dependency `{}` at revision \
+                        let mut full =
+                            partial.validate_ignore_sources("", true).map_err(|cause| {
+                                Error::chain(
+                                    format!(
+                                        "Error in manifest of dependency `{}` at revision \
                                          `{}`.",
-                                    dep_name, rev
-                                ),
-                                cause,
-                            )
-                        })?;
+                                        dep_name, rev
+                                    ),
+                                    cause,
+                                )
+                            })?;
 
                         // Add base path to path dependencies within git repositories
                         self.sub_dependency_fixing(
