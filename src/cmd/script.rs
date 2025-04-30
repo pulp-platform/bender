@@ -297,7 +297,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let srcs = srcs
         .flatten()
         .into_iter()
-        .map(|f| f.validate("", false))
+        .map(|f| f.validate("", false, &sess.suppress_warnings))
         .collect::<Result<Vec<_>>>()?;
 
     // Validate format-specific options.

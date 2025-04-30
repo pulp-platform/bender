@@ -19,7 +19,7 @@ use std::str::FromStr;
 
 use glob::glob;
 
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use semver;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -227,6 +227,7 @@ pub trait Validate {
         self,
         package_name: &str,
         pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
     ) -> std::result::Result<Self::Output, Self::Error>;
 }
 
@@ -242,12 +243,15 @@ where
         self,
         package_name: &str,
         pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
     ) -> std::result::Result<Self::Output, Self::Error> {
         self.into_iter()
-            .map(|(k, v)| match v.validate(package_name, pre_output) {
-                Ok(v) => Ok((k, v)),
-                Err(e) => Err((k, e)),
-            })
+            .map(
+                |(k, v)| match v.validate(package_name, pre_output, suppress_warnings) {
+                    Ok(v) => Ok((k, v)),
+                    Err(e) => Err((k, e)),
+                },
+            )
             .collect()
     }
 }
@@ -262,12 +266,15 @@ where
         self,
         package_name: &str,
         pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
     ) -> std::result::Result<Self::Output, Self::Error> {
         self.into_iter()
-            .map(|v| match v.validate(package_name, pre_output) {
-                Ok(v) => Ok(v),
-                Err(e) => Err(e),
-            })
+            .map(
+                |v| match v.validate(package_name, pre_output, suppress_warnings) {
+                    Ok(v) => Ok(v),
+                    Err(e) => Err(e),
+                },
+            )
             .collect()
     }
 }
@@ -283,8 +290,9 @@ where
         self,
         package_name: &str,
         pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
     ) -> std::result::Result<T::Output, T::Error> {
-        self.0.validate(package_name, pre_output)
+        self.0.validate(package_name, pre_output, suppress_warnings)
     }
 }
 
@@ -299,8 +307,9 @@ where
         self,
         package_name: &str,
         pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
     ) -> std::result::Result<T::Output, T::Error> {
-        self.0.validate(package_name, pre_output)
+        self.0.validate(package_name, pre_output, suppress_warnings)
     }
 }
 
@@ -358,9 +367,10 @@ impl PartialManifest {
         mut self,
         package_name: &str,
         pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
     ) -> Result<Manifest> {
         self.sources = Some(SeqOrStruct::new(PartialSources::new_empty()));
-        self.validate(package_name, pre_output)
+        self.validate(package_name, pre_output, suppress_warnings)
     }
 }
 
@@ -394,17 +404,24 @@ impl PrefixPaths for PartialManifest {
 impl Validate for PartialManifest {
     type Output = Manifest;
     type Error = Error;
-    fn validate(self, _package_name: &str, pre_output: bool) -> Result<Manifest> {
+    fn validate(
+        self,
+        _package_name: &str,
+        pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
+    ) -> Result<Manifest> {
         let pkg = match self.package {
             Some(mut p) => {
                 p.name = p.name.to_lowercase();
                 if !pre_output {
                     p.extra.iter().for_each(|(k, _)| {
-                        warnln!(
-                            "[W03] Ignoring unknown field `{}` in manifest package for {}.",
-                            k,
-                            p.name
-                        );
+                        if !suppress_warnings.contains("W03") {
+                            warnln!(
+                                "[W03] Ignoring unknown field `{}` in manifest package for {}.",
+                                k,
+                                p.name
+                            );
+                        }
                     });
                 }
                 p
@@ -416,7 +433,7 @@ impl Validate for PartialManifest {
                 .into_iter()
                 .map(|(k, v)| (k.to_lowercase(), v))
                 .collect::<IndexMap<_, _>>()
-                .validate(&pkg.name, pre_output)
+                .validate(&pkg.name, pre_output, suppress_warnings)
                 .map_err(|(key, cause)| {
                     Error::chain(
                         format!("In dependency `{}` of package `{}`:", key, pkg.name),
@@ -426,9 +443,12 @@ impl Validate for PartialManifest {
             None => IndexMap::new(),
         };
         let srcs = match self.sources {
-            Some(s) => Some(s.validate(&pkg.name, pre_output).map_err(|cause| {
-                Error::chain(format!("In source list of package `{}`:", pkg.name), cause)
-            })?),
+            Some(s) => Some(
+                s.validate(&pkg.name, pre_output, suppress_warnings)
+                    .map_err(|cause| {
+                        Error::chain(format!("In source list of package `{}`:", pkg.name), cause)
+                    })?,
+            ),
             None => None,
         };
         let exp_inc_dirs = self.export_include_dirs.unwrap_or_default();
@@ -442,23 +462,25 @@ impl Validate for PartialManifest {
         let frozen = self.frozen.unwrap_or(false);
         let workspace = match self.workspace {
             Some(w) => w
-                .validate(&pkg.name, pre_output)
+                .validate(&pkg.name, pre_output, suppress_warnings)
                 .map_err(|cause| Error::chain("In workspace configuration:", cause))?,
             None => Workspace::default(),
         };
         let vendor_package = match self.vendor_package {
             Some(vend) => vend
-                .validate(&pkg.name, pre_output)
+                .validate(&pkg.name, pre_output, suppress_warnings)
                 .map_err(|cause| Error::chain("Unable to parse vendor_package", cause))?,
             None => Vec::new(),
         };
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
-                warnln!(
-                    "[W03] Ignoring unknown field `{}` in manifest for {}.",
-                    k,
-                    pkg.name
-                );
+                if !suppress_warnings.contains("W03") {
+                    warnln!(
+                        "[W03] Ignoring unknown field `{}` in manifest for {}.",
+                        k,
+                        pkg.name
+                    );
+                }
             });
         }
         Ok(Manifest {
@@ -530,7 +552,12 @@ impl PrefixPaths for PartialDependency {
 impl Validate for PartialDependency {
     type Output = Dependency;
     type Error = Error;
-    fn validate(self, package_name: &str, pre_output: bool) -> Result<Dependency> {
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
+    ) -> Result<Dependency> {
         let version = match self.version {
             Some(v) => Some(semver::VersionReq::parse(&v).map_err(|cause| {
                 Error::chain(
@@ -547,11 +574,13 @@ impl Validate for PartialDependency {
         }
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
-                warnln!(
-                    "[W03] Ignoring unknown field `{}` in a dependency in manifest for {}.",
-                    k,
-                    package_name
-                );
+                if !suppress_warnings.contains("W03") {
+                    warnln!(
+                        "[W03] Ignoring unknown field `{}` in a dependency in manifest for {}.",
+                        k,
+                        package_name
+                    );
+                }
             });
         }
         if let Some(path) = self.path {
@@ -653,7 +682,12 @@ impl From<Vec<PartialSourceFile>> for PartialSources {
 impl Validate for PartialSources {
     type Output = Sources;
     type Error = Error;
-    fn validate(self, package_name: &str, pre_output: bool) -> Result<Sources> {
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
+    ) -> Result<Sources> {
         let external_flists: Result<Vec<_>> = self
             .external_flists
             .clone()
@@ -781,7 +815,7 @@ impl Validate for PartialSources {
             .map(|pre_glob_file| {
                 if let PartialSourceFile::File(_) = pre_glob_file {
                     // PartialSources .files item is pointing to PartialSourceFiles::file so do glob extension
-                    pre_glob_file.glob_file()
+                    pre_glob_file.glob_file(suppress_warnings)
                 } else {
                     // PartialSources .files item is pointing to PartialSourceFiles::group so pass on for recursion
                     // to do glob extension in the groups.sources.files list of PartialSourceFiles::file
@@ -803,10 +837,10 @@ impl Validate for PartialSources {
         let defines = self.defines.unwrap_or_default();
         let files: Result<Vec<_>> = post_glob_files
             .into_iter()
-            .map(|f| f.validate(package_name, pre_output))
+            .map(|f| f.validate(package_name, pre_output, suppress_warnings))
             .collect();
         let files = files?;
-        if files.is_empty() && !pre_output {
+        if files.is_empty() && !pre_output && !suppress_warnings.contains("W04") {
             warnln!(
                 "[W04] No source files specified in a sourcegroup in manifest for {}.",
                 package_name
@@ -814,11 +848,13 @@ impl Validate for PartialSources {
         }
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
-                warnln!(
-                    "[W03] Ignoring unknown field `{}` in sources in manifest for {}.",
-                    k,
-                    package_name
-                );
+                if !suppress_warnings.contains("W03") {
+                    warnln!(
+                        "[W03] Ignoring unknown field `{}` in sources in manifest for {}.",
+                        k,
+                        package_name
+                    );
+                }
             });
         }
         Ok(Sources {
@@ -906,12 +942,19 @@ impl<'de> Deserialize<'de> for PartialSourceFile {
 impl Validate for PartialSourceFile {
     type Output = SourceFile;
     type Error = Error;
-    fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceFile> {
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
+    ) -> Result<SourceFile> {
         match self {
             PartialSourceFile::File(path) => Ok(SourceFile::File(PathBuf::from(path))),
-            PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(
-                srcs.validate(package_name, pre_output)?,
-            ))),
+            PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate(
+                package_name,
+                pre_output,
+                suppress_warnings,
+            )?))),
         }
     }
 }
@@ -923,14 +966,14 @@ pub trait GlobFile {
     /// The error type produced by validation.
     type Error;
     /// Validate self and convert to a full list of paths that exist
-    fn glob_file(self) -> Result<Self::Output>;
+    fn glob_file(self, suppress_warnings: &IndexSet<String>) -> Result<Self::Output>;
 }
 
 impl GlobFile for PartialSourceFile {
     type Output = Vec<PartialSourceFile>;
     type Error = Error;
 
-    fn glob_file(self) -> Result<Vec<PartialSourceFile>> {
+    fn glob_file(self, suppress_warnings: &IndexSet<String>) -> Result<Vec<PartialSourceFile>> {
         // let mut partial_source_files_vec: Vec<PartialSourceFile> = Vec::new();
 
         // Only operate on files, not groups
@@ -953,7 +996,7 @@ impl GlobFile for PartialSourceFile {
                         ))
                     })
                     .collect::<Result<Vec<PartialSourceFile>>>()?;
-                if out.is_empty() {
+                if out.is_empty() && !suppress_warnings.contains("W05") {
                     warnln!("[W05] No files found for glob pattern {:?}", path);
                 }
                 Ok(out)
@@ -1001,7 +1044,12 @@ impl PrefixPaths for PartialWorkspace {
 impl Validate for PartialWorkspace {
     type Output = Workspace;
     type Error = Error;
-    fn validate(self, package_name: &str, pre_output: bool) -> Result<Workspace> {
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
+    ) -> Result<Workspace> {
         let package_links: Result<IndexMap<_, _>> = self
             .package_links
             .unwrap_or_default()
@@ -1010,11 +1058,13 @@ impl Validate for PartialWorkspace {
             .collect();
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
-                warnln!(
-                    "[W03] Ignoring unknown field `{}` in workspace configuration in manifest for {}.",
-                    k,
-                    package_name
-                );
+                if !suppress_warnings.contains("W03") {
+                    warnln!(
+                        "[W03] Ignoring unknown field `{}` in workspace configuration in manifest for {}.",
+                        k,
+                        package_name
+                    );
+                }
             });
         }
         Ok(Workspace {
@@ -1180,7 +1230,12 @@ impl Merge for PartialConfig {
 impl Validate for PartialConfig {
     type Output = Config;
     type Error = Error;
-    fn validate(self, package_name: &str, pre_output: bool) -> Result<Config> {
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
+    ) -> Result<Config> {
         Ok(Config {
             database: match self.database {
                 Some(db) => env_path_from_string(db)?,
@@ -1192,7 +1247,7 @@ impl Validate for PartialConfig {
             },
             overrides: match self.overrides {
                 Some(d) => d
-                    .validate(package_name, pre_output)
+                    .validate(package_name, pre_output, suppress_warnings)
                     .map_err(|(key, cause)| {
                         Error::chain(format!("In override `{}`:", key), cause)
                     })?,
@@ -1200,7 +1255,7 @@ impl Validate for PartialConfig {
             },
             plugins: match self.plugins {
                 Some(d) => d
-                    .validate(package_name, pre_output)
+                    .validate(package_name, pre_output, suppress_warnings)
                     .map_err(|(key, cause)| Error::chain(format!("In plugin `{}`:", key), cause))?,
                 None => IndexMap::new(),
             },
@@ -1322,7 +1377,12 @@ impl PrefixPaths for PartialVendorPackage {
 impl Validate for PartialVendorPackage {
     type Output = VendorPackage;
     type Error = Error;
-    fn validate(self, package_name: &str, pre_output: bool) -> Result<VendorPackage> {
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
+    ) -> Result<VendorPackage> {
         Ok(VendorPackage {
             name: match self.name {
                 Some(name) => name,
@@ -1334,7 +1394,7 @@ impl Validate for PartialVendorPackage {
             },
             upstream: match self.upstream {
                 Some(upstream) => upstream
-                    .validate(package_name, pre_output)
+                    .validate(package_name, pre_output, suppress_warnings)
                     .map_err(|cause| {
                         Error::chain("Unable to parse external import upstream", cause)
                     })?,

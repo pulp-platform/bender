@@ -50,12 +50,13 @@ impl<'ctx> Validate for SourceGroup<'ctx> {
         self,
         package_name: &str,
         pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
     ) -> crate::error::Result<SourceGroup<'ctx>> {
         Ok(SourceGroup {
             files: self
                 .files
                 .into_iter()
-                .map(|f| f.validate(package_name, pre_output))
+                .map(|f| f.validate(package_name, pre_output, suppress_warnings))
                 .collect::<Result<Vec<_>, Error>>()?,
             ..self
         })
@@ -340,7 +341,12 @@ impl<'ctx> From<&'ctx Path> for SourceFile<'ctx> {
 impl<'ctx> Validate for SourceFile<'ctx> {
     type Output = SourceFile<'ctx>;
     type Error = Error;
-    fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceFile<'ctx>, Error> {
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
+    ) -> Result<SourceFile<'ctx>, Error> {
         match self {
             SourceFile::File(path) => {
                 let env_path_buf =
@@ -355,9 +361,11 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                     )))
                 }
             }
-            SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(
-                srcs.validate(package_name, pre_output)?,
-            ))),
+            SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate(
+                package_name,
+                pre_output,
+                suppress_warnings,
+            )?))),
         }
     }
 }

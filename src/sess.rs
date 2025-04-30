@@ -1067,8 +1067,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                         cause,
                                     )
                                 })?;
-                            let mut full =
-                                partial.validate_ignore_sources("", true).map_err(|cause| {
+                            let mut full = partial
+                                .validate_ignore_sources("", true, &self.sess.suppress_warnings)
+                                .map_err(|cause| {
                                     Error::chain(
                                         format!(
                                             "Error in manifest of dependency `{}` at revision \
@@ -1134,7 +1135,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 }
                 let manifest_path = path.join("Bender.yml");
                 if manifest_path.exists() {
-                    match read_manifest(&manifest_path) {
+                    match read_manifest(&manifest_path, &self.sess.suppress_warnings) {
                         Ok(m) => {
                             if dep.name != m.package.name
                                 && !self.sess.suppress_warnings.contains("W11")
@@ -1161,6 +1162,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             .join(".bender")
                             .join("tmp")
                             .join(format!("{}_manifest.yml", dep.name)),
+                        &self.sess.suppress_warnings,
                     ) {
                         Ok(m) => {
                             if dep.name != m.package.name
@@ -1209,8 +1211,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     cause,
                                 )
                             })?;
-                        let mut full =
-                            partial.validate_ignore_sources("", true).map_err(|cause| {
+                        let mut full = partial
+                            .validate_ignore_sources("", true, &self.sess.suppress_warnings)
+                            .map_err(|cause| {
                                 Error::chain(
                                     format!(
                                         "Error in manifest of dependency `{}` at revision \
@@ -1299,7 +1302,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .and_then(move |path| {
                 let manifest_path = path.join("Bender.yml");
                 if manifest_path.exists() {
-                    match read_manifest(&manifest_path) {
+                    match read_manifest(&manifest_path, &self.sess.suppress_warnings) {
                         Ok(m) => Ok(Some(self.sess.intern_manifest(m))),
                         Err(e) => Err(e),
                     }
