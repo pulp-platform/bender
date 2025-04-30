@@ -110,11 +110,12 @@ pub fn main() -> Result<()> {
         .map(|s| s.to_owned())
         .collect();
 
-    let suppressed_warnings: IndexSet<String> = if suppressed_warnings.contains("all") {
-        (1..18).map(|i| format!("W{:02}", i)).collect()
-    } else {
-        suppressed_warnings
-    };
+    let suppressed_warnings: IndexSet<String> =
+        if suppressed_warnings.contains("all") || suppressed_warnings.contains("Wall") {
+            (1..19).map(|i| format!("W{:02}", i)).collect()
+        } else {
+            suppressed_warnings
+        };
 
     // Enable debug outputs if needed.
     if matches.contains_id("debug") && matches.get_flag("debug") {
