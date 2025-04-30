@@ -26,13 +26,13 @@ use futures::future::{self, join_all};
 use futures::TryFutureExt;
 use indexmap::{IndexMap, IndexSet};
 use semver::Version;
+use tokio::sync::Semaphore;
 use typed_arena::Arena;
 
 use crate::cli::read_manifest;
 use crate::config::Validate;
 use crate::config::{self, Config, Manifest};
 use crate::error::*;
-// use crate::future_throttle::FutureThrottle;
 use crate::git::Git;
 use crate::src::SourceGroup;
 use crate::target::TargetSpec;
@@ -74,14 +74,15 @@ pub struct Session<'ctx> {
     plugins: Mutex<Option<&'ctx Plugins>>,
     /// The session cache.
     pub cache: SessionCache<'ctx>,
-    // /// A throttle for futures performing git network operations.
-    // git_throttle: FutureThrottle,
+    /// A throttle for futures performing git network operations.
+    pub git_throttle: Arc<Semaphore>,
     /// A toggle to disable remote fetches & clones
     pub local_only: bool,
 }
 
 impl<'sess, 'ctx: 'sess> Session<'ctx> {
     /// Create a new session.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         root: &'ctx Path,
         manifest: &'ctx Manifest,
@@ -89,6 +90,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         arenas: &'ctx SessionArenas,
         local_only: bool,
         force_fetch: bool,
+        git_throttle: usize,
     ) -> Session<'ctx> {
         Session {
             root,
@@ -112,7 +114,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             sources: Mutex::new(None),
             plugins: Mutex::new(None),
             cache: Default::default(),
-            // git_throttle: FutureThrottle::new(8),
+            git_throttle: Arc::new(Semaphore::new(git_throttle)),
             local_only,
         }
     }
@@ -516,7 +518,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 ))
             }
         };
-        let git = Git::new(db_dir, &self.sess.config.git);
+        let git = Git::new(
+            db_dir,
+            &self.sess.config.git,
+            self.sess.git_throttle.clone(),
+        );
         let name2 = String::from(name);
         let url = String::from(url);
         let url2 = url.clone();
@@ -537,12 +543,15 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 stageln!("Cloning", "{} ({})", name2, url2);
                 Ok(())
             })
-            .and_then(|_| git.spawn_with(|c| c.arg("init").arg("--bare")))
-            .and_then(|_| git.spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url)))
-            .and_then(|_| git.fetch("origin"))
+            .and_then(|_| git.clone().spawn_with(|c| c.arg("init").arg("--bare")))
+            .and_then(|_| {
+                git.clone()
+                    .spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url))
+            })
+            .and_then(|_| git.clone().fetch("origin"))
             .and_then(|_| async {
                 if let Some(reference) = fetch_ref {
-                    git.fetch_ref("origin", reference).await
+                    git.clone().fetch_ref("origin", reference).await
                 } else {
                     Ok(())
                 }
@@ -572,10 +581,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 stageln!("Fetching", "{} ({})", name2, url2);
                 Ok(())
             })
-            .and_then(|_| git.fetch("origin"))
+            .and_then(|_| git.clone().fetch("origin"))
             .and_then(|_| async {
                 if let Some(reference) = fetch_ref {
-                    git.fetch_ref("origin", reference).await
+                    git.clone().fetch_ref("origin", reference).await
                 } else {
                     Ok(())
                 }
@@ -610,8 +619,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             None => {
                 debugln!("sess: git_versions get new");
-                let dep_refs = git.list_refs().await;
-                let dep_revs = git.list_revs().await;
+                let dep_refs = git.clone().list_refs().await;
+                let dep_revs = git.clone().list_revs().await;
                 let dep_refs_and_revs = dep_refs.and_then(|refs| -> Result<_> {
                     if refs.is_empty() {
                         Ok((refs, vec![]))
@@ -817,7 +826,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             ToCheckout,
             ToClone,
         }
-        let local_git = Git::new(path, &self.sess.config.git);
+        let local_git = Git::new(path, &self.sess.config.git, self.sess.git_throttle.clone());
         let clear = if path.exists() {
             // Scrap checkouts with the wrong tag.
             let current_checkout = local_git.clone().current_checkout().await;
@@ -912,6 +921,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             let tag_name_2 = tag_name_0.clone();
             let git = self.git_database(name, url, false, Some(revision)).await?;
             match git
+                .clone()
                 .spawn_with(move |c| {
                     c.arg("tag")
                         .arg(tag_name_0)
@@ -928,8 +938,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         cause
                     );
                     // Attempt to fetch from remote and retry, as commits seem unavailable.
-                    git.spawn_with(move |c| c.arg("fetch").arg("--all")).await?;
-                    git.spawn_with(move |c| c.arg("tag").arg(tag_name_1).arg(revision).arg("--force").arg("--no-sign")).map_err(|cause| {
+                    git.clone()
+                        .spawn_with(move |c| c.arg("fetch").arg("--all"))
+                        .await?;
+                    git.clone().spawn_with(move |c| c.arg("tag").arg(tag_name_1).arg(revision).arg("--force").arg("--no-sign")).map_err(|cause| {
                         warnln!("Please ensure the commits are available on the remote or run bender update");
                         Error::chain(
                             format!(
@@ -983,6 +995,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     warnln!("Path dependencies ({:?}) in git dependencies ({:?}) currently not fully supported. Your mileage may vary.", dep.0, top_package_name);
 
                     let sub_entries = db
+                        .clone()
                         .list_files(
                             used_git_rev,
                             Some(
@@ -996,7 +1009,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         .await?;
                     let sub_data = match sub_entries.into_iter().next() {
                         None => Ok(None),
-                        Some(sub_entry) => db.cat_file(sub_entry.hash).await.map(Some),
+                        Some(sub_entry) => db.clone().cat_file(sub_entry.hash).await.map(Some),
                     }?;
 
                     let sub_dep_path = reference_path.join(path).clone();
@@ -1047,7 +1060,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 full.package.name.clone(),
                                 &sub_dep_path,
                                 dep_base_path,
-                                db,
+                                db.clone(),
                                 used_git_rev,
                             )
                             .await?;
@@ -1145,10 +1158,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 let dep_name = self.sess.intern_string(dep.name.as_str());
                 // TODO MICHAERO: May need proper chaining using and_then
                 let db = self.git_database(&dep.name, url, false, None).await?;
-                let entries = db.list_files(rev, Some("Bender.yml")).await?;
+                let entries = db.clone().list_files(rev, Some("Bender.yml")).await?;
                 let data = match entries.into_iter().next() {
                     None => Ok(None),
-                    Some(entry) => db.cat_file(entry.hash).await.map(Some),
+                    Some(entry) => db.clone().cat_file(entry.hash).await.map(Some),
                 }?;
                 let manifest: Result<_> = match data {
                     Some(data) => {
@@ -1180,7 +1193,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             full.package.name.clone(),
                             &self.get_package_path(dep_id),
                             &self.get_package_path(dep_id),
-                            db,
+                            db.clone(),
                             rev,
                         )
                         .await?;

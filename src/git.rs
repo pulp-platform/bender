@@ -7,9 +7,11 @@
 
 use std::ffi::OsStr;
 use std::path::Path;
+use std::sync::Arc;
 
 use futures::TryFutureExt;
 use tokio::process::Command;
+use tokio::sync::Semaphore;
 
 use crate::error::*;
 
@@ -17,18 +19,24 @@ use crate::error::*;
 ///
 /// This struct is used to interact with git repositories on disk. It makes
 /// heavy use of futures to execute the different tasks.
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Git<'ctx> {
     /// The path to the repository.
     pub path: &'ctx Path,
     /// The session within which commands will be executed.
     pub git: &'ctx String,
+    /// Reference to the throttle object.
+    pub throttle: Arc<Semaphore>,
 }
 
-impl<'git, 'ctx> Git<'ctx> {
+impl<'ctx> Git<'ctx> {
     /// Create a new git context.
-    pub fn new(path: &'ctx Path, git: &'ctx String) -> Git<'ctx> {
-        Git { path, git }
+    pub fn new(path: &'ctx Path, git: &'ctx String, throttle: Arc<Semaphore>) -> Git<'ctx> {
+        Git {
+            path,
+            git,
+            throttle,
+        }
     }
 
     /// Create a new git command.
@@ -54,6 +62,8 @@ impl<'git, 'ctx> Git<'ctx> {
     /// command's exit code.
     #[allow(clippy::format_push_string)]
     pub async fn spawn(self, mut cmd: Command, check: bool) -> Result<String> {
+        // acquire throttle
+        let permit = self.throttle.clone().acquire_owned().await.unwrap();
         let output = cmd.output().map_err(|cause| {
             if cause
                 .to_string()
@@ -97,7 +107,10 @@ impl<'git, 'ctx> Git<'ctx> {
                 Err(Error::new(msg))
             }
         });
-        result.await
+        let result = result.await;
+        // release throttle
+        drop(permit);
+        result
     }
 
     /// Assemble a command and schedule it for execution.
@@ -148,7 +161,8 @@ impl<'git, 'ctx> Git<'ctx> {
     pub async fn fetch(self, remote: &str) -> Result<()> {
         let r1 = String::from(remote);
         let r2 = String::from(remote);
-        self.spawn_with(|c| c.arg("fetch").arg("--prune").arg(r1))
+        self.clone()
+            .spawn_with(|c| c.arg("fetch").arg("--prune").arg(r1))
             .and_then(|_| self.spawn_with(|c| c.arg("fetch").arg("--tags").arg("--prune").arg(r2)))
             .await
             .map(|_| ())

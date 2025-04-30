@@ -763,6 +763,8 @@ pub struct Config {
     pub overrides: IndexMap<String, Dependency>,
     /// The auxiliary plugin dependencies.
     pub plugins: IndexMap<String, Dependency>,
+    /// The git throttle value to use unless overridden by the user.
+    pub git_throttle: Option<usize>,
 }
 
 /// A partial configuration.
@@ -776,6 +778,8 @@ pub struct PartialConfig {
     pub overrides: Option<IndexMap<String, PartialDependency>>,
     /// The auxiliary plugin dependencies.
     pub plugins: Option<IndexMap<String, PartialDependency>>,
+    /// The git throttle value to use unless overridden by the user.
+    pub git_throttle: Option<usize>,
 }
 
 impl PartialConfig {
@@ -786,6 +790,7 @@ impl PartialConfig {
             git: None,
             overrides: None,
             plugins: None,
+            git_throttle: None,
         }
     }
 }
@@ -828,6 +833,7 @@ impl Merge for PartialConfig {
                 }
                 (None, None) => None,
             },
+            git_throttle: self.git_throttle.or(other.git_throttle),
         }
     }
 }
@@ -857,6 +863,7 @@ impl Validate for PartialConfig {
                     .map_err(|(key, cause)| Error::chain(format!("In plugin `{}`:", key), cause))?,
                 None => IndexMap::new(),
             },
+            git_throttle: self.git_throttle,
         })
     }
 }

@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Fix `update` failing pull of inexistent commit when multiple repositories are indicated.
 - Fix checkout for commit not yet fetched.
 - `script`: Fix flist-plus incdir template.
+- Throttle git commands to avoid git request failures.
 
 ### Added
 - Add ARM64 binaries for releases
