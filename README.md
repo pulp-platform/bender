@@ -147,6 +147,11 @@ sources:
       - src/core/alu.sv
       - src/core/top.sv
 
+  # Source files can have custom fileendings
+  - sv: vendor/encrypted_sv_src.svp
+  - v: vendor/encrypted_v_src.vp
+  - vhd: vendor/encrypted_vhd_src.e
+
 # A list of include directories which should implicitly be added to source
 # file groups of packages that have the current package as a dependency.
 # Optional.

@@ -167,12 +167,33 @@ pub enum SourceFile {
     File(PathBuf),
     /// A subgroup.
     Group(Box<Sources>),
+    /// A systemverilog source.
+    SvFile(PathBuf),
+    /// A verilog source.
+    VerilogFile(PathBuf),
+    /// A vhdl source.
+    VhdlFile(PathBuf),
 }
 
 impl fmt::Debug for SourceFile {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SourceFile::File(ref path) => fmt::Debug::fmt(path, f),
+            SourceFile::File(ref path) => {
+                fmt::Debug::fmt(path, f)?;
+                write!(f, " as <unknown>")
+            }
+            SourceFile::SvFile(ref path) => {
+                fmt::Debug::fmt(path, f)?;
+                write!(f, " as SystemVerilog")
+            }
+            SourceFile::VerilogFile(ref path) => {
+                fmt::Debug::fmt(path, f)?;
+                write!(f, " as Verilog")
+            }
+            SourceFile::VhdlFile(ref path) => {
+                fmt::Debug::fmt(path, f)?;
+                write!(f, " as Vhdl")
+            }
             SourceFile::Group(ref srcs) => fmt::Debug::fmt(srcs, f),
         }
     }
@@ -182,6 +203,9 @@ impl PrefixPaths for SourceFile {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         Ok(match self {
             SourceFile::File(path) => SourceFile::File(path.prefix_paths(prefix)?),
+            SourceFile::SvFile(path) => SourceFile::SvFile(path.prefix_paths(prefix)?),
+            SourceFile::VerilogFile(path) => SourceFile::VerilogFile(path.prefix_paths(prefix)?),
+            SourceFile::VhdlFile(path) => SourceFile::VhdlFile(path.prefix_paths(prefix)?),
             SourceFile::Group(group) => SourceFile::Group(Box::new(group.prefix_paths(prefix)?)),
         })
     }
@@ -355,7 +379,19 @@ impl Validate for PartialManifest {
         Ok(Manifest {
             package: pkg,
             dependencies: deps,
-            sources: srcs,
+            sources: match srcs {
+                Some(SourceFile::Group(srcs)) => Some(*srcs),
+                Some(SourceFile::File(_))
+                | Some(SourceFile::SvFile(_))
+                | Some(SourceFile::VerilogFile(_))
+                | Some(SourceFile::VhdlFile(_)) => Some(Sources {
+                    target: TargetSpec::Wildcard,
+                    include_dirs: Vec::new(),
+                    defines: IndexMap::new(),
+                    files: vec![srcs.unwrap()],
+                }),
+                None => None,
+            },
             export_include_dirs: exp_inc_dirs
                 .iter()
                 .map(|path| env_path_from_string(path.to_string()))
@@ -479,7 +515,13 @@ pub struct PartialSources {
     /// The preprocessor definitions.
     pub defines: Option<IndexMap<String, Option<String>>>,
     /// The source file paths.
-    pub files: Vec<PartialSourceFile>,
+    pub files: Option<Vec<PartialSourceFile>>,
+    /// A sv file.
+    pub sv: Option<String>,
+    /// A verilog file.
+    pub v: Option<String>,
+    /// A vhdl file.
+    pub vhd: Option<String>,
 }
 
 impl From<Vec<PartialSourceFile>> for PartialSources {
@@ -488,29 +530,90 @@ impl From<Vec<PartialSourceFile>> for PartialSources {
             target: None,
             include_dirs: None,
             defines: None,
-            files: v,
+            files: Some(v),
+            sv: None,
+            v: None,
+            vhd: None,
         }
     }
 }
 
 impl Validate for PartialSources {
-    type Output = Sources;
+    type Output = SourceFile;
     type Error = Error;
-    fn validate(self) -> Result<Sources> {
-        let include_dirs: Result<Vec<_>> = self
-            .include_dirs
-            .unwrap_or_default()
-            .iter()
-            .map(|path| env_path_from_string(path.to_string()))
-            .collect();
-        let defines = self.defines.unwrap_or_default();
-        let files: Result<Vec<_>> = self.files.into_iter().map(|f| f.validate()).collect();
-        Ok(Sources {
-            target: self.target.unwrap_or(TargetSpec::Wildcard),
-            include_dirs: include_dirs?,
-            defines,
-            files: files?,
-        })
+    fn validate(self) -> Result<SourceFile> {
+        match self {
+            PartialSources {
+                target: None,
+                include_dirs: None,
+                defines: None,
+                files: None,
+                sv: Some(sv),
+                v: None,
+                vhd: None,
+            } => Ok(SourceFile::SvFile(env_path_from_string(sv)?)),
+            PartialSources {
+                target: None,
+                include_dirs: None,
+                defines: None,
+                files: None,
+                sv: None,
+                v: Some(v),
+                vhd: None,
+            } => Ok(SourceFile::VerilogFile(env_path_from_string(v)?)),
+            PartialSources {
+                target: None,
+                include_dirs: None,
+                defines: None,
+                files: None,
+                sv: None,
+                v: None,
+                vhd: Some(vhd),
+            } => Ok(SourceFile::VhdlFile(env_path_from_string(vhd)?)),
+            PartialSources {
+                target,
+                include_dirs,
+                defines,
+                files,
+                sv: None,
+                v: None,
+                vhd: None,
+            } => {
+                let include_dirs: Result<Vec<_>> = include_dirs
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|path| env_path_from_string(path.to_string()))
+                    .collect();
+                let defines = defines.unwrap_or_default();
+                let files: Result<Vec<_>> = if let Some(fls) = files {
+                    fls.into_iter().map(|f| f.validate()).collect()
+                } else {
+                    Ok(Vec::new())
+                };
+                Ok(SourceFile::Group(Box::new(Sources {
+                    target: target.unwrap_or(TargetSpec::Wildcard),
+                    include_dirs: include_dirs?,
+                    defines,
+                    files: files?,
+                })))
+            },
+            PartialSources {
+                target: None,
+                include_dirs: None,
+                defines: None,
+                files: None,
+                sv: _sv,
+                v: _v,
+                vhd: _vhd,
+            } => {
+                Err(Error::new("Only a single source with a single type is supported."))
+            },
+            _ => {
+                Err(Error::new(
+                    "Do not mix `sv`, `v`, or `vhd` with `files`, `target`, `include_dirs`, and `defines`.",
+                ))
+            }
+        }
     }
 }
 
@@ -521,6 +624,12 @@ pub enum PartialSourceFile {
     File(String),
     /// A subgroup of sources.
     Group(Box<PartialSources>),
+    /// A systemverilog source.
+    SvFile(String),
+    /// A verilog source.
+    VerilogFile(String),
+    /// A vhdl source.
+    VhdlFile(String),
 }
 
 // Custom serialization for partial source files.
@@ -532,6 +641,9 @@ impl Serialize for PartialSourceFile {
         match *self {
             PartialSourceFile::File(ref path) => path.serialize(serializer),
             PartialSourceFile::Group(ref srcs) => srcs.serialize(serializer),
+            PartialSourceFile::SvFile(ref path) => path.serialize(serializer),
+            PartialSourceFile::VerilogFile(ref path) => path.serialize(serializer),
+            PartialSourceFile::VhdlFile(ref path) => path.serialize(serializer),
         }
     }
 }
@@ -582,7 +694,14 @@ impl Validate for PartialSourceFile {
     fn validate(self) -> Result<SourceFile> {
         match self {
             PartialSourceFile::File(path) => Ok(SourceFile::File(env_path_from_string(path)?)),
-            PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate()?))),
+            PartialSourceFile::Group(srcs) => Ok(srcs.validate()?),
+            PartialSourceFile::SvFile(path) => Ok(SourceFile::SvFile(env_path_from_string(path)?)),
+            PartialSourceFile::VerilogFile(path) => {
+                Ok(SourceFile::VerilogFile(env_path_from_string(path)?))
+            }
+            PartialSourceFile::VhdlFile(path) => {
+                Ok(SourceFile::VhdlFile(env_path_from_string(path)?))
+            }
         }
     }
 }

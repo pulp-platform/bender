@@ -766,7 +766,8 @@ pub fn copy_recursively(
                     ),
                     cause,
                 )
-            })?)?;
+            })?)?
+            .file_type();
         if filetype.is_dir() {
             copy_recursively(
                 entry.path(),
