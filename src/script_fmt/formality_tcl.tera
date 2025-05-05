@@ -7,7 +7,7 @@ set search_path $search_path_initial
 {% endfor %}
 {% if abort_on_error %}if {[catch { {% endif %}{% if group.file_type == 'verilog' %}read_sverilog{% elif group.file_type == 'vhdl' %}read_vhdl{% endif %} -r \
     {% for define in group.defines %}{% if loop.first %}-define { \
-        {% endif %}{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %} \
+        {% endif %}{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %} \
     } \
     {% else %} \
         {% endif %}{% endfor %}[list \
@@ -20,7 +20,7 @@ set search_path $search_path_initial
 {% endfor %}
 {% if abort_on_error %}if {[catch { {% endif %}read_sverilog -r \
     {% for define in all_defines %}{% if loop.first %}-define { \
-        {% endif %}{{ define.0 | upper }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %} \
+        {% endif %}{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %} \
     } \
     {% else %} \
         {% endif %}{% endfor %}[list \
