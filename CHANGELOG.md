@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - `checkout`: When using `checkout_dir`, overwrite existing dependencies if not changed, warning if not checked out, flag to force checkout.
 - `update`: Update `checkout_dir` if no internal changes.
 - Execute checkout instead of clone to checkout correct dependency versions when reasonable.
+- `packages --graph`: Clean up alignment of output.
 
 ## 0.28.2 - 2025-03-31
 ### Fixed

@@ -48,27 +48,32 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         return Err(Error::new("cannot specify both --graph and --version"));
     }
     if graph {
+        let mut graph_str = String::from("");
         for (&pkg, deps) in sess.graph().iter() {
             let pkg_name = sess.dependency_name(pkg);
             let dep_names = deps.iter().map(|&id| sess.dependency_name(id));
             if flat {
                 // Print one line per dependency.
                 for dep_name in dep_names {
-                    println!("{}\t{}", pkg_name, dep_name);
+                    graph_str.push_str(&format!("{}\t{}\n", pkg_name, dep_name));
                 }
             } else {
                 // Print all dependencies on one line.
-                print!("{}\t", pkg_name);
+                graph_str.push_str(&format!("{}\t", pkg_name));
                 for (i, dep_name) in dep_names.enumerate() {
                     if i > 0 {
-                        print!(" {}", dep_name);
+                        graph_str.push_str(&format!(" {}", dep_name));
                     } else {
-                        print!("{}", dep_name);
+                        graph_str.push_str(dep_name);
                     }
                 }
-                println!();
+                graph_str.push('\n');
             }
         }
+        let mut tw = TabWriter::new(vec![]);
+        write!(&mut tw, "{}", graph_str).unwrap();
+        tw.flush().unwrap();
+        print!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
     } else {
         let mut version_str = String::from("");
         for pkgs in sess.packages().iter() {
