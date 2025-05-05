@@ -122,6 +122,18 @@ impl TargetSpec {
     pub fn is_wildcard(&self) -> bool {
         matches!(*self, TargetSpec::Wildcard)
     }
+
+    /// Get list of available targets.
+    pub fn get_avail(&self) -> IndexSet<String> {
+        match *self {
+            TargetSpec::Wildcard => IndexSet::new(),
+            TargetSpec::Name(ref name) => IndexSet::from([name.clone()]),
+            TargetSpec::All(ref specs) | TargetSpec::Any(ref specs) => {
+                specs.iter().flat_map(TargetSpec::get_avail).collect()
+            }
+            TargetSpec::Not(ref spec) => spec.get_avail(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

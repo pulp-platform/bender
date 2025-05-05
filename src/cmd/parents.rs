@@ -29,7 +29,7 @@ pub fn new() -> Command {
 /// Execute the `parents` subcommand.
 pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let dep = &matches.get_one::<String>("name").unwrap().to_lowercase();
-    sess.dependency_with_name(dep)?;
+    let mydep = sess.dependency_with_name(dep)?;
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
 
@@ -114,6 +114,21 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         tw.flush().unwrap();
         print!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
     }
+
+    println!(
+        "{} used version: {} at {}{}",
+        sess.dependency(mydep).name,
+        match sess.dependency(mydep).version.clone() {
+            Some(ver) => ver.to_string(),
+            None => "".to_string(),
+        },
+        sess.dependency(mydep).source,
+        match sess.dependency(mydep).source {
+            DependencySource::Path { .. } => " as path".to_string(),
+            DependencySource::Git(_) => format!(" with hash {}", sess.dependency(mydep).version()),
+            _ => "".to_string(),
+        }
+    );
 
     if sess.config.overrides.contains_key(dep) {
         warnln!(
