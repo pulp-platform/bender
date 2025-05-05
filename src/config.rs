@@ -15,6 +15,8 @@ use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use glob::glob;
+
 use indexmap::IndexMap;
 use semver;
 use serde::de::{Deserialize, Deserializer};
@@ -497,6 +499,24 @@ impl Validate for PartialSources {
     type Output = Sources;
     type Error = Error;
     fn validate(self) -> Result<Sources> {
+        let post_glob_files: Vec<PartialSourceFile> = self
+            .files
+            .into_iter()
+            .map(|pre_glob_file| {
+                if let PartialSourceFile::File(_) = pre_glob_file {
+                    // PartialSources .files item is pointing to PartialSourceFiles::file so do glob extension
+                    pre_glob_file.glob_file()
+                } else {
+                    // PartialSources .files item is pointing to PartialSourceFiles::group so pass on for recursion
+                    // to do glob extension in the groups.sources.files list of PartialSourceFiles::file
+                    Ok(vec![pre_glob_file])
+                }
+            })
+            .collect::<Result<Vec<Vec<PartialSourceFile>>>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+
         let include_dirs: Result<Vec<_>> = self
             .include_dirs
             .unwrap_or_default()
@@ -504,7 +524,7 @@ impl Validate for PartialSources {
             .map(|path| env_path_from_string(path.to_string()))
             .collect();
         let defines = self.defines.unwrap_or_default();
-        let files: Result<Vec<_>> = self.files.into_iter().map(|f| f.validate()).collect();
+        let files: Result<Vec<_>> = post_glob_files.into_iter().map(|f| f.validate()).collect();
         Ok(Sources {
             target: self.target.unwrap_or(TargetSpec::Wildcard),
             include_dirs: include_dirs?,
@@ -583,6 +603,58 @@ impl Validate for PartialSourceFile {
         match self {
             PartialSourceFile::File(path) => Ok(SourceFile::File(env_path_from_string(path)?)),
             PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate()?))),
+        }
+    }
+}
+
+/// Converts a file with glob in name to a list of matching files
+pub trait GlobFile {
+    /// The output type produced by validation.
+    type Output;
+    /// The error type produced by validation.
+    type Error;
+    /// Validate self and convert to a full list of paths that exist
+    fn glob_file(self) -> Result<Self::Output>;
+}
+
+impl GlobFile for PartialSourceFile {
+    type Output = Vec<PartialSourceFile>;
+    type Error = Error;
+
+    fn glob_file(self) -> Result<Vec<PartialSourceFile>> {
+        // let mut partial_source_files_vec: Vec<PartialSourceFile> = Vec::new();
+
+        // Only operate on files, not groups
+        if let PartialSourceFile::File(ref path) = self {
+            // Check if glob patterns used
+            if path.contains("*") || path.contains("?") {
+                let glob_matches = glob(path).map_err(|cause| {
+                    Error::chain(format!("Invalid glob pattern for {:?}", path), cause)
+                })?;
+                let out = glob_matches
+                    .map(|glob_match| {
+                        Ok(PartialSourceFile::File(
+                            glob_match
+                                .map_err(|cause| {
+                                    Error::chain(format!("Glob match failed for {:?}", path), cause)
+                                })?
+                                .to_str()
+                                .unwrap()
+                                .to_string(),
+                        ))
+                    })
+                    .collect::<Result<Vec<PartialSourceFile>>>()?;
+                if out.is_empty() {
+                    warnln!("No files found for glob pattern {:?}", path);
+                }
+                Ok(out)
+            } else {
+                // Return self if not a glob pattern
+                Ok(vec![self])
+            }
+        } else {
+            // Return self if not a glob pattern
+            Ok(vec![self])
         }
     }
 }

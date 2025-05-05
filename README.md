@@ -147,6 +147,9 @@ sources:
       - src/core/alu.sv
       - src/core/top.sv
 
+  # Source files can use glob patterns to include all matching files:
+  - src/more_stuff/**/*.sv
+
 # A list of include directories which should implicitly be added to source
 # file groups of packages that have the current package as a dependency.
 # Optional.
