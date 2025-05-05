@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Fixed
 - Fix `update` failing pull of inexistent commit when multiple repositories are indicated.
 - Fix checkout for commit not yet fetched.
+- `script`: Fix flist-plus incdir template.
 
 ### Added
 - `update`: Update repositories in checkout dir if conditions match:
@@ -22,6 +23,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - `packages`: Add `--version` flag to print currently used versions.
 - `packages`: Add `--targets` flag to print targets used in the corresponding manifest.
 - Add `clean` command to clean all bender related dependencies.
+- `script`: Allow flist formats to use `only-sources`/`only-includes`/`only-defines` flags.
 
 ### Changed
 - `update`: Clean up alignment of manual resolution output.
@@ -29,6 +31,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - `update`: Update `checkout_dir` if no internal changes.
 - Execute checkout instead of clone to checkout correct dependency versions when reasonable.
 - `packages --graph`: Clean up alignment of output.
+- `script`: No longer enforce all caps defines.
 
 ## 0.28.2 - 2025-03-31
 ### Fixed
