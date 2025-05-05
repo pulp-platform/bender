@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - `parents`: Print currently selected version.
 - `packages`: Add `--version` flag to print currently used versions.
 - `packages`: Add `--targets` flag to print targets used in the corresponding manifest.
+- Add `clean` command to clean all bender related dependencies.
 
 ### Changed
 - `update`: Clean up alignment of manual resolution output.
