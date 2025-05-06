@@ -26,14 +26,12 @@ pub fn read_lockfile(path: &Path, root_dir: &Path) -> Result<Locked> {
                     (
                         pack.0.clone(),
                         LockedPackage {
-                            revision: pack.1.revision.clone(),
-                            version: pack.1.version.clone(),
                             source: LockedSource::Path(if path.is_relative() {
                                 path.clone().prefix_paths(root_dir)?
                             } else {
                                 path.clone()
                             }),
-                            dependencies: pack.1.dependencies.clone(),
+                            ..pack.1.clone()
                         },
                     )
                 } else {
@@ -57,12 +55,10 @@ pub fn write_lockfile(locked: &Locked, path: &Path, root_dir: &Path) -> Result<(
                     (
                         pack.0.clone(),
                         LockedPackage {
-                            revision: pack.1.revision.clone(),
-                            version: pack.1.version.clone(),
                             source: LockedSource::Path(
                                 path.strip_prefix(root_dir).unwrap_or(path).to_path_buf(),
                             ),
-                            dependencies: pack.1.dependencies.clone(),
+                            ..pack.1.clone()
                         },
                     )
                 } else {

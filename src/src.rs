@@ -139,15 +139,9 @@ impl<'ctx> SourceGroup<'ctx> {
 
         Some(
             SourceGroup {
-                package: self.package,
-                independent: self.independent,
-                target: self.target.clone(),
-                include_dirs: self.include_dirs.clone(),
-                export_incdirs: self.export_incdirs.clone(),
                 defines: defines.clone(),
                 files,
-                dependencies: self.dependencies.clone(),
-                version: self.version.clone(),
+                ..self.clone()
             }
             .simplify(),
         )
@@ -166,19 +160,13 @@ impl<'ctx> SourceGroup<'ctx> {
             .collect();
 
         SourceGroup {
-            package: self.package,
-            independent: self.independent,
             target: if self.target.is_wildcard() {
                 TargetSpec::Name(target)
             } else {
                 self.target.clone()
             },
-            include_dirs: self.include_dirs.clone(),
-            export_incdirs: self.export_incdirs.clone(),
-            defines: self.defines.clone(),
             files,
-            dependencies: self.dependencies.clone(),
-            version: self.version.clone(),
+            ..self.clone()
         }
     }
 
@@ -255,15 +243,9 @@ impl<'ctx> SourceGroup<'ctx> {
         let export_incdirs = self.export_incdirs.clone();
         Some(
             SourceGroup {
-                package: self.package,
-                independent: self.independent,
-                target: self.target.clone(),
-                include_dirs: self.include_dirs.clone(),
                 export_incdirs,
-                defines: self.defines.clone(),
                 files,
-                dependencies: self.dependencies.clone(),
-                version: self.version.clone(),
+                ..self.clone()
             }
             .simplify(),
         )

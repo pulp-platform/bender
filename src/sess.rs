@@ -641,11 +641,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         match versions_tmp.get(&git.path.to_path_buf()) {
             Some(result) => {
                 debugln!("sess: git_versions from stored");
-                Ok(GitVersions {
-                    versions: result.versions.clone(),
-                    refs: result.refs.clone(),
-                    revs: result.revs.clone(),
-                })
+                Ok(result.clone())
             }
             None => {
                 debugln!("sess: git_versions get new");
@@ -1817,7 +1813,7 @@ impl DependencySource {
 }
 
 /// A table of internalized dependencies.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct DependencyTable<'ctx> {
     list: Vec<&'ctx DependencyEntry>,
     ids: IndexMap<&'ctx DependencyEntry, DependencyRef>,
@@ -1826,10 +1822,7 @@ struct DependencyTable<'ctx> {
 impl<'ctx> DependencyTable<'ctx> {
     /// Create a new dependency table.
     pub fn new() -> DependencyTable<'ctx> {
-        DependencyTable {
-            list: Vec::new(),
-            ids: IndexMap::new(),
-        }
+        Default::default()
     }
 
     /// Add a dependency entry to the table.
