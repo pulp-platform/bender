@@ -379,10 +379,12 @@ impl<'ctx> DependencyResolver<'ctx> {
                                 match &locked_package.revision {
                                     Some(r) => r.clone(),
                                     None => {
-                                        warnln!(
-                                            "[W21] No revision found in lock file for git dependency `{}`",
-                                            name
-                                        );
+                                        if !io.sess.suppress_warnings.contains("W21") {
+                                            warnln!(
+                                                "[W21] No revision found in lock file for git dependency `{}`",
+                                                name
+                                            );
+                                        }
                                         return None;
                                     }
                                 },
