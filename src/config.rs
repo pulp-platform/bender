@@ -18,7 +18,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use glob::glob;
-
 use indexmap::{IndexMap, IndexSet};
 use semver;
 use serde::de::{Deserialize, Deserializer};
@@ -489,7 +488,19 @@ impl Validate for PartialManifest {
             sources: srcs,
             export_include_dirs: exp_inc_dirs
                 .iter()
-                .map(|path| env_path_from_string(path.to_string()))
+                .filter_map(|path| match env_path_from_string(path.to_string()) {
+                    Ok(parsed_path) => Some(Ok(parsed_path)),
+                    Err(cause) => {
+                        if suppress_warnings.contains("E30") {
+                            if !suppress_warnings.contains("W30") {
+                                warnln!("[W30] File not added, ignoring: {}", cause);
+                            }
+                            None
+                        } else {
+                            Some(Err(Error::chain("[E30]", cause)))
+                        }
+                    }
+                })
                 .collect::<Result<Vec<_>>>()?,
             plugins,
             frozen,
@@ -693,7 +704,19 @@ impl Validate for PartialSources {
             .clone()
             .unwrap_or_default()
             .iter()
-            .map(|path| env_path_from_string(path.to_string()))
+            .filter_map(|path| match env_path_from_string(path.to_string()) {
+                Ok(p) => Some(Ok(p)),
+                Err(cause) => {
+                    if suppress_warnings.contains("E30") {
+                        if !suppress_warnings.contains("W30") {
+                            warnln!("[W30] File not added, ignoring: {}", cause);
+                        }
+                        None
+                    } else {
+                        Some(Err(Error::chain("[E30]", cause)))
+                    }
+                }
+            })
             .collect();
 
         let external_flist_list: Result<Vec<(PathBuf, Vec<String>)>> = external_flists?
@@ -803,11 +826,21 @@ impl Validate for PartialSources {
             .files
             .into_iter()
             .chain(external_flist_groups?.into_iter())
-            .map(|file| match file {
-                PartialSourceFile::File(file) => {
-                    Ok(PartialSourceFile::File(env_string_from_string(file)?))
-                }
-                other => Ok(other),
+            .filter_map(|file| match file {
+                PartialSourceFile::File(file) => match env_string_from_string(file) {
+                    Ok(p) => Some(Ok(PartialSourceFile::File(p))),
+                    Err(cause) => {
+                        if suppress_warnings.contains("E30") {
+                            if !suppress_warnings.contains("W30") {
+                                warnln!("[W30] File not added, ignoring: {}", cause);
+                            }
+                            None
+                        } else {
+                            Some(Err(Error::chain("[E30]", cause)))
+                        }
+                    }
+                },
+                other => Some(Ok(other)),
             })
             .collect::<Result<Vec<_>>>()?;
         let post_glob_files: Vec<PartialSourceFile> = post_env_files
@@ -831,7 +864,19 @@ impl Validate for PartialSources {
             .include_dirs
             .unwrap_or_default()
             .iter()
-            .map(|path| env_path_from_string(path.to_string()))
+            .filter_map(|path| match env_path_from_string(path.to_string()) {
+                Ok(p) => Some(Ok(p)),
+                Err(cause) => {
+                    if suppress_warnings.contains("E30") {
+                        if !suppress_warnings.contains("W30") {
+                            warnln!("[W30] File not added, ignoring: {}", cause);
+                        }
+                        None
+                    } else {
+                        Some(Err(Error::chain("[E30]", cause)))
+                    }
+                }
+            })
             .collect();
 
         let defines = self.defines.unwrap_or_default();
@@ -839,7 +884,8 @@ impl Validate for PartialSources {
             .into_iter()
             .map(|f| f.validate(package_name, pre_output, suppress_warnings))
             .collect();
-        let files = files?;
+        let files: Vec<Option<SourceFile>> = files?;
+        let files: Vec<SourceFile> = files.into_iter().flatten().collect();
         if files.is_empty() && !pre_output && !suppress_warnings.contains("W04") {
             warnln!(
                 "[W04] No source files specified in a sourcegroup in manifest for {}.",
@@ -940,21 +986,19 @@ impl<'de> Deserialize<'de> for PartialSourceFile {
 }
 
 impl Validate for PartialSourceFile {
-    type Output = SourceFile;
+    type Output = Option<SourceFile>;
     type Error = Error;
     fn validate(
         self,
         package_name: &str,
         pre_output: bool,
         suppress_warnings: &IndexSet<String>,
-    ) -> Result<SourceFile> {
+    ) -> Result<Option<SourceFile>> {
         match self {
-            PartialSourceFile::File(path) => Ok(SourceFile::File(PathBuf::from(path))),
-            PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate(
-                package_name,
-                pre_output,
-                suppress_warnings,
-            )?))),
+            PartialSourceFile::File(path) => Ok(Some(SourceFile::File(PathBuf::from(path)))),
+            PartialSourceFile::Group(srcs) => Ok(Some(SourceFile::Group(Box::new(
+                srcs.validate(package_name, pre_output, suppress_warnings)?,
+            )))),
         }
     }
 }
@@ -1099,10 +1143,8 @@ impl PrefixPaths for PathBuf {
 
 impl PrefixPaths for String {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
-        Ok(prefix
-            .join(env_path_from_string(self)?)
-            .display()
-            .to_string())
+        // env is resolved later, convert back to string here.
+        Ok(prefix.join(PathBuf::from(&self)).display().to_string())
     }
 }
 
