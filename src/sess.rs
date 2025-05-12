@@ -141,15 +141,15 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             calling_package
         );
         let src = DependencySource::from(cfg);
-        self.deps
-            .lock()
-            .unwrap()
-            .add(self.intern_dependency_entry(DependencyEntry {
+        self.deps.lock().unwrap().add(
+            self.intern_dependency_entry(DependencyEntry {
                 name: name.into(),
                 source: src,
                 revision: None,
                 version: None,
-            }))
+            }),
+            &self.suppress_warnings,
+        )
     }
 
     /// Load a lock file.
@@ -176,6 +176,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
                         .as_ref()
                         .map(|s| semver::Version::parse(s).unwrap()),
                 }),
+                &self.suppress_warnings,
             );
             graph_names.insert(id, &pkg.dependencies);
             names.insert(name.clone(), id);
@@ -1721,13 +1722,17 @@ impl<'ctx> DependencyTable<'ctx> {
     ///
     /// The reference with which the information can later be retrieved is
     /// returned.
-    pub fn add(&mut self, entry: &'ctx DependencyEntry) -> DependencyRef {
+    pub fn add(
+        &mut self,
+        entry: &'ctx DependencyEntry,
+        suppress_warnings: &IndexSet<String>,
+    ) -> DependencyRef {
         if let Some(&id) = self.ids.get(&entry) {
             debugln!("sess: reusing {:?}", id);
             id
         } else {
             if let DependencySource::Path(path) = &entry.source {
-                if !path.exists() {
+                if !path.exists() && !suppress_warnings.contains("W22") {
                     warnln!(
                         "[W22] Dependency `{}` has source path `{}` which does not exist",
                         entry.name,
