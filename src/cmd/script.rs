@@ -157,6 +157,13 @@ pub fn new() -> Command {
                 ])
         )
         .arg(
+            Arg::new("no-source-annotations")
+                .long("no-source-annotations")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
+                .help("remove source annotations from the generated script")
+        )
+        .arg(
             Arg::new("package")
                 .short('p')
                 .long("package")
@@ -701,6 +708,10 @@ fn emit_template(
     tera_context.insert("vlogan_bin", &matches.get_one::<String>("vlogan-bin"));
     tera_context.insert("vhdlan_bin", &matches.get_one::<String>("vhdlan-bin"));
     tera_context.insert("relativize_path", &matches.get_flag("relative-path"));
+    tera_context.insert(
+        "source_annotations",
+        &!matches.get_flag("no-source-annotations"),
+    );
     tera_context.insert(
         "compilation_mode",
         &matches.get_one::<String>("compilation_mode"),
