@@ -75,7 +75,7 @@ jobs:
         run: |
           export tgtname=$(echo ${{ matrix.os }} | tr -d ':')
           export platform=$(echo ${{ matrix.platform }} | awk -F'/' '{print $NF}')
-          .github/scripts/package.sh $tgtname $platform;
+          .github/scripts/package.sh $platform $tgtname;
         shell: bash
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
@@ -120,7 +120,7 @@ jobs:
         run: |
           export tgtname=$(echo ${{ matrix.os }} | tr -d ':')
           export platform=$(echo ${{ matrix.platform }} | awk -F'/' '{print $NF}')
-          .github/scripts/package.sh $tgtname $platform;
+          .github/scripts/package.sh $platform $tgtname;
         shell: bash
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
@@ -129,7 +129,52 @@ jobs:
           files: bender-*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  release-gnu:
+  release-gnu_amd64:
+    runs-on: ubuntu-24.04-arm
+    # Use container that supports old GLIBC versions and (hopefully) many linux OSs
+    # container: quay.io/pypa/manylinux2014_aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Dockerfile
+        run: |
+          touch Dockerfile
+          echo "FROM quay.io/pypa/manylinux2014_aarch64" >> Dockerfile
+          echo "RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo" >> Dockerfile
+          echo "RUN sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo" >> Dockerfile
+          echo "RUN sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo" >> Dockerfile
+
+          echo "RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*" >> Dockerfile
+          echo "RUN sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*" >> Dockerfile
+          echo "RUN yum group install "Development Tools" -y && yum clean all" >> Dockerfile
+          echo 'ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo' >> Dockerfile
+          echo 'ENV PATH=$CARGO_HOME/bin:$PATH' >> Dockerfile
+          echo >> Dockerfile
+          echo 'RUN mkdir -p "$CARGO_HOME" && mkdir -p "$RUSTUP_HOME" && \' >> Dockerfile
+          echo '    curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable && \' >> Dockerfile
+          echo '    chmod -R a=rwX $CARGO_HOME' >> Dockerfile
+          echo >> Dockerfile
+          echo 'WORKDIR /source' >> Dockerfile
+      - name: OS build
+        run: |
+          docker build ./ -t manylinux-amd64 --platform linux/amd64
+          docker run \
+            -t --rm \
+            -v "$GITHUB_WORKSPACE:/source" \
+            -v "$GITHUB_WORKSPACE/target/amd64:/source/target" \
+            --platform linux/amd64 \
+            manylinux-amd64 \
+            cargo build --release;
+      - name: GNU Create Package
+        run: .github/scripts/package.sh amd64
+        shell: bash
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: bender-*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  release-gnu_arm64:
     runs-on: ubuntu-latest
     # Use container that supports old GLIBC versions and (hopefully) many linux OSs
     # container: quay.io/pypa/manylinux2014_x86_64
@@ -147,7 +192,7 @@ jobs:
           echo "RUN sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*" >> Dockerfile
           echo "RUN yum group install "Development Tools" -y && yum clean all" >> Dockerfile
           echo 'ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo' >> Dockerfile
-          echo 'ENV PATH $CARGO_HOME/bin:$PATH' >> Dockerfile
+          echo 'ENV PATH=$CARGO_HOME/bin:$PATH' >> Dockerfile
           echo >> Dockerfile
           echo 'RUN mkdir -p "$CARGO_HOME" && mkdir -p "$RUSTUP_HOME" && \' >> Dockerfile
           echo '    curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable && \' >> Dockerfile
@@ -156,15 +201,16 @@ jobs:
           echo 'WORKDIR /source' >> Dockerfile
       - name: OS build
         run: |
-          docker build ./ -t manylinux
+          docker build ./ -t manylinux-arm64 --platform linux/arm64
           docker run \
             -t --rm \
             -v "$GITHUB_WORKSPACE:/source" \
-            -v "$GITHUB_WORKSPACE/target:/source/target" \
-            manylinux \
+            -v "$GITHUB_WORKSPACE/target/arm64:/source/target" \
+            --platform linux/arm64 \
+            manylinux-arm64 \
             cargo build --release;
       - name: GNU Create Package
-        run: .github/scripts/package.sh
+        run: .github/scripts/package.sh arm64
         shell: bash
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
