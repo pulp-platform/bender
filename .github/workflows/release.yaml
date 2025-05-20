@@ -51,32 +51,25 @@ jobs:
           - almalinux:9.3
           - almalinux:9.4
           - almalinux:9.5
-        platform:
-          - linux/amd64
-          - linux/arm64
     steps:
       - uses: actions/checkout@v4
       - name: OS Build
         run: |
           export full_tgtname=${{ matrix.os }}
           export tgtname=$(echo ${{ matrix.os }} | tr -d ':')
-          export full_platform=${{ matrix.platform }}
-          export platform=$(echo ${{ matrix.platform }} | tr -d '/')
           .github/scripts/gen_dockerfile.sh
-          docker build ./ -t $tgtname --platform $full_platform
+          docker build ./ -t $tgtname
           docker run \
             -t --rm \
             -v "$GITHUB_WORKSPACE:/source" \
-            -v "$GITHUB_WORKSPACE/target/$platform/$tgtname:/source/target" \
-            --platform $platform \
+            -v "$GITHUB_WORKSPACE/target/$tgtname:/source/target" \
             $tgtname \
             cargo build --release;
         shell: bash
       - name: OS Create Package
         run: |
           tgtname=$(echo ${{ matrix.os }} | tr -d ':')
-          platform=$(echo ${{ matrix.platform }} | tr -d '/')
-          .github/scripts/package.sh $tgtname $platform;
+          .github/scripts/package.sh $tgtname;
         shell: bash
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
@@ -87,7 +80,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   release-gnu:
     runs-on: ubuntu-latest
-    strategy:
+    strategy: 
       fail-fast: false
     # Use container that supports old GLIBC versions and (hopefully) many linux OSs
     # container: quay.io/pypa/manylinux2014_x86_64
