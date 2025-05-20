@@ -48,7 +48,7 @@ if [[ $(echo $full_tgtname | cut -d ':' -f 1) == "redhat"* ]]; then
 fi
 echo >> $filename
 echo 'ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo' >> $filename
-echo 'ENV PATH $CARGO_HOME/bin:$PATH' >> $filename
+echo 'ENV PATH=$CARGO_HOME/bin:$PATH' >> $filename
 echo >> $filename
 echo 'RUN mkdir -p "$CARGO_HOME" && mkdir -p "$RUSTUP_HOME" && \' >> $filename
 echo '    curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable && \' >> $filename
