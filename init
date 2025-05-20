@@ -49,12 +49,16 @@ main() {
         local _arch="universal-apple-darwin"
     fi
 
-    if [ "$_arch" != "x86_64-linux-gnu" ] && [ "$_arch" != "universal-apple-darwin" ]; then
+    if [ "$_arch" = "aarch64-linux-gnu" ]; then
+        local _arch="arm64-linux-gnu"
+    fi
+
+    if [ "$_arch" != "x86_64-linux-gnu" ] && [ "$_arch" != "universal-apple-darwin" ] && [ "$_arch" != "arm64-linux-gnu" ] ; then
         echo "Error: Architecture '$_arch' currently not supported!"
         return 1
     fi
 
-    if [ "$_arch" = "x86_64-linux-gnu" ]; then
+    if [ "$_arch" = "x86_64-linux-gnu" ] || [ "$_arch" = "arm64-linux-gnu" ]; then
         get_distribution || err "Failed to determine distribution!"
         local _dist="$RETVAL"
         assert_nz "$_dist" "dist"
@@ -325,12 +329,19 @@ get_asset_url() {
         get_download_url "latest" "$_platform"
     fi
     if [ -z "$RETVAL" ]; then
-        local _fallback="x86_64-linux-gnu"
-        if [[ $_platform =~ ^$_fallback.*$ ]]; then
-            say "Warning: Latest release not available for platform '$_platform', falling back to '$_fallback'."
-        else
-            err "Error: Latest release not available for platform '$_platform'!"
-        fi
+        case "$_platform" in
+            x86_64-linux-gnu*)
+                say "Warning: Latest release not available for platform '$_platform', falling back to 'x86_64-linux-gnu'."
+                _fallback="x86_64-linux-gnu"
+                ;;
+            arm64-linux-gnu*)
+                say "Warning: Latest release not available for platform '$_platform', falling back to 'arm64-linux-gnu'."
+                _fallback="arm64-linux-gnu"
+                ;;
+             *)
+                err "Error: Latest release not available for platform '$_platform'!"
+                ;;
+        esac
         get_download_url "latest" "$_fallback"
     fi
     assert_nz "$RETVAL" assets
