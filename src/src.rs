@@ -14,6 +14,8 @@ use std::path::Path;
 use indexmap::{IndexMap, IndexSet};
 use serde::ser::{Serialize, Serializer};
 
+use crate::config::Validate;
+use crate::error::Error;
 use crate::sess::Session;
 use crate::target::{TargetSet, TargetSpec};
 use semver;
@@ -39,6 +41,25 @@ pub struct SourceGroup<'ctx> {
     pub dependencies: IndexSet<String>,
     /// Version information of the package
     pub version: Option<semver::Version>,
+}
+
+impl<'ctx> Validate for SourceGroup<'ctx> {
+    type Output = SourceGroup<'ctx>;
+    type Error = Error;
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+    ) -> crate::error::Result<SourceGroup<'ctx>> {
+        Ok(SourceGroup {
+            files: self
+                .files
+                .into_iter()
+                .map(|f| f.validate(package_name, pre_output))
+                .collect::<Result<Vec<_>, Error>>()?,
+            ..self
+        })
+    }
 }
 
 impl<'ctx> SourceGroup<'ctx> {
@@ -313,6 +334,31 @@ impl<'ctx> From<SourceGroup<'ctx>> for SourceFile<'ctx> {
 impl<'ctx> From<&'ctx Path> for SourceFile<'ctx> {
     fn from(path: &'ctx Path) -> SourceFile<'ctx> {
         SourceFile::File(path)
+    }
+}
+
+impl<'ctx> Validate for SourceFile<'ctx> {
+    type Output = SourceFile<'ctx>;
+    type Error = Error;
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceFile<'ctx>, Error> {
+        match self {
+            SourceFile::File(path) => {
+                let env_path_buf =
+                    crate::config::env_path_from_string(path.to_string_lossy().to_string())?;
+                let exists = env_path_buf.exists() && env_path_buf.is_file();
+                if exists {
+                    Ok(SourceFile::File(path))
+                } else {
+                    Err(Error::new(format!(
+                        "File {} doesn't exist",
+                        env_path_buf.to_string_lossy()
+                    )))
+                }
+            }
+            SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(
+                srcs.validate(package_name, pre_output)?,
+            ))),
+        }
     }
 }
 

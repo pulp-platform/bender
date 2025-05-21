@@ -348,10 +348,11 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
         .map_err(|cause| Error::chain(format!("Cannot open manifest {:?}.", path), cause))?;
     let partial: PartialManifest = serde_yaml::from_reader(file)
         .map_err(|cause| Error::chain(format!("Syntax error in manifest {:?}.", path), cause))?;
-    let manifest = partial
-        .validate()
-        .map_err(|cause| Error::chain(format!("Error in manifest {:?}.", path), cause))?;
-    manifest.prefix_paths(path.parent().unwrap())
+    partial
+        .prefix_paths(path.parent().unwrap())
+        .map_err(|cause| Error::chain(format!("Error in manifest prefixing {:?}.", path), cause))?
+        .validate("", false)
+        .map_err(|cause| Error::chain(format!("Error in manifest {:?}.", path), cause))
 }
 
 /// Load a configuration by traversing a directory hierarchy upwards.
@@ -427,7 +428,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
 
     // Validate the configuration.
     let mut out = out
-        .validate()
+        .validate("", false)
         .map_err(|cause| Error::chain("Invalid configuration:", cause))?;
 
     out.overrides = out
