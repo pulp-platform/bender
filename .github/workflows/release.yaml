@@ -130,15 +130,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   release-gnu_amd64:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     # Use container that supports old GLIBC versions and (hopefully) many linux OSs
-    # container: quay.io/pypa/manylinux2014_aarch64
+    # container: quay.io/pypa/manylinux2014_x86_64
     steps:
       - uses: actions/checkout@v4
       - name: Setup Dockerfile
         run: |
           touch Dockerfile
-          echo "FROM quay.io/pypa/manylinux2014_aarch64" >> Dockerfile
+          echo "FROM quay.io/pypa/manylinux2014_x86_64" >> Dockerfile
           echo "RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo" >> Dockerfile
           echo "RUN sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo" >> Dockerfile
           echo "RUN sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo" >> Dockerfile
@@ -175,15 +175,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   release-gnu_arm64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     # Use container that supports old GLIBC versions and (hopefully) many linux OSs
-    # container: quay.io/pypa/manylinux2014_x86_64
+    # container: quay.io/pypa/manylinux2014_aarch64
     steps:
       - uses: actions/checkout@v4
       - name: Setup Dockerfile
         run: |
           touch Dockerfile
-          echo "FROM quay.io/pypa/manylinux2014_x86_64" >> Dockerfile
+          echo "FROM quay.io/pypa/manylinux2014_aarch64" >> Dockerfile
           echo "RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo" >> Dockerfile
           echo "RUN sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo" >> Dockerfile
           echo "RUN sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo" >> Dockerfile
