@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - `script`: Fix flist-plus incdir template.
 
 ### Added
+- Add ARM64 binaries for releases
 - `update`: Update repositories in checkout dir if conditions match:
   - Folder is a git repository
   - Git state is clean
