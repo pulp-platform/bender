@@ -647,8 +647,17 @@ impl Validate for PartialSources {
     type Output = Sources;
     type Error = Error;
     fn validate(self, package_name: &str, pre_output: bool) -> Result<Sources> {
-        let post_glob_files: Vec<PartialSourceFile> = self
+        let post_env_files: Vec<PartialSourceFile> = self
             .files
+            .into_iter()
+            .map(|file| match file {
+                PartialSourceFile::File(file) => {
+                    Ok(PartialSourceFile::File(env_string_from_string(file)?))
+                }
+                other => Ok(other),
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let post_glob_files: Vec<PartialSourceFile> = post_env_files
             .into_iter()
             .map(|pre_glob_file| {
                 if let PartialSourceFile::File(_) = pre_glob_file {
@@ -779,10 +788,7 @@ impl Validate for PartialSourceFile {
     type Error = Error;
     fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceFile> {
         match self {
-            PartialSourceFile::File(path) => {
-                let env_path_buf = env_path_from_string(path.clone())?;
-                Ok(SourceFile::File(env_path_buf))
-            }
+            PartialSourceFile::File(path) => Ok(SourceFile::File(PathBuf::from(path))),
             PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(
                 srcs.validate(package_name, pre_output)?,
             ))),
@@ -1281,18 +1287,20 @@ pub enum LockedSource {
 }
 
 #[cfg(unix)]
-pub(crate) fn env_path_from_string(path_str: String) -> Result<PathBuf> {
-    Ok(PathBuf::from(
-        subst::substitute(&path_str, &subst::Env).map_err(|cause| {
-            Error::chain(
-                format!("Unable to substitute with env: {}", path_str),
-                cause,
-            )
-        })?,
-    ))
+fn env_string_from_string(path_str: String) -> Result<String> {
+    subst::substitute(&path_str, &subst::Env).map_err(|cause| {
+        Error::chain(
+            format!("Unable to substitute with env: {}", path_str),
+            cause,
+        )
+    })
 }
 
 #[cfg(windows)]
+fn env_string_from_string(path_str: String) -> Result<String> {
+    Ok(path_str)
+}
+
 pub(crate) fn env_path_from_string(path_str: String) -> Result<PathBuf> {
-    Ok(PathBuf::from(path_str))
+    Ok(PathBuf::from(env_string_from_string(path_str)?))
 }
