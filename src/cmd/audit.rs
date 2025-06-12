@@ -96,8 +96,16 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
         let mut conflicting = false;
         let mut compatible_versions = available_versions.clone();
-        let default_version = parent_array.values().next().unwrap()[0].clone();
-        let url = parent_array.values().next().unwrap()[1].clone();
+        let default_version = parent_array
+            .values()
+            .next()
+            .unwrap_or(&vec!["".to_string()])[0]
+            .clone();
+        let url = parent_array
+            .values()
+            .next()
+            .unwrap_or(&vec!["".to_string(), "".to_string()])[1]
+            .clone();
         for parent in parent_array.values() {
             match VersionReq::parse(&parent[0]) {
                 Ok(parent_version) => {
