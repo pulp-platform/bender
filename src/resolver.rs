@@ -6,6 +6,7 @@
 #![deny(missing_docs)]
 
 use std::collections::HashMap;
+// use std::f32::consts::E;
 use std::fmt;
 use std::fmt::Write as _;
 use std::fs;
@@ -18,6 +19,7 @@ use indexmap::{IndexMap, IndexSet};
 use is_terminal::IsTerminal;
 use itertools::Itertools;
 use semver::{Version, VersionReq};
+// use serde_json::value::Index;
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
@@ -35,19 +37,13 @@ pub struct DependencyResolver<'ctx> {
     /// The version table which is used to perform resolution.
     table: IndexMap<&'ctx str, Dependency<'ctx>>,
     /// A cache of decisions made by the user during the resolution.
-    decisions: IndexMap<&'ctx str, (DependencyConstraint, DependencySource)>,
+    decisions: IndexMap<&'ctx str, (DependencyConstraint, DependencyRef)>,
     /// Checkout Directory overrides in case checkout_dir is defined and contains unmodified folders.
     checked_out: IndexMap<String, config::Dependency>,
     /// Lockfile data.
-    locked: IndexMap<
-        &'ctx str,
-        (
-            DependencyConstraint,
-            DependencySource,
-            Option<&'ctx str>,
-            bool,
-        ),
-    >,
+    locked: IndexMap<&'ctx str, (DependencyConstraint, DependencyRef, Option<&'ctx str>, bool)>,
+    /// A helpful map
+    src_ref_map: IndexMap<DependencySource, DependencyRef>,
 }
 
 impl<'ctx> DependencyResolver<'ctx> {
@@ -60,15 +56,14 @@ impl<'ctx> DependencyResolver<'ctx> {
             decisions: IndexMap::new(),
             checked_out: IndexMap::new(),
             locked: IndexMap::new(),
+            src_ref_map: IndexMap::new(),
         }
     }
 
     fn any_open(&self) -> bool {
-        self.table.values().any(|dep| {
-            dep.sources
-                .values()
-                .any(|src| matches!(src.state, State::Open))
-        })
+        self.table
+            .values()
+            .any(|dep| matches!(dep.state, State::Open))
     }
 
     /// Resolve dependencies.
@@ -161,12 +156,12 @@ impl<'ctx> DependencyResolver<'ctx> {
             );
             iteration += 1;
 
-            // Fill in dependencies with state `Open`.
+            // Constraint all dependencies with state `Open` -> `Constrained`.
             self.init()?;
 
             // Go through each dependency's versions and apply the constraints
             // imposed by the others.
-            self.mark(&rt, &io)?;
+            self.mark()?;
 
             // Pick a version for each dependency.
             any_changes = self.pick()?;
@@ -212,8 +207,8 @@ impl<'ctx> DependencyResolver<'ctx> {
                             DependencySource::Git(u) => u,
                             _ => unreachable!(),
                         };
-                        let pick = src.state.pick().unwrap();
-                        let rev = gv.revs[pick];
+                        let pick = dep.state.pick().unwrap();
+                        let rev = gv.revs[pick.1];
                         let version = gv
                             .versions
                             .iter()
@@ -271,9 +266,9 @@ impl<'ctx> DependencyResolver<'ctx> {
                 versions,
                 pick: None,
                 options: None,
-                state: State::Locked(locked_index),
             },
         );
+        entry.state = State::Locked(dep, locked_index);
     }
 
     /// Register all dependencies in a manifest, ensuring link to sess.
@@ -291,7 +286,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                 let name = name.as_str();
                 let dep = self.checked_out.get(name).unwrap_or(dep);
                 let dep = self.sess.config.overrides.get(name).unwrap_or(dep);
-                (name, self.sess.load_dependency(name, dep, calling_package))
+                let tmp = (name, self.sess.load_dependency(name, dep, calling_package));
+                self.src_ref_map
+                    .insert(DependencySource::from(dep), tmp.1.clone());
+                tmp
             })
             .collect();
         let ids: IndexSet<DependencyRef> = names.iter().map(|(_, &id)| id).collect();
@@ -405,33 +403,44 @@ impl<'ctx> DependencyResolver<'ctx> {
             })
             .collect();
         for (name, (cnstr, src, hash)) in names {
+            let config_dep: config::Dependency = match src {
+                DependencySource::Registry => {
+                    unreachable!("Registry dependencies not yet supported.");
+                    // TODO should probably be config::Dependeny::Version(vers, str?)
+                }
+                DependencySource::Path(p) => config::Dependency::Path(p),
+                DependencySource::Git(u) => match &cnstr {
+                    DependencyConstraint::Version(v) => {
+                        config::Dependency::GitVersion(u, v.clone())
+                    }
+                    DependencyConstraint::Revision(r) => {
+                        config::Dependency::GitRevision(u, r.clone())
+                    }
+                    _ => unreachable!(),
+                },
+            };
+            // Map the dependencies to unique IDs.
+            let depref = self.sess.load_dependency(name, &config_dep, "");
+            self.src_ref_map
+                .insert(DependencySource::from(&config_dep), depref.clone());
             self.locked.insert(
                 name,
-                (cnstr, src, hash, keep_locked.contains(&&name.to_string())),
+                (
+                    cnstr,
+                    depref,
+                    hash,
+                    keep_locked.contains(&&name.to_string()),
+                ),
             );
         }
 
         let depversions: HashMap<_, _> = rt
             .block_on(join_all(keep_locked.iter().map(|dep| {
-                let (cnstr, src, hash, _) = self.locked.get(dep.as_str()).unwrap().clone();
-                let config_dep: config::Dependency = match src {
-                    DependencySource::Registry => {
-                        unreachable!("Registry dependencies not yet supported.");
-                        // TODO should probably be config::Dependeny::Version(vers, str?)
-                    }
-                    DependencySource::Path(p) => config::Dependency::Path(p),
-                    DependencySource::Git(u) => match cnstr {
-                        DependencyConstraint::Version(v) => config::Dependency::GitVersion(u, v),
-                        DependencyConstraint::Revision(r) => config::Dependency::GitRevision(u, r),
-                        _ => unreachable!(),
-                    },
-                };
-                // Map the dependencies to unique IDs.
-                let depref = self.sess.load_dependency(dep, &config_dep, "");
+                let (_, src, hash, _) = self.locked.get(dep.as_str()).unwrap().clone();
                 async move {
                     Ok::<(_, _), Error>((
                         dep.to_string(),
-                        (hash, io.dependency_versions(depref, false).await?, depref),
+                        (hash, io.dependency_versions(src, false).await?, src),
                     ))
                 }
             })))
@@ -465,12 +474,24 @@ impl<'ctx> DependencyResolver<'ctx> {
     /// available versions, such that they may then be constrained.
     fn init(&mut self) -> Result<()> {
         for dep in self.table.values_mut() {
-            for src in dep.sources.values_mut() {
-                if !src.state.is_open() {
+            let mut constraints = match dep.state {
+                State::Open => IndexMap::new(),
+                State::Constrained(ref constraints) => constraints.clone(),
+                State::Locked(_, _) => {
+                    // Already initialized.
                     continue;
                 }
+                State::Picked(_, _, ref constraints) => constraints.clone(),
+            };
+
+            for src in dep.sources.values_mut() {
                 debugln!("resolve: initializing `{}[{}]`", dep.name, src.id);
-                let ids = match src.versions {
+                if constraints.contains_key(&src.id) {
+                    // Already initialized.
+                    debugln!("resolve: `{}[{}]` already initialized", dep.name, src.id);
+                    continue;
+                }
+                let ids: IndexSet<usize> = match src.versions {
                     DependencyVersions::Path => (0..1).collect(),
                     DependencyVersions::Registry(ref _rv) => {
                         return Err(Error::new(format!(
@@ -480,21 +501,30 @@ impl<'ctx> DependencyResolver<'ctx> {
                     }
                     DependencyVersions::Git(ref gv) => (0..gv.revs.len()).collect(),
                 };
-                src.state = State::Constrained(ids);
+                constraints.insert(src.id, ids.clone());
+            }
+            match dep.state {
+                State::Open | State::Constrained(_) => {
+                    dep.state = State::Constrained(constraints);
+                }
+                State::Locked(..) => unreachable!(),
+                State::Picked(a, b, _) => {
+                    dep.state = State::Picked(a, b, constraints);
+                }
             }
         }
         Ok(())
     }
 
     /// Apply constraints to each dependency's versions.
-    fn mark(&mut self, rt: &Runtime, io: &SessionIo<'ctx, 'ctx>) -> Result<()> {
+    fn mark(&mut self) -> Result<()> {
         use std::iter::once;
 
         // Gather the constraints from the available manifests. Group them by
         // constraint.
+        // cons_map: dep_name->(parent_name, constraint, source)
         let cons_map = {
-            let mut map =
-                IndexMap::<&str, Vec<(&str, DependencyConstraint, DependencySource)>>::new();
+            let mut map = IndexMap::<&str, Vec<(&str, DependencyConstraint, DependencyRef)>>::new();
             let dep_iter = once(self.sess.manifest)
                 .chain(self.table.values().filter_map(|dep| dep.manifest))
                 .flat_map(|m| {
@@ -517,7 +547,13 @@ impl<'ctx> DependencyResolver<'ctx> {
                         pkg_name,
                         match self.locked.get(name.as_str()) {
                             Some((cnstr, src, _, true)) => (cnstr.clone(), src.clone()),
-                            _ => (DependencyConstraint::from(dep), DependencySource::from(dep)),
+                            _ => (
+                                DependencyConstraint::from(dep),
+                                self.src_ref_map
+                                    .get(&DependencySource::from(dep))
+                                    .unwrap()
+                                    .clone(),
+                            ),
                         },
                     )
                 });
@@ -528,21 +564,23 @@ impl<'ctx> DependencyResolver<'ctx> {
             map
         };
 
-        // // Gather the constraints from locked and picked dependencies.
-        // for dep in self.table.values_mut() {
-        //     for src in dep.sources.values_mut() {
-        //         let _pick = match src.state.pick() {
-        //             Some(i) => i,
-        //             None => continue,
-        //         };
-        //         // TODO: Ask session for manifest at the picked version.
-        //         // TODO: Map dependencies in manifest to constraints.
-        //         // TODO: Add to `cons_map` map.
-        //     }
-        // }
+        let src_cons_map = cons_map
+            .iter()
+            .map(|(name, cons)| {
+                (
+                    *name,
+                    cons.iter()
+                        .map(|(pkg_name, con, src)| {
+                            (*pkg_name, con.clone(), self.sess.dependency_source(*src))
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<IndexMap<_, _>>();
+
         debugln!(
             "resolve: gathered constraints {:#?}",
-            ConstraintsDumper(&cons_map)
+            ConstraintsDumper(&src_cons_map)
         );
 
         // Impose the constraints on the dependencies.
@@ -550,37 +588,8 @@ impl<'ctx> DependencyResolver<'ctx> {
         for (name, cons) in cons_map {
             for (_, con, dsrc) in &cons {
                 debugln!("resolve: impose `{}` at `{}` on `{}`", con, dsrc, name);
-                let mut count = 0;
                 let table_item = table.get_mut(name).unwrap();
-                for (id, src) in table_item.sources.iter_mut() {
-                    if self.sess.dependency_source(*id) == *dsrc {
-                        self.impose(name, con, src, &cons, rt, io)?;
-                        count += 1;
-                        table_item.picked_source = Some(*id);
-                    } else {
-                        match self.impose(name, con, src, &cons, rt, io) {
-                            Ok(_) => {
-                                count += 1;
-                                table_item.picked_source = Some(*id);
-                            }
-                            Err(cause) => {
-                                warnln!("{}", cause);
-                            }
-                        };
-                    }
-                }
-                debugln!(
-                    "resolve: imposed {} constraint out of {} on `{}`",
-                    count,
-                    table.get_mut(name).unwrap().sources.len(),
-                    name
-                );
-                if count == 0 {
-                    return Err(Error::new(format!(
-                        "Constraint matching failed for `{}` at `{}`.",
-                        name, dsrc
-                    )));
-                }
+                self.impose_dep(name, con, dsrc, table_item, &cons)?;
             }
         }
         self.table = table;
@@ -588,16 +597,192 @@ impl<'ctx> DependencyResolver<'ctx> {
         Ok(())
     }
 
+    fn impose_dep(
+        &mut self,
+        name: &'ctx str,
+        con: &DependencyConstraint,
+        con_src: &DependencyRef,
+        dep: &mut Dependency<'ctx>,
+        all_cons: &[(&str, DependencyConstraint, DependencyRef)],
+    ) -> Result<()> {
+        let con_indices: IndexMap<DependencyRef, IndexSet<usize>> = dep
+            .sources
+            .iter()
+            .map(|(id, src)| {
+                match self.req_indices(name, con, src) {
+                    Ok(Some(v)) => Ok((id.clone(), v)),
+                    Ok(None) => Ok((id.clone(), IndexSet::new())), // TODO force fetch (with lease)
+                    Err(e) => {
+                        if self.sess.dependency_source(*id) == self.sess.dependency_source(*con_src)
+                        {
+                            return Err(e);
+                        } else {
+                            warnln!(
+                                "Ignoring error for `{}` at `{}`: {}",
+                                name,
+                                self.sess.dependency_source(*con_src),
+                                e
+                            );
+                            Ok((id.clone(), IndexSet::new())) // TODO force fetch (with lease)
+                        }
+                    }
+                }
+            })
+            .collect::<Result<_>>()?;
+
+        // TODO refetch
+
+        // if con_indices.values().all(|v| v.is_empty()) {
+        //     // println!("{:?}", con_indices);
+        //     // println!("{:?}", dep.sources);
+        //     return Err(Error::new(format!(
+        //         "Dependency sources `{}`  cannot satisfy requirement `{}`",
+        //         name, con
+        //     )));
+        // }
+
+        let new_ids: Result<IndexMap<_, _>> = match &dep.state {
+            State::Open => unreachable!(),
+            State::Locked(src, id) => Ok(vec![(src.clone(), IndexSet::from([id.clone()]))]
+                .into_iter()
+                .collect()),
+            State::Constrained(ids) | State::Picked(_, _, ids) => Ok(con_indices
+                .into_iter()
+                .map(|(id, indices)| {
+                    (
+                        id,
+                        indices
+                            .intersection(&ids.get(&id).unwrap())
+                            .copied()
+                            .collect::<IndexSet<usize>>(),
+                    )
+                })
+                .collect()),
+        };
+
+        match dep.state {
+            State::Open => unreachable!(),
+            State::Locked(_, _) => Ok(()),
+            State::Constrained(ref mut ids) | State::Picked(_, _, ref mut ids) => match new_ids {
+                Err(e) => Err(e),
+                Ok(is) => {
+                    *ids = is;
+                    if ids.values().all(|v| v.is_empty()) {
+                        let decision = self.ask_for_decision(dep.name, all_cons, &dep.sources)?;
+                        ids.insert(decision.0, decision.1);
+                    }
+                    Ok(())
+                }
+            },
+        }
+    }
+
+    fn ask_for_decision(
+        &mut self,
+        name: &'ctx str,
+        all_cons: &[(&str, DependencyConstraint, DependencyRef)],
+        sources: &IndexMap<DependencyRef, DependencyReference<'ctx>>,
+    ) -> Result<(DependencyRef, IndexSet<usize>)> {
+        let mut msg = format!(
+            "Dependency requirements conflict with eachother on dependency `{}`.\n",
+            name
+        );
+        let mut cons = Vec::new();
+        let mut constr_align = String::from("");
+        for &(pkg_name, ref con, ref dsrc) in all_cons {
+            constr_align.push_str(&format!(
+                "\n- package `{}`\trequires\t`{}` at `{}`",
+                pkg_name,
+                con,
+                self.sess.dependency_source(*dsrc)
+            ));
+            cons.push((con, dsrc));
+        }
+        let mut tw = TabWriter::new(vec![]);
+        write!(&mut tw, "{}", constr_align).unwrap();
+        tw.flush().unwrap();
+        let _ = write!(
+            msg,
+            "{}",
+            String::from_utf8(tw.into_inner().unwrap()).unwrap()
+        );
+
+        cons = cons.into_iter().unique().collect();
+        if let Some((cnstr, src, _, _)) = self.locked.get(name) {
+            let _ = write!(
+                msg,
+                "\n\nThe previous lockfile required `{}` at `{}`",
+                cnstr,
+                self.sess.dependency_source(*src)
+            );
+        }
+        // Let user resolve conflict if both stderr and stdin go to a TTY.
+        if std::io::stderr().is_terminal() && std::io::stdin().is_terminal() {
+            let decision = if let Some(d) = self.decisions.get(name) {
+                d.clone()
+            } else {
+                eprintln!(
+                    "{}\n\nTo resolve this conflict manually, \
+                        select a revision for `{}` among:",
+                    msg, name
+                );
+                for (idx, e) in cons.iter().enumerate() {
+                    eprintln!(
+                        "{}) `{}` at `{}`",
+                        idx,
+                        e.0,
+                        self.sess.dependency_source(*e.1)
+                    );
+                }
+                loop {
+                    eprint!("Enter a number or hit enter to abort: ");
+                    io::stdout().flush().unwrap();
+                    let mut buffer = String::new();
+                    io::stdin().read_line(&mut buffer).unwrap();
+                    if buffer.starts_with('\n') {
+                        break Err(Error::new(msg));
+                    }
+                    let choice = match buffer.trim().parse::<usize>() {
+                        Ok(u) => u,
+                        Err(_) => {
+                            eprintln!("Invalid input!");
+                            continue;
+                        }
+                    };
+                    let decision = match cons.get(choice) {
+                        Some(c) => c,
+                        None => {
+                            eprintln!("Choice out of bounds!");
+                            continue;
+                        }
+                    };
+                    self.decisions
+                        .insert(name, (decision.0.clone(), decision.1.clone()));
+                    break Ok((decision.0.clone(), decision.1.clone()));
+                }?
+            };
+            match self.req_indices(name, &decision.0, sources.get(&decision.1).unwrap()) {
+                Ok(o) => match o {
+                    Some(v) => Ok((decision.1, v)),
+                    None => unreachable!(),
+                },
+                Err(e) => Err(e),
+            }
+        } else {
+            Err(Error::new(msg))
+        }
+    }
+
     fn req_indices(
         &self,
         name: &str,
         con: &DependencyConstraint,
         src: &DependencyReference<'ctx>,
-    ) -> Result<Option<indexmap::IndexSet<usize>>> {
+    ) -> Result<Option<IndexSet<usize>>> {
         use self::DependencyConstraint as DepCon;
         use self::DependencyVersions as DepVer;
         match (con, &src.versions) {
-            (&DepCon::Path, &DepVer::Path) => Ok(None),
+            (&DepCon::Path, &DepVer::Path) => Ok(Some(IndexSet::from([0]))),
             (DepCon::Version(con), DepVer::Git(gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
                 let hash_ids: IndexMap<&str, usize> = gv
@@ -631,7 +816,6 @@ impl<'ctx> DependencyResolver<'ctx> {
                         }
                     })
                     .collect();
-                // debugln!("resolve: `{}` matches version requirement `{}` for revs {:?}", name, con, revs);
                 Ok(Some(revs))
             }
             (DepCon::Revision(con), DepVer::Git(gv)) => {
@@ -656,7 +840,6 @@ impl<'ctx> DependencyResolver<'ctx> {
                             .collect()
                     });
                 revs.sort();
-                // debugln!("resolve: `{}` matches revision `{}` for revs {:?}", name, con, revs);
                 Ok(Some(revs))
             }
             (DepCon::Version(_con), DepVer::Registry(_rv)) => Err(Error::new(format!(
@@ -681,201 +864,84 @@ impl<'ctx> DependencyResolver<'ctx> {
         }
     }
 
-    /// Impose a constraint on a dependency.
-    fn impose(
-        &mut self,
-        name: &'ctx str,
-        con: &DependencyConstraint,
-        src: &mut DependencyReference<'ctx>,
-        all_cons: &[(&str, DependencyConstraint, DependencySource)],
-        rt: &Runtime,
-        io: &SessionIo<'ctx, 'ctx>,
-    ) -> Result<()> {
-        let indices = match self.req_indices(name, con, src) {
-            Ok(o) => match o {
-                Some(v) => v,
-                None => return Ok(()),
-            },
-            Err(e) => return Err(e),
-        };
-        // debugln!("resolve: restricting `{}` to versions {:?}", name, indices);
-
-        if indices.is_empty() {
-            src.versions = rt.block_on(io.dependency_versions(src.id, true))?;
-
-            let indices = match self.req_indices(name, con, src) {
-                Ok(o) => match o {
-                    Some(v) => v,
-                    None => return Ok(()),
-                },
-                Err(e) => return Err(e),
-            };
-            if indices.is_empty() {
-                return Err(Error::new(format!(
-                    "Dependency `{}` from {} cannot satisfy requirement `{}`",
-                    name,
-                    self.sess.dependency(src.id).source,
-                    con
-                )));
-            }
-        }
-
-        // Mark all other versions of the dependency as invalid.
-        let new_ids = match src.state {
-            State::Open => unreachable!(),
-            State::Locked(id) => Ok(vec![id].into_iter().collect()),
-            State::Constrained(ref ids) | State::Picked(_, ref ids) => {
-                let is_ids = indices
-                    .intersection(ids)
-                    .copied()
-                    .collect::<IndexSet<usize>>();
-                if is_ids.is_empty() {
-                    let mut msg = format!(
-                        "Requirement `{}` conflicts with other requirements on dependency `{}`.\n",
-                        con, name
-                    );
-                    let mut cons = Vec::new();
-                    let mut constr_align = String::from("");
-                    for &(pkg_name, ref con, ref dsrc) in all_cons {
-                        constr_align.push_str(&format!(
-                            "\n- package `{}`\trequires\t`{}` at `{}`",
-                            pkg_name, con, dsrc
-                        ));
-                        cons.push((con, dsrc));
-                    }
-                    let mut tw = TabWriter::new(vec![]);
-                    write!(&mut tw, "{}", constr_align).unwrap();
-                    tw.flush().unwrap();
-                    let _ = write!(
-                        msg,
-                        "{}",
-                        String::from_utf8(tw.into_inner().unwrap()).unwrap()
-                    );
-
-                    cons = cons.into_iter().unique().collect();
-                    if let Some((cnstr, src, _, _)) = self.locked.get(name) {
-                        let _ = write!(
-                            msg,
-                            "\n\nThe previous lockfile required `{}` at `{}`",
-                            cnstr, src
-                        );
-                    }
-                    // Let user resolve conflict if both stderr and stdin go to a TTY.
-                    if std::io::stderr().is_terminal() && std::io::stdin().is_terminal() {
-                        let decision = if let Some(d) = self.decisions.get(name) {
-                            d.0.clone()
-                        } else {
-                            eprintln!(
-                                "{}\n\nTo resolve this conflict manually, \
-                                 select a revision for `{}` among:",
-                                msg, name
-                            );
-                            for (idx, e) in cons.iter().enumerate() {
-                                eprintln!("{}) `{}` at `{}`", idx, e.0, e.1);
-                            }
-                            loop {
-                                eprint!("Enter a number or hit enter to abort: ");
-                                io::stdout().flush().unwrap();
-                                let mut buffer = String::new();
-                                io::stdin().read_line(&mut buffer).unwrap();
-                                if buffer.starts_with('\n') {
-                                    break Err(Error::new(msg));
-                                }
-                                let choice = match buffer.trim().parse::<usize>() {
-                                    Ok(u) => u,
-                                    Err(_) => {
-                                        eprintln!("Invalid input!");
-                                        continue;
-                                    }
-                                };
-                                let decision = match cons.get(choice) {
-                                    Some(c) => c,
-                                    None => {
-                                        eprintln!("Choice out of bounds!");
-                                        continue;
-                                    }
-                                };
-                                self.decisions
-                                    .insert(name, (decision.0.clone(), decision.1.clone()));
-                                break Ok(decision.0.clone());
-                            }?
-                        };
-                        match self.req_indices(name, &decision, src) {
-                            Ok(o) => match o {
-                                Some(v) => Ok(v),
-                                None => unreachable!(),
-                            },
-                            Err(e) => Err(e),
-                        }
-                    } else {
-                        Err(Error::new(msg))
-                    }
-                } else {
-                    Ok(is_ids)
-                }
-            }
-        };
-        match src.state {
-            State::Open => unreachable!(),
-            State::Locked(_) => Ok(()),
-            State::Constrained(ref mut ids) | State::Picked(_, ref mut ids) => match new_ids {
-                Err(e) => Err(e),
-                Ok(is) => {
-                    *ids = is;
-                    Ok(())
-                }
-            },
-        }
-    }
-
     /// Pick a version for each dependency.
     fn pick(&mut self) -> Result<bool> {
         let mut any_changes = false;
         let mut open_pending = IndexSet::<&'ctx str>::new();
         for dep in self.table.values_mut() {
-            for src in dep.sources.values_mut() {
-                src.state = match src.state {
-                    State::Open => unreachable!(),
-                    State::Locked(id) => State::Locked(id),
-                    State::Constrained(ref ids) => {
-                        any_changes = true;
-                        match src.versions {
+            dep.state = match &dep.state {
+                State::Open => unreachable!(),
+                State::Locked(dref, id) => State::Locked(*dref, *id),
+                State::Constrained(map) => {
+                    any_changes = true;
+                    let src_map = dep
+                        .sources
+                        .values()
+                        .map(|src| match src.versions {
                             DependencyVersions::Path => {
                                 debugln!(
-                                    "resolve: picking path version `{}[{}]`",
+                                    "resolve: selecting path version for `{}`[{}]",
                                     dep.name,
                                     src.id
                                 );
-                                State::Picked(0, IndexSet::new())
+                                Ok(Some((src.id, 0, IndexSet::from([0]))))
                             }
                             DependencyVersions::Git(..) => {
-                                debugln!("resolve: picking version for `{}[{}]`", dep.name, src.id);
-                                State::Picked(ids.first().copied().unwrap(), ids.clone())
+                                debugln!(
+                                    "resolve: selecting git version for `{}`[{}]",
+                                    dep.name,
+                                    src.id
+                                );
+                                Ok(match map[&src.id].is_empty() {
+                                    true => None,
+                                    false => Some((
+                                        src.id,
+                                        map[&src.id].first().copied().unwrap(),
+                                        map[&src.id].clone(),
+                                    )),
+                                })
                             }
-                            DependencyVersions::Registry(..) => {
-                                return Err(Error::new(format!("Version picking for registry dependency `{}` not yet implemented", dep.name)));
-                            }
+                            DependencyVersions::Registry(..) => Err(Error::new(format!(
+                                "Version picking for registry dependency `{}` not yet implemented",
+                                dep.name
+                            ))),
+                        })
+                        .collect::<Result<Vec<Option<(DependencyRef, usize, IndexSet<_>)>>>>()?;
+                    let src_map = src_map
+                        .into_iter()
+                        .flatten()
+                        .map(|(a, b, c)| (a, (b, c)))
+                        .collect::<IndexMap<DependencyRef, (usize, IndexSet<_>)>>();
+                    // TODO: pick among possible sources.
+                    debugln!(
+                        "resolve: picking ref {} for `{}`",
+                        src_map.first().unwrap().0,
+                        dep.name
+                    );
+                    State::Picked(
+                        *src_map.first().unwrap().0,
+                        src_map.first().unwrap().1 .0,
+                        src_map.into_iter().map(|(k, (_, ids))| (k, ids)).collect(),
+                    )
+                }
+                State::Picked(dref, id, ref map) => {
+                    if !dep.sources[dref].is_path() && !map[dref].contains(id) {
+                        debugln!(
+                            "resolve: picked version for `{}`[{}] no longer valid, resetting",
+                            dep.name,
+                            dref
+                        );
+                        if let Some(manifest) = dep.manifest {
+                            open_pending.extend(manifest.dependencies.keys().map(String::as_str));
                         }
-                    }
-                    State::Picked(id, ref ids) => {
-                        if !src.is_path() && !ids.contains(&id) {
-                            debugln!(
-                                "resolve: picked version for `{}[{}]` no longer valid, resetting",
-                                dep.name,
-                                src.id
-                            );
-                            if let Some(manifest) = dep.manifest {
-                                open_pending
-                                    .extend(manifest.dependencies.keys().map(String::as_str));
-                            }
-                            any_changes = true;
-                            State::Open
-                        } else {
-                            State::Picked(id, ids.clone())
-                        }
+                        any_changes = true;
+                        State::Open
+                    } else {
+                        // Keep the picked state.
+                        State::Picked(*dref, *id, map.clone())
                     }
                 }
-            }
+            };
         }
 
         // Recursively open up dependencies.
@@ -886,14 +952,12 @@ impl<'ctx> DependencyResolver<'ctx> {
             for dep_name in open {
                 debugln!("resolve: resetting `{}`", dep_name);
                 let dep = self.table.get_mut(dep_name).unwrap();
-                for src in dep.sources.values_mut() {
-                    if !src.state.is_open() {
-                        any_changes = true;
-                        if let Some(manifest) = dep.manifest {
-                            open_pending.extend(manifest.dependencies.keys().map(String::as_str));
-                        }
-                        src.state = State::Open;
+                if dep.state.is_open() {
+                    any_changes = true;
+                    if let Some(manifest) = dep.manifest {
+                        open_pending.extend(manifest.dependencies.keys().map(String::as_str));
                     }
+                    dep.state = State::Open;
                 }
             }
         }
@@ -907,11 +971,11 @@ impl<'ctx> DependencyResolver<'ctx> {
         let manifests: Vec<(&str, Option<&Manifest>)> = {
             let mut sub_deps = Vec::new();
             for dep in self.table.values() {
-                let src = dep.source();
-                let version = match src.pick() {
+                let version = match dep.pick() {
                     Some(v) => v,
                     None => continue,
                 };
+                let src = dep.source();
                 let manifest = io.dependency_manifest_version(src.id, version);
                 sub_deps.push(async move { manifest.await.map(move |m| (dep.name, m)) });
             }
@@ -955,12 +1019,12 @@ impl<'ctx> DependencyResolver<'ctx> {
 struct Dependency<'ctx> {
     /// The name of the dependency.
     name: &'ctx str,
-    /// The picked ID among the sources.
-    picked_source: Option<DependencyRef>,
     /// The set of sources for this dependency.
     sources: IndexMap<DependencyRef, DependencyReference<'ctx>>,
     /// The picked manifest for this dependency.
     manifest: Option<&'ctx config::Manifest>,
+    /// The current resolution state.
+    state: State,
 }
 
 impl<'ctx> Dependency<'ctx> {
@@ -968,24 +1032,36 @@ impl<'ctx> Dependency<'ctx> {
     fn new(name: &'ctx str) -> Dependency<'ctx> {
         Dependency {
             name,
-            picked_source: None,
             sources: IndexMap::new(),
             manifest: None,
+            state: State::Open,
         }
     }
 
     /// Return the main source for this dependency.
     fn source(&self) -> &DependencyReference<'ctx> {
-        for src in self.sources.values() {
-            if let State::Locked(_) = src.state {
-                return src;
-            }
+        if let State::Locked(dref, _) = self.state {
+            return &self.sources[&dref];
         }
-        match self.picked_source {
-            Some(id) => &self.sources[&id],
-            None => {
-                let min = self.sources.keys().min().unwrap();
-                &self.sources[min]
+        if let State::Picked(dref, _, _) = self.state {
+            return &self.sources[&dref];
+        }
+        return &self.sources.first().unwrap().1;
+    }
+
+    /// Return the picked version, if any.
+    ///
+    /// In case the state is `Locked` or `Picked`, returns the version that was
+    /// picked. Otherwise returns `None`.
+    fn pick(&self) -> Option<DependencyVersion<'ctx>> {
+        match self.state {
+            State::Open | State::Constrained(..) => None,
+            State::Locked(dref, id) | State::Picked(dref, id, _) => {
+                match self.sources[&dref].versions {
+                    DependencyVersions::Path => Some(DependencyVersion::Path),
+                    DependencyVersions::Registry(ref _rv) => None,
+                    DependencyVersions::Git(ref gv) => Some(DependencyVersion::Git(gv.revs[id])),
+                }
             }
         }
     }
@@ -1004,8 +1080,6 @@ struct DependencyReference<'ctx> {
     pick: Option<usize>,
     /// The available version options. These are indices into `versions`.
     options: Option<IndexSet<usize>>,
-    /// The current resolution state.
-    state: State,
 }
 
 impl<'ctx> DependencyReference<'ctx> {
@@ -1016,22 +1090,6 @@ impl<'ctx> DependencyReference<'ctx> {
             versions,
             pick: None,
             options: None,
-            state: State::Open,
-        }
-    }
-
-    /// Return the picked version, if any.
-    ///
-    /// In case the state is `Locked` or `Picked`, returns the version that was
-    /// picked. Otherwise returns `None`.
-    fn pick(&self) -> Option<DependencyVersion<'ctx>> {
-        match self.state {
-            State::Open | State::Constrained(..) => None,
-            State::Locked(id) | State::Picked(id, _) => match self.versions {
-                DependencyVersions::Path => Some(DependencyVersion::Path),
-                DependencyVersions::Registry(ref _rv) => None,
-                DependencyVersions::Git(ref gv) => Some(DependencyVersion::Git(gv.revs[id])),
-            },
         }
     }
 
@@ -1046,11 +1104,15 @@ enum State {
     /// The dependency has never been seen before and is not constrained.
     Open,
     /// The dependency has been locked in the lockfile.
-    Locked(usize),
-    /// The dependency may assume any of the listed versions.
-    Constrained(IndexSet<usize>),
-    /// The dependency had a version picked.
-    Picked(usize, IndexSet<usize>),
+    Locked(DependencyRef, usize),
+    /// The dependency may assume any of the listed refs and their listed versions.
+    Constrained(IndexMap<DependencyRef, IndexSet<usize>>),
+    /// The dependency had a ref and version picked.
+    Picked(
+        DependencyRef,
+        usize,
+        IndexMap<DependencyRef, IndexSet<usize>>,
+    ),
 }
 
 impl State {
@@ -1063,9 +1125,9 @@ impl State {
     ///
     /// In case the state is `Locked` or `Picked`, returns the version that was
     /// picked. Otherwise returns `None`.
-    fn pick(&self) -> Option<usize> {
+    fn pick(&self) -> Option<(DependencyRef, usize)> {
         match *self {
-            State::Locked(i) | State::Picked(i, _) => Some(i),
+            State::Locked(i, j) | State::Picked(i, j, _) => Some((i, j)),
             _ => None,
         }
     }
@@ -1081,16 +1143,20 @@ impl<'a> fmt::Debug for TableDumper<'a> {
         for name in names {
             let dep = self.0.get(name).unwrap();
             write!(f, "\n    \"{}\":", name)?;
-            for (&id, src) in &dep.sources {
+            for (&id, _) in &dep.sources {
                 write!(f, "\n        [{}]:", id)?;
-                match src.state {
-                    State::Open => write!(f, " open")?,
-                    State::Locked(idx) => write!(f, " locked {}", idx)?,
-                    State::Constrained(ref idcs) => write!(f, " {} possible", idcs.len())?,
-                    State::Picked(idx, ref idcs) => {
-                        write!(f, " picked #{} out of {} possible", idx, idcs.len())?
-                    }
-                }
+            }
+            match dep.state {
+                State::Open => write!(f, " open")?,
+                State::Locked(refr, idx) => write!(f, " locked {} {}", refr, idx)?,
+                State::Constrained(ref idcs) => write!(f, " {} possible", idcs.len())?,
+                State::Picked(refr, idx, ref idcs) => write!(
+                    f,
+                    " picked {} #{} out of {} possible",
+                    refr,
+                    idx,
+                    idcs.values().map(|v| v.len()).sum::<usize>()
+                )?,
             }
         }
         write!(f, "\n}}")?;
