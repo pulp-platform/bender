@@ -610,8 +610,18 @@ impl<'ctx> DependencyResolver<'ctx> {
             .iter()
             .map(|(id, src)| {
                 match self.req_indices(name, con, src) {
-                    Ok(Some(v)) => Ok((id.clone(), v)),
-                    Ok(None) => Ok((id.clone(), IndexSet::new())), // TODO force fetch (with lease)
+                    Ok(v) => {
+                        // TODO attempt refetch (if not already done)
+                        if v.is_empty() && id == con_src {
+                            return Err(Error::new(format!(
+                                "Dependency `{}` from `{}` cannot satisfy requirement `{}`",
+                                name,
+                                self.sess.dependency_source(*id),
+                                con
+                            )));
+                        }
+                        Ok((id.clone(), v))
+                    }
                     Err(e) => {
                         if self.sess.dependency_source(*id) == self.sess.dependency_source(*con_src)
                         {
@@ -629,17 +639,6 @@ impl<'ctx> DependencyResolver<'ctx> {
                 }
             })
             .collect::<Result<_>>()?;
-
-        // TODO refetch
-
-        // if con_indices.values().all(|v| v.is_empty()) {
-        //     // println!("{:?}", con_indices);
-        //     // println!("{:?}", dep.sources);
-        //     return Err(Error::new(format!(
-        //         "Dependency sources `{}`  cannot satisfy requirement `{}`",
-        //         name, con
-        //     )));
-        // }
 
         let new_ids: Result<IndexMap<_, _>> = match &dep.state {
             State::Open => unreachable!(),
@@ -762,10 +761,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 }?
             };
             match self.req_indices(name, &decision.0, sources.get(&decision.1).unwrap()) {
-                Ok(o) => match o {
-                    Some(v) => Ok((decision.1, v)),
-                    None => unreachable!(),
-                },
+                Ok(v) => Ok((decision.1, v)),
                 Err(e) => Err(e),
             }
         } else {
@@ -778,11 +774,11 @@ impl<'ctx> DependencyResolver<'ctx> {
         name: &str,
         con: &DependencyConstraint,
         src: &DependencyReference<'ctx>,
-    ) -> Result<Option<IndexSet<usize>>> {
+    ) -> Result<IndexSet<usize>> {
         use self::DependencyConstraint as DepCon;
         use self::DependencyVersions as DepVer;
         match (con, &src.versions) {
-            (&DepCon::Path, &DepVer::Path) => Ok(Some(IndexSet::from([0]))),
+            (&DepCon::Path, &DepVer::Path) => Ok(IndexSet::from([0])),
             (DepCon::Version(con), DepVer::Git(gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
                 let hash_ids: IndexMap<&str, usize> = gv
@@ -816,7 +812,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                         }
                     })
                     .collect();
-                Ok(Some(revs))
+                Ok(revs)
             }
             (DepCon::Revision(con), DepVer::Git(gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
@@ -840,7 +836,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                             .collect()
                     });
                 revs.sort();
-                Ok(Some(revs))
+                Ok(revs)
             }
             (DepCon::Version(_con), DepVer::Registry(_rv)) => Err(Error::new(format!(
                 "Constraints on registry dependency `{}` not implemented",
