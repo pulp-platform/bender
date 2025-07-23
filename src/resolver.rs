@@ -287,8 +287,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 let dep = self.checked_out.get(name).unwrap_or(dep);
                 let dep = self.sess.config.overrides.get(name).unwrap_or(dep);
                 let tmp = (name, self.sess.load_dependency(name, dep, calling_package));
-                self.src_ref_map
-                    .insert(DependencySource::from(dep), tmp.1.clone());
+                self.src_ref_map.insert(DependencySource::from(dep), tmp.1);
                 tmp
             })
             .collect();
@@ -422,7 +421,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             // Map the dependencies to unique IDs.
             let depref = self.sess.load_dependency(name, &config_dep, "");
             self.src_ref_map
-                .insert(DependencySource::from(&config_dep), depref.clone());
+                .insert(DependencySource::from(&config_dep), depref);
             self.locked.insert(
                 name,
                 (
@@ -546,13 +545,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                         name,
                         pkg_name,
                         match self.locked.get(name.as_str()) {
-                            Some((cnstr, src, _, true)) => (cnstr.clone(), src.clone()),
+                            Some((cnstr, src, _, true)) => (cnstr.clone(), *src),
                             _ => (
                                 DependencyConstraint::from(dep),
-                                self.src_ref_map
-                                    .get(&DependencySource::from(dep))
-                                    .unwrap()
-                                    .clone(),
+                                *self.src_ref_map.get(&DependencySource::from(dep)).unwrap(),
                             ),
                         },
                     )
@@ -614,27 +610,25 @@ impl<'ctx> DependencyResolver<'ctx> {
                         // TODO attempt refetch (if not already done)
                         if v.is_empty() && id == con_src {
                             return Err(Error::new(format!(
-                                "Dependency `{}` from `{}` cannot satisfy requirement `{}`",
+                                "Dependency `{}` from `{}` cannot satisfy requirement `{}`, may need fetch.",
                                 name,
                                 self.sess.dependency_source(*id),
                                 con
                             )));
                         }
-                        Ok((id.clone(), v))
+                        Ok((*id, v))
                     }
                     Err(e) => {
-                        if self.sess.dependency_source(*id) == self.sess.dependency_source(*con_src)
-                        {
+                        if id == con_src {
                             return Err(e);
-                        } else {
-                            warnln!(
-                                "Ignoring error for `{}` at `{}`: {}",
-                                name,
-                                self.sess.dependency_source(*con_src),
-                                e
-                            );
-                            Ok((id.clone(), IndexSet::new())) // TODO force fetch (with lease)
                         }
+                        warnln!(
+                            "Ignoring error for `{}` at `{}`: {}",
+                            name,
+                            self.sess.dependency_source(*con_src),
+                            e
+                        );
+                        Ok((*id, IndexSet::new()))
                     }
                 }
             })
@@ -642,16 +636,14 @@ impl<'ctx> DependencyResolver<'ctx> {
 
         let new_ids: Result<IndexMap<_, _>> = match &dep.state {
             State::Open => unreachable!(),
-            State::Locked(src, id) => Ok(vec![(src.clone(), IndexSet::from([id.clone()]))]
-                .into_iter()
-                .collect()),
+            State::Locked(src, id) => Ok(vec![(*src, IndexSet::from([*id]))].into_iter().collect()),
             State::Constrained(ids) | State::Picked(_, _, ids) => Ok(con_indices
                 .into_iter()
                 .map(|(id, indices)| {
                     (
                         id,
                         indices
-                            .intersection(&ids.get(&id).unwrap())
+                            .intersection(ids.get(&id).unwrap())
                             .copied()
                             .collect::<IndexSet<usize>>(),
                     )
@@ -683,7 +675,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         sources: &IndexMap<DependencyRef, DependencyReference<'ctx>>,
     ) -> Result<(DependencyRef, IndexSet<usize>)> {
         let mut msg = format!(
-            "Dependency requirements conflict with eachother on dependency `{}`.\n",
+            "Dependency requirements conflict with each other on dependency `{}`.\n",
             name
         );
         let mut cons = Vec::new();
@@ -756,8 +748,8 @@ impl<'ctx> DependencyResolver<'ctx> {
                         }
                     };
                     self.decisions
-                        .insert(name, (decision.0.clone(), decision.1.clone()));
-                    break Ok((decision.0.clone(), decision.1.clone()));
+                        .insert(name, (decision.0.clone(), *decision.1));
+                    break Ok((decision.0.clone(), *decision.1));
                 }?
             };
             match self.req_indices(name, &decision.0, sources.get(&decision.1).unwrap()) {
@@ -1042,7 +1034,7 @@ impl<'ctx> Dependency<'ctx> {
         if let State::Picked(dref, _, _) = self.state {
             return &self.sources[&dref];
         }
-        return &self.sources.first().unwrap().1;
+        self.sources.first().unwrap().1
     }
 
     /// Return the picked version, if any.
@@ -1131,7 +1123,7 @@ impl State {
 
 struct TableDumper<'a>(&'a IndexMap<&'a str, Dependency<'a>>);
 
-impl<'a> fmt::Debug for TableDumper<'a> {
+impl fmt::Debug for TableDumper<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut names: Vec<_> = self.0.keys().collect();
         names.sort();
@@ -1164,7 +1156,7 @@ struct ConstraintsDumper<'a>(
     &'a IndexMap<&'a str, Vec<(&'a str, DependencyConstraint, DependencySource)>>,
 );
 
-impl<'a> fmt::Debug for ConstraintsDumper<'a> {
+impl fmt::Debug for ConstraintsDumper<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut names: Vec<_> = self.0.keys().collect();
         names.sort();
