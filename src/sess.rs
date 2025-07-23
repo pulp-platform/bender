@@ -947,7 +947,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         c.arg("clone")
                             .arg(git.path)
                             .arg(path)
-                            .arg("--recursive")
                             .arg("--branch")
                             .arg(tag_name_2)
                     })
@@ -962,6 +961,15 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     .spawn_with(move |c| c.arg("checkout").arg(tag_name_2).arg("--force"))
                     .await?;
             }
+            local_git
+                .clone()
+                .spawn_with(move |c| {
+                    c.arg("submodule")
+                        .arg("update")
+                        .arg("--init")
+                        .arg("--recursive")
+                })
+                .await?;
         }
         Ok(path)
     }
