@@ -16,6 +16,7 @@ use std::time::SystemTime;
 
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
+use serde_yaml;
 
 /// A type that cannot be materialized.
 #[derive(Debug)]
@@ -206,4 +207,54 @@ pub fn try_modification_time<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
         Err(_) => return None,
     };
     md.modified().ok()
+}
+
+/// Search for an IP package in the search paths defined by BENDER_IP_REPO_PATH.
+/// Returns the first matching path if found.
+pub fn search_ip_in_repo_paths(ip_name: &str) -> Option<std::path::PathBuf> {
+    use std::env;
+    use std::path::PathBuf;
+
+    // Get the search paths from environment variable
+    let search_paths = match env::var("BENDER_IP_REPO_PATH") {
+        Ok(paths) => paths,
+        Err(_) => return None,
+    };
+
+    // Split by colon and search each path
+    for path_str in search_paths.split(':') {
+        let path_str = path_str.trim();
+        if path_str.is_empty() {
+            continue;
+        }
+
+        let base_path = PathBuf::from(path_str);
+        
+        // Try direct path (e.g., /path/to/ip_name/Bender.yml)
+        let direct_path = base_path.join(ip_name).join("Bender.yml");
+        if direct_path.exists() {
+            return Some(base_path.join(ip_name));
+        }
+
+        // Try if the path itself contains Bender.yml (e.g., path is the IP directory)
+        let manifest_path = base_path.join("Bender.yml");
+        if manifest_path.exists() {
+            // Read the manifest to check if the package name matches
+            if let Ok(content) = std::fs::read_to_string(&manifest_path) {
+                if let Ok(manifest) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                    if let Some(package) = manifest.get("package") {
+                        if let Some(name) = package.get("name") {
+                            if let Some(name_str) = name.as_str() {
+                                if name_str == ip_name {
+                                    return Some(base_path);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }

@@ -21,7 +21,7 @@ use serde_yaml;
 use tokio::runtime::Runtime;
 
 use crate::cmd;
-use crate::config::{Config, Manifest, Merge, PartialConfig, PrefixPaths, Validate};
+use crate::config::{Config, Dependency, Manifest, Merge, PartialConfig, PrefixPaths, Validate};
 use crate::error::*;
 use crate::lockfile::*;
 use crate::sess::{Session, SessionArenas, SessionIo};
@@ -123,10 +123,14 @@ pub fn main() -> Result<()> {
     debugln!("main: {:#?}", manifest);
 
     // Gather and parse the tool configuration.
-    let config = load_config(
+    let mut config = load_config(
         &root_dir,
         matches!(matches.subcommand(), Some(("update", _))),
     )?;
+    
+    // Add search path overrides for dependencies found in BENDER_IP_REPO_PATH
+    add_search_path_overrides(&mut config, &manifest)?;
+    
     debugln!("main: {:#?}", config);
 
     // Assemble the session.
@@ -352,6 +356,36 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
         .validate()
         .map_err(|cause| Error::chain(format!("Error in manifest {:?}.", path), cause))?;
     manifest.prefix_paths(path.parent().unwrap())
+}
+
+/// Add search path overrides for dependencies found in BENDER_IP_REPO_PATH.
+fn add_search_path_overrides(config: &mut Config, manifest: &Manifest) -> Result<()> {
+    use crate::util::search_ip_in_repo_paths;
+    
+    // Check each dependency in the manifest
+    for (dep_name, dep_config) in &manifest.dependencies {
+        // Only process non-path dependencies
+        match dep_config {
+            Dependency::Path(_) => continue,
+            _ => {
+                // Try to find the dependency in search paths
+                if let Some(ip_path) = search_ip_in_repo_paths(dep_name) {
+                    debugln!(
+                        "cli: adding search path override for `{}`: {:?}",
+                        dep_name,
+                        ip_path
+                    );
+                    // Add to overrides
+                    config.overrides.insert(
+                        dep_name.clone(),
+                        Dependency::Path(ip_path),
+                    );
+                }
+            }
+        }
+    }
+    
+    Ok(())
 }
 
 /// Load a configuration by traversing a directory hierarchy upwards.

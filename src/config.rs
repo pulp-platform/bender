@@ -89,7 +89,7 @@ pub struct Package {
 ///
 /// The name of the dependency is given implicitly by the key in the hash map
 /// that this `Dependency` is accessible through.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Dependency {
     /// A dependency that can be found in one of the package repositories.
     Version(semver::VersionReq),

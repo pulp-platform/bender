@@ -14,6 +14,7 @@ Bender is a dependency management tool for hardware design projects. It provides
 - [Installation](#installation)
 - [Workflow](#workflow)
 - [Package Structure](#package-structure)
+- [Environment Variables](#environment-variables)
 - [Manifest Format (`Bender.yml`)](#manifest-format-benderyml)
   - [Dependencies](#dependencies)
   - [Sources](#sources)
@@ -85,6 +86,26 @@ Bender looks for the following three files in a package:
 - `Bender.local`: This optional file contains **local configuration overrides**. It should be ignored in version control, i.e. added to `.gitignore`. This file can be used to override dependencies with local variants. It is also used when the user asks for a local working copy of a dependency.
 
 [Relevant code](https://github.com/pulp-platform/bender/blob/master/src/cli.rs)
+
+
+## Environment Variables
+
+Bender supports several environment variables to customize its behavior:
+
+### `BENDER_IP_REPO_PATH`
+
+A colon-separated list of paths where Bender should search for IP dependencies before falling back to Git repositories. This is useful for local development, air-gapped environments, or when using custom versions of IPs.
+
+**Example:**
+```bash
+export BENDER_IP_REPO_PATH="/local/ips:/shared/libraries:/home/user/my_ips"
+```
+
+Bender searches each path for dependencies using two patterns:
+- **Standard layout**: `path/ip_name/Bender.yml`
+- **Direct layout**: `path/Bender.yml` (where the path itself is the IP directory)
+
+If a dependency is found in the search paths, it is automatically used as a path dependency, overriding any Git-based dependency specification in the manifest.
 
 
 ## Manifest Format (`Bender.yml`)
