@@ -46,6 +46,7 @@ pub fn new() -> Command {
                 .value_parser([
                     PossibleValue::new("flist"),
                     PossibleValue::new("flist-plus"),
+                    PossibleValue::new("xcelium"),
                     PossibleValue::new("vsim"),
                     PossibleValue::new("vcs"),
                     PossibleValue::new("verilator"),
@@ -217,6 +218,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         match format.as_str() {
             "flist" => vec!["flist"],
             "flist-plus" => vec!["flist"],
+            "xcelium" => vec!["xcelium", "simulation"],
             "vsim" => vec!["vsim", "simulation"],
             "vcs" => vec!["vcs", "simulation"],
             "verilator" => vec!["verilator", "synthesis"],
@@ -338,6 +340,13 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "flist-plus" => emit_template(
             sess,
             include_str!("../script_fmt/flist-plus.tera"),
+            matches,
+            targets,
+            srcs,
+        ),
+        "xcelium" => emit_template(
+            sess,
+            include_str!("../script_fmt/xcelium_f.tera"),
             matches,
             targets,
             srcs,
@@ -496,6 +505,7 @@ fn emit_template(
     let mut tera_context = Context::new();
     tera_context.insert("HEADER_AUTOGEN", HEADER_AUTOGEN);
     tera_context.insert("root", sess.root);
+    tera_context.insert("root_package", &sess.manifest.package.name);
     // tera_context.insert("srcs", &srcs);
     tera_context.insert("abort_on_error", &!matches.get_flag("no-abort-on-error"));
 
@@ -561,6 +571,30 @@ fn emit_template(
         IndexSet::new()
     };
     tera_context.insert("all_files", &all_files);
+
+    // Compute per-package files and root files
+    let mut deps: IndexMap<String, IndexSet<PathBuf>> = IndexMap::new();
+    let mut root_files_map: IndexSet<PathBuf> = IndexSet::new();
+    for src in &srcs {
+        for file in &src.files {
+            if let SourceFile::File(p) = file {
+                if let Some(pkg) = src.package {
+                    // Exclude root package from deps; keep its files as root files
+                    if pkg == sess.manifest.package.name {
+                        root_files_map.insert(p.to_path_buf());
+                    } else {
+                        deps.entry(pkg.to_string())
+                            .or_default()
+                            .insert(p.to_path_buf());
+                    }
+                } else {
+                    root_files_map.insert(p.to_path_buf());
+                }
+            }
+        }
+    }
+    tera_context.insert("deps", &deps);
+    tera_context.insert("root_files", &root_files_map);
 
     let mut split_srcs = vec![];
     for src in srcs {
