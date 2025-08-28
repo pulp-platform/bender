@@ -6,8 +6,10 @@
 +define+{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}
 {%- endfor %}
 {% for lib in libs %}
-# Library: {{ lib.name }}
--makelib {{ lib.name }}
+{#- Sanitize library name for Xcelium (avoid hyphens) -#}
+{% set safe_lib_name = lib.name | replace(from="-", to="_") %}
+# Library: {{ safe_lib_name }}
+-makelib {{ safe_lib_name }}
 {%- for incdir in lib.incdirs %}
 +incdir+{% if relativize_path and incdir is starting_with(root) %}{{ incdir | replace(from=root, to='$ROOT') }}{% else %}{{ incdir }}{% endif %}
 {%- endfor %}
