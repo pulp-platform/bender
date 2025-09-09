@@ -14,8 +14,8 @@ use std::fs::{canonicalize, metadata};
 #[cfg(windows)]
 use dunce::canonicalize;
 
-use clap::parser::ValuesRef;
-use clap::{Arg, ArgAction, Command};
+use clap::parser::{ValueSource, ValuesRef};
+use clap::{value_parser, Arg, ArgAction, Command};
 use indexmap::IndexSet;
 use serde_yaml;
 use tokio::runtime::Runtime;
@@ -53,6 +53,15 @@ pub fn main() -> Result<()> {
                 .num_args(0)
                 .action(ArgAction::SetTrue)
                 .help("Disables fetching of remotes (e.g. for air-gapped computers)"),
+        )
+        .arg(
+            Arg::new("git-throttle")
+                .long("git-throttle")
+                .global(true)
+                .num_args(1)
+                .default_value("4")
+                .value_parser(value_parser!(usize))
+                .help("Sets the maximum number of concurrent git operations"),
         )
         .subcommand(cmd::update::new())
         .subcommand(cmd::path::new())
@@ -129,6 +138,14 @@ pub fn main() -> Result<()> {
     )?;
     debugln!("main: {:#?}", config);
 
+    let git_throttle = if matches.value_source("git-throttle") == Some(ValueSource::CommandLine) {
+        *matches.get_one::<usize>("git-throttle").unwrap()
+    } else {
+        config
+            .git_throttle
+            .unwrap_or(*matches.get_one::<usize>("git-throttle").unwrap())
+    };
+
     // Assemble the session.
     let sess_arenas = SessionArenas::new();
     let sess = Session::new(
@@ -138,6 +155,7 @@ pub fn main() -> Result<()> {
         &sess_arenas,
         matches.get_flag("local"),
         force_fetch,
+        git_throttle,
     );
 
     if let Some(("clean", intern_matches)) = matches.subcommand() {
@@ -422,6 +440,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
         git: Some("git".into()),
         overrides: None,
         plugins: None,
+        git_throttle: None,
     };
     out = out.merge(default_cfg);
 

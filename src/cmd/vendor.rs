@@ -93,10 +93,10 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         let dep_path = match dep_src {
             DependencySource::Path(path) => path,
             DependencySource::Git(ref url) => {
-                let git = Git::new(tmp_path, &sess.config.git);
+                let git = Git::new(tmp_path, &sess.config.git, sess.git_throttle.clone());
                 rt.block_on(async {
                     stageln!("Cloning", "{} ({})", vendor_package.name, url);
-                    git.spawn_with(|c| c.arg("clone").arg(url).arg("."))
+                    git.clone().spawn_with(|c| c.arg("clone").arg(url).arg("."))
                     .map_err(move |cause| {
                         if url.contains("git@") {
                             warnln!("Please ensure your public ssh key is added to the git server.");
@@ -111,7 +111,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                         config::Dependency::GitRevision(_, ref rev) => Ok(rev),
                         _ => Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout")),
                     }?;
-                    git.spawn_with(|c| c.arg("checkout").arg(rev_hash)).await?;
+                    git.clone().spawn_with(|c| c.arg("checkout").arg(rev_hash)).await?;
                     if *rev_hash != git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{}^{{commit}}", rev_hash))).await?.trim_end_matches('\n') {
                         Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout"))
                     } else {
@@ -178,7 +178,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
             seen_paths.insert(patch_link.to_prefix.clone());
         }
-        let git = Git::new(tmp_path, &sess.config.git);
+        let git = Git::new(tmp_path, &sess.config.git, sess.git_throttle.clone());
 
         match matches.subcommand() {
             Some(("diff", matches)) => {
@@ -187,15 +187,16 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     .clone()
                     .into_iter()
                     .try_for_each(|patch_link| {
-                        apply_patches(&rt, git, vendor_package.name.clone(), patch_link).map(|_| ())
+                        apply_patches(&rt, git.clone(), vendor_package.name.clone(), patch_link)
+                            .map(|_| ())
                     })?;
 
                 // Stage applied patches to clean working tree
-                rt.block_on(git.add_all())?;
+                rt.block_on(git.clone().add_all())?;
 
                 // Print diff for each link
                 sorted_links.into_iter().try_for_each(|patch_link| {
-                    let get_diff = diff(&rt, git, vendor_package, patch_link, dep_path.clone())
+                    let get_diff = diff(&rt, git.clone(), vendor_package, patch_link, dep_path.clone())
                         .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
                     if !get_diff.is_empty() {
                         print!("{}", get_diff);
@@ -235,7 +236,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     // init
                     init(
                         &rt,
-                        git,
+                        git.clone(),
                         vendor_package,
                         patch_link,
                         dep_path.clone(),
@@ -251,15 +252,15 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     .clone()
                     .into_iter()
                     .try_for_each(|patch_link| {
-                        apply_patches(&rt, git, vendor_package.name.clone(), patch_link)
+                        apply_patches(&rt, git.clone(), vendor_package.name.clone(), patch_link)
                             .map(|num| num_patches += num)
                     })
                     .map_err(|cause| Error::chain("Failed to apply patch.", cause))?;
 
                 // Commit applied patches to clean working tree
                 if num_patches > 0 {
-                    rt.block_on(git.add_all())?;
-                    rt.block_on(git.commit(Some(&"pre-patch".to_string())))?;
+                    rt.block_on(git.clone().add_all())?;
+                    rt.block_on(git.clone().commit(Some(&"pre-patch".to_string())))?;
                 }
 
                 // Generate patch
@@ -268,14 +269,14 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                         Some(patch_dir) => {
                             if matches.get_flag("plain") {
                                 let get_diff = diff(&rt,
-                                                    git,
+                                                    git.clone(),
                                                     vendor_package,
                                                     patch_link,
                                                     dep_path.clone())
                                             .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
                                 gen_plain_patch(get_diff, patch_dir, false)
                             } else {
-                                gen_format_patch(&rt, sess, git, patch_link, vendor_package.target_dir.clone(), matches.get_one("message"))
+                                gen_format_patch(&rt, sess, git.clone(), patch_link, vendor_package.target_dir.clone(), matches.get_one("message"))
                             }
                         },
                         None => {
@@ -318,7 +319,12 @@ pub fn init(
     })?;
 
     if !matches.get_flag("no_patch") {
-        apply_patches(rt, git, vendor_package.name.clone(), patch_link.clone())?;
+        apply_patches(
+            rt,
+            git.clone(),
+            vendor_package.name.clone(),
+            patch_link.clone(),
+        )?;
     }
 
     // Check if includes exist
@@ -390,7 +396,6 @@ pub fn apply_patches(
 
         for patch in patches.clone() {
             rt.block_on(async {
-                // TODO MICHAERO: May need throttle
                 future::lazy(|_| {
                     stageln!(
                         "Patching",
@@ -401,7 +406,7 @@ pub fn apply_patches(
                     Ok(())
                 })
                 .and_then(|_| {
-                    git.spawn_with(|c| {
+                    git.clone().spawn_with(|c| {
                         let is_file = patch_link
                             .from_prefix
                             .clone()
@@ -434,7 +439,7 @@ pub fn apply_patches(
                 .map_err(move |cause| {
                     Error::chain(format!("Failed to apply patch {:?}.", patch), cause)
                 })
-                .map(move |_| git)
+                .map(|_| git.clone())
             })?;
         }
         Ok(patches.len())
@@ -594,6 +599,7 @@ pub fn gen_format_patch(
             to_path.parent().unwrap()
         },
         &sess.config.git,
+        sess.git_throttle.clone(),
     );
 
     // If the patch link maps a file, use the parent directory for the following git operations.
@@ -652,19 +658,19 @@ pub fn gen_format_patch(
 
         // Apply diff and stage changes in ghost repo
         rt.block_on(async {
-            git.spawn_with(|c| {
+            git.clone().spawn_with(|c| {
                 c.arg("apply")
                     .arg("--directory")
                     .arg(&from_path_relative)
                     .arg("-p1")
                     .arg(&diff_cached_path)
             })
-            .and_then(|_| git.spawn_with(|c| c.arg("add").arg("--all")))
+            .and_then(|_| git.clone().spawn_with(|c| c.arg("add").arg("--all")))
             .await
         }).map_err(|cause| Error::chain("Could not apply staged changes on top of patched upstream repository. Did you commit all previously patched modifications?", cause))?;
 
         // Commit all staged changes in ghost repo
-        rt.block_on(git.commit(message))?;
+        rt.block_on(git.clone().commit(message))?;
 
         // Create directory in case it does not already exist
         std::fs::create_dir_all(patch_dir.clone()).map_err(|cause| {
