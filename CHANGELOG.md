@@ -26,6 +26,8 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - `packages`: Add `--targets` flag to print targets used in the corresponding manifest.
 - Add `clean` command to clean all bender related dependencies.
 - `script`: Allow flist formats to use `only-sources`/`only-includes`/`only-defines` flags.
+- Add check to ensure files referenced in all manifests exist.
+- Add warnings for unknown fields in manifest.
 
 ### Changed
 - `update`: Clean up alignment of manual resolution output.

@@ -9,7 +9,7 @@
 #![deny(missing_docs)]
 
 use std;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
@@ -21,6 +21,7 @@ use indexmap::IndexMap;
 use semver;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
+use serde_yaml::Value;
 use subst;
 
 use crate::error::*;
@@ -83,6 +84,8 @@ pub struct Package {
     /// A list of package authors. Each author should be of the form `John Doe
     /// <john@doe.com>`.
     pub authors: Option<Vec<String>>,
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
 }
 
 /// A dependency.
@@ -218,7 +221,11 @@ pub trait Validate {
     /// The error type produced by validation.
     type Error;
     /// Validate self and convert into the non-partial version.
-    fn validate(self) -> std::result::Result<Self::Output, Self::Error>;
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+    ) -> std::result::Result<Self::Output, Self::Error>;
 }
 
 // Implement `Validate` for hash maps of validatable values.
@@ -229,9 +236,13 @@ where
 {
     type Output = IndexMap<K, V::Output>;
     type Error = (K, Error);
-    fn validate(self) -> std::result::Result<Self::Output, Self::Error> {
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+    ) -> std::result::Result<Self::Output, Self::Error> {
         self.into_iter()
-            .map(|(k, v)| match v.validate() {
+            .map(|(k, v)| match v.validate(package_name, pre_output) {
                 Ok(v) => Ok((k, v)),
                 Err(e) => Err((k, e)),
             })
@@ -245,9 +256,13 @@ where
 {
     type Output = Vec<V::Output>;
     type Error = Error;
-    fn validate(self) -> std::result::Result<Self::Output, Self::Error> {
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+    ) -> std::result::Result<Self::Output, Self::Error> {
         self.into_iter()
-            .map(|v| match v.validate() {
+            .map(|v| match v.validate(package_name, pre_output) {
                 Ok(v) => Ok(v),
                 Err(e) => Err(e),
             })
@@ -262,8 +277,12 @@ where
 {
     type Output = T::Output;
     type Error = T::Error;
-    fn validate(self) -> std::result::Result<T::Output, T::Error> {
-        self.0.validate()
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+    ) -> std::result::Result<T::Output, T::Error> {
+        self.0.validate(package_name, pre_output)
     }
 }
 
@@ -274,8 +293,32 @@ where
 {
     type Output = T::Output;
     type Error = T::Error;
-    fn validate(self) -> std::result::Result<T::Output, T::Error> {
-        self.0.validate()
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+    ) -> std::result::Result<T::Output, T::Error> {
+        self.0.validate(package_name, pre_output)
+    }
+}
+
+// Implement `PrefixPaths` for `StringOrStruct` wrapped prefixable values.
+impl<T> PrefixPaths for StringOrStruct<T>
+where
+    T: PrefixPaths,
+{
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(StringOrStruct(self.0.prefix_paths(prefix)?))
+    }
+}
+
+// Implement `Validate` for `SeqOrStruct` wrapped prefixable values.
+impl<T, F> PrefixPaths for SeqOrStruct<T, F>
+where
+    T: PrefixPaths,
+{
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(SeqOrStruct::new(self.0.prefix_paths(prefix)?))
     }
 }
 
@@ -300,15 +343,68 @@ pub struct PartialManifest {
     pub workspace: Option<PartialWorkspace>,
     /// External Import dependencies
     pub vendor_package: Option<Vec<PartialVendorPackage>>,
+    /// Unknown extra fields
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+}
+
+impl PartialManifest {
+    /// Before fully cloning a git repo locally a manifest is read without the source files present. Since validate by default now
+    /// checks to make sure source files actually exist this will error out when verifying a dependency manifest. To get around this,
+    /// the initial check of a dependency manifest that is done before cloning the dependency will ignore whether source files exist
+    pub fn validate_ignore_sources(
+        mut self,
+        package_name: &str,
+        pre_output: bool,
+    ) -> Result<Manifest> {
+        self.sources = Some(SeqOrStruct::new(PartialSources::new_empty()));
+        self.validate(package_name, pre_output)
+    }
+}
+
+impl PrefixPaths for PartialManifest {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(PartialManifest {
+            package: self.package,
+            dependencies: self.dependencies.prefix_paths(prefix)?,
+            sources: self.sources.map_or(
+                Ok::<Option<SeqOrStruct<PartialSources, PartialSourceFile>>, Error>(None),
+                |src| Ok(Some(src.prefix_paths(prefix)?)),
+            )?,
+            export_include_dirs: match self.export_include_dirs {
+                Some(vec_inc) => Some(
+                    vec_inc
+                        .into_iter()
+                        .map(|src| src.prefix_paths(prefix))
+                        .collect::<Result<_>>()?,
+                ),
+                None => None,
+            },
+            plugins: self.plugins.prefix_paths(prefix)?,
+            frozen: self.frozen,
+            workspace: self.workspace.prefix_paths(prefix)?,
+            vendor_package: self.vendor_package.prefix_paths(prefix)?,
+            extra: self.extra,
+        })
+    }
 }
 
 impl Validate for PartialManifest {
     type Output = Manifest;
     type Error = Error;
-    fn validate(self) -> Result<Manifest> {
+    fn validate(self, _package_name: &str, pre_output: bool) -> Result<Manifest> {
         let pkg = match self.package {
             Some(mut p) => {
                 p.name = p.name.to_lowercase();
+                if !pre_output {
+                    p.extra.iter().for_each(|(k, _)| {
+                        warnln!(
+                            "Ignoring unknown field `{}` in manifest package for {}.",
+                            k,
+                            p.name
+                        );
+                    });
+                }
                 p
             }
             None => return Err(Error::new("Missing package information.")),
@@ -318,7 +414,7 @@ impl Validate for PartialManifest {
                 .into_iter()
                 .map(|(k, v)| (k.to_lowercase(), v))
                 .collect::<IndexMap<_, _>>()
-                .validate()
+                .validate(&pkg.name, pre_output)
                 .map_err(|(key, cause)| {
                     Error::chain(
                         format!("In dependency `{}` of package `{}`:", key, pkg.name),
@@ -328,7 +424,7 @@ impl Validate for PartialManifest {
             None => IndexMap::new(),
         };
         let srcs = match self.sources {
-            Some(s) => Some(s.validate().map_err(|cause| {
+            Some(s) => Some(s.validate(&pkg.name, pre_output).map_err(|cause| {
                 Error::chain(format!("In source list of package `{}`:", pkg.name), cause)
             })?),
             None => None,
@@ -344,16 +440,25 @@ impl Validate for PartialManifest {
         let frozen = self.frozen.unwrap_or(false);
         let workspace = match self.workspace {
             Some(w) => w
-                .validate()
+                .validate(&pkg.name, pre_output)
                 .map_err(|cause| Error::chain("In workspace configuration:", cause))?,
             None => Workspace::default(),
         };
         let vendor_package = match self.vendor_package {
             Some(vend) => vend
-                .validate()
+                .validate(&pkg.name, pre_output)
                 .map_err(|cause| Error::chain("Unable to parse vendor_package", cause))?,
             None => Vec::new(),
         };
+        if !pre_output {
+            self.extra.iter().for_each(|(k, _)| {
+                warnln!(
+                    "Ignoring unknown field `{}` in manifest for {}.",
+                    k,
+                    pkg.name
+                );
+            });
+        }
         Ok(Manifest {
             package: pkg,
             dependencies: deps,
@@ -393,6 +498,9 @@ pub struct PartialDependency {
     /// The version requirement of the package. This will be parsed into a
     /// semantic versioning requirement.
     version: Option<String>,
+    /// Unknown extra fields
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
 }
 
 impl FromStr for PartialDependency {
@@ -403,6 +511,7 @@ impl FromStr for PartialDependency {
             git: None,
             rev: None,
             version: Some(s.into()),
+            extra: HashMap::new(),
         })
     }
 }
@@ -419,7 +528,7 @@ impl PrefixPaths for PartialDependency {
 impl Validate for PartialDependency {
     type Output = Dependency;
     type Error = Error;
-    fn validate(self) -> Result<Dependency> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<Dependency> {
         let version = match self.version {
             Some(v) => Some(semver::VersionReq::parse(&v).map_err(|cause| {
                 Error::chain(
@@ -433,6 +542,15 @@ impl Validate for PartialDependency {
             return Err(Error::new(
                 "A dependency cannot specify `version` and `rev` at the same time.",
             ));
+        }
+        if !pre_output {
+            self.extra.iter().for_each(|(k, _)| {
+                warnln!(
+                    "Ignoring unknown field `{}` in a dependency in manifest for {}.",
+                    k,
+                    package_name
+                );
+            });
         }
         if let Some(path) = self.path {
             if let Some(list) = string_list(
@@ -482,6 +600,35 @@ pub struct PartialSources {
     pub defines: Option<IndexMap<String, Option<String>>>,
     /// The source file paths.
     pub files: Vec<PartialSourceFile>,
+    /// Unknown extra fields
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+}
+
+impl PartialSources {
+    /// Create new empty PartialSources struct so partial sources can be emptied out
+    /// when calling validate on db of git repo since source files won't actually be present
+    pub fn new_empty() -> Self {
+        PartialSources {
+            target: None,
+            include_dirs: None,
+            defines: None,
+            files: Vec::new(),
+            extra: HashMap::new(),
+        }
+    }
+}
+
+impl PrefixPaths for PartialSources {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(PartialSources {
+            target: self.target,
+            include_dirs: self.include_dirs.prefix_paths(prefix)?,
+            defines: self.defines,
+            files: self.files.prefix_paths(prefix)?,
+            extra: self.extra,
+        })
+    }
 }
 
 impl From<Vec<PartialSourceFile>> for PartialSources {
@@ -491,6 +638,7 @@ impl From<Vec<PartialSourceFile>> for PartialSources {
             include_dirs: None,
             defines: None,
             files: v,
+            extra: HashMap::new(),
         }
     }
 }
@@ -498,7 +646,7 @@ impl From<Vec<PartialSourceFile>> for PartialSources {
 impl Validate for PartialSources {
     type Output = Sources;
     type Error = Error;
-    fn validate(self) -> Result<Sources> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<Sources> {
         let post_glob_files: Vec<PartialSourceFile> = self
             .files
             .into_iter()
@@ -524,12 +672,31 @@ impl Validate for PartialSources {
             .map(|path| env_path_from_string(path.to_string()))
             .collect();
         let defines = self.defines.unwrap_or_default();
-        let files: Result<Vec<_>> = post_glob_files.into_iter().map(|f| f.validate()).collect();
+        let files: Result<Vec<_>> = post_glob_files
+            .into_iter()
+            .map(|f| f.validate(package_name, pre_output))
+            .collect();
+        let files = files?;
+        if files.is_empty() && !pre_output {
+            warnln!(
+                "No source files specified in a sourcegroup in manifest for {}.",
+                package_name
+            );
+        }
+        if !pre_output {
+            self.extra.iter().for_each(|(k, _)| {
+                warnln!(
+                    "Ignoring unknown field `{}` in sources in manifest for {}.",
+                    k,
+                    package_name
+                );
+            });
+        }
         Ok(Sources {
             target: self.target.unwrap_or(TargetSpec::Wildcard),
             include_dirs: include_dirs?,
             defines,
-            files: files?,
+            files,
         })
     }
 }
@@ -541,6 +708,17 @@ pub enum PartialSourceFile {
     File(String),
     /// A subgroup of sources.
     Group(Box<PartialSources>),
+}
+
+impl PrefixPaths for PartialSourceFile {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(match self {
+            PartialSourceFile::File(path) => PartialSourceFile::File(path.prefix_paths(prefix)?),
+            PartialSourceFile::Group(group) => {
+                PartialSourceFile::Group(Box::new(group.prefix_paths(prefix)?))
+            }
+        })
+    }
 }
 
 // Custom serialization for partial source files.
@@ -599,10 +777,15 @@ impl<'de> Deserialize<'de> for PartialSourceFile {
 impl Validate for PartialSourceFile {
     type Output = SourceFile;
     type Error = Error;
-    fn validate(self) -> Result<SourceFile> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceFile> {
         match self {
-            PartialSourceFile::File(path) => Ok(SourceFile::File(env_path_from_string(path)?)),
-            PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate()?))),
+            PartialSourceFile::File(path) => {
+                let env_path_buf = env_path_from_string(path.clone())?;
+                Ok(SourceFile::File(env_path_buf))
+            }
+            PartialSourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(
+                srcs.validate(package_name, pre_output)?,
+            ))),
         }
     }
 }
@@ -666,18 +849,48 @@ pub struct PartialWorkspace {
     pub checkout_dir: Option<String>,
     /// The locally linked packages.
     pub package_links: Option<IndexMap<String, String>>,
+    /// Unknown extra fields
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+}
+
+impl PrefixPaths for PartialWorkspace {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(PartialWorkspace {
+            checkout_dir: self.checkout_dir.prefix_paths(prefix)?,
+            package_links: match self.package_links {
+                Some(idx_map) => Some(
+                    idx_map
+                        .into_iter()
+                        .map(|(k, v)| Ok((k.prefix_paths(prefix)?, v)))
+                        .collect::<Result<_>>()?,
+                ),
+                None => None,
+            },
+            extra: self.extra,
+        })
+    }
 }
 
 impl Validate for PartialWorkspace {
     type Output = Workspace;
     type Error = Error;
-    fn validate(self) -> Result<Workspace> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<Workspace> {
         let package_links: Result<IndexMap<_, _>> = self
             .package_links
             .unwrap_or_default()
             .iter()
             .map(|(k, v)| Ok((env_path_from_string(k.to_string())?, v.clone())))
             .collect();
+        if !pre_output {
+            self.extra.iter().for_each(|(k, _)| {
+                warnln!(
+                    "Ignoring unknown field `{}` in workspace configuration in manifest for {}.",
+                    k,
+                    package_name
+                );
+            });
+        }
         Ok(Workspace {
             checkout_dir: match self.checkout_dir {
                 Some(dir) => Some(env_path_from_string(dir)?),
@@ -841,7 +1054,7 @@ impl Merge for PartialConfig {
 impl Validate for PartialConfig {
     type Output = Config;
     type Error = Error;
-    fn validate(self) -> Result<Config> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<Config> {
         Ok(Config {
             database: match self.database {
                 Some(db) => env_path_from_string(db)?,
@@ -852,14 +1065,16 @@ impl Validate for PartialConfig {
                 None => return Err(Error::new("Git command or path to binary not configured")),
             },
             overrides: match self.overrides {
-                Some(d) => d.validate().map_err(|(key, cause)| {
-                    Error::chain(format!("In override `{}`:", key), cause)
-                })?,
+                Some(d) => d
+                    .validate(package_name, pre_output)
+                    .map_err(|(key, cause)| {
+                        Error::chain(format!("In override `{}`:", key), cause)
+                    })?,
                 None => IndexMap::new(),
             },
             plugins: match self.plugins {
                 Some(d) => d
-                    .validate()
+                    .validate(package_name, pre_output)
                     .map_err(|(key, cause)| Error::chain(format!("In plugin `{}`:", key), cause))?,
                 None => IndexMap::new(),
             },
@@ -942,10 +1157,46 @@ pub struct PartialVendorPackage {
     pub exclude_from_upstream: Option<Vec<String>>,
 }
 
+impl PrefixPaths for PartialVendorPackage {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        let patch_root = self.patch_dir.prefix_paths(prefix)?;
+        Ok(PartialVendorPackage {
+            name: self.name,
+            target_dir: self.target_dir.prefix_paths(prefix)?,
+            upstream: self.upstream,
+            mapping: match self.mapping {
+                Some(mapping_vec) => Some(mapping_vec
+                    .into_iter()
+                    .map(|ftl| {
+                        Ok(FromToLink {
+                            from: ftl.from,
+                            to: ftl.to,
+                            patch_dir: ftl.patch_dir.map_or(
+                                Ok::<Option<PathBuf>, Error>(None),
+                                |dir| {
+                                    Ok(Some({
+                                        dir.prefix_paths(Path::new(&patch_root.clone().expect(
+                                "A mapping has a local patch_dir, but no global patch_dir is defined.",
+                            )))?
+                                    }))
+                                },
+                            )?,
+                        })
+                    })
+                    .collect::<Result<_>>()?),
+                None => None,
+            },
+            patch_dir: patch_root,
+            include_from_upstream: self.include_from_upstream,
+            exclude_from_upstream: self.exclude_from_upstream,
+        })
+    }
+}
+
 impl Validate for PartialVendorPackage {
     type Output = VendorPackage;
     type Error = Error;
-    fn validate(self) -> Result<VendorPackage> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<VendorPackage> {
         Ok(VendorPackage {
             name: match self.name {
                 Some(name) => name,
@@ -956,9 +1207,11 @@ impl Validate for PartialVendorPackage {
                 None => return Err(Error::new("external import target dir missing")),
             },
             upstream: match self.upstream {
-                Some(upstream) => upstream.validate().map_err(|cause| {
-                    Error::chain("Unable to parse external import upstream", cause)
-                })?,
+                Some(upstream) => upstream
+                    .validate(package_name, pre_output)
+                    .map_err(|cause| {
+                        Error::chain("Unable to parse external import upstream", cause)
+                    })?,
                 None => return Err(Error::new("external import upstream missing")),
             },
             mapping: self.mapping.unwrap_or_default(),
@@ -1028,7 +1281,7 @@ pub enum LockedSource {
 }
 
 #[cfg(unix)]
-fn env_path_from_string(path_str: String) -> Result<PathBuf> {
+pub(crate) fn env_path_from_string(path_str: String) -> Result<PathBuf> {
     Ok(PathBuf::from(
         subst::substitute(&path_str, &subst::Env).map_err(|cause| {
             Error::chain(
@@ -1040,6 +1293,6 @@ fn env_path_from_string(path_str: String) -> Result<PathBuf> {
 }
 
 #[cfg(windows)]
-fn env_path_from_string(path_str: String) -> Result<PathBuf> {
+pub(crate) fn env_path_from_string(path_str: String) -> Result<PathBuf> {
     Ok(PathBuf::from(path_str))
 }

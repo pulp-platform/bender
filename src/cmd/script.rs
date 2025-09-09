@@ -13,6 +13,7 @@ use indexmap::{IndexMap, IndexSet};
 use tera::{Context, Tera};
 use tokio::runtime::Runtime;
 
+use crate::config::Validate;
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup};
@@ -292,8 +293,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             });
     }
 
-    // Flatten the sources.
-    let srcs = srcs.flatten();
+    // Flatten and validate the sources.
+    let srcs = srcs
+        .flatten()
+        .into_iter()
+        .map(|f| f.validate("", false))
+        .collect::<Result<Vec<_>>>()?;
 
     // Validate format-specific options.
     if (matches.contains_id("vcom-arg") || matches.contains_id("vlog-arg"))

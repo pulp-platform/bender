@@ -30,7 +30,7 @@ use tokio::sync::Semaphore;
 use typed_arena::Arena;
 
 use crate::cli::read_manifest;
-use crate::config::Validate;
+//use crate::config::Validate;
 use crate::config::{self, Config, Manifest};
 use crate::error::*;
 use crate::git::Git;
@@ -1053,16 +1053,17 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                         cause,
                                     )
                                 })?;
-                            let mut full = partial.validate().map_err(|cause| {
-                                Error::chain(
-                                    format!(
-                                        "Error in manifest of dependency `{}` at revision \
+                            let mut full =
+                                partial.validate_ignore_sources("", true).map_err(|cause| {
+                                    Error::chain(
+                                        format!(
+                                            "Error in manifest of dependency `{}` at revision \
                                              `{}`.",
-                                        dep.0, used_git_rev
-                                    ),
-                                    cause,
-                                )
-                            })?;
+                                            dep.0, used_git_rev
+                                        ),
+                                        cause,
+                                    )
+                                })?;
                             self.sub_dependency_fixing(
                                 &mut full.dependencies,
                                 full.package.name.clone(),
@@ -1184,16 +1185,17 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     cause,
                                 )
                             })?;
-                        let mut full = partial.validate().map_err(|cause| {
-                            Error::chain(
-                                format!(
-                                    "Error in manifest of dependency `{}` at revision \
+                        let mut full =
+                            partial.validate_ignore_sources("", true).map_err(|cause| {
+                                Error::chain(
+                                    format!(
+                                        "Error in manifest of dependency `{}` at revision \
                                          `{}`.",
-                                    dep_name, rev
-                                ),
-                                cause,
-                            )
-                        })?;
+                                        dep_name, rev
+                                    ),
+                                    cause,
+                                )
+                            })?;
 
                         // Add base path to path dependencies within git repositories
                         self.sub_dependency_fixing(
@@ -1688,6 +1690,15 @@ impl<'ctx> DependencyTable<'ctx> {
             debugln!("sess: reusing {:?}", id);
             id
         } else {
+            if let DependencySource::Path(path) = &entry.source {
+                if !path.exists() {
+                    warnln!(
+                        "Dependency `{}` has source path `{}` which does not exist",
+                        entry.name,
+                        path.display()
+                    );
+                }
+            }
             let id = DependencyRef(self.list.len());
             debugln!("sess: adding {:?} as {:?}", entry, id);
             self.list.push(entry);
