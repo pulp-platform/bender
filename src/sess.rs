@@ -22,7 +22,7 @@ use std::fs::canonicalize;
 use dunce::canonicalize;
 
 use async_recursion::async_recursion;
-use futures::future::{self, join_all};
+use futures::future::join_all;
 use futures::TryFutureExt;
 use indexmap::{IndexMap, IndexSet};
 use semver::Version;
@@ -539,35 +539,36 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             // Initialize.
             self.sess.stats.num_database_init.increment();
             // TODO MICHAERO: May need throttle
-            future::lazy(|_| {
-                stageln!("Cloning", "{} ({})", name2, url2);
-                Ok(())
-            })
-            .and_then(|_| git.clone().spawn_with(|c| c.arg("init").arg("--bare")))
-            .and_then(|_| {
-                git.clone()
-                    .spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url))
-            })
-            .and_then(|_| git.clone().fetch("origin"))
-            .and_then(|_| async {
-                if let Some(reference) = fetch_ref {
-                    git.clone().fetch_ref("origin", reference).await
-                } else {
-                    Ok(())
-                }
-            })
-            .await
-            .map_err(move |cause| {
-                if url3.contains("git@") {
-                    warnln!("Please ensure your public ssh key is added to the git server.");
-                }
-                warnln!("Please ensure the url is correct and you have access to the repository.");
-                Error::chain(
-                    format!("Failed to initialize git database in {:?}.", db_dir),
-                    cause,
-                )
-            })
-            .map(move |_| git)
+            stageln!("Cloning", "{} ({})", name2, url2);
+            git.clone()
+                .spawn_with(|c| c.arg("init").arg("--bare"))
+                .await?;
+            git.clone()
+                .spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url))
+                .await?;
+            git.clone()
+                .fetch("origin")
+                .and_then(|_| async {
+                    if let Some(reference) = fetch_ref {
+                        git.clone().fetch_ref("origin", reference).await
+                    } else {
+                        Ok(())
+                    }
+                })
+                .await
+                .map_err(move |cause| {
+                    if url3.contains("git@") {
+                        warnln!("Please ensure your public ssh key is added to the git server.");
+                    }
+                    warnln!(
+                        "Please ensure the url is correct and you have access to the repository."
+                    );
+                    Error::chain(
+                        format!("Failed to initialize git database in {:?}.", db_dir),
+                        cause,
+                    )
+                })
+                .map(move |_| git)
         } else {
             // Update if the manifest has been modified since the last fetch.
             let db_mtime = try_modification_time(db_dir.join("FETCH_HEAD"));
@@ -577,30 +578,30 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             self.sess.stats.num_database_fetch.increment();
             // TODO MICHAERO: May need throttle
-            future::lazy(|_| {
-                stageln!("Fetching", "{} ({})", name2, url2);
-                Ok(())
-            })
-            .and_then(|_| git.clone().fetch("origin"))
-            .and_then(|_| async {
-                if let Some(reference) = fetch_ref {
-                    git.clone().fetch_ref("origin", reference).await
-                } else {
-                    Ok(())
-                }
-            })
-            .await
-            .map_err(move |cause| {
-                if url3.contains("git@") {
-                    warnln!("Please ensure your public ssh key is added to the git server.");
-                }
-                warnln!("Please ensure the url is correct and you have access to the repository.");
-                Error::chain(
-                    format!("Failed to update git database in {:?}.", db_dir),
-                    cause,
-                )
-            })
-            .map(move |_| git)
+            stageln!("Fetching", "{} ({})", name2, url2);
+            git.clone()
+                .fetch("origin")
+                .and_then(|_| async {
+                    if let Some(reference) = fetch_ref {
+                        git.clone().fetch_ref("origin", reference).await
+                    } else {
+                        Ok(())
+                    }
+                })
+                .await
+                .map_err(move |cause| {
+                    if url3.contains("git@") {
+                        warnln!("Please ensure your public ssh key is added to the git server.");
+                    }
+                    warnln!(
+                        "Please ensure the url is correct and you have access to the repository."
+                    );
+                    Error::chain(
+                        format!("Failed to update git database in {:?}.", db_dir),
+                        cause,
+                    )
+                })
+                .map(move |_| git)
         }
     }
 
@@ -1612,7 +1613,7 @@ pub struct DependencyEntry {
 
 impl DependencyEntry {
     /// Obtain the dependency version for this entry.
-    pub fn version(&self) -> DependencyVersion {
+    pub fn version(&self) -> DependencyVersion<'_> {
         match self.source {
             DependencySource::Registry => unimplemented!(),
             DependencySource::Path(_) => DependencyVersion::Path,
