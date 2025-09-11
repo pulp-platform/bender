@@ -99,9 +99,9 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     git.clone().spawn_with(|c| c.arg("clone").arg(url).arg("."))
                     .map_err(move |cause| {
                         if url.contains("git@") {
-                            warnln!("Please ensure your public ssh key is added to the git server.");
+                            warnln!("[W07] Please ensure your public ssh key is added to the git server.");
                         }
-                        warnln!("Please ensure the url is correct and you have access to the repository.");
+                        warnln!("[W07] Please ensure the url is correct and you have access to the repository.");
                         Error::chain(
                             format!("Failed to initialize git database in {:?}.", tmp_path),
                             cause,
@@ -280,7 +280,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                             }
                         },
                         None => {
-                            warnln!("No patch directory specified for package {}, mapping {} => {}. Skipping patch generation.", vendor_package.name.clone(), patch_link.from_prefix.to_str().unwrap(), patch_link.to_prefix.to_str().unwrap());
+                            warnln!("[W15] No patch directory specified for package {}, mapping {} => {}. Skipping patch generation.", vendor_package.name.clone(), patch_link.from_prefix.to_str().unwrap(), patch_link.to_prefix.to_str().unwrap());
                             Ok(())
                         },
                     }
@@ -330,7 +330,7 @@ pub fn init(
     // Check if includes exist
     for path in vendor_package.include_from_upstream.clone() {
         if !PathBuf::from(extend_paths(&[path.clone()], dep_path, true)?[0].clone()).exists() {
-            warnln!("{} not found in upstream, continuing.", path);
+            warnln!("[W16] {} not found in upstream, continuing.", path);
         }
     }
 
@@ -361,7 +361,7 @@ pub fn init(
                 })?;
             } else {
                 warnln!(
-                    "{} not found in upstream, continuing.",
+                    "[W16] {} not found in upstream, continuing.",
                     link_from.to_str().unwrap()
                 );
             }

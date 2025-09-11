@@ -59,7 +59,9 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                         .unwrap();
                     // Filter out dependencies without a manifest
                     if dep_manifest.is_none() {
-                        warnln!("{} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
+                        if !sess.suppress_warnings.contains("W17") {
+                            warnln!("[W17] {} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
+                        }
                         continue;
                     }
                     let dep_manifest = dep_manifest.unwrap();
@@ -77,9 +79,9 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                                 ),
                             ],
                         );
-                    } else {
+                    } else if !sess.suppress_warnings.contains("W17") {
                         // Filter out dependencies with mismatching manifest
-                        warnln!("{} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
+                        warnln!("[W17] {} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
                     }
                 }
             }
@@ -130,9 +132,9 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         }
     );
 
-    if sess.config.overrides.contains_key(dep) {
+    if sess.config.overrides.contains_key(dep) && !sess.suppress_warnings.contains("W18") {
         warnln!(
-            "An override is configured for {} to {:?}",
+            "[W18] An override is configured for {} to {:?}",
             dep,
             sess.config.overrides[dep]
         )
