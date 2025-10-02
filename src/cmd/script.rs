@@ -7,6 +7,12 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
+use crate::filter::{filter_unused, FilterOptions};
+
+fn norm(p: &Path) -> PathBuf {
+    dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
 use clap::builder::PossibleValue;
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 use indexmap::{IndexMap, IndexSet};
@@ -189,6 +195,32 @@ pub fn new() -> Command {
                 .num_args(1)
                 .value_parser(value_parser!(String)),
         )
+	.arg(
+            Arg::new("filter-unused")
+                .long("filter-unused")
+                .help("Filter unused SystemVerilog files via dependency tracing")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("rtl-top")
+                .long("rtl-top")
+                .help("Top RTL module filename stem")
+                .num_args(1)
+                .action(ArgAction::Append),
+        )
+        .arg(
+            Arg::new("tb-top")
+                .long("tb-top")
+                .help("Testbench top stem(s) or pattern(s)")
+                .num_args(1)
+                .action(ArgAction::Append),
+        )
+        .arg(
+            Arg::new("show-tree")
+                .long("show-tree")
+                .help("Print dependency tree for chosen start files")
+                .action(ArgAction::SetTrue),
+        )
 }
 
 fn get_package_strings<I>(packages: I) -> IndexSet<String>
@@ -293,9 +325,64 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             });
     }
 
-    // Flatten and validate the sources.
-    let srcs = srcs
-        .flatten()
+    // Flatten first so we can optionally filter unused files.
+    let mut flat = srcs.flatten();
+
+    if matches.get_flag("filter-unused") {
+        // Build (package, absolute_path) tuples from the flattened groups
+        let flat_files: Vec<(String, PathBuf)> = flat
+            .iter()
+            .flat_map(|sg| {
+                let pkg_name = sg
+                    .package
+                    .unwrap_or(&sess.manifest.package.name)
+                    .to_string();
+                sg.files.iter().filter_map(move |f| {
+                    if let SourceFile::File(p) = f {
+                        let abs: PathBuf = if p.is_absolute() { p.to_path_buf() } else { sess.root.join(p) };
+                        Some((pkg_name.clone(), norm(&abs)))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+
+        let opts = FilterOptions {
+            rtl_tops: matches
+                .get_many::<String>("rtl-top")
+                .map(|v| v.map(|s| s.to_string()).collect())
+                .unwrap_or_default(),
+            tb_tops: matches
+                .get_many::<String>("tb-top")
+                .map(|v| v.map(|s| s.to_string()).collect())
+                .unwrap_or_default(),
+            show_tree: matches.get_flag("show-tree"),
+        };
+
+        // Compute reachable files
+        let used = filter_unused(sess, &flat_files, &opts)?;
+
+        // Retain only used files in each flattened SourceGroup
+        flat = flat
+            .into_iter()
+            .map(|mut sg| {
+                sg.files.retain(|f| {
+                    if let SourceFile::File(p) = f {
+                        let abs: PathBuf = if p.is_absolute() { p.to_path_buf() } else { sess.root.join(p) };
+                        used.contains(&norm(&abs))
+                    } else {
+                        // Keep non-file entries (e.g., groups) unchanged
+                        true
+                    }
+                });
+                sg
+            })
+            .collect();
+    }
+
+    // Validate the (possibly filtered) flat sources.
+    let srcs = flat
         .into_iter()
         .map(|f| f.validate("", false))
         .collect::<Result<Vec<_>>>()?;

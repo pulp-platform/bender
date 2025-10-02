@@ -39,6 +39,7 @@ pub mod resolver;
 pub mod sess;
 pub mod src;
 pub mod target;
+pub mod filter;
 pub mod util;
 
 fn main() {
