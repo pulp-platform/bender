@@ -610,9 +610,7 @@ fn emit_template(
             .into_iter()
             .map(|p| p.to_path_buf())
             .collect();
-        let mut defines: IndexSet<(String, Option<String>)> = IndexMap::new()
-            .into_iter()
-            .collect();
+        let mut defines: IndexSet<(String, Option<String>)> = IndexMap::new().into_iter().collect();
         defines.extend(
             src.defines
                 .iter()
