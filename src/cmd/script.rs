@@ -47,6 +47,7 @@ pub fn new() -> Command {
                 .value_parser([
                     PossibleValue::new("flist"),
                     PossibleValue::new("flist-plus"),
+                    PossibleValue::new("xcelium"),
                     PossibleValue::new("vsim"),
                     PossibleValue::new("vcs"),
                     PossibleValue::new("verilator"),
@@ -89,6 +90,15 @@ pub fn new() -> Command {
             Arg::new("vlog-arg")
                 .long("vlog-arg")
                 .help("Pass an argument to vlog calls (vsim/vlogan/riviera only)")
+                .num_args(1..)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
+        )
+        .arg(
+            Arg::new("incdir")
+                .short('I')
+                .long("incdir")
+                .help("Add an include directory (repeatable)")
                 .num_args(1..)
                 .action(ArgAction::Append)
                 .value_parser(value_parser!(String)),
@@ -218,6 +228,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         match format.as_str() {
             "flist" => vec!["flist"],
             "flist-plus" => vec!["flist"],
+            "xcelium" => vec!["xcelium", "simulation"],
             "vsim" => vec!["vsim", "simulation"],
             "vcs" => vec!["vcs", "simulation"],
             "verilator" => vec!["verilator", "synthesis"],
@@ -343,6 +354,13 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         "flist-plus" => emit_template(
             sess,
             include_str!("../script_fmt/flist-plus.tera"),
+            matches,
+            targets,
+            srcs,
+        ),
+        "xcelium" => emit_template(
+            sess,
+            include_str!("../script_fmt/xcelium_f.tera"),
             matches,
             targets,
             srcs,
@@ -501,6 +519,7 @@ fn emit_template(
     let mut tera_context = Context::new();
     tera_context.insert("HEADER_AUTOGEN", HEADER_AUTOGEN);
     tera_context.insert("root", sess.root);
+    tera_context.insert("root_package", &sess.manifest.package.name);
     // tera_context.insert("srcs", &srcs);
     tera_context.insert("abort_on_error", &!matches.get_flag("no-abort-on-error"));
 
@@ -542,11 +561,21 @@ fn emit_template(
     tera_context.insert("all_defines", &all_defines);
 
     all_incdirs.sort();
+    // user-provided include dirs
+    let user_incdirs: IndexSet<PathBuf> = if let Some(dirs) = matches.get_many::<String>("incdir") {
+        dirs.map(|d| PathBuf::from(d)).collect()
+    } else {
+        IndexSet::new()
+    };
     let all_incdirs: IndexSet<PathBuf> = if (!matches.get_flag("only-defines")
         && !matches.get_flag("only-sources"))
         || matches.get_flag("only-includes")
     {
-        all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
+        all_incdirs
+            .into_iter()
+            .map(|p| p.to_path_buf())
+            .chain(user_incdirs)
+            .collect()
     } else {
         IndexSet::new()
     };
@@ -566,6 +595,76 @@ fn emit_template(
         IndexSet::new()
     };
     tera_context.insert("all_files", &all_files);
+
+    // Compute per-package files and root files, plus per-package incdirs/defines
+    #[derive(Debug, Serialize)]
+    struct TplLib {
+        name: String,
+        incdirs: IndexSet<PathBuf>,
+        defines: IndexSet<(String, Option<String>)>,
+        files: IndexSet<PathBuf>,
+    }
+
+    let mut libs: IndexMap<String, TplLib> = IndexMap::new();
+    let mut root_files_map: IndexSet<PathBuf> = IndexSet::new();
+    for src in &srcs {
+        // Gather common per-group data
+        let incdirs: IndexSet<PathBuf> = src
+            .clone()
+            .get_incdirs()
+            .into_iter()
+            .map(|p| p.to_path_buf())
+            .collect();
+        let mut defines: IndexSet<(String, Option<String>)> = IndexMap::new().into_iter().collect();
+        defines.extend(
+            src.defines
+                .iter()
+                .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+        );
+        defines.extend(target_defines.clone().into_iter().collect::<IndexSet<_>>());
+        // Add user-provided defines
+        {
+            let mut dmap = IndexMap::new();
+            add_defines_from_matches(&mut dmap, matches);
+            defines.extend(dmap.into_iter().collect::<IndexSet<_>>());
+        }
+
+        if let Some(pkg) = src.package {
+            if pkg == sess.manifest.package.name {
+                // Root package: collect files only
+                for file in &src.files {
+                    if let SourceFile::File(p) = file {
+                        root_files_map.insert(p.to_path_buf());
+                    }
+                }
+            } else {
+                let entry = libs.entry(pkg.to_string()).or_insert_with(|| TplLib {
+                    name: pkg.to_string(),
+                    incdirs: IndexSet::new(),
+                    defines: IndexSet::new(),
+                    files: IndexSet::new(),
+                });
+                entry.incdirs.extend(incdirs);
+                entry.defines.extend(defines);
+                for file in &src.files {
+                    if let SourceFile::File(p) = file {
+                        entry.files.insert(p.to_path_buf());
+                    }
+                }
+            }
+        } else {
+            // No package: treat as root files
+            for file in &src.files {
+                if let SourceFile::File(p) = file {
+                    root_files_map.insert(p.to_path_buf());
+                }
+            }
+        }
+    }
+    // libs in stable order
+    let libs: Vec<TplLib> = libs.into_iter().map(|(_, v)| v).collect();
+    tera_context.insert("libs", &libs);
+    tera_context.insert("root_files", &root_files_map);
 
     let mut split_srcs = vec![];
     for src in srcs {
