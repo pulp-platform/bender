@@ -4,7 +4,6 @@
 //! The `clone` subcommand.
 
 use clap::{Arg, ArgMatches, Command};
-use futures::future::join_all;
 use std::path::Path;
 use std::process::Command as SysCommand;
 use tokio::runtime::Runtime;
@@ -12,7 +11,7 @@ use tokio::runtime::Runtime;
 use crate::config;
 use crate::config::{Locked, LockedSource};
 use crate::error::*;
-use crate::sess::{Session, SessionIo};
+use crate::sess::{DependencySource, Session, SessionIo};
 
 /// Assemble the `clone` subcommand.
 pub fn new() -> Command {
@@ -37,7 +36,7 @@ pub fn new() -> Command {
 /// Execute the `clone` subcommand.
 pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     let dep = &matches.get_one::<String>("name").unwrap().to_lowercase();
-    sess.dependency_with_name(dep)?;
+    let depref = sess.dependency_with_name(dep)?;
 
     let path_mod = matches.get_one::<String>("path").unwrap(); // TODO make this option for config in the Bender.yml file?
 
@@ -54,6 +53,17 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
             _ => {
                 eprintln!("A non-path override is already present, proceeding anyways");
             }
+        }
+    }
+
+    // Check if dependency is a git dependency
+    match sess.dependency_source(depref) {
+        DependencySource::Git { .. } | DependencySource::Registry => {}
+        DependencySource::Path { .. } => {
+            Err(Error::new(format!(
+                "Dependency `{}` is not a git dependency, cannot clone.",
+                dep
+            )))?;
         }
     }
 
@@ -77,34 +87,22 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         let rt = Runtime::new()?;
         let io = SessionIo::new(sess);
 
-        let ids = matches
-            .get_many::<String>("name")
-            .unwrap()
-            .map(|n| Ok((n, sess.dependency_with_name(n)?)))
-            .collect::<Result<Vec<_>>>()?;
-        debugln!("main: obtain checkouts {:?}", ids);
-        let checkouts = rt
-            .block_on(join_all(
-                ids.iter()
-                    .map(|&(_, id)| io.checkout(id, false, &[]))
-                    .collect::<Vec<_>>(),
-            ))
-            .into_iter()
-            .collect::<Result<Vec<_>>>()?;
-        debugln!("main: checkouts {:#?}", checkouts);
-        for c in checkouts {
-            if let Some(s) = c.to_str() {
-                if !Path::new(s).exists() {
-                    Err(Error::new(format!("`{dep}` path `{s}` does not exist")))?;
-                }
-                let command = SysCommand::new("cp")
-                    .arg("-rf")
-                    .arg(s)
-                    .arg(path.join(path_mod).join(dep).to_str().unwrap())
-                    .status();
-                if !command.unwrap().success() {
-                    Err(Error::new(format!("Copying {} failed", dep,)))?;
-                }
+        let id =
+            sess.dependency_with_name(&matches.get_one::<String>("name").unwrap().to_lowercase())?;
+        debugln!("main: obtain checkout {:?}", id);
+        let checkout = rt.block_on(io.checkout(id, false, &[]))?;
+        debugln!("main: checkout {:#?}", checkout);
+        if let Some(s) = checkout.to_str() {
+            if !Path::new(s).exists() {
+                Err(Error::new(format!("`{dep}` path `{s}` does not exist")))?;
+            }
+            let command = SysCommand::new("cp")
+                .arg("-rf")
+                .arg(s)
+                .arg(path.join(path_mod).join(dep).to_str().unwrap())
+                .status();
+            if !command.unwrap().success() {
+                Err(Error::new(format!("Copying {} failed", dep,)))?;
             }
         }
 
