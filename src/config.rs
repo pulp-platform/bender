@@ -683,6 +683,22 @@ impl Validate for PartialSources {
                         })
                     })
                     .collect::<Result<Vec<String>>>()?;
+                let lines = lines
+                    .iter()
+                    .filter_map(|line| {
+                        let line = line.trim();
+                        if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
+                            None
+                        } else {
+                            Some(
+                                line.split_whitespace()
+                                    .map(|s| s.to_string())
+                                    .collect::<Vec<_>>(),
+                            )
+                        }
+                    })
+                    .flatten()
+                    .collect();
                 Ok((filename.parent().unwrap().to_path_buf(), lines))
             })
             .collect();
@@ -703,6 +719,7 @@ impl Validate for PartialSources {
                                     None
                                 }
                             })
+                            .flat_map(|s| s.split('+').map(|s| s.to_string()).collect::<Vec<_>>())
                             .map(|dir| dir.prefix_paths(&flist_dir))
                             .collect::<Result<_>>()?,
                     ),
@@ -711,17 +728,21 @@ impl Validate for PartialSources {
                             .clone()
                             .into_iter()
                             .filter_map(|file| {
-                                if let Some(stripped) = file.strip_prefix("+define+") {
-                                    if let Some(eq_idx) = stripped.find("=") {
-                                        Some((
-                                            stripped[..eq_idx].to_string(),
-                                            Some(stripped[eq_idx + 1..].to_string()),
-                                        ))
-                                    } else {
-                                        Some((stripped.to_string(), None))
-                                    }
+                                if file.starts_with("+define+") {
+                                    Some(file.trim_start_matches("+define+").to_string())
                                 } else {
                                     None
+                                }
+                            })
+                            .flat_map(|s| s.split('+').map(|s| s.to_string()).collect::<Vec<_>>())
+                            .map(|file| {
+                                if let Some(eq_idx) = file.find("=") {
+                                    (
+                                        file[..eq_idx].to_string(),
+                                        Some(file[eq_idx + 1..].to_string()),
+                                    )
+                                } else {
+                                    (file.to_string(), None)
                                 }
                             })
                             .collect(),
