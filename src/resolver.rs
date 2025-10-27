@@ -455,11 +455,20 @@ impl<'ctx> DependencyResolver<'ctx> {
                 DependencyVersions::Registry(_) => {
                     unreachable!("Registry dependencies not yet supported.")
                 }
-                DependencyVersions::Git(gv) => gv
-                    .revs
-                    .iter()
-                    .position(|rev| *rev == hash.unwrap())
-                    .unwrap(),
+                DependencyVersions::Git(gv) => {
+                    match gv.revs.iter().position(|rev| *rev == hash.unwrap()) {
+                        Some(index) => index,
+                        None => {
+                            warnln!(
+                                "Locked revision `{:?}` for dependency `{}` not found in available revisions, allowing update.",
+                                hash.unwrap(),
+                                dep
+                            );
+                            self.locked.get_mut(dep.as_str()).unwrap().3 = false;
+                            continue;
+                        }
+                    }
+                }
             };
 
             self.register_locked_dependency(dep, depref, depversion, locked_index);
