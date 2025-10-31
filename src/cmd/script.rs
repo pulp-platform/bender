@@ -94,6 +94,14 @@ pub fn new() -> Command {
                 .value_parser(value_parser!(String)),
         )
         .arg(
+            Arg::new("synopsys-arg")
+                .long("synopsys-arg")
+                .help("Pass an argument to synopsys calls")
+                .num_args(1..)
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
+        )
+        .arg(
             Arg::new("only-defines")
                 .long("only-defines")
                 .num_args(0)
@@ -662,6 +670,12 @@ fn emit_template(
         [].to_vec()
     };
     tera_context.insert("vcom_args", &vcom_args);
+    let synopsys_args: Vec<String> = if let Some(args) = matches.get_many::<String>("synopsys-arg") {
+        args.map(Into::into).collect()
+    } else {
+        [].to_vec()
+    };
+    tera_context.insert("synopsys_args", &synopsys_args);
 
     tera_context.insert("vlogan_bin", &matches.get_one::<String>("vlogan-bin"));
     tera_context.insert("vhdlan_bin", &matches.get_one::<String>("vhdlan-bin"));
