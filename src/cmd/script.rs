@@ -670,7 +670,8 @@ fn emit_template(
         [].to_vec()
     };
     tera_context.insert("vcom_args", &vcom_args);
-    let synopsys_args: Vec<String> = if let Some(args) = matches.get_many::<String>("synopsys-arg") {
+    let synopsys_args: Vec<String> = if let Some(args) = matches.get_many::<String>("synopsys-arg")
+    {
         args.map(Into::into).collect()
     } else {
         [].to_vec()
