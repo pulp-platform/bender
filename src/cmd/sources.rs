@@ -155,9 +155,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     );
     target_defines.sort_keys();
 
-    let _ = target_defines.iter().map(|(k, v)| {
-        srcs.defines.insert(k, v.as_deref());
-    });
+    let _ = target_defines
+        .iter()
+        .map(|(k, v)| {
+            srcs.defines.insert(k, v.as_deref());
+        })
+        .collect::<Vec<_>>();
 
     let result = {
         let stdout = std::io::stdout();
