@@ -1061,17 +1061,17 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     // Further dependencies
                     let _manifest: Result<_> = match sub_data {
                         Some(data) => {
-                            let partial: config::PartialManifest = serde_yaml::from_str(&data)
+                            let partial: config::PartialManifest = serde_yaml_ng::from_str(&data)
                                 .map_err(|cause| {
-                                    Error::chain(
-                                        format!(
-                                            "Syntax error in manifest of dependency `{}` at \
+                                Error::chain(
+                                    format!(
+                                        "Syntax error in manifest of dependency `{}` at \
                                                  revision `{}`.",
-                                            dep.0, used_git_rev
-                                        ),
-                                        cause,
-                                    )
-                                })?;
+                                        dep.0, used_git_rev
+                                    ),
+                                    cause,
+                                )
+                            })?;
                             let mut full = partial
                                 .validate_ignore_sources("", true, &self.sess.suppress_warnings)
                                 .map_err(|cause| {
@@ -1205,7 +1205,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 }?;
                 let manifest: Result<_> = match data {
                     Some(data) => {
-                        let partial: config::PartialManifest = serde_yaml::from_str(&data)
+                        let partial: config::PartialManifest = serde_yaml_ng::from_str(&data)
                             .map_err(|cause| {
                                 Error::chain(
                                     format!(

@@ -13,7 +13,7 @@ pub fn read_lockfile(path: &Path, root_dir: &Path) -> Result<Locked> {
     use std::fs::File;
     let file = File::open(path)
         .map_err(|cause| Error::chain(format!("Cannot open lockfile {:?}.", path), cause))?;
-    let locked_loaded: Result<Locked> = serde_yaml::from_reader(file)
+    let locked_loaded: Result<Locked> = serde_yaml_ng::from_reader(file)
         .map_err(|cause| Error::chain(format!("Syntax error in lockfile {:?}.", path), cause));
     // Make relative paths absolute
     Ok(Locked {
@@ -74,7 +74,7 @@ pub fn write_lockfile(locked: &Locked, path: &Path, root_dir: &Path) -> Result<(
     use std::fs::File;
     let file = File::create(path)
         .map_err(|cause| Error::chain(format!("Cannot create lockfile {:?}.", path), cause))?;
-    serde_yaml::to_writer(file, &adapted_locked)
+    serde_yaml_ng::to_writer(file, &adapted_locked)
         .map_err(|cause| Error::chain(format!("Cannot write lockfile {:?}.", path), cause))?;
     Ok(())
 }

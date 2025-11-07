@@ -17,7 +17,7 @@ use dunce::canonicalize;
 use clap::parser::{ValueSource, ValuesRef};
 use clap::{value_parser, Arg, ArgAction, Command};
 use indexmap::IndexSet;
-use serde_yaml;
+use serde_yaml_ng;
 use tokio::runtime::Runtime;
 
 use crate::cmd;
@@ -390,7 +390,7 @@ pub fn read_manifest(path: &Path, suppress_warnings: &IndexSet<String>) -> Resul
     debugln!("read_manifest: {:?}", path);
     let file = File::open(path)
         .map_err(|cause| Error::chain(format!("Cannot open manifest {:?}.", path), cause))?;
-    let partial: PartialManifest = serde_yaml::from_reader(file)
+    let partial: PartialManifest = serde_yaml_ng::from_reader(file)
         .map_err(|cause| Error::chain(format!("Syntax error in manifest {:?}.", path), cause))?;
     partial
         .prefix_paths(path.parent().unwrap())
@@ -498,7 +498,7 @@ fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<Par
     }
     let file = File::open(path)
         .map_err(|cause| Error::chain(format!("Cannot open config {:?}.", path), cause))?;
-    let partial: PartialConfig = serde_yaml::from_reader(file)
+    let partial: PartialConfig = serde_yaml_ng::from_reader(file)
         .map_err(|cause| Error::chain(format!("Syntax error in config {:?}.", path), cause))?;
     if warn_config_loaded {
         warnln!("[W02] Using config at {:?} for overrides.", path)

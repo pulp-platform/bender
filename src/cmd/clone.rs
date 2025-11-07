@@ -218,7 +218,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     use std::fs::File;
     let file = File::open(path.join("Bender.lock"))
         .map_err(|cause| Error::chain(format!("Cannot open lockfile {:?}.", path), cause))?;
-    let mut locked: Locked = serde_yaml::from_reader(&file)
+    let mut locked: Locked = serde_yaml_ng::from_reader(&file)
         .map_err(|cause| Error::chain(format!("Syntax error in lockfile {:?}.", path), cause))?;
 
     let mut mod_package = locked.packages[dep].clone();
@@ -235,7 +235,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
 
     let file = File::create(path.join("Bender.lock"))
         .map_err(|cause| Error::chain(format!("Cannot create lockfile {:?}.", path), cause))?;
-    serde_yaml::to_writer(&file, &locked)
+    serde_yaml_ng::to_writer(&file, &locked)
         .map_err(|cause| Error::chain(format!("Cannot write lockfile {:?}.", path), cause))?;
 
     println!("Lockfile updated");

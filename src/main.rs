@@ -6,7 +6,7 @@
 #[macro_use]
 extern crate serde;
 extern crate serde_json;
-extern crate serde_yaml;
+extern crate serde_yaml_ng;
 
 extern crate async_recursion;
 extern crate futures;

@@ -3,7 +3,7 @@
 
 //! The `fusesoc` subcommand.
 
-use serde_yaml::Value;
+use serde_yaml_ng::Value;
 use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::fs;
@@ -514,15 +514,15 @@ fn get_fuse_file_str(
 
     fuse_str.push('\n');
     fuse_str.push_str(
-        &serde_yaml::to_string(&fuse_pkg)
+        &serde_yaml_ng::to_string(&fuse_pkg)
             .map_err(|err| Error::chain("Failed to serialize.", err))?,
     );
     Ok(fuse_str)
 }
 
 fn parse_fuse_file(file_str: String, filename: String) -> Result<FuseSoCCAPI2> {
-    serde_yaml::from_value({
-        let mut value = serde_yaml::from_str::<Value>(&file_str).map_err(|cause| {
+    serde_yaml_ng::from_value({
+        let mut value = serde_yaml_ng::from_str::<Value>(&file_str).map_err(|cause| {
             Error::chain(
                 format!("Unable to parse core file to value {:?}.", &filename),
                 cause,
