@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 ### Fixed
+- `script`: Fix genus template.
 - Fix `update` failing pull of inexistent commit when multiple repositories are indicated.
 - Fix checkout for commit not yet fetched.
 - `script`: Fix flist-plus incdir template.
@@ -20,6 +21,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - `update`: Tell user the lockfile version when solving a conflict.
 - Print dependency updates executed.
 - Enable updating of individual dependencies (and recursive dependencies if desired).
+- `vendor`: Add path error information.
 - Add support for glob in manifest source files.
 - `parents`: Print currently selected version.
 - `packages`: Add `--version` flag to print currently used versions.
@@ -28,6 +30,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - `script`: Allow flist formats to use `only-sources`/`only-includes`/`only-defines` flags.
 - Add check to ensure files referenced in all manifests exist.
 - Add warnings for unknown fields in manifest.
+- `sources`: Add defines for passed targets to output (similar to `script`).
 - Add support to indicate and read in external file lists in manifest.
 - Enumerate warnings and add `--suppress` flag to hide warnings.
 

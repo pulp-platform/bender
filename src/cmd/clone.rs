@@ -179,7 +179,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         let mut new_str = String::new();
         if local_file_str.contains("overrides:") {
             let split = local_file_str.split('\n');
-            let test = split.clone().last().unwrap().is_empty();
+            let test = split.clone().next_back().unwrap().is_empty();
             for i in split {
                 if i.contains(dep) {
                     new_str.push('#');

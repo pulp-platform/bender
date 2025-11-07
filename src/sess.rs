@@ -82,7 +82,7 @@ pub struct Session<'ctx> {
     pub suppress_warnings: IndexSet<String>,
 }
 
-impl<'sess, 'ctx: 'sess> Session<'ctx> {
+impl<'ctx> Session<'ctx> {
     /// Create a new session.
     #[allow(clippy::too_many_arguments)]
     pub fn new(

@@ -329,7 +329,9 @@ pub fn init(
 
     // Check if includes exist
     for path in vendor_package.include_from_upstream.clone() {
-        if !PathBuf::from(extend_paths(&[path.clone()], dep_path, true)?[0].clone()).exists() {
+        if !PathBuf::from(extend_paths(std::slice::from_ref(&path), dep_path, true)?[0].clone())
+            .exists()
+        {
             warnln!("[W16] {} not found in upstream, continuing.", path);
         }
     }
@@ -652,7 +654,7 @@ pub fn gen_format_patch(
     if !get_diff_cached.is_empty() {
         // Write diff into new temp dir. TODO: pipe directly to "git apply"
         let tmp_format_dir = TempDir::new()?;
-        let tmp_format_path = tmp_format_dir.into_path();
+        let tmp_format_path = tmp_format_dir.keep();
         let diff_cached_path = tmp_format_path.join("staged.diff");
         std::fs::write(diff_cached_path.clone(), get_diff_cached)?;
 
