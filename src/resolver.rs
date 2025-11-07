@@ -466,11 +466,13 @@ impl<'ctx> DependencyResolver<'ctx> {
                     match gv.revs.iter().position(|rev| *rev == hash.unwrap()) {
                         Some(index) => index,
                         None => {
-                            warnln!(
-                                "Locked revision `{:?}` for dependency `{}` not found in available revisions, allowing update.",
-                                hash.unwrap(),
-                                dep
-                            );
+                            if !self.sess.suppress_warnings.contains("W23") {
+                                warnln!(
+                                    "[W23] Locked revision `{:?}` for dependency `{}` not found in available revisions, allowing update.",
+                                    hash.unwrap(),
+                                    dep
+                                );
+                            }
                             self.locked.get_mut(dep.as_str()).unwrap().3 = false;
                             continue;
                         }
