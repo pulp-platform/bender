@@ -63,6 +63,15 @@ pub fn main() -> Result<()> {
                 .value_parser(value_parser!(usize))
                 .help("Sets the maximum number of concurrent git operations"),
         )
+        .arg(
+            Arg::new("suppress")
+                .long("suppress")
+                .global(true)
+                .num_args(1)
+                .action(ArgAction::Append)
+                .help("Suppresses specific warnings. Use `all` to suppress all warnings.")
+                .value_parser(value_parser!(String)),
+        )
         .subcommand(cmd::update::new())
         .subcommand(cmd::path::new())
         .subcommand(cmd::parents::new())
@@ -95,6 +104,19 @@ pub fn main() -> Result<()> {
     // Parse the arguments.
     let matches = app.clone().get_matches();
 
+    let suppressed_warnings: IndexSet<String> = matches
+        .get_many::<String>("suppress")
+        .unwrap_or_default()
+        .map(|s| s.to_owned())
+        .collect();
+
+    let suppressed_warnings: IndexSet<String> =
+        if suppressed_warnings.contains("all") || suppressed_warnings.contains("Wall") {
+            (1..23).map(|i| format!("W{:02}", i)).collect()
+        } else {
+            suppressed_warnings
+        };
+
     // Enable debug outputs if needed.
     if matches.contains_id("debug") && matches.get_flag("debug") {
         ENABLE_DEBUG.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -111,7 +133,7 @@ pub fn main() -> Result<()> {
 
     let mut force_fetch = false;
     if let Some(("update", intern_matches)) = matches.subcommand() {
-        force_fetch = cmd::update::setup(intern_matches)?;
+        force_fetch = cmd::update::setup(intern_matches, &suppressed_warnings)?;
     }
 
     // Determine the root working directory, which has either been provided via
@@ -128,13 +150,14 @@ pub fn main() -> Result<()> {
 
     // Parse the manifest file of the package.
     let manifest_path = root_dir.join("Bender.yml");
-    let manifest = read_manifest(&manifest_path)?;
+    let manifest = read_manifest(&manifest_path, &suppressed_warnings)?;
     debugln!("main: {:#?}", manifest);
 
     // Gather and parse the tool configuration.
     let config = load_config(
         &root_dir,
-        matches!(matches.subcommand(), Some(("update", _))),
+        matches!(matches.subcommand(), Some(("update", _))) && !suppressed_warnings.contains("W02"),
+        &suppressed_warnings,
     )?;
     debugln!("main: {:#?}", config);
 
@@ -156,6 +179,7 @@ pub fn main() -> Result<()> {
         matches.get_flag("local"),
         force_fetch,
         git_throttle,
+        suppressed_warnings,
     );
 
     if let Some(("clean", intern_matches)) = matches.subcommand() {
@@ -223,11 +247,13 @@ pub fn main() -> Result<()> {
                     )
                 })?;
                 if !meta.file_type().is_symlink() {
-                    warnln!(
-                        "Skipping link to package {} at {:?} since there is something there",
-                        pkg_name,
-                        path
-                    );
+                    if !sess.suppress_warnings.contains("W01") {
+                        warnln!(
+                            "[W01] Skipping link to package {} at {:?} since there is something there",
+                            pkg_name,
+                            path
+                        );
+                    }
                     continue;
                 }
                 if path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
@@ -358,7 +384,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
 }
 
 /// Read a package manifest from a file.
-pub fn read_manifest(path: &Path) -> Result<Manifest> {
+pub fn read_manifest(path: &Path, suppress_warnings: &IndexSet<String>) -> Result<Manifest> {
     use crate::config::PartialManifest;
     use std::fs::File;
     debugln!("read_manifest: {:?}", path);
@@ -369,12 +395,16 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
     partial
         .prefix_paths(path.parent().unwrap())
         .map_err(|cause| Error::chain(format!("Error in manifest prefixing {:?}.", path), cause))?
-        .validate("", false)
+        .validate("", false, suppress_warnings)
         .map_err(|cause| Error::chain(format!("Error in manifest {:?}.", path), cause))
 }
 
 /// Load a configuration by traversing a directory hierarchy upwards.
-fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
+fn load_config(
+    from: &Path,
+    warn_config_loaded: bool,
+    suppress_warnings: &IndexSet<String>,
+) -> Result<Config> {
     #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
 
@@ -447,7 +477,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
 
     // Validate the configuration.
     let mut out = out
-        .validate("", false)
+        .validate("", false, suppress_warnings)
         .map_err(|cause| Error::chain("Invalid configuration:", cause))?;
 
     out.overrides = out
@@ -471,7 +501,7 @@ fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<Par
     let partial: PartialConfig = serde_yaml::from_reader(file)
         .map_err(|cause| Error::chain(format!("Syntax error in config {:?}.", path), cause))?;
     if warn_config_loaded {
-        warnln!("Using config at {:?} for overrides.", path)
+        warnln!("[W02] Using config at {:?} for overrides.", path)
     };
     Ok(Some(partial.prefix_paths(path.parent().unwrap())?))
 }

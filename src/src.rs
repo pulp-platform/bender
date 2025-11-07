@@ -50,12 +50,13 @@ impl<'ctx> Validate for SourceGroup<'ctx> {
         self,
         package_name: &str,
         pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
     ) -> crate::error::Result<SourceGroup<'ctx>> {
         Ok(SourceGroup {
             files: self
                 .files
                 .into_iter()
-                .map(|f| f.validate(package_name, pre_output))
+                .map(|f| f.validate(package_name, pre_output, suppress_warnings))
                 .collect::<Result<Vec<_>, Error>>()?,
             ..self
         })
@@ -340,24 +341,37 @@ impl<'ctx> From<&'ctx Path> for SourceFile<'ctx> {
 impl<'ctx> Validate for SourceFile<'ctx> {
     type Output = SourceFile<'ctx>;
     type Error = Error;
-    fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceFile<'ctx>, Error> {
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+        suppress_warnings: &IndexSet<String>,
+    ) -> Result<SourceFile<'ctx>, Error> {
         match self {
             SourceFile::File(path) => {
                 let env_path_buf =
                     crate::config::env_path_from_string(path.to_string_lossy().to_string())?;
                 let exists = env_path_buf.exists() && env_path_buf.is_file();
-                if exists {
+                if exists || suppress_warnings.contains("E31") {
+                    if !(exists || suppress_warnings.contains("W31")) {
+                        warnln!(
+                            "[W31] File {} doesn't exist.",
+                            env_path_buf.to_string_lossy()
+                        );
+                    }
                     Ok(SourceFile::File(path))
                 } else {
                     Err(Error::new(format!(
-                        "File {} doesn't exist",
+                        "[E31] File {} doesn't exist",
                         env_path_buf.to_string_lossy()
                     )))
                 }
             }
-            SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(
-                srcs.validate(package_name, pre_output)?,
-            ))),
+            SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate(
+                package_name,
+                pre_output,
+                suppress_warnings,
+            )?))),
         }
     }
 }

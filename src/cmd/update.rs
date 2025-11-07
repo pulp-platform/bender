@@ -62,10 +62,13 @@ pub fn new() -> Command {
 }
 
 /// Execute the `update` subcommand.
-pub fn setup(matches: &ArgMatches) -> Result<bool> {
+pub fn setup(matches: &ArgMatches, suppress_warnings: &IndexSet<String>) -> Result<bool> {
     let force_fetch = matches.get_flag("fetch");
-    if matches.get_flag("local") && matches.get_flag("fetch") {
-        warnln!("As --local argument is set for bender command, no fetching will be performed.");
+    if matches.get_flag("local") && matches.get_flag("fetch") && !suppress_warnings.contains("W14")
+    {
+        warnln!(
+            "[W14] As --local argument is set for bender command, no fetching will be performed."
+        );
     }
     Ok(force_fetch)
 }
