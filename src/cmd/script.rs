@@ -80,7 +80,7 @@ pub fn new() -> Command {
         .arg(
             Arg::new("vcom-arg")
                 .long("vcom-arg")
-                .help("Pass an argument to vcom calls (vsim/vhdlan/riviera only)")
+                .help("Pass an argument to vcom calls (vsim/vhdlan/riviera/synopsys only)")
                 .num_args(1..)
                 .action(ArgAction::Append)
                 .value_parser(value_parser!(String)),
@@ -88,15 +88,7 @@ pub fn new() -> Command {
         .arg(
             Arg::new("vlog-arg")
                 .long("vlog-arg")
-                .help("Pass an argument to vlog calls (vsim/vlogan/riviera only)")
-                .num_args(1..)
-                .action(ArgAction::Append)
-                .value_parser(value_parser!(String)),
-        )
-        .arg(
-            Arg::new("synopsys-arg")
-                .long("synopsys-arg")
-                .help("Pass an argument to synopsys calls")
+                .help("Pass an argument to vlog calls (vsim/vlogan/riviera/synopsys only)")
                 .num_args(1..)
                 .action(ArgAction::Append)
                 .value_parser(value_parser!(String)),
@@ -313,6 +305,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         && format != "vsim"
         && format != "vcs"
         && format != "riviera"
+        && format != "synopsys"
         && format != "template"
         && format != "template_json"
     {
@@ -670,13 +663,6 @@ fn emit_template(
         [].to_vec()
     };
     tera_context.insert("vcom_args", &vcom_args);
-    let synopsys_args: Vec<String> = if let Some(args) = matches.get_many::<String>("synopsys-arg")
-    {
-        args.map(Into::into).collect()
-    } else {
-        [].to_vec()
-    };
-    tera_context.insert("synopsys_args", &synopsys_args);
 
     tera_context.insert("vlogan_bin", &matches.get_one::<String>("vlogan-bin"));
     tera_context.insert("vhdlan_bin", &matches.get_one::<String>("vhdlan-bin"));
