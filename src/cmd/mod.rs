@@ -18,6 +18,7 @@ pub mod packages;
 pub mod parents;
 pub mod path;
 pub mod script;
+pub mod snapshot;
 pub mod sources;
 pub mod update;
 pub mod vendor;
