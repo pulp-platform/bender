@@ -1187,13 +1187,23 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Err(e) => Err(e),
                     }
                 } else {
-                    if !self.sess.suppress_warnings.contains("E32") {
+                    if !(self.sess.suppress_warnings.contains("E32")
+                        && self.sess.suppress_warnings.contains("W32"))
+                    {
                         if let DepSrc::Path(ref path) = dep.source {
                             if !path.exists() {
-                                return Err(Error::new(format!(
-                                    "[E32] Path {:?} for dependency {:?} does not exist.",
-                                    path, dep.name
-                                )));
+                                if self.sess.suppress_warnings.contains("E32") {
+                                    warnln!(
+                                        "[W32] Path {:?} for dependency {:?} does not exist.",
+                                        path,
+                                        dep.name
+                                    );
+                                } else {
+                                    return Err(Error::new(format!(
+                                        "[E32] Path {:?} for dependency {:?} does not exist.",
+                                        path, dep.name
+                                    )));
+                                }
                             }
                         }
                     }
