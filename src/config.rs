@@ -886,19 +886,7 @@ impl Validate for PartialSources {
             .unwrap_or_default()
             .iter()
             .filter_map(|path| match env_path_from_string(path.to_string()) {
-                Ok(p) => {
-                    if (p.exists() && p.is_dir()) || suppress_warnings.contains("E31") {
-                        if !(p.exists() && p.is_dir()) && !suppress_warnings.contains("W31") {
-                            warnln!("[W31] Include directory {} doesn't exist.", &p.display());
-                        }
-                        Some(Ok(p))
-                    } else {
-                        Some(Err(Error::new(format!(
-                            "[E31] Include directory {} doesn't exist",
-                            &p.display()
-                        ))))
-                    }
-                }
+                Ok(p) => Some(Ok(p)),
                 Err(cause) => {
                     if suppress_warnings.contains("E30") {
                         if !suppress_warnings.contains("W30") {
