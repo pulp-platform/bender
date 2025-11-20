@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+### Fixed
+- Ensure informative print is not in stdout (e.g. fix for scripts)
+- Use write to stdout instead of print to enable piping bender output into another command
+- Remove compile warnings for release
 
 ## 0.29.0 - 2025-11-07
 ### Fixed
