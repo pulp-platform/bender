@@ -90,9 +90,9 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     };
 
     if parent_array.is_empty() {
-        println!("No parents found for {}.", dep);
+        let _ = writeln!(std::io::stdout(), "No parents found for {}.", dep);
     } else {
-        println!("Parents found:");
+        let _ = writeln!(std::io::stdout(), "Parents found:");
         let source = &parent_array.values().next().unwrap()[1];
         let mut constant_source = true;
         for (_, v) in parent_array.iter() {
@@ -114,10 +114,15 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         let mut tw = TabWriter::new(vec![]);
         write!(&mut tw, "{}", res).unwrap();
         tw.flush().unwrap();
-        print!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
+        let _ = write!(
+            std::io::stdout(),
+            "{}",
+            String::from_utf8(tw.into_inner().unwrap()).unwrap()
+        );
     }
 
-    println!(
+    let _ = writeln!(
+        std::io::stdout(),
         "{} used version: {} at {}{}",
         sess.dependency(mydep).name,
         match sess.dependency(mydep).version.clone() {

@@ -23,7 +23,7 @@ pub fn new() -> Command {
 
 /// Execute the `clean` subcommand.
 pub fn run(sess: &Session, matches: &ArgMatches, path: &Path) -> Result<()> {
-    println!("Cleaning all dependencies");
+    eprintln!("Cleaning all dependencies");
 
     // Clean the checkout directory
     if let Some(checkout_dir) = &sess.manifest.workspace.checkout_dir {
@@ -33,9 +33,9 @@ pub fn run(sess: &Session, matches: &ArgMatches, path: &Path) -> Result<()> {
                 eprintln!("Failed to clean checkout directory: {:?}", e);
                 e
             })?;
-            println!("Successfully cleaned {}", checkout_dir.display());
+            eprintln!("Successfully cleaned {}", checkout_dir.display());
         } else {
-            println!("No checkout directory found.");
+            eprintln!("No checkout directory found.");
         }
     }
 
@@ -46,7 +46,7 @@ pub fn run(sess: &Session, matches: &ArgMatches, path: &Path) -> Result<()> {
             eprintln!("Failed to clean .bender directory: {:?}", e);
             e
         })?;
-        println!("Successfully cleaned .bender directory.");
+        eprintln!("Successfully cleaned .bender directory.");
     }
 
     // Clean the Bender.lock file
@@ -56,7 +56,7 @@ pub fn run(sess: &Session, matches: &ArgMatches, path: &Path) -> Result<()> {
             eprintln!("Failed to remove Bender.lock file: {:?}", e);
             e
         })?;
-        println!("Successfully removed Bender.lock file.");
+        eprintln!("Successfully removed Bender.lock file.");
     }
 
     Ok(())

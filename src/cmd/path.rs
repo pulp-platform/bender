@@ -3,6 +3,8 @@
 
 //! The `path` subcommand.
 
+use std::io::Write;
+
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use futures::future::join_all;
 use tokio::runtime::Runtime;
@@ -63,7 +65,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     // Print paths
     for c in paths {
         if let Some(s) = c.to_str() {
-            println!("{}", s);
+            let _ = writeln!(std::io::stdout(), "{}", s);
         }
     }
 

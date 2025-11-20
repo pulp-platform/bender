@@ -108,7 +108,11 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         let mut tw = TabWriter::new(vec![]);
         write!(&mut tw, "{}", target_str).unwrap();
         tw.flush().unwrap();
-        print!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
+        let _ = write!(
+            std::io::stdout(),
+            "{}",
+            String::from_utf8(tw.into_inner().unwrap()).unwrap()
+        );
     } else if graph {
         let mut graph_str = String::from("");
         for (&pkg, deps) in sess.graph().iter() {
@@ -135,7 +139,11 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         let mut tw = TabWriter::new(vec![]);
         write!(&mut tw, "{}", graph_str).unwrap();
         tw.flush().unwrap();
-        print!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
+        let _ = write!(
+            std::io::stdout(),
+            "{}",
+            String::from_utf8(tw.into_inner().unwrap()).unwrap()
+        );
     } else {
         let mut version_str = String::from("");
         for pkgs in sess.packages().iter() {
@@ -162,25 +170,29 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             } else if flat {
                 // Print one line per package.
                 for pkg_name in pkg_names {
-                    println!("{}", pkg_name);
+                    let _ = writeln!(std::io::stdout(), "{}", pkg_name);
                 }
             } else {
                 // Print all packages per rank on one line.
                 for (i, pkg_name) in pkg_names.enumerate() {
                     if i > 0 {
-                        print!(" {}", pkg_name);
+                        let _ = write!(std::io::stdout(), " {}", pkg_name);
                     } else {
-                        print!("{}", pkg_name);
+                        let _ = write!(std::io::stdout(), "{}", pkg_name);
                     }
                 }
-                println!();
+                let _ = writeln!(std::io::stdout(),);
             }
         }
         if version {
             let mut tw = TabWriter::new(vec![]);
             write!(&mut tw, "{}", version_str).unwrap();
             tw.flush().unwrap();
-            print!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
+            let _ = write!(
+                std::io::stdout(),
+                "{}",
+                String::from_utf8(tw.into_inner().unwrap()).unwrap()
+            );
         }
     }
     Ok(())

@@ -4,6 +4,7 @@
 //! The `sources` subcommand.
 
 use std;
+use std::io::Write;
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 use indexmap::{IndexMap, IndexSet};
@@ -172,6 +173,6 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             serde_json::to_writer_pretty(handle, &srcs)
         }
     };
-    println!();
+    let _ = writeln!(std::io::stdout(),);
     result.map_err(|cause| Error::chain("Failed to serialize source file manifest.", cause))
 }

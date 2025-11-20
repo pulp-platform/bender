@@ -45,10 +45,9 @@ macro_rules! debugln {
 #[macro_export]
 #[cfg(not(debug_assertions))]
 macro_rules! debugln {
-    ($($arg:tt)*) => { format!($($arg)*); }
-    // format! is used and discarded here such that the compiler does not
-    // complain about the arguments to debugln! not being used in release
-    // builds.
+    ($fmt:expr $(, $arg:expr)* $(,)?) => { $(let _ = $arg;)* }
+    // create an unused binding here so the compiler does not complain
+    // about the arguments to debugln! not being used in release builds.
 }
 
 /// Emit a diagnostic message.

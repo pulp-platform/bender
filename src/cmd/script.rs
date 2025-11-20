@@ -4,6 +4,7 @@
 //! The `script` subcommand.
 
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -680,11 +681,12 @@ fn emit_template(
     tera_context.insert("vivado_filesets", &vivado_filesets);
 
     if template == "json" {
-        println!("{:#}", tera_context.into_json());
+        let _ = writeln!(std::io::stdout(), "{:#}", tera_context.into_json());
         return Ok(());
     }
 
-    print!(
+    let _ = write!(
+        std::io::stdout(),
         "{}",
         tera_obj
             .render_str(template, &tera_context)

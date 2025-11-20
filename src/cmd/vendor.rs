@@ -4,21 +4,23 @@
 
 //! The `vendor` subcommand.
 
-use crate::config::PrefixPaths;
-use crate::futures::TryFutureExt;
+use std::collections::HashSet;
+use std::io::Write;
+use std::path::Path;
+use std::path::PathBuf;
+
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use futures::future::{self};
+use glob::Pattern;
+use tempfile::TempDir;
 use tokio::runtime::Runtime;
 
 use crate::config;
+use crate::config::PrefixPaths;
 use crate::error::*;
+use crate::futures::TryFutureExt;
 use crate::git::Git;
 use crate::sess::{DependencySource, Session};
-use glob::Pattern;
-use std::collections::HashSet;
-use std::path::Path;
-use std::path::PathBuf;
-use tempfile::TempDir;
 
 /// A patch linkage
 #[derive(Clone)]
@@ -199,7 +201,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     let get_diff = diff(&rt, git.clone(), vendor_package, patch_link, dep_path.clone())
                         .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
                     if !get_diff.is_empty() {
-                        print!("{}", get_diff);
+                        let _ = write!(std::io::stdout(), "{}", get_diff);
                         // If desired, return an error (e.g. for CI)
                         if matches.contains_id("err_on_diff") {
                             let err_msg : Option<&String> = matches.get_one("err_on_diff");

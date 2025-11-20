@@ -281,7 +281,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     )
                     .unwrap();
                 }
-                println!("{}", msg);
+                let _ = writeln!(std::io::stdout(), "{}", msg);
                 // Let user resolve conflict if both stderr and stdin go to a TTY.
                 if std::io::stderr().is_terminal() && std::io::stdin().is_terminal() {
                     index = {
@@ -368,7 +368,6 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             lic_vec.clone(),
         )?;
 
-        // println!("{}", fuse_str);
         fs::write(&generate_files[pkg], fuse_str).map_err(|cause| {
             Error::chain(format!("Unable to write corefile for {:?}.", &pkg), cause)
         })?;
