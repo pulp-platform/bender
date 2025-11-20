@@ -58,6 +58,23 @@ impl<'ctx> Validate for SourceGroup<'ctx> {
                 .into_iter()
                 .map(|f| f.validate(package_name, pre_output, suppress_warnings))
                 .collect::<Result<Vec<_>, Error>>()?,
+            include_dirs: self
+                .include_dirs
+                .into_iter()
+                .map(|p| {
+                    if (p.exists() && p.is_dir()) || suppress_warnings.contains("E31") {
+                        if !(suppress_warnings.contains("W31") || p.exists() && p.is_dir()) {
+                            warnln!("[W31] Include directory {} doesn't exist.", p.display());
+                        }
+                        Ok(p)
+                    } else {
+                        Err(Error::new(format!(
+                            "[E31] Include directory {} doesn't exist.",
+                            p.display()
+                        )))
+                    }
+                })
+                .collect::<Result<IndexSet<_>, Error>>()?,
             ..self
         })
     }
