@@ -39,6 +39,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - `sources`: Add defines for passed targets to output (similar to `script`).
 - Add support to indicate and read in external file lists in manifest.
 - Enumerate warnings and add `--suppress` flag to hide warnings.
+- Add flag for `rtl` target to files without target in script and sources.
 
 ### Changed
 - `update`: Clean up alignment of manual resolution output.
