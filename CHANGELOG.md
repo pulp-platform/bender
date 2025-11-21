@@ -10,6 +10,9 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Use write to stdout instead of print to enable piping bender output into another command
 - Remove compile warnings for release
 
+### Added
+- Add `snapshot` command to relink git version after working on a dependency with `bender clone`.
+
 ## 0.29.0 - 2025-11-07
 ### Fixed
 - `script`: Fix genus template.
@@ -39,6 +42,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - `sources`: Add defines for passed targets to output (similar to `script`).
 - Add support to indicate and read in external file lists in manifest.
 - Enumerate warnings and add `--suppress` flag to hide warnings.
+- Add `snapshot` command.
 
 ### Changed
 - `update`: Clean up alignment of manual resolution output.

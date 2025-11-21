@@ -459,11 +459,18 @@ To ensure the package is correctly linked in bender, the `Bender.local` file is 
 
 This can be used for development of dependent packages within the parent repository, allowing to test uncommitted and committed changes, without the worry that bender would update the dependency.
 
-To clean up once the changes are added, ensure the correct version is referenced by the calling packages and remove the path dependency in Bender.local.
+To clean up once the changes are added, ensure the correct version is referenced by the calling packages and remove the path dependency in `Bender.local`, or have a look at `bender snapshot`.
 
 > Note: The location of the override may be updated in the future to prevent modifying the human-editable `Bender.local` file by adding a persistent section to `Bender.lock`.
 
 > Note: The newly created directory will be a git repo with a remote origin pointing to the `git` tag of the resolved dependency (usually evaluated from the manifest (`Bender.yml`)). You may need to adjust the git remote URL to properly work with your remote repository.
+
+### `snapshot` --- Relinks current checkout of cloned dependencies
+
+After working on a dependency cloned with `bender clone <PKG>`, modifications are generally committed to the parent git repository. Once committed, this new hash can be quickly used by bender by calling `bender snapshot`.
+
+With `bender snapshot`, all dependencies previously cloned to a working directory are linked to the git repositories and commit hashes currently checked out. The `Bender.local` is modified correspondingly to ensure reproducibility. Once satisfied with the changes, it is encouraged to properly tag the dependency with a version, remove the override in the `Bender.local`, and update the required version in the `Bender.yml`.
+
 ### `parents` --- Lists packages calling the specified package
 
 The `bender parents <PKG>` command lists all packages calling the `PKG` package.
