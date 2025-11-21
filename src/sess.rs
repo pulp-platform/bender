@@ -30,8 +30,7 @@ use tokio::sync::Semaphore;
 use typed_arena::Arena;
 
 use crate::cli::read_manifest;
-//use crate::config::Validate;
-use crate::config::{self, Config, Manifest};
+use crate::config::{self, Config, Manifest, PartialManifest};
 use crate::error::*;
 use crate::git::Git;
 use crate::src::SourceGroup;
@@ -1160,15 +1159,22 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     .join(format!("{}_manifest.yml", dep.name))
                     .exists()
                 {
-                    match read_manifest(
-                        &self
-                            .sess
+                    let file = std::fs::File::open(
+                        self.sess
                             .root
                             .join(".bender")
                             .join("tmp")
                             .join(format!("{}_manifest.yml", dep.name)),
-                        &self.sess.suppress_warnings,
-                    ) {
+                    )
+                    .map_err(|cause| {
+                        Error::chain(format!("Cannot open manifest {:?}.", path), cause)
+                    })?;
+                    let partial: PartialManifest =
+                        serde_yaml_ng::from_reader(file).map_err(|cause| {
+                            Error::chain(format!("Syntax error in manifest {:?}.", path), cause)
+                        })?;
+
+                    match partial.validate_ignore_sources("", true, &self.sess.suppress_warnings) {
                         Ok(m) => {
                             if dep.name != m.package.name
                                 && !self.sess.suppress_warnings.contains("W11")
@@ -1181,6 +1187,26 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Err(e) => Err(e),
                     }
                 } else {
+                    if !(self.sess.suppress_warnings.contains("E32")
+                        && self.sess.suppress_warnings.contains("W32"))
+                    {
+                        if let DepSrc::Path(ref path) = dep.source {
+                            if !path.exists() {
+                                if self.sess.suppress_warnings.contains("E32") {
+                                    warnln!(
+                                        "[W32] Path {:?} for dependency {:?} does not exist.",
+                                        path,
+                                        dep.name
+                                    );
+                                } else {
+                                    return Err(Error::new(format!(
+                                        "[E32] Path {:?} for dependency {:?} does not exist.",
+                                        path, dep.name
+                                    )));
+                                }
+                            }
+                        }
+                    }
                     if !self.sess.suppress_warnings.contains("W12") {
                         warnln!(
                             "[W12] Manifest not found for {:?} at {:?}",
