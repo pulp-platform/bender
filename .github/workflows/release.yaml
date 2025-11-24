@@ -23,12 +23,12 @@ jobs:
           - ubuntu:20.04
           - ubuntu:22.04
           - ubuntu:24.04
-          - fedora:39
-          - fedora:40
           - fedora:41
-          - debian:10
+          - fedora:42
+          - fedora:43
           - debian:11
           - debian:12
+          - debian:13
           - rhel:8.6
           - rhel:8.7
           - rhel:8.8
@@ -40,6 +40,10 @@ jobs:
           - rhel:9.3
           - rhel:9.4
           - rhel:9.5
+          - rhel:9.6
+          - rhel:9.7
+          - rhel:10.0
+          - rhel:10.1
           - almalinux:8.6
           - almalinux:8.7
           - almalinux:8.8
@@ -51,6 +55,9 @@ jobs:
           - almalinux:9.3
           - almalinux:9.4
           - almalinux:9.5
+          - almalinux:9.6
+          - almalinux:9.7
+          - almalinux:10.0
         platform:
           - linux/amd64
     steps:
