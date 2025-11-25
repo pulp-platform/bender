@@ -490,26 +490,16 @@ impl Validate for PartialManifest {
                 .iter()
                 .filter_map(|path| match env_path_from_string(path.to_string()) {
                     Ok(parsed_path) => {
-                        if (parsed_path.exists() && parsed_path.is_dir())
-                            || suppress_warnings.contains("E31")
+                        if !(suppress_warnings.contains("W24")
                             || pre_output
+                            || parsed_path.exists() && parsed_path.is_dir())
                         {
-                            if !(suppress_warnings.contains("W31")
-                                || pre_output
-                                || parsed_path.exists() && parsed_path.is_dir())
-                            {
-                                warnln!(
-                                    "[W31] Include directory {} doesn't exist.",
-                                    &parsed_path.display()
-                                );
-                            }
-                            Some(Ok(parsed_path))
-                        } else {
-                            Some(Err(Error::new(format!(
-                                "[E31] Include directory {} doesn't exist",
+                            warnln!(
+                                "[W24] Include directory {} doesn't exist.",
                                 &parsed_path.display()
-                            ))))
+                            );
                         }
+                        Some(Ok(parsed_path))
                     }
                     Err(cause) => {
                         if suppress_warnings.contains("E30") {
