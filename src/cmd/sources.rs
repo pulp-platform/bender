@@ -11,6 +11,7 @@ use indexmap::{IndexMap, IndexSet};
 use serde_json;
 use tokio::runtime::Runtime;
 
+use crate::config::Validate;
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::src::SourceGroup;
@@ -147,6 +148,9 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 version: None,
             });
     }
+
+    // Flatten and validate the sources.
+    let mut srcs = srcs.validate("", false, &sess.suppress_warnings)?;
 
     let mut target_defines: IndexMap<String, Option<String>> = IndexMap::new();
     target_defines.extend(
