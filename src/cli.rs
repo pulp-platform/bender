@@ -105,18 +105,15 @@ pub fn main() -> Result<()> {
     // Parse the arguments.
     let matches = app.clone().get_matches();
 
-    let suppressed_warnings: IndexSet<String> = matches
+    let mut suppressed_warnings: IndexSet<String> = matches
         .get_many::<String>("suppress")
         .unwrap_or_default()
         .map(|s| s.to_owned())
         .collect();
 
-    let suppressed_warnings: IndexSet<String> =
-        if suppressed_warnings.contains("all") || suppressed_warnings.contains("Wall") {
-            (1..23).map(|i| format!("W{:02}", i)).collect()
-        } else {
-            suppressed_warnings
-        };
+    if suppressed_warnings.contains("all") || suppressed_warnings.contains("Wall") {
+        suppressed_warnings.extend((1..23).map(|i| format!("W{:02}", i)));
+    }
 
     // Enable debug outputs if needed.
     if matches.contains_id("debug") && matches.get_flag("debug") {
