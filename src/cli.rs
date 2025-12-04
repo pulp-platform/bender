@@ -112,7 +112,7 @@ pub fn main() -> Result<()> {
         .collect();
 
     if suppressed_warnings.contains("all") || suppressed_warnings.contains("Wall") {
-        suppressed_warnings.extend((1..23).map(|i| format!("W{:02}", i)));
+        suppressed_warnings.extend((1..24).map(|i| format!("W{:02}", i)));
     }
 
     // Enable debug outputs if needed.

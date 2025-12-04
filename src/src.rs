@@ -58,6 +58,16 @@ impl<'ctx> Validate for SourceGroup<'ctx> {
                 .into_iter()
                 .map(|f| f.validate(package_name, pre_output, suppress_warnings))
                 .collect::<Result<Vec<_>, Error>>()?,
+            include_dirs: self
+                .include_dirs
+                .into_iter()
+                .map(|p| {
+                    if !(suppress_warnings.contains("W24") || p.exists() && p.is_dir()) {
+                        warnln!("[W24] Include directory {} doesn't exist.", p.display());
+                    }
+                    Ok(p)
+                })
+                .collect::<Result<IndexSet<_>, Error>>()?,
             ..self
         })
     }

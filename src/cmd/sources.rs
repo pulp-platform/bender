@@ -149,8 +149,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             });
     }
 
-    // Flatten and validate the sources.
-    let mut srcs = srcs.validate("", false, &sess.suppress_warnings)?;
+    srcs = srcs.validate("", false, &sess.suppress_warnings)?;
 
     let mut target_defines: IndexMap<String, Option<String>> = IndexMap::new();
     target_defines.extend(
