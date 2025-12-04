@@ -81,7 +81,7 @@ pub fn new() -> Command {
         .arg(
             Arg::new("vcom-arg")
                 .long("vcom-arg")
-                .help("Pass an argument to vcom calls (vsim/vhdlan/riviera only)")
+                .help("Pass an argument to vcom calls (vsim/vhdlan/riviera/synopsys only)")
                 .num_args(1..)
                 .action(ArgAction::Append)
                 .value_parser(value_parser!(String)),
@@ -89,7 +89,7 @@ pub fn new() -> Command {
         .arg(
             Arg::new("vlog-arg")
                 .long("vlog-arg")
-                .help("Pass an argument to vlog calls (vsim/vlogan/riviera only)")
+                .help("Pass an argument to vlog calls (vsim/vlogan/riviera/synopsys only)")
                 .num_args(1..)
                 .action(ArgAction::Append)
                 .value_parser(value_parser!(String)),
@@ -306,6 +306,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         && format != "vsim"
         && format != "vcs"
         && format != "riviera"
+        && format != "synopsys"
         && format != "template"
         && format != "template_json"
     {
