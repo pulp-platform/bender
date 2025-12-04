@@ -6,7 +6,7 @@ touch $filename
 
 if [ $(echo $full_tgtname | cut -d ':' -f 1) = "rhel" ]; then
   export maj_version=$(echo $full_tgtname | cut -d ':' -f 2)
-  export full_tgtname=redhat/ubi${maj_version:0:1}:$(echo $full_tgtname | cut -d ':' -f 2)
+  export full_tgtname=redhat/ubi$(echo $maj_version | cut -d '.' -f 1):$(echo $full_tgtname | cut -d ':' -f 2)
   if [ $(echo $full_tgtname | cut -d ':' -f 2 | cut -d '.' -f 1) = '9' ]; then
     if [ $(echo $full_tgtname | cut -d ':' -f 2 | cut -d '.' -f 2) = '0' ]; then
       export full_tgtname=$full_tgtname.0
