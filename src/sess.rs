@@ -407,6 +407,17 @@ impl<'ctx> Session<'ctx> {
             .iter()
             .map(|file| match *file {
                 config::SourceFile::File(ref path) => (path as &Path).into(),
+                config::SourceFile::SvFile(ref path) => crate::src::SourceFile::File(
+                    path as &Path,
+                    &Some(crate::src::SourceType::Verilog),
+                ),
+                config::SourceFile::VerilogFile(ref path) => crate::src::SourceFile::File(
+                    path as &Path,
+                    &Some(crate::src::SourceType::Verilog),
+                ),
+                config::SourceFile::VhdlFile(ref path) => {
+                    crate::src::SourceFile::File(path as &Path, &Some(crate::src::SourceType::Vhdl))
+                }
                 config::SourceFile::Group(ref group) => self
                     .load_sources(
                         group.as_ref(),

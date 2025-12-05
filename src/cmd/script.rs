@@ -580,10 +580,14 @@ fn emit_template(
         separate_files_in_group(
             src,
             |f| match f {
-                SourceFile::File(p, _) => match p.extension().and_then(std::ffi::OsStr::to_str) {
-                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
-                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
-                    _ => None,
+                SourceFile::File(p, fmt) => match fmt {
+                    Some(SourceType::Verilog) => Some(SourceType::Verilog),
+                    Some(SourceType::Vhdl) => Some(SourceType::Vhdl),
+                    _ => match p.extension().and_then(std::ffi::OsStr::to_str) {
+                        Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
+                        Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
+                        _ => None,
+                    },
                 },
                 _ => None,
             },

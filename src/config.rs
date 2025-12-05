@@ -173,12 +173,33 @@ pub enum SourceFile {
     File(PathBuf),
     /// A subgroup.
     Group(Box<Sources>),
+    /// A systemverilog source.
+    SvFile(PathBuf),
+    /// A verilog source.
+    VerilogFile(PathBuf),
+    /// A vhdl source.
+    VhdlFile(PathBuf),
 }
 
 impl fmt::Debug for SourceFile {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SourceFile::File(ref path) => fmt::Debug::fmt(path, f),
+            SourceFile::File(ref path) => {
+                fmt::Debug::fmt(path, f)?;
+                write!(f, " as <unknown>")
+            }
+            SourceFile::SvFile(ref path) => {
+                fmt::Debug::fmt(path, f)?;
+                write!(f, " as SystemVerilog")
+            }
+            SourceFile::VerilogFile(ref path) => {
+                fmt::Debug::fmt(path, f)?;
+                write!(f, " as Verilog")
+            }
+            SourceFile::VhdlFile(ref path) => {
+                fmt::Debug::fmt(path, f)?;
+                write!(f, " as Vhdl")
+            }
             SourceFile::Group(ref srcs) => fmt::Debug::fmt(srcs, f),
         }
     }
@@ -188,6 +209,9 @@ impl PrefixPaths for SourceFile {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         Ok(match self {
             SourceFile::File(path) => SourceFile::File(path.prefix_paths(prefix)?),
+            SourceFile::SvFile(path) => SourceFile::SvFile(path.prefix_paths(prefix)?),
+            SourceFile::VerilogFile(path) => SourceFile::VerilogFile(path.prefix_paths(prefix)?),
+            SourceFile::VhdlFile(path) => SourceFile::VhdlFile(path.prefix_paths(prefix)?),
             SourceFile::Group(group) => SourceFile::Group(Box::new(group.prefix_paths(prefix)?)),
         })
     }

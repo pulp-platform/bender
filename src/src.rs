@@ -335,7 +335,7 @@ impl<'ctx> SourceGroup<'ctx> {
         let mut targets = self.target.get_avail();
         for file in &self.files {
             match file {
-                SourceFile::File(_) => {}
+                SourceFile::File(..) => {}
                 SourceFile::Group(group) => {
                     targets.extend(group.get_avail_targets());
                 }
@@ -370,7 +370,14 @@ pub enum SourceFile<'ctx> {
 impl<'ctx> fmt::Debug for SourceFile<'ctx> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SourceFile::File(path, _) => fmt::Debug::fmt(path, f),
+            SourceFile::File(path, ty) => {
+                fmt::Debug::fmt(path, f)?;
+                if let Some(t) = ty {
+                    write!(f, " as {:?}", t)
+                } else {
+                    write!(f, " as <unknown>")
+                }
+            }
             SourceFile::Group(ref srcs) => fmt::Debug::fmt(srcs, f),
         }
     }
@@ -398,7 +405,7 @@ impl<'ctx> Validate for SourceFile<'ctx> {
         suppress_warnings: &IndexSet<String>,
     ) -> Result<SourceFile<'ctx>, Error> {
         match self {
-            SourceFile::File(path) => {
+            SourceFile::File(path, ty) => {
                 let env_path_buf =
                     crate::config::env_path_from_string(path.to_string_lossy().to_string())?;
                 let exists = env_path_buf.exists() && env_path_buf.is_file();
@@ -409,7 +416,7 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                             env_path_buf.to_string_lossy()
                         );
                     }
-                    Ok(SourceFile::File(path))
+                    Ok(SourceFile::File(path, ty))
                 } else {
                     Err(Error::new(format!(
                         "[E31] File {} doesn't exist",
