@@ -34,7 +34,7 @@ pub struct SourceGroup<'ctx> {
     /// The directories exported by dependent package for include files.
     pub export_incdirs: IndexMap<String, IndexSet<&'ctx Path>>,
     /// The preprocessor definitions.
-    pub defines: IndexMap<&'ctx str, Option<&'ctx str>>,
+    pub defines: IndexMap<String, Option<&'ctx str>>,
     /// The files in this group.
     pub files: Vec<SourceFile<'ctx>>,
     /// Package dependencies of this source group
@@ -127,7 +127,7 @@ impl<'ctx> SourceGroup<'ctx> {
                             None => Some(trgt.clone()),
                             Some(pkg) => {
                                 let parts: Vec<&str> = trgt.splitn(2, ':').collect();
-                                if pkg.contains(parts[0]) {
+                                if pkg == parts[0].to_lowercase().as_str() {
                                     Some(parts[1].to_string())
                                 } else {
                                     None
@@ -158,6 +158,17 @@ impl<'ctx> SourceGroup<'ctx> {
                 ref other => Some(other.clone()),
             })
             .collect();
+        let mut target_defs = local_targets
+            .into_iter()
+            .filter_map(|t| match t.contains(':') {
+                true => None,
+                false => Some("TARGET_".to_owned() + &t.to_uppercase()),
+            })
+            .collect::<IndexSet<_>>();
+        target_defs.sort();
+        let mut defines: IndexMap<String, Option<&str>> = self.defines.clone();
+        defines.extend(target_defs.into_iter().map(|t| (t, None)));
+
         Some(
             SourceGroup {
                 package: self.package,
@@ -165,7 +176,7 @@ impl<'ctx> SourceGroup<'ctx> {
                 target: self.target.clone(),
                 include_dirs: self.include_dirs.clone(),
                 export_incdirs: self.export_incdirs.clone(),
-                defines: self.defines.clone(),
+                defines: defines.clone(),
                 files,
                 dependencies: self.dependencies.clone(),
                 version: self.version.clone(),
@@ -358,7 +369,7 @@ impl<'ctx> SourceGroup<'ctx> {
                     grp.defines = self
                         .defines
                         .iter()
-                        .map(|(k, v)| (*k, *v))
+                        .map(|(k, v)| (k.clone(), *v))
                         .chain(grp.defines.into_iter())
                         .collect();
                     grp.flatten_into(into);
