@@ -7,7 +7,7 @@ use std;
 use std::io::Write;
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexSet;
 use serde_json;
 use tokio::runtime::Runtime;
 
@@ -146,21 +146,6 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     }
 
     srcs = srcs.validate("", false, &sess.suppress_warnings)?;
-
-    let mut target_defines: IndexMap<String, Option<String>> = IndexMap::new();
-    target_defines.extend(
-        targets
-            .iter()
-            .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
-    );
-    target_defines.sort_keys();
-
-    let _ = target_defines
-        .iter()
-        .map(|(k, v)| {
-            srcs.defines.insert(k, v.as_deref());
-        })
-        .collect::<Vec<_>>();
 
     let result = {
         let stdout = std::io::stdout();

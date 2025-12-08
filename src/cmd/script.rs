@@ -343,93 +343,81 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             sess,
             include_str!("../script_fmt/flist.tera"),
             matches,
-            targets,
             srcs,
         ),
         "flist-plus" => emit_template(
             sess,
             include_str!("../script_fmt/flist-plus.tera"),
             matches,
-            targets,
             srcs,
         ),
         "vsim" => emit_template(
             sess,
             include_str!("../script_fmt/vsim_tcl.tera"),
             matches,
-            targets,
             srcs,
         ),
         "vcs" => emit_template(
             sess,
             include_str!("../script_fmt/vcs_sh.tera"),
             matches,
-            targets,
             srcs,
         ),
         "verilator" => emit_template(
             sess,
             include_str!("../script_fmt/verilator_sh.tera"),
             matches,
-            targets,
             srcs,
         ),
         "synopsys" => emit_template(
             sess,
             include_str!("../script_fmt/synopsys_tcl.tera"),
             matches,
-            targets,
             srcs,
         ),
         "formality" => emit_template(
             sess,
             include_str!("../script_fmt/formality_tcl.tera"),
             matches,
-            targets,
             srcs,
         ),
         "riviera" => emit_template(
             sess,
             include_str!("../script_fmt/riviera_tcl.tera"),
             matches,
-            targets,
             srcs,
         ),
         "genus" => emit_template(
             sess,
             include_str!("../script_fmt/genus_tcl.tera"),
             matches,
-            targets,
             srcs,
         ),
         "vivado" => emit_template(
             sess,
             include_str!("../script_fmt/vivado_tcl.tera"),
             matches,
-            targets,
             srcs,
         ),
         "vivado-sim" => emit_template(
             sess,
             include_str!("../script_fmt/vivado_tcl.tera"),
             matches,
-            targets,
             srcs,
         ),
         "precision" => emit_template(
             sess,
             include_str!("../script_fmt/precision_tcl.tera"),
             matches,
-            targets,
             srcs,
         ),
         "template" => {
             let custom_tpl_path = Path::new(matches.get_one::<String>("template").unwrap());
             let custom_tpl_str =
                 &String::from_utf8(fs::read(custom_tpl_path)?).map_err(|e| Error::chain("", e))?;
-            emit_template(sess, custom_tpl_str, matches, targets, srcs)
+            emit_template(sess, custom_tpl_str, matches, srcs)
         }
-        "template_json" => emit_template(sess, JSON, matches, targets, srcs),
+        "template_json" => emit_template(sess, JSON, matches, srcs),
         _ => unreachable!(),
     }
 }
@@ -494,7 +482,6 @@ fn emit_template(
     sess: &Session,
     template: &str,
     matches: &ArgMatches,
-    targets: TargetSet,
     srcs: Vec<SourceGroup>,
 ) -> Result<()> {
     let mut tera_obj = Tera::default();
@@ -504,15 +491,7 @@ fn emit_template(
     // tera_context.insert("srcs", &srcs);
     tera_context.insert("abort_on_error", &!matches.get_flag("no-abort-on-error"));
 
-    let mut target_defines: IndexMap<String, Option<String>> = IndexMap::new();
-    target_defines.extend(
-        targets
-            .iter()
-            .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
-    );
-    target_defines.sort_keys();
-
-    let mut global_defines = target_defines.clone();
+    let mut global_defines = IndexMap::new();
     add_defines_from_matches(&mut global_defines, matches);
     tera_context.insert("global_defines", &global_defines);
 
@@ -533,12 +512,6 @@ fn emit_template(
             SourceFile::Group(_) => None,
         }));
     }
-    all_defines.extend(target_defines.clone());
-    all_defines.extend(srcs.iter().flat_map(|src| {
-        src.passed_targets
-            .iter()
-            .map(|t| (format!("TARGET_{}", t.to_uppercase()), None))
-    }));
     add_defines_from_matches(&mut all_defines, matches);
     let all_defines = if (!matches.get_flag("only-includes") && !matches.get_flag("only-sources"))
         || matches.get_flag("only-defines")
@@ -599,12 +572,6 @@ fn emit_template(
                             src.defines
                                 .iter()
                                 .map(|(k, &v)| (k.to_string(), v.map(String::from))),
-                        );
-                        local_defines.extend(target_defines.clone());
-                        local_defines.extend(
-                            src.passed_targets
-                                .iter()
-                                .map(|t| (format!("TARGET_{}", t.to_uppercase()), None)),
                         );
                         add_defines_from_matches(&mut local_defines, matches);
                         local_defines.into_iter().collect()
