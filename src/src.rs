@@ -116,11 +116,34 @@ impl<'ctx> SourceGroup<'ctx> {
         targets: &TargetSet,
         use_passed: bool,
     ) -> Option<SourceGroup<'ctx>> {
-        let chained_targets = TargetSet::new(targets.iter().chain(self.passed_targets.iter()));
+        let local_targets = TargetSet::new(
+            targets
+                .iter()
+                .filter_map(|trgt| {
+                    if !trgt.contains(':') {
+                        Some(trgt.clone())
+                    } else {
+                        match self.package {
+                            None => Some(trgt.clone()),
+                            Some(pkg) => {
+                                let parts: Vec<&str> = trgt.splitn(2, ':').collect();
+                                if pkg.contains(parts[0]) {
+                                    Some(parts[1].to_string())
+                                } else {
+                                    None
+                                }
+                            }
+                        }
+                    }
+                })
+                .collect::<IndexSet<_>>(),
+        );
+        let chained_targets =
+            TargetSet::new(local_targets.iter().chain(self.passed_targets.iter()));
         let all_targets = if use_passed {
             &chained_targets
         } else {
-            targets
+            &local_targets
         };
         if !self.target.matches(all_targets) {
             return None;
