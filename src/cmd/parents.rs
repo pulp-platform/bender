@@ -48,10 +48,15 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 map.insert(
                     sess.manifest.package.name.clone(),
                     match sess.manifest.dependencies.get(dep).unwrap() {
-                        Dependency::Version(_, _, tgts) => tgts.clone(),
-                        Dependency::Path(_, _, tgts) => tgts.clone(),
-                        Dependency::GitRevision(_, _, _, tgts) => tgts.clone(),
-                        Dependency::GitVersion(_, _, _, tgts) => tgts.clone(),
+                        Dependency::Version(targetspec, _, tgts) |
+                        Dependency::Path(targetspec, _, tgts) |
+                        Dependency::GitRevision(targetspec, _, _, tgts) |
+                        Dependency::GitVersion(targetspec, _, _, tgts) => {
+                            let mut tgts = tgts.clone();
+                            eprintln!("{}", targetspec);
+                            tgts.insert(0, targetspec.to_string());
+                            tgts
+                        },
                     },
                 );
             } else {
@@ -90,10 +95,14 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                             map.insert(
                                 pkg_name.to_string(),
                                 match dep_manifest.dependencies.get(dep).unwrap() {
-                                    Dependency::Version(_, _, tgts) => tgts.clone(),
-                                    Dependency::Path(_, _, tgts) => tgts.clone(),
-                                    Dependency::GitRevision(_, _, _, tgts) => tgts.clone(),
-                                    Dependency::GitVersion(_, _, _, tgts) => tgts.clone(),
+                                    Dependency::Version(targetspec, _, tgts) |
+                                    Dependency::Path(targetspec, _, tgts) |
+                                    Dependency::GitRevision(targetspec, _, _, tgts) |
+                                    Dependency::GitVersion(targetspec, _, _, tgts) => {
+                                        let mut tgts = tgts.clone();
+                                        tgts.insert(0, targetspec.to_string());
+                                        tgts
+                                    },
                                 },
                             );
                         } else {
@@ -124,7 +133,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     if matches.get_flag("targets") {
         let mut res = String::from("");
         for (k, v) in parent_array.iter() {
-            res.push_str(&format!("    {}\tpasses: {:?}\n", k, v).to_string());
+            res.push_str(&format!("    {}\tfilters: {}\tpasses: {:?}\n", k, &v[0], &v[1..]).to_string());
         }
         let mut tw = TabWriter::new(vec![]);
         write!(&mut tw, "{}", res).unwrap();
