@@ -113,7 +113,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                         )
                     }).await?;
                     let rev_hash = match vendor_package.upstream {
-                        config::Dependency::GitRevision(_, ref rev, _) => Ok(rev),
+                        config::Dependency::GitRevision(_, _, ref rev, _) => Ok(rev),
                         _ => Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout")),
                     }?;
                     git.clone().spawn_with(|c| c.arg("checkout").arg(rev_hash)).await?;

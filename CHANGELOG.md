@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Add flag for `rtl` target to files without target in script and sources.
 - Add `pass_targets` to dependencies to allow passing targets for hierarchical file filtering (not only global).
 - Add application of targets to only specific packages with a `<PKG>:<TARGET>` model for the target flag.
+- Add target filtering for dependencies.
 
 ## 0.29.1 - 2025-11-24
 ### Fixed

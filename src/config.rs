@@ -98,23 +98,25 @@ pub struct Package {
 #[derive(Clone, Debug)]
 pub enum Dependency {
     /// A dependency that can be found in one of the package repositories.
-    Version(semver::VersionReq, Vec<String>),
+    Version(TargetSpec, semver::VersionReq, Vec<String>),
     /// A local path dependency. The exact version of the dependency found at
     /// the given path will be used, regardless of any actual versioning
     /// constraints.
-    Path(PathBuf, Vec<String>),
+    Path(TargetSpec, PathBuf, Vec<String>),
     /// A git dependency specified by a revision.
-    GitRevision(String, String, Vec<String>),
+    GitRevision(TargetSpec, String, String, Vec<String>),
     /// A git dependency specified by a version requirement. Works similarly to
     /// the `GitRevision`, but extracts all tags of the form `v.*` from the
     /// repository and matches the version against that.
-    GitVersion(String, semver::VersionReq, Vec<String>),
+    GitVersion(TargetSpec, String, semver::VersionReq, Vec<String>),
 }
 
 impl PrefixPaths for Dependency {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         Ok(match self {
-            Dependency::Path(p, pass_tgts) => Dependency::Path(p.prefix_paths(prefix)?, pass_tgts),
+            Dependency::Path(t, p, pass_tgts) => {
+                Dependency::Path(t, p.prefix_paths(prefix)?, pass_tgts)
+            }
             v => v,
         })
     }
@@ -127,30 +129,34 @@ impl Serialize for Dependency {
     {
         use serde::ser::SerializeMap;
         match *self {
-            Dependency::Version(ref version, ref pass_targets) => {
-                let mut map = serializer.serialize_map(Some(2))?;
+            Dependency::Version(ref target, ref version, ref pass_targets) => {
+                let mut map = serializer.serialize_map(Some(3))?;
+                map.serialize_entry("target", target)?;
                 map.serialize_entry("version", &format!("{}", version))?;
                 map.serialize_entry("pass_targets", pass_targets)?;
                 map.end()
             }
             // format!("{}, {:?}", version, pass_targets).serialize(serializer),
-            Dependency::Path(ref path, ref pass_targets) => {
-                let mut map = serializer.serialize_map(Some(2))?;
+            Dependency::Path(ref target, ref path, ref pass_targets) => {
+                let mut map = serializer.serialize_map(Some(3))?;
+                map.serialize_entry("target", target)?;
                 map.serialize_entry("path", path)?;
                 map.serialize_entry("pass_targets", pass_targets)?;
                 map.end()
             }
 
             // path.serialize(serializer),
-            Dependency::GitRevision(ref url, ref rev, ref pass_targets) => {
-                let mut map = serializer.serialize_map(Some(3))?;
+            Dependency::GitRevision(ref target, ref url, ref rev, ref pass_targets) => {
+                let mut map = serializer.serialize_map(Some(4))?;
+                map.serialize_entry("target", target)?;
                 map.serialize_entry("git", url)?;
                 map.serialize_entry("rev", rev)?;
                 map.serialize_entry("pass_targets", pass_targets)?;
                 map.end()
             }
-            Dependency::GitVersion(ref url, ref version, ref pass_targets) => {
-                let mut map = serializer.serialize_map(Some(3))?;
+            Dependency::GitVersion(ref target, ref url, ref version, ref pass_targets) => {
+                let mut map = serializer.serialize_map(Some(4))?;
+                map.serialize_entry("target", target)?;
                 map.serialize_entry("git", url)?;
                 map.serialize_entry("version", &format!("{}", version))?;
                 map.serialize_entry("pass_targets", pass_targets)?;
@@ -561,6 +567,8 @@ impl Validate for PartialManifest {
 /// Can be validated into a `Dependency`.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PartialDependency {
+    /// The targets for which the dependency should be considered.
+    target: Option<TargetSpec>,
     /// The path to the package.
     path: Option<String>,
     /// The git URL to the package.
@@ -582,6 +590,7 @@ impl FromStr for PartialDependency {
     type Err = Void;
     fn from_str(s: &str) -> std::result::Result<Self, Void> {
         Ok(PartialDependency {
+            target: None,
             path: None,
             git: None,
             rev: None,
@@ -605,6 +614,7 @@ impl Validate for PartialDependency {
     type Output = Dependency;
     type Error = Error;
     fn validate(self, package_name: &str, pre_output: bool) -> Result<Dependency> {
+        let target = self.target.unwrap_or(TargetSpec::Wildcard);
         let pass_targets = self
             .pass_targets
             .unwrap_or_default()
@@ -649,20 +659,24 @@ impl Validate for PartialDependency {
                     list
                 )))
             } else {
-                Ok(Dependency::Path(env_path_from_string(path)?, pass_targets))
+                Ok(Dependency::Path(
+                    target,
+                    env_path_from_string(path)?,
+                    pass_targets,
+                ))
             }
         } else if let Some(git) = self.git {
             if let Some(rev) = self.rev {
-                Ok(Dependency::GitRevision(git, rev, pass_targets))
+                Ok(Dependency::GitRevision(target, git, rev, pass_targets))
             } else if let Some(version) = version {
-                Ok(Dependency::GitVersion(git, version, pass_targets))
+                Ok(Dependency::GitVersion(target, git, version, pass_targets))
             } else {
                 Err(Error::new(
                     "A `git` dependency must have either a `rev` or `version` field.",
                 ))
             }
         } else if let Some(version) = version {
-            Ok(Dependency::Version(version, pass_targets))
+            Ok(Dependency::Version(target, version, pass_targets))
         } else {
             Err(Error::new(
                 "A dependency must specify `version`, `path`, or `git`.",

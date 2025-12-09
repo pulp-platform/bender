@@ -6,6 +6,7 @@
 #![deny(missing_docs)]
 
 use std;
+use std::collections::BTreeSet;
 use std::fmt;
 use std::io::Write;
 use std::iter::FromIterator;
@@ -35,7 +36,7 @@ use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::git::Git;
 use crate::src::SourceGroup;
-use crate::target::TargetSet;
+use crate::target::{TargetSet, TargetSpec};
 use crate::util::try_modification_time;
 
 /// A session on the command line.
@@ -385,7 +386,8 @@ impl<'ctx> Session<'ctx> {
         dependencies: IndexSet<String>,
         dependency_export_includes: IndexMap<String, IndexSet<&'ctx Path>>,
         version: Option<Version>,
-        passed_targets: IndexMap<String, TargetSet>,
+        passed_targets: &IndexMap<String, TargetSet>,
+        filter_targets: &IndexMap<String, TargetSpec>,
     ) -> SourceGroup<'ctx> {
         let include_dirs: IndexSet<&Path> =
             IndexSet::from_iter(sources.include_dirs.iter().map(|d| self.intern_path(d)));
@@ -417,7 +419,8 @@ impl<'ctx> Session<'ctx> {
                         dependencies.clone(),
                         dependency_export_includes.clone(),
                         version.clone(),
-                        passed_targets.clone(),
+                        passed_targets,
+                        filter_targets,
                     )
                     .into(),
             })
@@ -429,10 +432,19 @@ impl<'ctx> Session<'ctx> {
             None => &binding,
         };
 
+        let mut targets = BTreeSet::new();
+        targets.insert(sources.target.clone());
+        if let Some(name) = package {
+            if let Some(trgts) = filter_targets.get(name) {
+                targets.insert(trgts.clone());
+            }
+        }
+        let target = TargetSpec::All(targets);
+
         SourceGroup {
             package,
             independent: false,
-            target: sources.target.clone(),
+            target,
             include_dirs: include_dirs.clone(),
             export_incdirs: dependency_export_includes.clone(),
             defines,
@@ -1016,7 +1028,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         used_git_rev: &str,
     ) -> Result<()> {
         for dep in (dep_iter_mut).iter_mut() {
-            if let (_, config::Dependency::Path(ref path, _)) = dep {
+            if let (_, config::Dependency::Path(_, path, _)) = dep {
                 if !path.starts_with("/") {
                     Warnings::PathDepInGitDep {
                         pkg: dep.0.clone(),
@@ -1032,7 +1044,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 reference_path
                                     .strip_prefix(dep_base_path)
                                     .unwrap()
-                                    .join(path)
+                                    .join(&mut *path)
                                     .join("Bender.yml"),
                             ),
                         )
@@ -1059,7 +1071,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         sub_file.flush()?;
                     }
 
-                    *dep.1 = config::Dependency::Path(sub_dep_path.clone(), Vec::new());
+                    *dep.1 = config::Dependency::Path(
+                        TargetSpec::Wildcard,
+                        sub_dep_path.clone(),
+                        Vec::new(),
+                    );
 
                     // Further dependencies
                     let _manifest: Result<_> = match sub_data {
@@ -1434,12 +1450,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             .into_iter()
                             .map(|(d, c)| {
                                 let tmp_tgts = match c {
-                                    config::Dependency::Path(_, ref pass_tgts) => pass_tgts,
-                                    config::Dependency::Version(_, ref pass_tgts) => pass_tgts,
-                                    config::Dependency::GitRevision(_, _, ref pass_tgts) => {
+                                    config::Dependency::Path(_, _, ref pass_tgts) => pass_tgts,
+                                    config::Dependency::Version(_, _, ref pass_tgts) => pass_tgts,
+                                    config::Dependency::GitRevision(_, _, _, ref pass_tgts) => {
                                         pass_tgts
                                     }
-                                    config::Dependency::GitVersion(_, _, ref pass_tgts) => {
+                                    config::Dependency::GitVersion(_, _, _, ref pass_tgts) => {
                                         pass_tgts
                                     }
                                 };
@@ -1448,12 +1464,14 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             .collect::<IndexMap<String, Vec<String>>>()
                     })
                     .collect::<Vec<IndexMap<String, Vec<String>>>>();
-                let mut final_indexmap = IndexMap::<String, IndexSet<String>>::new();
+                let mut passed_target_indexmap = IndexMap::<String, IndexSet<String>>::new();
                 for element in vec_of_indexmaps {
                     for (k, v) in element {
-                        let existing: IndexSet<String> =
-                            final_indexmap.get(&k).unwrap_or(&IndexSet::new()).clone();
-                        final_indexmap.insert(
+                        let existing: IndexSet<String> = passed_target_indexmap
+                            .get(&k)
+                            .unwrap_or(&IndexSet::new())
+                            .clone();
+                        passed_target_indexmap.insert(
                             k,
                             IndexSet::from_iter(
                                 [existing.into_iter().collect::<Vec<_>>(), v]
@@ -1463,16 +1481,18 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         );
                     }
                 }
-                final_indexmap
+                passed_target_indexmap
             })
             .collect();
 
-        let mut final_indexmap = IndexMap::<String, IndexSet<String>>::new();
+        let mut passed_target_indexmap = IndexMap::<String, IndexSet<String>>::new();
         for element in passed_targets {
             for (k, v) in element {
-                let existing: IndexSet<String> =
-                    final_indexmap.get(&k).unwrap_or(&IndexSet::new()).clone();
-                final_indexmap.insert(
+                let existing: IndexSet<String> = passed_target_indexmap
+                    .get(&k)
+                    .unwrap_or(&IndexSet::new())
+                    .clone();
+                passed_target_indexmap.insert(
                     k,
                     IndexSet::from_iter(
                         [
@@ -1486,10 +1506,84 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
         }
 
-        let final_indexmap: IndexMap<String, TargetSet> = final_indexmap
+        let passed_target_indexmap: IndexMap<String, TargetSet> = passed_target_indexmap
             .into_iter()
             .map(|(k, v)| (k, TargetSet::new(v.into_iter())))
             .collect();
+
+        let filter_targets: Vec<IndexMap<String, TargetSpec>> = ranks
+            .clone()
+            .into_iter()
+            .chain(once(vec![Some(self.sess.manifest)]))
+            .map(|manifests| {
+                let vec_of_indexmaps = manifests
+                    .clone()
+                    .into_iter()
+                    .flatten()
+                    .map(|m| {
+                        m.dependencies
+                            .clone()
+                            .into_iter()
+                            .map(|(d, c)| {
+                                let tmp_tgts = match c {
+                                    config::Dependency::Path(ref filter_target, _, _) => {
+                                        filter_target
+                                    }
+                                    config::Dependency::Version(ref filter_target, _, _) => {
+                                        filter_target
+                                    }
+                                    config::Dependency::GitRevision(ref filter_target, _, _, _) => {
+                                        filter_target
+                                    }
+                                    config::Dependency::GitVersion(ref filter_target, _, _, _) => {
+                                        filter_target
+                                    }
+                                };
+                                (d.clone(), tmp_tgts.clone())
+                            })
+                            .collect::<IndexMap<String, TargetSpec>>()
+                    })
+                    .collect::<Vec<IndexMap<String, TargetSpec>>>();
+                let mut filter_target_indexmap = IndexMap::<String, TargetSpec>::new();
+                for element in vec_of_indexmaps {
+                    for (k, t) in element {
+                        let mut existing: TargetSpec = filter_target_indexmap
+                            .get(&k)
+                            .unwrap_or(&TargetSpec::Any(BTreeSet::new()))
+                            .clone();
+                        if let TargetSpec::Any(ref mut set) = existing {
+                            set.insert(t);
+                        } else {
+                            unreachable!()
+                        }
+                        filter_target_indexmap.insert(k, existing);
+                    }
+                }
+                filter_target_indexmap
+            })
+            .collect();
+
+        let mut filter_target_indexmap = IndexMap::<String, TargetSpec>::new();
+        for element in filter_targets {
+            for (k, t) in element {
+                let mut existing: TargetSpec = filter_target_indexmap
+                    .get(&k)
+                    .unwrap_or(&TargetSpec::Any(BTreeSet::new()))
+                    .clone();
+                if let TargetSpec::Any(ref mut set) = existing {
+                    if let TargetSpec::Any(t_set) = t {
+                        for tg in t_set {
+                            set.insert(tg);
+                        }
+                    } else {
+                        set.insert(t);
+                    }
+                } else {
+                    unreachable!()
+                }
+                filter_target_indexmap.insert(k, existing);
+            }
+        }
 
         let files = ranks
             .into_iter()
@@ -1530,7 +1624,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                         Ok(dep_id) => self.sess.dependency(dep_id).version.clone(),
                                         Err(_) => None,
                                     },
-                                    final_indexmap.clone(),
+                                    &passed_target_indexmap,
+                                    &filter_target_indexmap,
                                 )
                                 .into()
                         })
@@ -1750,10 +1845,10 @@ pub enum DependencySource {
 impl<'a> From<&'a config::Dependency> for DependencySource {
     fn from(cfg: &'a config::Dependency) -> DependencySource {
         match *cfg {
-            config::Dependency::Path(ref path, _) => DependencySource::Path(path.clone()),
-            config::Dependency::GitRevision(ref url, _, _) => DependencySource::Git(url.clone()),
-            config::Dependency::GitVersion(ref url, _, _) => DependencySource::Git(url.clone()),
-            config::Dependency::Version(_, _) => DependencySource::Registry,
+            config::Dependency::Path(_, ref path, _) => DependencySource::Path(path.clone()),
+            config::Dependency::GitRevision(_, ref url, _, _) => DependencySource::Git(url.clone()),
+            config::Dependency::GitVersion(_, ref url, _, _) => DependencySource::Git(url.clone()),
+            config::Dependency::Version(_, _, _) => DependencySource::Registry,
         }
     }
 }
@@ -1895,10 +1990,11 @@ impl<'a> From<&'a config::Dependency> for DependencyConstraint {
     fn from(cfg: &'a config::Dependency) -> DependencyConstraint {
         match *cfg {
             config::Dependency::Path(..) => DependencyConstraint::Path,
-            config::Dependency::Version(ref v, _) | config::Dependency::GitVersion(_, ref v, _) => {
+            config::Dependency::Version(_, ref v, _)
+            | config::Dependency::GitVersion(_, _, ref v, _) => {
                 DependencyConstraint::Version(v.clone())
             }
-            config::Dependency::GitRevision(_, ref r, _) => {
+            config::Dependency::GitRevision(_, _, ref r, _) => {
                 DependencyConstraint::Revision(r.clone())
             }
         }
