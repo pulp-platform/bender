@@ -90,7 +90,8 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 sess.manifest.dependencies.keys().cloned().collect(),
                 IndexMap::new(),
                 version_string.clone(),
-                IndexMap::new(),
+                &IndexMap::new(),
+                &IndexMap::new(),
             )
             .flatten()),
         None => Err(Error::new("Error in loading sources")),

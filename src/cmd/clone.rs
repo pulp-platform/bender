@@ -45,7 +45,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     // Check current config for matches
     if sess.config.overrides.contains_key(dep) {
         match &sess.config.overrides[dep] {
-            config::Dependency::Path(p, _) => {
+            config::Dependency::Path(_, p, _) => {
                 Err(Error::new(format!(
                     "Dependency `{}` already has a path override at\n\t{}\n\tPlease check Bender.local or .bender.yml",
                     dep,

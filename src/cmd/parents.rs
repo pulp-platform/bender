@@ -48,10 +48,10 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 map.insert(
                     sess.manifest.package.name.clone(),
                     match sess.manifest.dependencies.get(dep).unwrap() {
-                        Dependency::Version(_, tgts) => tgts.clone(),
-                        Dependency::Path(_, tgts) => tgts.clone(),
-                        Dependency::GitRevision(_, _, tgts) => tgts.clone(),
-                        Dependency::GitVersion(_, _, tgts) => tgts.clone(),
+                        Dependency::Version(_, _, tgts) => tgts.clone(),
+                        Dependency::Path(_, _, tgts) => tgts.clone(),
+                        Dependency::GitRevision(_, _, _, tgts) => tgts.clone(),
+                        Dependency::GitVersion(_, _, _, tgts) => tgts.clone(),
                     },
                 );
             } else {
@@ -90,10 +90,10 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                             map.insert(
                                 pkg_name.to_string(),
                                 match dep_manifest.dependencies.get(dep).unwrap() {
-                                    Dependency::Version(_, tgts) => tgts.clone(),
-                                    Dependency::Path(_, tgts) => tgts.clone(),
-                                    Dependency::GitRevision(_, _, tgts) => tgts.clone(),
-                                    Dependency::GitVersion(_, _, tgts) => tgts.clone(),
+                                    Dependency::Version(_, _, tgts) => tgts.clone(),
+                                    Dependency::Path(_, _, tgts) => tgts.clone(),
+                                    Dependency::GitRevision(_, _, _, tgts) => tgts.clone(),
+                                    Dependency::GitVersion(_, _, _, tgts) => tgts.clone(),
                                 },
                             );
                         } else {
