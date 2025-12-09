@@ -31,8 +31,8 @@ pub struct SourceGroup<'ctx> {
     pub target: TargetSpec,
     /// The directories to search for include files.
     pub include_dirs: IndexSet<&'ctx Path>,
-    /// The directories exported by dependent package for include files.
-    pub export_incdirs: IndexMap<String, IndexSet<&'ctx Path>>,
+    /// The directories exported by dependent package for include files, with their target specs.
+    pub export_incdirs: IndexMap<String, Vec<(TargetSpec, &'ctx Path)>>,
     /// The preprocessor definitions.
     pub defines: IndexMap<String, Option<&'ctx str>>,
     /// The files in this group.
@@ -65,6 +65,22 @@ impl<'ctx> Validate for SourceGroup<'ctx> {
                     Ok(p)
                 })
                 .collect::<Result<IndexSet<_>, Error>>()?,
+            export_incdirs: self
+                .export_incdirs
+                .into_iter()
+                .map(|(pkg, dirs)| {
+                    let checked = dirs
+                        .into_iter()
+                        .map(|(trgt, p)| {
+                            if !p.exists() || !p.is_dir() {
+                                Warnings::IncludeDirMissing(p.to_path_buf()).emit();
+                            }
+                            Ok((trgt, p))
+                        })
+                        .collect::<Result<Vec<_>, Error>>()?;
+                    Ok((pkg, checked))
+                })
+                .collect::<Result<IndexMap<_, _>, Error>>()?,
             ..self
         })
     }
@@ -135,9 +151,24 @@ impl<'ctx> SourceGroup<'ctx> {
             defines.extend(target_defs.into_iter().map(|t| (t, None)));
         }
 
+        let export_incdirs = self
+            .export_incdirs
+            .iter()
+            .map(|(pkg, dirs)| {
+                let pkg_targets = targets.reduce_for_dependency(pkg.as_str());
+                let filtered = dirs
+                    .iter()
+                    .filter(|(trgt, _)| trgt.matches(&pkg_targets))
+                    .cloned()
+                    .collect();
+                (pkg.clone(), filtered)
+            })
+            .collect();
+
         Some(
             SourceGroup {
                 defines: defines.clone(),
+                export_incdirs,
                 files,
                 ..self.clone()
             }
@@ -254,7 +285,11 @@ impl<'ctx> SourceGroup<'ctx> {
         let incdirs = self
             .include_dirs
             .into_iter()
-            .chain(self.export_incdirs.into_iter().flat_map(|(_, v)| v))
+            .chain(
+                self.export_incdirs
+                    .into_iter()
+                    .flat_map(|(_, v)| v.into_iter().map(|(_, path)| path)),
+            )
             .fold(IndexSet::new(), |mut acc, inc_dir| {
                 acc.insert(inc_dir);
                 acc

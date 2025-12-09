@@ -13,7 +13,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use clap::{ArgAction, Args};
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
@@ -393,7 +393,7 @@ fn get_fuse_file_str(
                             if src_packages[0]
                                 .export_incdirs
                                 .get(pkg)
-                                .unwrap_or(&IndexSet::new())
+                                .unwrap_or(&Vec::new())
                                 .is_empty()
                             {
                                 Vec::new()
@@ -401,9 +401,9 @@ fn get_fuse_file_str(
                                 src_packages[0]
                                     .export_incdirs
                                     .get(pkg)
-                                    .unwrap_or(&IndexSet::new())
+                                    .unwrap_or(&Vec::new())
                                     .iter()
-                                    .flat_map(|incdir| {
+                                    .flat_map(|(_, incdir)| {
                                         get_include_files(
                                             &incdir.to_path_buf(),
                                             pkg_manifest_paths[pkg].clone(),
