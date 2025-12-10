@@ -61,7 +61,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         DependencySource::Git { .. } | DependencySource::Registry => {}
         DependencySource::Path { .. } => {
             Err(Error::new(format!(
-                "Dependency `{}` is not a git dependency, cannot clone.",
+                "Dependency `{}` is a path dependency. `clone` is only implemented for git dependencies.",
                 dep
             )))?;
         }
@@ -176,7 +176,6 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         let mut new_str = String::new();
         if local_file_str.contains("overrides:") {
             let split = local_file_str.split('\n');
-            let test = split.clone().next_back().unwrap().is_empty();
             for i in split {
                 if i.contains(dep) {
                     new_str.push('#');
@@ -187,7 +186,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
                     new_str.push_str(&dep_str);
                 }
             }
-            if test {
+            if local_file_str.ends_with('\n') {
                 // Ensure trailing newline is not duplicated
                 new_str.pop();
             }
