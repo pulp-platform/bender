@@ -3,10 +3,14 @@
 
 //! The `snapshot` subcommand.
 
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use std::path::PathBuf;
 use std::process::Command as SysCommand;
+
+use clap::{Arg, ArgAction, ArgMatches, Command};
+use indexmap::IndexMap;
 use tokio::runtime::Runtime;
 
+use crate::cmd::clone::get_path_subdeps;
 use crate::config::{Dependency, Locked, LockedSource};
 use crate::error::*;
 use crate::sess::{DependencySource, Session, SessionIo};
@@ -160,6 +164,25 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         }
     }
 
+    let rt = Runtime::new()?;
+    let io = SessionIo::new(sess);
+    let mut path_subdeps: IndexMap<String, PathBuf> = IndexMap::new();
+
+    for (name, url, _) in &snapshot_list {
+        // let old_path = io.get_package_path(depref);
+        // let new_path = io.get_depsource_path(name, &DependencySource::Git(url.clone()));
+        get_path_subdeps(
+            &io,
+            &rt,
+            &io.get_depsource_path(name, &DependencySource::Git(url.clone())),
+            sess.dependency_with_name(name)?,
+        )?
+        .into_iter()
+        .for_each(|(k, v)| {
+            path_subdeps.insert(k, v);
+        });
+    }
+
     // Update the Bender.lock file with the new hash
     use std::fs::File;
     let file = File::open(sess.root.join("Bender.lock"))
@@ -174,6 +197,20 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         mod_package.version = None;
         mod_package.source = LockedSource::Git(url);
         locked.packages.insert(name, mod_package);
+    }
+
+    for path_dep in path_subdeps {
+        let mut mod_package = locked.packages[&path_dep.0].clone();
+        mod_package.revision = None;
+        mod_package.version = None;
+        mod_package.source = LockedSource::Path(
+            path_dep
+                .1
+                .strip_prefix(sess.root)
+                .unwrap_or(&path_dep.1)
+                .to_path_buf(),
+        );
+        locked.packages.insert(path_dep.0.clone(), mod_package);
     }
 
     let file = File::create(sess.root.join("Bender.lock"))

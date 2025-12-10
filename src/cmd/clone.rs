@@ -218,7 +218,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     let mut locked: Locked = serde_yaml_ng::from_reader(&file)
         .map_err(|cause| Error::chain(format!("Syntax error in lockfile {:?}.", path), cause))?;
 
-    let path_deps = get_path_subdeps(&io, &rt, dep, path_mod, path, depref)?;
+    let path_deps = get_path_subdeps(&io, &rt, &path.join(path_mod).join(dep), depref)?;
 
     let mut mod_package = locked.packages[dep].clone();
     mod_package.revision = None;
@@ -338,11 +338,10 @@ fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
     Ok(std::os::windows::fs::symlink_dir(p, q)?)
 }
 
-fn get_path_subdeps(
+/// A helper function to recursively get all path subdependencies of a dependency.
+pub fn get_path_subdeps(
     io: &SessionIo,
     rt: &Runtime,
-    dep: &str,
-    path_mod: &str,
     path: &Path,
     depref: DependencyRef,
 ) -> Result<IndexMap<String, PathBuf>> {
@@ -358,10 +357,7 @@ fn get_path_subdeps(
             if p.starts_with(&old_path) {
                 Some((
                     k.clone(),
-                    path.join(path_mod)
-                        .join(dep)
-                        .join(p.strip_prefix(&old_path).unwrap())
-                        .to_path_buf(),
+                    path.join(p.strip_prefix(&old_path).unwrap()).to_path_buf(),
                 ))
             } else {
                 None
@@ -375,18 +371,11 @@ fn get_path_subdeps(
         .map(|(k, _)| k.clone())
         .collect::<Vec<String>>();
     for name in &path_dep_list {
-        get_path_subdeps(
-            io,
-            rt,
-            name,
-            path_mod,
-            path,
-            io.sess.dependency_with_name(name)?,
-        )?
-        .into_iter()
-        .for_each(|(k, v)| {
-            path_deps.insert(k.clone(), v.clone());
-        });
+        get_path_subdeps(io, rt, path, io.sess.dependency_with_name(name)?)?
+            .into_iter()
+            .for_each(|(k, v)| {
+                path_deps.insert(k.clone(), v.clone());
+            });
     }
     Ok(path_deps)
 }
