@@ -328,13 +328,15 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
+/// Create a directory symlink.
 #[cfg(unix)]
-fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
+pub fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
     Ok(std::os::unix::fs::symlink(p, q)?)
 }
 
+/// Create a directory symlink.
 #[cfg(windows)]
-fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
+pub fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
     Ok(std::os::windows::fs::symlink_dir(p, q)?)
 }
 
