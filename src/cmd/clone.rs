@@ -3,7 +3,7 @@
 
 //! The `clone` subcommand.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 
 use clap::{Arg, ArgMatches, Command};
@@ -13,7 +13,7 @@ use tokio::runtime::Runtime;
 use crate::config;
 use crate::config::{Locked, LockedSource};
 use crate::error::*;
-use crate::sess::{DependencySource, Session, SessionIo};
+use crate::sess::{DependencyRef, DependencySource, Session, SessionIo};
 
 /// Assemble the `clone` subcommand.
 pub fn new() -> Command {
@@ -218,30 +218,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     let mut locked: Locked = serde_yaml_ng::from_reader(&file)
         .map_err(|cause| Error::chain(format!("Syntax error in lockfile {:?}.", path), cause))?;
 
-    let binding = IndexMap::new();
-    let old_path = io.get_package_path(depref);
-    let path_deps = match rt.block_on(io.dependency_manifest(depref, false, &[]))? {
-        Some(m) => &m.dependencies,
-        None => &binding,
-    }
-    .iter()
-    .filter_map(|(k, v)| match v {
-        config::Dependency::Path(p) => {
-            if p.starts_with(&old_path) {
-                Some((
-                    k.clone(),
-                    path.join(path_mod)
-                        .join(dep)
-                        .join(p.strip_prefix(&old_path).unwrap())
-                        .to_path_buf(),
-                ))
-            } else {
-                None
-            }
-        }
-        _ => None,
-    })
-    .collect::<IndexMap<String, std::path::PathBuf>>();
+    let path_deps = get_path_subdeps(&io, &rt, dep, path_mod, path, depref)?;
 
     let mut mod_package = locked.packages[dep].clone();
     mod_package.revision = None;
@@ -359,4 +336,57 @@ fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
 #[cfg(windows)]
 fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
     Ok(std::os::windows::fs::symlink_dir(p, q)?)
+}
+
+fn get_path_subdeps(
+    io: &SessionIo,
+    rt: &Runtime,
+    dep: &str,
+    path_mod: &str,
+    path: &Path,
+    depref: DependencyRef,
+) -> Result<IndexMap<String, PathBuf>> {
+    let binding = IndexMap::new();
+    let old_path = io.get_package_path(depref);
+    let mut path_deps = match rt.block_on(io.dependency_manifest(depref, false, &[]))? {
+        Some(m) => &m.dependencies,
+        None => &binding,
+    }
+    .iter()
+    .filter_map(|(k, v)| match v {
+        config::Dependency::Path(p) => {
+            if p.starts_with(&old_path) {
+                Some((
+                    k.clone(),
+                    path.join(path_mod)
+                        .join(dep)
+                        .join(p.strip_prefix(&old_path).unwrap())
+                        .to_path_buf(),
+                ))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    })
+    .collect::<IndexMap<String, std::path::PathBuf>>();
+    let path_dep_list = path_deps
+        .iter()
+        .map(|(k, _)| k.clone())
+        .collect::<Vec<String>>();
+    for name in &path_dep_list {
+        get_path_subdeps(
+            io,
+            rt,
+            name,
+            path_mod,
+            path,
+            io.sess.dependency_with_name(name)?,
+        )?
+        .into_iter()
+        .for_each(|(k, v)| {
+            path_deps.insert(k.clone(), v.clone());
+        });
+    }
+    Ok(path_deps)
 }
