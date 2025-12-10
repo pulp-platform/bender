@@ -3,9 +3,11 @@
 
 //! The `clone` subcommand.
 
-use clap::{Arg, ArgMatches, Command};
 use std::path::Path;
 use std::process::Command as SysCommand;
+
+use clap::{Arg, ArgMatches, Command};
+use indexmap::IndexMap;
 use tokio::runtime::Runtime;
 
 use crate::config;
@@ -78,15 +80,14 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     {
         Err(Error::new(format!("Creating dir {} failed", path_mod,)))?;
     }
+    let rt = Runtime::new()?;
+    let io = SessionIo::new(sess);
 
     // Copy dependency to dir for proper workflow
     if path.join(path_mod).join(dep).exists() {
         eprintln!("{} already has a directory in {}.", dep, path_mod);
         eprintln!("Please manually ensure the correct checkout.");
     } else {
-        let rt = Runtime::new()?;
-        let io = SessionIo::new(sess);
-
         let id =
             sess.dependency_with_name(&matches.get_one::<String>("name").unwrap().to_lowercase())?;
         debugln!("main: obtain checkout {:?}", id);
@@ -217,6 +218,31 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     let mut locked: Locked = serde_yaml_ng::from_reader(&file)
         .map_err(|cause| Error::chain(format!("Syntax error in lockfile {:?}.", path), cause))?;
 
+    let binding = IndexMap::new();
+    let old_path = io.get_package_path(depref);
+    let path_deps = match rt.block_on(io.dependency_manifest(depref, false, &[]))? {
+        Some(m) => &m.dependencies,
+        None => &binding,
+    }
+    .iter()
+    .filter_map(|(k, v)| match v {
+        config::Dependency::Path(p) => {
+            if p.starts_with(&old_path) {
+                Some((
+                    k.clone(),
+                    path.join(path_mod)
+                        .join(dep)
+                        .join(p.strip_prefix(&old_path).unwrap())
+                        .to_path_buf(),
+                ))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    })
+    .collect::<IndexMap<String, std::path::PathBuf>>();
+
     let mut mod_package = locked.packages[dep].clone();
     mod_package.revision = None;
     mod_package.version = None;
@@ -228,6 +254,19 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
             .to_path_buf(),
     );
     locked.packages.insert(dep.to_string(), mod_package);
+    for path_dep in path_deps {
+        let mut mod_package = locked.packages[&path_dep.0].clone();
+        mod_package.revision = None;
+        mod_package.version = None;
+        mod_package.source = LockedSource::Path(
+            path_dep
+                .1
+                .strip_prefix(path)
+                .unwrap_or(&path_dep.1)
+                .to_path_buf(),
+        );
+        locked.packages.insert(path_dep.0.clone(), mod_package);
+    }
 
     let file = File::create(path.join("Bender.lock"))
         .map_err(|cause| Error::chain(format!("Cannot create lockfile {:?}.", path), cause))?;
