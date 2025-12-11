@@ -29,6 +29,7 @@ use crate::sess::{
     DependencyConstraint, DependencyRef, DependencySource, DependencyVersion, DependencyVersions,
     Session, SessionIo,
 };
+use crate::util::{version_req_bottom_bound, version_req_top_bound};
 
 /// A dependency resolver.
 pub struct DependencyResolver<'ctx> {
@@ -708,10 +709,19 @@ impl<'ctx> DependencyResolver<'ctx> {
         let mut constr_align = String::from("");
         for &(pkg_name, ref con, ref dsrc) in all_cons {
             constr_align.push_str(&format!(
-                "\n- package `{}`\trequires\t`{}` at `{}`",
+                "\n- package `{}`\trequires\t`{}`{}\tat `{}`",
                 pkg_name,
                 con,
-                self.sess.dependency_source(*dsrc)
+                match con {
+                    DependencyConstraint::Version(req) => format!(
+                        " ({} <= x < {})",
+                        version_req_bottom_bound(req)?.unwrap(),
+                        version_req_top_bound(req)?.unwrap()
+                    ),
+                    DependencyConstraint::Revision(_) => "".to_string(),
+                    DependencyConstraint::Path => "".to_string(),
+                },
+                self.sess.dependency_source(*dsrc),
             ));
             cons.push((con, dsrc));
         }
