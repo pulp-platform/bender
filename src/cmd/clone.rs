@@ -3,16 +3,17 @@
 
 //! The `clone` subcommand.
 
-use clap::{Arg, ArgMatches, Command};
-use futures::future::join_all;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
+
+use clap::{Arg, ArgMatches, Command};
+use indexmap::IndexMap;
 use tokio::runtime::Runtime;
 
 use crate::config;
 use crate::config::{Locked, LockedSource};
 use crate::error::*;
-use crate::sess::{Session, SessionIo};
+use crate::sess::{DependencyRef, DependencySource, Session, SessionIo};
 
 /// Assemble the `clone` subcommand.
 pub fn new() -> Command {
@@ -37,7 +38,7 @@ pub fn new() -> Command {
 /// Execute the `clone` subcommand.
 pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     let dep = &matches.get_one::<String>("name").unwrap().to_lowercase();
-    sess.dependency_with_name(dep)?;
+    let depref = sess.dependency_with_name(dep)?;
 
     let path_mod = matches.get_one::<String>("path").unwrap(); // TODO make this option for config in the Bender.yml file?
 
@@ -57,6 +58,17 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         }
     }
 
+    // Check if dependency is a git dependency
+    match sess.dependency_source(depref) {
+        DependencySource::Git { .. } | DependencySource::Registry => {}
+        DependencySource::Path { .. } => {
+            Err(Error::new(format!(
+                "Dependency `{}` is a path dependency. `clone` is only implemented for git dependencies.",
+                dep
+            )))?;
+        }
+    }
+
     // Create dir
     if !path.join(path_mod).exists()
         && !SysCommand::new("mkdir")
@@ -68,43 +80,30 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     {
         Err(Error::new(format!("Creating dir {} failed", path_mod,)))?;
     }
+    let rt = Runtime::new()?;
+    let io = SessionIo::new(sess);
 
     // Copy dependency to dir for proper workflow
     if path.join(path_mod).join(dep).exists() {
         eprintln!("{} already has a directory in {}.", dep, path_mod);
         eprintln!("Please manually ensure the correct checkout.");
     } else {
-        let rt = Runtime::new()?;
-        let io = SessionIo::new(sess);
-
-        let ids = matches
-            .get_many::<String>("name")
-            .unwrap()
-            .map(|n| Ok((n, sess.dependency_with_name(n)?)))
-            .collect::<Result<Vec<_>>>()?;
-        debugln!("main: obtain checkouts {:?}", ids);
-        let checkouts = rt
-            .block_on(join_all(
-                ids.iter()
-                    .map(|&(_, id)| io.checkout(id, false, &[]))
-                    .collect::<Vec<_>>(),
-            ))
-            .into_iter()
-            .collect::<Result<Vec<_>>>()?;
-        debugln!("main: checkouts {:#?}", checkouts);
-        for c in checkouts {
-            if let Some(s) = c.to_str() {
-                if !Path::new(s).exists() {
-                    Err(Error::new(format!("`{dep}` path `{s}` does not exist")))?;
-                }
-                let command = SysCommand::new("cp")
-                    .arg("-rf")
-                    .arg(s)
-                    .arg(path.join(path_mod).join(dep).to_str().unwrap())
-                    .status();
-                if !command.unwrap().success() {
-                    Err(Error::new(format!("Copying {} failed", dep,)))?;
-                }
+        let id =
+            sess.dependency_with_name(&matches.get_one::<String>("name").unwrap().to_lowercase())?;
+        debugln!("main: obtain checkout {:?}", id);
+        let checkout = rt.block_on(io.checkout(id, false, &[]))?;
+        debugln!("main: checkout {:#?}", checkout);
+        if let Some(s) = checkout.to_str() {
+            if !Path::new(s).exists() {
+                Err(Error::new(format!("`{dep}` path `{s}` does not exist")))?;
+            }
+            let command = SysCommand::new("cp")
+                .arg("-rf")
+                .arg(s)
+                .arg(path.join(path_mod).join(dep).to_str().unwrap())
+                .status();
+            if !command.unwrap().success() {
+                Err(Error::new(format!("Copying {} failed", dep,)))?;
             }
         }
 
@@ -178,7 +177,6 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         let mut new_str = String::new();
         if local_file_str.contains("overrides:") {
             let split = local_file_str.split('\n');
-            let test = split.clone().next_back().unwrap().is_empty();
             for i in split {
                 if i.contains(dep) {
                     new_str.push('#');
@@ -189,7 +187,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
                     new_str.push_str(&dep_str);
                 }
             }
-            if test {
+            if local_file_str.ends_with('\n') {
                 // Ensure trailing newline is not duplicated
                 new_str.pop();
             }
@@ -220,6 +218,8 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     let mut locked: Locked = serde_yaml_ng::from_reader(&file)
         .map_err(|cause| Error::chain(format!("Syntax error in lockfile {:?}.", path), cause))?;
 
+    let path_deps = get_path_subdeps(&io, &rt, &path.join(path_mod).join(dep), depref)?;
+
     let mut mod_package = locked.packages[dep].clone();
     mod_package.revision = None;
     mod_package.version = None;
@@ -231,6 +231,19 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
             .to_path_buf(),
     );
     locked.packages.insert(dep.to_string(), mod_package);
+    for path_dep in path_deps {
+        let mut mod_package = locked.packages[&path_dep.0].clone();
+        mod_package.revision = None;
+        mod_package.version = None;
+        mod_package.source = LockedSource::Path(
+            path_dep
+                .1
+                .strip_prefix(path)
+                .unwrap_or(&path_dep.1)
+                .to_path_buf(),
+        );
+        locked.packages.insert(path_dep.0.clone(), mod_package);
+    }
 
     let file = File::create(path.join("Bender.lock"))
         .map_err(|cause| Error::chain(format!("Cannot create lockfile {:?}.", path), cause))?;
@@ -315,12 +328,56 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
+/// Create a directory symlink.
 #[cfg(unix)]
-fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
+pub fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
     Ok(std::os::unix::fs::symlink(p, q)?)
 }
 
+/// Create a directory symlink.
 #[cfg(windows)]
-fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
+pub fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
     Ok(std::os::windows::fs::symlink_dir(p, q)?)
+}
+
+/// A helper function to recursively get all path subdependencies of a dependency.
+pub fn get_path_subdeps(
+    io: &SessionIo,
+    rt: &Runtime,
+    path: &Path,
+    depref: DependencyRef,
+) -> Result<IndexMap<String, PathBuf>> {
+    let binding = IndexMap::new();
+    let old_path = io.get_package_path(depref);
+    let mut path_deps = match rt.block_on(io.dependency_manifest(depref, false, &[]))? {
+        Some(m) => &m.dependencies,
+        None => &binding,
+    }
+    .iter()
+    .filter_map(|(k, v)| match v {
+        config::Dependency::Path(p) => {
+            if p.starts_with(&old_path) {
+                Some((
+                    k.clone(),
+                    path.join(p.strip_prefix(&old_path).unwrap()).to_path_buf(),
+                ))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    })
+    .collect::<IndexMap<String, std::path::PathBuf>>();
+    let path_dep_list = path_deps
+        .iter()
+        .map(|(k, _)| k.clone())
+        .collect::<Vec<String>>();
+    for name in &path_dep_list {
+        get_path_subdeps(io, rt, path, io.sess.dependency_with_name(name)?)?
+            .into_iter()
+            .for_each(|(k, v)| {
+                path_deps.insert(k.clone(), v.clone());
+            });
+    }
+    Ok(path_deps)
 }

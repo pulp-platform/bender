@@ -3,10 +3,14 @@
 
 //! The `snapshot` subcommand.
 
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use std::path::PathBuf;
 use std::process::Command as SysCommand;
+
+use clap::{Arg, ArgAction, ArgMatches, Command};
+use indexmap::IndexMap;
 use tokio::runtime::Runtime;
 
+use crate::cmd::clone::{get_path_subdeps, symlink_dir};
 use crate::config::{Dependency, Locked, LockedSource};
 use crate::error::*;
 use crate::sess::{DependencySource, Session, SessionIo};
@@ -160,6 +164,25 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         }
     }
 
+    let rt = Runtime::new()?;
+    let io = SessionIo::new(sess);
+    let mut path_subdeps: IndexMap<String, PathBuf> = IndexMap::new();
+
+    for (name, url, _) in &snapshot_list {
+        // let old_path = io.get_package_path(depref);
+        // let new_path = io.get_depsource_path(name, &DependencySource::Git(url.clone()));
+        get_path_subdeps(
+            &io,
+            &rt,
+            &io.get_depsource_path(name, &DependencySource::Git(url.clone())),
+            sess.dependency_with_name(name)?,
+        )?
+        .into_iter()
+        .for_each(|(k, v)| {
+            path_subdeps.insert(k, v);
+        });
+    }
+
     // Update the Bender.lock file with the new hash
     use std::fs::File;
     let file = File::open(sess.root.join("Bender.lock"))
@@ -168,12 +191,25 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         Error::chain(format!("Syntax error in lockfile {:?}.", sess.root), cause)
     })?;
 
-    for (name, url, hash) in snapshot_list {
-        let mut mod_package = locked.packages.get_mut(&name).unwrap().clone();
-        mod_package.revision = Some(hash);
+    for (name, url, hash) in &snapshot_list {
+        let mut mod_package = locked.packages.get_mut(name).unwrap().clone();
+        mod_package.revision = Some(hash.to_string());
         mod_package.version = None;
-        mod_package.source = LockedSource::Git(url);
-        locked.packages.insert(name, mod_package);
+        mod_package.source = LockedSource::Git(url.to_string());
+        locked.packages.insert(name.to_string(), mod_package);
+    }
+
+    for (path_dep, path_dep_path) in &path_subdeps {
+        let mut mod_package = locked.packages[path_dep].clone();
+        mod_package.revision = None;
+        mod_package.version = None;
+        mod_package.source = LockedSource::Path(
+            path_dep_path
+                .strip_prefix(sess.root)
+                .unwrap_or(&path_dep_path)
+                .to_path_buf(),
+        );
+        locked.packages.insert(path_dep.clone(), mod_package);
     }
 
     let file = File::create(sess.root.join("Bender.lock"))
@@ -187,8 +223,106 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         let rt = Runtime::new()?;
         let io = SessionIo::new(sess);
         let _srcs = rt.block_on(io.sources(matches.get_flag("forcibly"), &[]))?;
+    }
 
-        // TODO may need to update symlinks
+    let snapshotted_deps = snapshot_list
+        .iter()
+        .map(|(name, _, _)| name.as_str())
+        .collect::<Vec<&str>>();
+
+    let subdeps = path_subdeps
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect::<Vec<&str>>();
+
+    let updated_deps: Vec<&str> = [snapshotted_deps.clone(), subdeps.clone()].concat();
+
+    // Update any possible workspace symlinks
+    for (link_path, pkg_name) in &sess.manifest.workspace.package_links {
+        if updated_deps.contains(&pkg_name.as_str()) {
+            debugln!("main: maintaining link to {} at {:?}", pkg_name, link_path);
+
+            // Determine the checkout path for this package.
+            let pkg_path = if snapshotted_deps.contains(&pkg_name.as_str()) {
+                &io.get_depsource_path(
+                    &pkg_name,
+                    &DependencySource::Git(
+                        snapshot_list
+                            .iter()
+                            .find(|(n, _, _)| n == pkg_name)
+                            .unwrap()
+                            .1
+                            .clone(),
+                    ),
+                )
+            } else {
+                path_subdeps.get(pkg_name).unwrap()
+            };
+            // let pkg_path = &path.join(path_mod).join(dep);
+            let pkg_path = link_path
+                .parent()
+                .and_then(|path| pathdiff::diff_paths(pkg_path, path))
+                .unwrap_or_else(|| pkg_path.into());
+
+            // Check if there is something at the destination path that needs to be
+            // removed.
+            if link_path.exists() {
+                let meta = link_path.symlink_metadata().map_err(|cause| {
+                    Error::chain(
+                        format!("Failed to read metadata of path {:?}.", link_path),
+                        cause,
+                    )
+                })?;
+                if !meta.file_type().is_symlink() {
+                    warnln!(
+                        "[W15] Skipping link to package {} at {:?} since there is something there",
+                        pkg_name,
+                        link_path
+                    );
+                    continue;
+                }
+                if link_path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
+                    debugln!("main: removing existing link {:?}", link_path);
+                    std::fs::remove_file(link_path).map_err(|cause| {
+                        Error::chain(
+                            format!("Failed to remove symlink at path {:?}.", link_path),
+                            cause,
+                        )
+                    })?;
+                }
+            }
+
+            // Create the symlink if there is nothing at the destination.
+            if !link_path.exists() {
+                stageln!("Linking", "{} ({:?})", pkg_name, link_path);
+                if let Some(parent) = link_path.parent() {
+                    std::fs::create_dir_all(parent).map_err(|cause| {
+                        Error::chain(format!("Failed to create directory {:?}.", parent), cause)
+                    })?;
+                }
+                let previous_dir = match link_path.parent() {
+                    Some(parent) => {
+                        let d = std::env::current_dir().unwrap();
+                        std::env::set_current_dir(parent).unwrap();
+                        Some(d)
+                    }
+                    None => None,
+                };
+                symlink_dir(&pkg_path, link_path).map_err(|cause| {
+                    Error::chain(
+                        format!(
+                            "Failed to create symlink to {:?} at path {:?}.",
+                            pkg_path, link_path
+                        ),
+                        cause,
+                    )
+                })?;
+                if let Some(d) = previous_dir {
+                    std::env::set_current_dir(d).unwrap();
+                }
+            }
+            eprintln!("{} symlink updated", pkg_name);
+        }
     }
 
     Ok(())

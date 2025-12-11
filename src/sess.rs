@@ -731,6 +731,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     pub fn get_package_path(&'io self, dep_id: DependencyRef) -> PathBuf {
         let dep = self.sess.dependency(dep_id);
 
+        self.get_depsource_path(&dep.name, &dep.source)
+    }
+
+    /// Get path based on dependency source
+    pub fn get_depsource_path(&'io self, dep_name: &str, dep_source: &DependencySource) -> PathBuf {
         // Determine the name of the checkout as the given name and the first
         // 8 bytes (16 hex characters) of a BLAKE2 hash of the source and the
         // root package name. This ensures that for every dependency and
@@ -740,7 +745,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         let hash = {
             use blake2::{Blake2b512, Digest};
             let mut hasher = Blake2b512::new();
-            match dep.source {
+            match dep_source {
                 DependencySource::Registry => unimplemented!(),
                 DependencySource::Git(ref url) => hasher.update(url.as_bytes()),
                 DependencySource::Path(ref path) => {
@@ -757,13 +762,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             hasher.update(format!("{:?}", self.sess.manifest.package.name).as_bytes());
             &format!("{:016x}", hasher.finalize())[..16]
         };
-        let checkout_name = format!("{}-{}", dep.name, hash);
+        let checkout_name = format!("{}-{}", dep_name, hash);
 
         // Determine the location of the git checkout. If the workspace has an
         // explicit checkout directory, use that and do not append any hash to
         // the dependency name.
         match self.sess.manifest.workspace.checkout_dir {
-            Some(ref cd) => cd.join(&dep.name),
+            Some(ref cd) => cd.join(dep_name),
             None => self
                 .sess
                 .config
