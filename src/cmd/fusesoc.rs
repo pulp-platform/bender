@@ -631,7 +631,7 @@ fn get_fileset_files(file_pkg: &SourceGroup, root_dir: PathBuf) -> Vec<FuseFileT
         .files
         .iter()
         .filter_map(|src_file| match src_file {
-            SourceFile::File(intern_file) => Some(
+            SourceFile::File(intern_file, _) => Some(
                 match intern_file.extension().and_then(std::ffi::OsStr::to_str) {
                     Some("vhd") | Some("vhdl") => FuseFileType::IndexMap(IndexMap::from([(
                         intern_file

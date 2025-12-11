@@ -173,12 +173,33 @@ pub enum SourceFile {
     File(PathBuf),
     /// A subgroup.
     Group(Box<Sources>),
+    /// A systemverilog source.
+    SvFile(PathBuf),
+    /// A verilog source.
+    VerilogFile(PathBuf),
+    /// A vhdl source.
+    VhdlFile(PathBuf),
 }
 
 impl fmt::Debug for SourceFile {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SourceFile::File(ref path) => fmt::Debug::fmt(path, f),
+            SourceFile::File(ref path) => {
+                fmt::Debug::fmt(path, f)?;
+                write!(f, " as <unknown>")
+            }
+            SourceFile::SvFile(ref path) => {
+                fmt::Debug::fmt(path, f)?;
+                write!(f, " as SystemVerilog")
+            }
+            SourceFile::VerilogFile(ref path) => {
+                fmt::Debug::fmt(path, f)?;
+                write!(f, " as Verilog")
+            }
+            SourceFile::VhdlFile(ref path) => {
+                fmt::Debug::fmt(path, f)?;
+                write!(f, " as Vhdl")
+            }
             SourceFile::Group(ref srcs) => fmt::Debug::fmt(srcs, f),
         }
     }
@@ -188,6 +209,9 @@ impl PrefixPaths for SourceFile {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         Ok(match self {
             SourceFile::File(path) => SourceFile::File(path.prefix_paths(prefix)?),
+            SourceFile::SvFile(path) => SourceFile::SvFile(path.prefix_paths(prefix)?),
+            SourceFile::VerilogFile(path) => SourceFile::VerilogFile(path.prefix_paths(prefix)?),
+            SourceFile::VhdlFile(path) => SourceFile::VhdlFile(path.prefix_paths(prefix)?),
             SourceFile::Group(group) => SourceFile::Group(Box::new(group.prefix_paths(prefix)?)),
         })
     }
@@ -485,7 +509,19 @@ impl Validate for PartialManifest {
         Ok(Manifest {
             package: pkg,
             dependencies: deps,
-            sources: srcs,
+            sources: match srcs {
+                Some(SourceFile::Group(srcs)) => Some(*srcs),
+                Some(SourceFile::File(_))
+                | Some(SourceFile::SvFile(_))
+                | Some(SourceFile::VerilogFile(_))
+                | Some(SourceFile::VhdlFile(_)) => Some(Sources {
+                    target: TargetSpec::Wildcard,
+                    include_dirs: Vec::new(),
+                    defines: IndexMap::new(),
+                    files: vec![srcs.unwrap()],
+                }),
+                None => None,
+            },
             export_include_dirs: exp_inc_dirs
                 .iter()
                 .filter_map(|path| match env_path_from_string(path.to_string()) {
@@ -652,7 +688,13 @@ pub struct PartialSources {
     /// The preprocessor definitions.
     pub defines: Option<IndexMap<String, Option<String>>>,
     /// The source file paths.
-    pub files: Vec<PartialSourceFile>,
+    pub files: Option<Vec<PartialSourceFile>>,
+    /// A sv file.
+    pub sv: Option<String>,
+    /// A verilog file.
+    pub v: Option<String>,
+    /// A vhdl file.
+    pub vhd: Option<String>,
     /// The list of external flists to include.
     pub external_flists: Option<Vec<String>>,
     /// Unknown extra fields
@@ -668,7 +710,10 @@ impl PartialSources {
             target: None,
             include_dirs: None,
             defines: None,
-            files: Vec::new(),
+            files: Some(Vec::new()),
+            sv: None,
+            v: None,
+            vhd: None,
             external_flists: None,
             extra: HashMap::new(),
         }
@@ -682,6 +727,9 @@ impl PrefixPaths for PartialSources {
             include_dirs: self.include_dirs.prefix_paths(prefix)?,
             defines: self.defines,
             files: self.files.prefix_paths(prefix)?,
+            sv: self.sv.prefix_paths(prefix)?,
+            v: self.v.prefix_paths(prefix)?,
+            vhd: self.vhd.prefix_paths(prefix)?,
             external_flists: self.external_flists.prefix_paths(prefix)?,
             extra: self.extra,
         })
@@ -694,7 +742,10 @@ impl From<Vec<PartialSourceFile>> for PartialSources {
             target: None,
             include_dirs: None,
             defines: None,
-            files: v,
+            files: Some(v),
+            sv: None,
+            v: None,
+            vhd: None,
             external_flists: None,
             extra: HashMap::new(),
         }
@@ -702,224 +753,315 @@ impl From<Vec<PartialSourceFile>> for PartialSources {
 }
 
 impl Validate for PartialSources {
-    type Output = Sources;
+    type Output = SourceFile;
     type Error = Error;
     fn validate(
         self,
         package_name: &str,
         pre_output: bool,
         suppress_warnings: &IndexSet<String>,
-    ) -> Result<Sources> {
-        let external_flists: Result<Vec<_>> = self
-            .external_flists
-            .clone()
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|path| match env_path_from_string(path.to_string()) {
-                Ok(p) => Some(Ok(p)),
-                Err(cause) => {
-                    if suppress_warnings.contains("E30") {
-                        if !suppress_warnings.contains("W30") {
-                            warnln!("[W30] File not added, ignoring: {}", cause);
-                        }
-                        None
-                    } else {
-                        Some(Err(Error::chain("[E30]", cause)))
-                    }
-                }
-            })
-            .collect();
-
-        let external_flist_list: Result<Vec<(PathBuf, Vec<String>)>> = external_flists?
-            .into_iter()
-            .map(|filename| {
-                let file = File::open(&filename).map_err(|cause| {
-                    Error::chain(
-                        format!("Unable to open external flist file {:?}", filename),
-                        cause,
-                    )
-                })?;
-                let reader = BufReader::new(file);
-                let lines: Vec<String> = reader
-                    .lines()
-                    .map(|line| {
-                        line.map_err(|cause| {
-                            Error::chain(
-                                format!("Error reading external flist file {:?}", filename),
-                                cause,
-                            )
-                        })
-                    })
-                    .collect::<Result<Vec<String>>>()?;
-                let lines = lines
+    ) -> Result<SourceFile> {
+        match self {
+            PartialSources {
+                target: None,
+                include_dirs: None,
+                defines: None,
+                files: None,
+                sv: Some(sv),
+                v: None,
+                vhd: None,
+                external_flists: None,
+                extra: _,
+            } => PartialSourceFile::SvFile(sv).validate(package_name, pre_output, suppress_warnings),
+            PartialSources {
+                target: None,
+                include_dirs: None,
+                defines: None,
+                files: None,
+                sv: None,
+                v: Some(v),
+                vhd: None,
+                external_flists: None,
+                extra: _,
+            } => PartialSourceFile::VerilogFile(v).validate(package_name, pre_output, suppress_warnings),
+            PartialSources {
+                target: None,
+                include_dirs: None,
+                defines: None,
+                files: None,
+                sv: None,
+                v: None,
+                vhd: Some(vhd),
+                external_flists: None,
+                extra: _,
+            } => PartialSourceFile::VhdlFile(vhd).validate(package_name, pre_output, suppress_warnings),
+            PartialSources {
+                target,
+                include_dirs,
+                defines,
+                files,
+                sv: None,
+                v: None,
+                vhd: None,
+                external_flists,
+                extra,
+            } => {
+                let external_flists: Result<Vec<_>> = external_flists
+                    .clone()
+                    .unwrap_or_default()
                     .iter()
-                    .filter_map(|line| {
-                        let line = line.trim();
-                        if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
-                            None
-                        } else {
-                            Some(
-                                line.split_whitespace()
-                                    .map(|s| s.to_string())
-                                    .collect::<Vec<_>>(),
-                            )
-                        }
-                    })
-                    .flatten()
-                    .collect();
-                Ok((filename.parent().unwrap().to_path_buf(), lines))
-            })
-            .collect();
-
-        let external_flist_groups: Result<Vec<PartialSourceFile>> = external_flist_list?
-            .into_iter()
-            .map(|(flist_dir, flist)| {
-                Ok(PartialSourceFile::Group(Box::new(PartialSources {
-                    target: None,
-                    include_dirs: Some(
-                        flist
-                            .clone()
-                            .into_iter()
-                            .filter_map(|file| {
-                                if file.starts_with("+incdir+") {
-                                    Some(file.trim_start_matches("+incdir+").to_string())
-                                } else {
-                                    None
+                    .filter_map(|path| match env_path_from_string(path.to_string()) {
+                        Ok(p) => Some(Ok(p)),
+                        Err(cause) => {
+                            if suppress_warnings.contains("E30") {
+                                if !suppress_warnings.contains("W30") {
+                                    warnln!("[W30] File not added, ignoring: {}", cause);
                                 }
-                            })
-                            .flat_map(|s| s.split('+').map(|s| s.to_string()).collect::<Vec<_>>())
-                            .map(|dir| dir.prefix_paths(&flist_dir))
-                            .collect::<Result<_>>()?,
-                    ),
-                    defines: Some(
-                        flist
-                            .clone()
-                            .into_iter()
-                            .filter_map(|file| {
-                                if file.starts_with("+define+") {
-                                    Some(file.trim_start_matches("+define+").to_string())
-                                } else {
-                                    None
-                                }
-                            })
-                            .flat_map(|s| s.split('+').map(|s| s.to_string()).collect::<Vec<_>>())
-                            .map(|file| {
-                                if let Some(eq_idx) = file.find("=") {
-                                    (
-                                        file[..eq_idx].to_string(),
-                                        Some(file[eq_idx + 1..].to_string()),
-                                    )
-                                } else {
-                                    (file.to_string(), None)
-                                }
-                            })
-                            .collect(),
-                    ),
-                    files: flist
-                        .into_iter()
-                        .filter_map(|file| {
-                            if file.starts_with("+") {
                                 None
                             } else {
-                                // prefix path
-                                Some(PartialSourceFile::File(file))
+                                Some(Err(Error::chain("[E30]", cause)))
                             }
-                        })
-                        .map(|file| file.prefix_paths(&flist_dir))
-                        .collect::<Result<Vec<_>>>()?,
-                    external_flists: None,
-                    extra: HashMap::new(),
-                })))
-            })
-            .collect();
-
-        let post_env_files: Vec<PartialSourceFile> = self
-            .files
-            .into_iter()
-            .chain(external_flist_groups?.into_iter())
-            .filter_map(|file| match file {
-                PartialSourceFile::File(file) => match env_string_from_string(file) {
-                    Ok(p) => Some(Ok(PartialSourceFile::File(p))),
-                    Err(cause) => {
-                        if suppress_warnings.contains("E30") {
-                            if !suppress_warnings.contains("W30") {
-                                warnln!("[W30] File not added, ignoring: {}", cause);
-                            }
-                            None
-                        } else {
-                            Some(Err(Error::chain("[E30]", cause)))
                         }
-                    }
-                },
-                other => Some(Ok(other)),
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let post_glob_files: Vec<PartialSourceFile> = post_env_files
-            .into_iter()
-            .map(|pre_glob_file| {
-                if let PartialSourceFile::File(_) = pre_glob_file {
-                    // PartialSources .files item is pointing to PartialSourceFiles::file so do glob extension
-                    pre_glob_file.glob_file(suppress_warnings)
+                    })
+                    .collect();
+
+                let external_flist_list: Result<Vec<(PathBuf, Vec<String>)>> = external_flists?
+                    .into_iter()
+                    .map(|filename| {
+                        let file = File::open(&filename).map_err(|cause| {
+                            Error::chain(
+                                format!("Unable to open external flist file {:?}", filename),
+                                cause,
+                            )
+                        })?;
+                        let reader = BufReader::new(file);
+                        let lines: Vec<String> = reader
+                            .lines()
+                            .map(|line| {
+                                line.map_err(|cause| {
+                                    Error::chain(
+                                        format!("Error reading external flist file {:?}", filename),
+                                        cause,
+                                    )
+                                })
+                            })
+                            .collect::<Result<Vec<String>>>()?;
+                        let lines = lines
+                            .iter()
+                            .filter_map(|line| {
+                                let line = line.trim();
+                                if line.is_empty()
+                                    || line.starts_with('#')
+                                    || line.starts_with("//")
+                                {
+                                    None
+                                } else {
+                                    Some(
+                                        line.split_whitespace()
+                                            .map(|s| s.to_string())
+                                            .collect::<Vec<_>>(),
+                                    )
+                                }
+                            })
+                            .flatten()
+                            .collect();
+                        Ok((filename.parent().unwrap().to_path_buf(), lines))
+                    })
+                    .collect();
+
+                let external_flist_groups: Result<Vec<PartialSourceFile>> = external_flist_list?
+                    .into_iter()
+                    .map(|(flist_dir, flist)| {
+                        Ok(PartialSourceFile::Group(Box::new(PartialSources {
+                            target: None,
+                            include_dirs: Some(
+                                flist
+                                    .clone()
+                                    .into_iter()
+                                    .filter_map(|file| {
+                                        if file.starts_with("+incdir+") {
+                                            Some(file.trim_start_matches("+incdir+").to_string())
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .flat_map(|s| {
+                                        s.split('+').map(|s| s.to_string()).collect::<Vec<_>>()
+                                    })
+                                    .map(|dir| dir.prefix_paths(&flist_dir))
+                                    .collect::<Result<_>>()?,
+                            ),
+                            defines: Some(
+                                flist
+                                    .clone()
+                                    .into_iter()
+                                    .filter_map(|file| {
+                                        if file.starts_with("+define+") {
+                                            Some(file.trim_start_matches("+define+").to_string())
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .flat_map(|s| {
+                                        s.split('+').map(|s| s.to_string()).collect::<Vec<_>>()
+                                    })
+                                    .map(|file| {
+                                        if let Some(eq_idx) = file.find("=") {
+                                            (
+                                                file[..eq_idx].to_string(),
+                                                Some(file[eq_idx + 1..].to_string()),
+                                            )
+                                        } else {
+                                            (file.to_string(), None)
+                                        }
+                                    })
+                                    .collect(),
+                            ),
+                            files: Some(flist
+                                .into_iter()
+                                .filter_map(|file| {
+                                    if file.starts_with("+") {
+                                        None
+                                    } else {
+                                        // prefix path
+                                        Some(PartialSourceFile::File(file))
+                                    }
+                                })
+                                .map(|file| file.prefix_paths(&flist_dir))
+                                .collect::<Result<Vec<_>>>()?),
+                            sv: None,
+                            v: None,
+                            vhd: None,
+                            external_flists: None,
+                            extra: HashMap::new(),
+                        })))
+                    })
+                    .collect();
+
+                let post_env_files: Vec<PartialSourceFile> = if let Some(fls) = files {
+                    fls
+                    .into_iter()
+                    .chain(external_flist_groups?.into_iter())
+                    .filter_map(|file| match file {
+                        PartialSourceFile::File(ref filename)
+                        | PartialSourceFile::SvFile(ref filename)
+                        | PartialSourceFile::VerilogFile(ref filename)
+                        | PartialSourceFile::VhdlFile(ref filename) => match env_string_from_string(filename.to_string()) {
+                            Ok(p) => match file {
+                                PartialSourceFile::File(_) => Some(Ok(PartialSourceFile::File(p))),
+                                PartialSourceFile::SvFile(_) => Some(Ok(PartialSourceFile::SvFile(p))),
+                                PartialSourceFile::VerilogFile(_) => Some(Ok(PartialSourceFile::VerilogFile(p))),
+                                PartialSourceFile::VhdlFile(_) => Some(Ok(PartialSourceFile::VhdlFile(p))),
+                                _ => unreachable!(),
+                            },
+                            Err(cause) => {
+                                if suppress_warnings.contains("E30") {
+                                    if !suppress_warnings.contains("W30") {
+                                        warnln!("[W30] File not added, ignoring: {}", cause);
+                                    }
+                                    None
+                                } else {
+                                    Some(Err(Error::chain("[E30]", cause)))
+                                }
+                            }
+                        },
+                        other => Some(Ok(other)),
+                    })
+                    .collect::<Result<Vec<_>>>()?
                 } else {
-                    // PartialSources .files item is pointing to PartialSourceFiles::group so pass on for recursion
-                    // to do glob extension in the groups.sources.files list of PartialSourceFiles::file
-                    Ok(vec![pre_glob_file])
-                }
-            })
-            .collect::<Result<Vec<Vec<PartialSourceFile>>>>()?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-
-        let include_dirs: Result<Vec<_>> = self
-            .include_dirs
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|path| match env_path_from_string(path.to_string()) {
-                Ok(p) => Some(Ok(p)),
-                Err(cause) => {
-                    if suppress_warnings.contains("E30") {
-                        if !suppress_warnings.contains("W30") {
-                            warnln!("[W30] File not added, ignoring: {}", cause);
+                    Vec::new()
+                };
+                let post_glob_files: Vec<PartialSourceFile> = post_env_files
+                    .into_iter()
+                    .map(|pre_glob_file| {
+                        match pre_glob_file {
+                            PartialSourceFile::File(_)
+                            | PartialSourceFile::SvFile(_)
+                            | PartialSourceFile::VerilogFile(_)
+                            | PartialSourceFile::VhdlFile(_) => {
+                                // PartialSources .files item is pointing to PartialSourceFiles::file so do glob extension
+                                pre_glob_file.glob_file(suppress_warnings)
+                            }
+                            _ => {
+                                // PartialSources .files item is pointing to PartialSourceFiles::group so pass on for recursion
+                                // to do glob extension in the groups.sources.files list of PartialSourceFiles::file
+                                Ok(vec![pre_glob_file])
+                            }
                         }
-                        None
-                    } else {
-                        Some(Err(Error::chain("[E30]", cause)))
-                    }
-                }
-            })
-            .collect();
+                    })
+                    .collect::<Result<Vec<Vec<PartialSourceFile>>>>()?
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>();
 
-        let defines = self.defines.unwrap_or_default();
-        let files: Result<Vec<_>> = post_glob_files
-            .into_iter()
-            .map(|f| f.validate(package_name, pre_output, suppress_warnings))
-            .collect();
-        let files: Vec<Option<SourceFile>> = files?;
-        let files: Vec<SourceFile> = files.into_iter().flatten().collect();
-        if files.is_empty() && !pre_output && !suppress_warnings.contains("W04") {
-            warnln!(
-                "[W04] No source files specified in a sourcegroup in manifest for {}.",
-                package_name
-            );
-        }
-        if !pre_output {
-            self.extra.iter().for_each(|(k, _)| {
-                if !suppress_warnings.contains("W03") {
+                let include_dirs: Result<Vec<_>> = include_dirs
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|path| match env_path_from_string(path.to_string()) {
+                        Ok(p) => Some(Ok(p)),
+                        Err(cause) => {
+                            if suppress_warnings.contains("E30") {
+                                if !suppress_warnings.contains("W30") {
+                                    warnln!("[W30] File not added, ignoring: {}", cause);
+                                }
+                                None
+                            } else {
+                                Some(Err(Error::chain("[E30]", cause)))
+                            }
+                        }
+                    })
+                    .collect();
+
+                let defines = defines.unwrap_or_default();
+                let files: Result<Vec<_>> = post_glob_files
+                    .into_iter()
+                    .map(|f| f.validate(package_name, pre_output, suppress_warnings))
+                    .collect();
+                let files: Vec<SourceFile> = files?;
+                let files: Vec<SourceFile> = files.into_iter().collect();
+                if files.is_empty() && !pre_output && !suppress_warnings.contains("W04") {
                     warnln!(
-                        "[W03] Ignoring unknown field `{}` in sources in manifest for {}.",
-                        k,
+                        "[W04] No source files specified in a sourcegroup in manifest for {}.",
                         package_name
                     );
                 }
-            });
+                if !pre_output {
+                    extra.iter().for_each(|(k, _)| {
+                        if !suppress_warnings.contains("W03") {
+                            warnln!(
+                                "[W03] Ignoring unknown field `{}` in sources in manifest for {}.",
+                                k,
+                                package_name
+                            );
+                        }
+                    });
+                }
+                Ok(SourceFile::Group(Box::new(Sources {
+                    target: target.unwrap_or(TargetSpec::Wildcard),
+                    include_dirs: include_dirs?,
+                    defines,
+                    files,
+                })))
+            }
+            PartialSources {
+                target: None,
+                include_dirs: None,
+                defines: None,
+                files: None,
+                sv: _sv,
+                v: _v,
+                vhd: _vhd,
+                external_flists: None,
+                extra: _,
+            } => {
+                Err(Error::new("Only a single source with a single type is supported."))
+            },
+            _ => {
+                Err(Error::new(
+                    "Do not mix `sv`, `v`, or `vhd` with `files`, `target`, `include_dirs`, and `defines`.",
+                ))
+            }
         }
-        Ok(Sources {
-            target: self.target.unwrap_or(TargetSpec::Wildcard),
-            include_dirs: include_dirs?,
-            defines,
-            files,
-        })
     }
 }
 
@@ -930,6 +1072,12 @@ pub enum PartialSourceFile {
     File(String),
     /// A subgroup of sources.
     Group(Box<PartialSources>),
+    /// A systemverilog source.
+    SvFile(String),
+    /// A verilog source.
+    VerilogFile(String),
+    /// A vhdl source.
+    VhdlFile(String),
 }
 
 impl PrefixPaths for PartialSourceFile {
@@ -938,6 +1086,15 @@ impl PrefixPaths for PartialSourceFile {
             PartialSourceFile::File(path) => PartialSourceFile::File(path.prefix_paths(prefix)?),
             PartialSourceFile::Group(group) => {
                 PartialSourceFile::Group(Box::new(group.prefix_paths(prefix)?))
+            }
+            PartialSourceFile::SvFile(path) => {
+                PartialSourceFile::SvFile(path.prefix_paths(prefix)?)
+            }
+            PartialSourceFile::VerilogFile(path) => {
+                PartialSourceFile::VerilogFile(path.prefix_paths(prefix)?)
+            }
+            PartialSourceFile::VhdlFile(path) => {
+                PartialSourceFile::VhdlFile(path.prefix_paths(prefix)?)
             }
         })
     }
@@ -952,6 +1109,9 @@ impl Serialize for PartialSourceFile {
         match *self {
             PartialSourceFile::File(ref path) => path.serialize(serializer),
             PartialSourceFile::Group(ref srcs) => srcs.serialize(serializer),
+            PartialSourceFile::SvFile(ref path) => path.serialize(serializer),
+            PartialSourceFile::VerilogFile(ref path) => path.serialize(serializer),
+            PartialSourceFile::VhdlFile(ref path) => path.serialize(serializer),
         }
     }
 }
@@ -997,19 +1157,29 @@ impl<'de> Deserialize<'de> for PartialSourceFile {
 }
 
 impl Validate for PartialSourceFile {
-    type Output = Option<SourceFile>;
+    type Output = SourceFile;
     type Error = Error;
     fn validate(
         self,
         package_name: &str,
         pre_output: bool,
         suppress_warnings: &IndexSet<String>,
-    ) -> Result<Option<SourceFile>> {
+    ) -> Result<SourceFile> {
         match self {
-            PartialSourceFile::File(path) => Ok(Some(SourceFile::File(PathBuf::from(path)))),
-            PartialSourceFile::Group(srcs) => Ok(Some(SourceFile::Group(Box::new(
-                srcs.validate(package_name, pre_output, suppress_warnings)?,
-            )))),
+            PartialSourceFile::File(path) => Ok(SourceFile::File(PathBuf::from(path))),
+            // PartialSourceFile::Group(srcs) => Ok(Some(SourceFile::Group(Box::new(
+            //     srcs.validate(package_name, pre_output, suppress_warnings)?,
+            // )))),
+            PartialSourceFile::Group(srcs) => {
+                Ok(srcs.validate(package_name, pre_output, suppress_warnings)?)
+            }
+            PartialSourceFile::SvFile(path) => Ok(SourceFile::SvFile(env_path_from_string(path)?)),
+            PartialSourceFile::VerilogFile(path) => {
+                Ok(SourceFile::VerilogFile(env_path_from_string(path)?))
+            }
+            PartialSourceFile::VhdlFile(path) => {
+                Ok(SourceFile::VhdlFile(env_path_from_string(path)?))
+            }
         }
     }
 }
@@ -1032,36 +1202,51 @@ impl GlobFile for PartialSourceFile {
         // let mut partial_source_files_vec: Vec<PartialSourceFile> = Vec::new();
 
         // Only operate on files, not groups
-        if let PartialSourceFile::File(ref path) = self {
-            // Check if glob patterns used
-            if path.contains("*") || path.contains("?") {
-                let glob_matches = glob(path).map_err(|cause| {
-                    Error::chain(format!("Invalid glob pattern for {:?}", path), cause)
-                })?;
-                let out = glob_matches
-                    .map(|glob_match| {
-                        Ok(PartialSourceFile::File(
-                            glob_match
+        match self {
+            PartialSourceFile::File(ref path)
+            | PartialSourceFile::SvFile(ref path)
+            | PartialSourceFile::VerilogFile(ref path)
+            | PartialSourceFile::VhdlFile(ref path) => {
+                // Check if glob patterns used
+                if path.contains("*") || path.contains("?") {
+                    let glob_matches = glob(path).map_err(|cause| {
+                        Error::chain(format!("Invalid glob pattern for {:?}", path), cause)
+                    })?;
+                    let out = glob_matches
+                        .map(|glob_match| {
+                            let file_str = glob_match
                                 .map_err(|cause| {
                                     Error::chain(format!("Glob match failed for {:?}", path), cause)
                                 })?
                                 .to_str()
                                 .unwrap()
-                                .to_string(),
-                        ))
-                    })
-                    .collect::<Result<Vec<PartialSourceFile>>>()?;
-                if out.is_empty() && !suppress_warnings.contains("W05") {
-                    warnln!("[W05] No files found for glob pattern {:?}", path);
+                                .to_string();
+                            Ok(match self {
+                                PartialSourceFile::File(_) => PartialSourceFile::File(file_str),
+                                PartialSourceFile::SvFile(_) => PartialSourceFile::SvFile(file_str),
+                                PartialSourceFile::VerilogFile(_) => {
+                                    PartialSourceFile::VerilogFile(file_str)
+                                }
+                                PartialSourceFile::VhdlFile(_) => {
+                                    PartialSourceFile::VhdlFile(file_str)
+                                }
+                                _ => unreachable!(),
+                            })
+                        })
+                        .collect::<Result<Vec<PartialSourceFile>>>()?;
+                    if out.is_empty() && !suppress_warnings.contains("W05") {
+                        warnln!("[W05] No files found for glob pattern {:?}", path);
+                    }
+                    Ok(out)
+                } else {
+                    // Return self if not a glob pattern
+                    Ok(vec![self])
                 }
-                Ok(out)
-            } else {
+            }
+            _ => {
                 // Return self if not a glob pattern
                 Ok(vec![self])
             }
-        } else {
-            // Return self if not a glob pattern
-            Ok(vec![self])
         }
     }
 }

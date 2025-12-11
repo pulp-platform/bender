@@ -17,7 +17,7 @@ use tokio::runtime::Runtime;
 use crate::config::Validate;
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
-use crate::src::{SourceFile, SourceGroup};
+use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::{TargetSet, TargetSpec};
 
 /// Assemble the `script` subcommand.
@@ -472,12 +472,6 @@ where
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum SourceType {
-    Verilog,
-    Vhdl,
-}
-
 fn relativize_path(path: &std::path::Path, root: &std::path::Path) -> String {
     if path.starts_with(root) {
         format!(
@@ -572,7 +566,7 @@ fn emit_template(
         all_files
             .into_iter()
             .filter_map(|file| match file {
-                SourceFile::File(p) => Some(p.to_path_buf()),
+                SourceFile::File(p, _) => Some(p.to_path_buf()),
                 _ => None,
             })
             .collect()
@@ -586,10 +580,14 @@ fn emit_template(
         separate_files_in_group(
             src,
             |f| match f {
-                SourceFile::File(p) => match p.extension().and_then(std::ffi::OsStr::to_str) {
-                    Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
-                    Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
-                    _ => None,
+                SourceFile::File(p, fmt) => match fmt {
+                    Some(SourceType::Verilog) => Some(SourceType::Verilog),
+                    Some(SourceType::Vhdl) => Some(SourceType::Vhdl),
+                    _ => match p.extension().and_then(std::ffi::OsStr::to_str) {
+                        Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
+                        Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
+                        _ => None,
+                    },
                 },
                 _ => None,
             },
@@ -619,7 +617,7 @@ fn emit_template(
                     files: files
                         .iter()
                         .map(|f| match f {
-                            SourceFile::File(p) => p.to_path_buf(),
+                            SourceFile::File(p, _) => p.to_path_buf(),
                             SourceFile::Group(_) => unreachable!(),
                         })
                         .collect(),

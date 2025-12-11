@@ -293,7 +293,7 @@ impl<'ctx> SourceGroup<'ctx> {
         };
         for file in subfiles {
             match file {
-                SourceFile::File(_) => {
+                SourceFile::File(_, _) => {
                     files.push(file);
                 }
                 SourceFile::Group(grp) => {
@@ -335,7 +335,7 @@ impl<'ctx> SourceGroup<'ctx> {
         let mut targets = self.target.get_avail();
         for file in &self.files {
             match file {
-                SourceFile::File(_) => {}
+                SourceFile::File(..) => {}
                 SourceFile::Group(group) => {
                     targets.extend(group.get_avail_targets());
                 }
@@ -345,13 +345,24 @@ impl<'ctx> SourceGroup<'ctx> {
     }
 }
 
+/// File types for a source file.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum SourceType {
+    /// A Verilog file.
+    Verilog,
+    // /// A SystemVerilog file.
+    // SystemVerilog,
+    /// A VHDL file.
+    Vhdl,
+}
+
 /// A source file.
 ///
 /// This can either be an individual file, or a subgroup of files.
 #[derive(Clone)]
 pub enum SourceFile<'ctx> {
     /// A file.
-    File(&'ctx Path),
+    File(&'ctx Path, &'ctx Option<SourceType>),
     /// A group of files.
     Group(Box<SourceGroup<'ctx>>),
 }
@@ -359,7 +370,14 @@ pub enum SourceFile<'ctx> {
 impl<'ctx> fmt::Debug for SourceFile<'ctx> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SourceFile::File(path) => fmt::Debug::fmt(path, f),
+            SourceFile::File(path, ty) => {
+                fmt::Debug::fmt(path, f)?;
+                if let Some(t) = ty {
+                    write!(f, " as {:?}", t)
+                } else {
+                    write!(f, " as <unknown>")
+                }
+            }
             SourceFile::Group(ref srcs) => fmt::Debug::fmt(srcs, f),
         }
     }
@@ -373,7 +391,7 @@ impl<'ctx> From<SourceGroup<'ctx>> for SourceFile<'ctx> {
 
 impl<'ctx> From<&'ctx Path> for SourceFile<'ctx> {
     fn from(path: &'ctx Path) -> SourceFile<'ctx> {
-        SourceFile::File(path)
+        SourceFile::File(path, &None)
     }
 }
 
@@ -387,7 +405,7 @@ impl<'ctx> Validate for SourceFile<'ctx> {
         suppress_warnings: &IndexSet<String>,
     ) -> Result<SourceFile<'ctx>, Error> {
         match self {
-            SourceFile::File(path) => {
+            SourceFile::File(path, ty) => {
                 let env_path_buf =
                     crate::config::env_path_from_string(path.to_string_lossy().to_string())?;
                 let exists = env_path_buf.exists() && env_path_buf.is_file();
@@ -398,7 +416,7 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                             env_path_buf.to_string_lossy()
                         );
                     }
-                    Ok(SourceFile::File(path))
+                    Ok(SourceFile::File(path, ty))
                 } else {
                     Err(Error::new(format!(
                         "[E31] File {} doesn't exist",
@@ -422,7 +440,7 @@ impl<'ctx> Serialize for SourceFile<'ctx> {
         S: Serializer,
     {
         match *self {
-            SourceFile::File(path) => path.serialize(serializer),
+            SourceFile::File(path, _) => path.serialize(serializer),
             SourceFile::Group(ref group) => group.serialize(serializer),
         }
     }
