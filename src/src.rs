@@ -369,6 +369,8 @@ pub enum SourceType {
     // SystemVerilog,
     /// A VHDL file.
     Vhdl,
+    /// Unknown file type
+    Unknown,
 }
 
 /// A source file.
