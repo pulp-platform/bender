@@ -618,6 +618,11 @@ fn emit_template(
             },
             |src, ty, files| {
                 split_srcs.push(TplSrcStruct {
+                    metadata: {
+                        let package = src.package.unwrap_or("None");
+                        let target = src.target.reduce().to_string();
+                        format!("Package({package}) Target({target})")
+                    },
                     defines: {
                         let mut local_defines = IndexMap::new();
                         local_defines.extend(
@@ -749,6 +754,7 @@ struct PackageFiles {
 
 #[derive(Debug, Serialize)]
 struct TplSrcStruct {
+    metadata: String,
     defines: IndexSet<(String, Option<String>)>,
     incdirs: IndexSet<PathBuf>,
     files: IndexSet<PathBuf>,

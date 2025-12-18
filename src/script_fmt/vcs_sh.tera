@@ -4,7 +4,8 @@
 set -e
 {% endif %}
 ROOT="{{ root }}"
-{% if compilation_mode == 'separate' %}{% for group in srcs %}
+{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if source_annotations %}
+# {{ group.metadata }}{% endif %}
 {% if group.file_type == 'verilog' %}{{ vlogan_bin }} -sverilog \
     -full64 \
     {% for tmp_arg in vlog_args %}{{ tmp_arg }} \

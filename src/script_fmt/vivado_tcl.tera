@@ -1,7 +1,9 @@
 # {{ HEADER_AUTOGEN }}
 set ROOT "{{ root }}"
 {% if compilation_mode == 'separate' %}{#                                                               Individual block for each source file group
-#}{% for group in srcs %}add_files -norecurse -fileset [current_fileset] [list \{#                      Add files command #}
+#}{% for group in srcs %}
+{% if source_annotations %}# {{ group.metadata }}{#                                                     Add metadata #}
+{% endif %}add_files -norecurse -fileset [current_fileset] [list \{#                                    Add files command #}
     {% for file in group.files %}{{ file | replace(from=root, to='$ROOT') }} \{#                        Add group's files #}
 {% if not loop.last %}    {% endif %}{% endfor %}]
 {% endfor %}{% else %}{# compilation_mode == 'common' #}{#                                              Common block for all files
