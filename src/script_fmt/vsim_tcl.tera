@@ -2,7 +2,8 @@
 set ROOT "{{ root }}"
 {% if compilation_mode == 'separate' %}{#                                                                       Individual block for each source file group
 #}{% for group in srcs %}
-{% if abort_on_error %}if {[catch { {% endif %}{#                                                               Catch errors immediately
+{% if source_annotations %}# {{ group.metadata }}{#                                                             Add metadata #}
+{% endif %}{% if abort_on_error %}if {[catch { {% endif %}{#                                                    Catch errors immediately
 #}{% if group.file_type == 'verilog' %}vlog -incr -sv \{#                                                       Compile verilog (& systemverilog) files with vlog -sv #}
     {% for tmp_arg in vlog_args %}{{ tmp_arg }} \
     {% endfor %}{#                                                                                              Add all vlog arguments

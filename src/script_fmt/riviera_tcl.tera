@@ -1,7 +1,8 @@
 # {{ HEADER_AUTOGEN }}
 set ROOT "{{ root }}"
 vlib work
-{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if abort_on_error %}if {[catch { {% endif %}{% if group.file_type == 'verilog' %}vlog -sv \
+{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if source_annotations %}# {{ group.metadata }}
+{% endif %}{% if abort_on_error %}if {[catch { {% endif %}{% if group.file_type == 'verilog' %}vlog -sv \
     {% for tmp_arg in vlog_args %}{{ tmp_arg }} \
     {% endfor %}{% for define in group.defines %}"+define+{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}" \
     {% endfor %}{% for incdir in group.incdirs %}"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}" \
