@@ -1,4 +1,4 @@
-{% for file_group in all_file_groups %}{#                               loop over all files
+{% for file_group in srcs %}{#                                          loop over all file groups
 #}{% if source_annotations %}{#                                         Add source annotations
 #}// {{ file_group.metadata }}
 {% endif %}{#
