@@ -390,6 +390,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                                         pre: parsed_version.pre,
                                     }],
                                 },
+                                version_prefix: None, // TODO
                                 pass_targets: Vec::new(),
                             }
                         } else {
@@ -443,6 +444,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                         target: TargetSpec::Wildcard,
                         url: u,
                         version: v.clone(),
+                        version_prefix: None,
                         pass_targets: Vec::new(),
                     },
                     DependencyConstraint::Revision(r) => config::Dependency::GitRevision {

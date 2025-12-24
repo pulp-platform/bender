@@ -143,6 +143,8 @@ pub enum Dependency {
         url: String,
         /// The version requirement of the package.
         version: semver::VersionReq,
+        /// Prefix for the version
+        version_prefix: Option<String>,
         /// Targets to pass to the dependency
         pass_targets: Vec<PassedTarget>,
     },
@@ -214,12 +216,16 @@ impl Serialize for Dependency {
                 ref target,
                 ref url,
                 ref version,
+                ref version_prefix,
                 ref pass_targets,
             } => {
-                let mut map = serializer.serialize_map(Some(4))?;
+                let mut map = serializer.serialize_map(Some(4 + version_prefix.iter().count()))?;
                 map.serialize_entry("target", target)?;
                 map.serialize_entry("git", url)?;
                 map.serialize_entry("version", &format!("{}", version))?;
+                if let Some(prefix) = version_prefix {
+                    map.serialize_entry("version_prefix", prefix)?;
+                }
                 map.serialize_entry("pass_targets", pass_targets)?;
                 map.end()
             }
@@ -676,6 +682,8 @@ pub struct PartialDependency {
     remote: Option<String>,
     /// The upstream name of the remote to use for this dependency
     upstream_name: Option<String>,
+    /// The version prefix to use when specifying the version. This will modify the specified version string to require a `<PREFIX>-v*` version. This is optional and can only be used when using git version dependencies.
+    version_prefix: Option<String>,
     /// Targets to pass to the dependency
     pass_targets: Option<Vec<StringOrStruct<PartialPassedTarget>>>,
     /// Unknown extra fields
@@ -755,6 +763,7 @@ impl Validate for PartialDependency {
                         target,
                         url: default_remote.url.replace("{}", git_name),
                         version,
+                        version_prefix: self.version_prefix,
                         pass_targets,
                     })
                 } else {
@@ -774,6 +783,7 @@ impl Validate for PartialDependency {
                         target,
                         url: remote.url.replace("{}", git_name),
                         version,
+                        version_prefix: self.version_prefix,
                         pass_targets,
                     })
                 } else {
@@ -791,6 +801,7 @@ impl Validate for PartialDependency {
                 target,
                 url: git,
                 version,
+                version_prefix: self.version_prefix,
                 pass_targets,
             }),
             // Git dependencies with revisions, e.g.:
@@ -2109,4 +2120,13 @@ impl<'de> Deserialize<'de> for PrefixedVersion {
 
         deserializer.deserialize_str(Visitor)
     }
+}
+
+/// A semver version requirement with a prefix.
+#[derive(Debug)]
+pub struct PrefixedVersionReq {
+    /// The prefix.
+    pub prefix: Option<String>,
+    /// The version requirement.
+    pub version_req: semver::VersionReq,
 }
