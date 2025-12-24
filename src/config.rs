@@ -2044,3 +2044,69 @@ fn env_string_from_string(path_str: &str) -> Result<String> {
 pub(crate) fn env_path_from_string(path_str: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(env_string_from_string(path_str)?))
 }
+
+/// A semver version with a prefix.
+#[derive(Debug)]
+pub struct PrefixedVersion {
+    /// The prefix.
+    pub prefix: Option<String>,
+    /// The version.
+    pub version: semver::Version,
+}
+
+impl Serialize for PrefixedVersion {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match &self.prefix {
+            Some(prefix) => {
+                let s = format!("{}-v{}", prefix, self.version);
+                serializer.serialize_str(&s)
+            }
+            None => self.version.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for PrefixedVersion {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<PrefixedVersion, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de;
+        use std::result::Result;
+        struct Visitor;
+
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = PrefixedVersion;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a version string with optional prefix")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<PrefixedVersion, E>
+            where
+                E: de::Error,
+            {
+                if let Some(idx) = value.rfind("-v") {
+                    let prefix = &value[..idx];
+                    let version_str = &value[idx + 2..];
+                    let version = semver::Version::parse(version_str).map_err(E::custom)?;
+                    Ok(PrefixedVersion {
+                        prefix: Some(prefix.to_string()),
+                        version,
+                    })
+                } else {
+                    let version = semver::Version::parse(value).map_err(E::custom)?;
+                    Ok(PrefixedVersion {
+                        prefix: None,
+                        version,
+                    })
+                }
+            }
+        }
+
+        deserializer.deserialize_str(Visitor)
+    }
+}
