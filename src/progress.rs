@@ -244,14 +244,7 @@ pub async fn monitor_stderr(
     let mut collected_stderr = String::new();
 
     // Add a new progress bar and state if we have a handler
-    let mut state = match &handler {
-        Some(h) => h.start(),
-        None => ProgressState {
-            pb: ProgressBar::hidden(),
-            sub_pb: None,
-            main_done: false,
-        },
-    };
+    let mut state = handler.as_ref().map(|h| h.start());
 
     loop {
         match reader.read_u8().await {
@@ -266,7 +259,7 @@ pub async fn monitor_stderr(
                         if let Ok(line) = std::str::from_utf8(&buffer) {
                             // Update UI if we have a handler
                             if let Some(h) = &handler {
-                                h.handle_line(line, &mut state);
+                                h.handle_line(line, &mut state.as_mut().unwrap());
                             }
                         }
                         buffer.clear();
@@ -279,10 +272,7 @@ pub async fn monitor_stderr(
         }
     }
 
-    // Cleanup any lingering sub-bars from this command
-    if let Some(sub) = state.sub_pb.take() {
-        sub.finish_and_clear();
-    }
+    handler.map(|h| h.finish(&mut state.unwrap()));
 
     collected_stderr
 }
