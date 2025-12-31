@@ -197,7 +197,7 @@ impl ProgressHandler {
 
                     let sub_name = path.split('/').last().unwrap_or(&path);
                     let sub_prefix =
-                        format!("  {} {}", style("└─ Sub").dim(), style(sub_name).dim());
+                        format!("  {} {}", style("└─ ").dim(), style(sub_name).dim());
                     sub_pb.set_prefix(sub_prefix);
                     state.sub_pb = Some(sub_pb);
                 }
