@@ -237,18 +237,12 @@ impl<'ctx> Git<'ctx> {
         self.clone()
             .spawn_with(
                 |c| c.arg("fetch").arg("--prune").arg(r1).arg("--progress"),
-                pb.clone(),
+                pb,
             )
             .and_then(|_| {
                 self.spawn_with(
-                    |c| {
-                        c.arg("fetch")
-                            .arg("--tags")
-                            .arg("--prune")
-                            .arg(r2)
-                            .arg("--progress")
-                    },
-                    pb,
+                    |c| c.arg("fetch").arg("--tags").arg("--prune").arg(r2),
+                    None,
                 )
             })
             .await

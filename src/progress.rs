@@ -125,7 +125,6 @@ pub struct ProgressState {
 }
 
 /// This struct captures (static) information neeed to handle progress updates for a git operation.
-#[derive(Clone)]
 pub struct ProgressHandler {
     /// Reference to the multi-progress bar, which can manage multiple progress bars.
     mpb: MultiProgress,
@@ -182,7 +181,7 @@ impl ProgressHandler {
         }
     }
 
-    pub fn handle_line(&self, line: &str, state: &mut ProgressState) {
+    pub fn update_pb(&self, line: &str, state: &mut ProgressState) {
         let progress = parse_git_line(line);
         let target_pb = state.sub_pb.as_ref().unwrap_or(&state.pb);
 
@@ -207,19 +206,16 @@ impl ProgressHandler {
                     sub.finish_and_clear();
                 }
             }
-            GitProgress::Receiving { current, total, .. } => {
+            GitProgress::Receiving { current, .. } => {
                 target_pb.set_message(style("Receiving objects").dim().to_string());
-                target_pb.set_length(total as u64);
                 target_pb.set_position(current as u64);
             }
             GitProgress::Resolving { percent, .. } => {
                 target_pb.set_message(style("Resolving deltas").dim().to_string());
-                target_pb.set_length(100);
                 target_pb.set_position(percent as u64);
             }
             GitProgress::Checkout { percent, .. } => {
                 target_pb.set_message(style("Checking out").dim().to_string());
-                target_pb.set_length(100);
                 target_pb.set_position(percent as u64);
             }
             _ => {}
@@ -258,7 +254,7 @@ pub async fn monitor_stderr(
                         if let Ok(line) = std::str::from_utf8(&buffer) {
                             // Update UI if we have a handler
                             if let Some(h) = &handler {
-                                h.handle_line(line, &mut state.as_mut().unwrap());
+                                h.update_pb(line, &mut state.as_mut().unwrap());
                             }
                         }
                         buffer.clear();
