@@ -20,6 +20,7 @@ use crate::config::PrefixPaths;
 use crate::error::*;
 use crate::futures::TryFutureExt;
 use crate::git::Git;
+use crate::progress::{GitProgressOps, ProgressHandler};
 use crate::sess::{DependencySource, Session};
 
 /// A patch linkage
@@ -97,8 +98,13 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             DependencySource::Git(ref url) => {
                 let git = Git::new(tmp_path, &sess.config.git, sess.git_throttle.clone());
                 rt.block_on(async {
-                    stageln!("Cloning", "{} ({})", vendor_package.name, url);
-                    git.clone().spawn_with(|c| c.arg("clone").arg(url).arg("."))
+                    // stageln!("Cloning", "{} ({})", vendor_package.name, url);
+                    let pb = ProgressHandler::new(
+                        sess.progress.clone(),
+                        GitProgressOps::Clone,
+                        vendor_package.name.as_str(),
+                    );
+                    git.clone().spawn_with(|c| c.arg("clone").arg(url).arg("."), Some(pb))
                     .map_err(move |cause| {
                         if url.contains("git@") {
                             warnln!("[W07] Please ensure your public ssh key is added to the git server.");
@@ -113,8 +119,13 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                         config::Dependency::GitRevision(_, ref rev) => Ok(rev),
                         _ => Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout")),
                     }?;
-                    git.clone().spawn_with(|c| c.arg("checkout").arg(rev_hash)).await?;
-                    if *rev_hash != git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{}^{{commit}}", rev_hash))).await?.trim_end_matches('\n') {
+                    let pb = ProgressHandler::new(
+                        sess.progress.clone(),
+                        GitProgressOps::Checkout,
+                        vendor_package.name.as_str(),
+                    );
+                    git.clone().spawn_with(|c| c.arg("checkout").arg(rev_hash), Some(pb)).await?;
+                    if *rev_hash != git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{}^{{commit}}", rev_hash)), None).await?.trim_end_matches('\n') {
                         Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout"))
                     } else {
                         Ok(())
@@ -410,34 +421,37 @@ pub fn apply_patches(
                     Ok(())
                 })
                 .and_then(|_| {
-                    git.clone().spawn_with(|c| {
-                        let is_file = patch_link
-                            .from_prefix
-                            .clone()
-                            .prefix_paths(git.path)
-                            .unwrap()
-                            .is_file();
+                    git.clone().spawn_with(
+                        |c| {
+                            let is_file = patch_link
+                                .from_prefix
+                                .clone()
+                                .prefix_paths(git.path)
+                                .unwrap()
+                                .is_file();
 
-                        let current_patch_target = if is_file {
-                            patch_link.from_prefix.parent().unwrap().to_str().unwrap()
-                        } else {
-                            patch_link.from_prefix.as_path().to_str().unwrap()
-                        };
+                            let current_patch_target = if is_file {
+                                patch_link.from_prefix.parent().unwrap().to_str().unwrap()
+                            } else {
+                                patch_link.from_prefix.as_path().to_str().unwrap()
+                            };
 
-                        c.arg("apply")
-                            .arg("--directory")
-                            .arg(current_patch_target)
-                            .arg("-p1")
-                            .arg(&patch);
+                            c.arg("apply")
+                                .arg("--directory")
+                                .arg(current_patch_target)
+                                .arg("-p1")
+                                .arg(&patch);
 
-                        // limit to specific file for file links
-                        if is_file {
-                            let file_path = patch_link.from_prefix.to_str().unwrap();
-                            c.arg("--include").arg(file_path);
-                        }
+                            // limit to specific file for file links
+                            if is_file {
+                                let file_path = patch_link.from_prefix.to_str().unwrap();
+                                c.arg("--include").arg(file_path);
+                            }
 
-                        c
-                    })
+                            c
+                        },
+                        None,
+                    )
                 })
                 .await
                 .map_err(move |cause| {
@@ -507,15 +521,18 @@ pub fn diff(
     };
     // Get diff
     rt.block_on(async {
-        git.spawn_with(|c| {
-            c.arg("diff").arg(format!(
-                "--relative={}",
-                patch_link
-                    .from_prefix
-                    .to_str()
-                    .expect("Failed to convert from_prefix to string.")
-            ))
-        })
+        git.spawn_with(
+            |c| {
+                c.arg("diff").arg(format!(
+                    "--relative={}",
+                    patch_link
+                        .from_prefix
+                        .to_str()
+                        .expect("Failed to convert from_prefix to string.")
+                ))
+            },
+            None,
+        )
         .await
     })
 }
@@ -650,7 +667,7 @@ pub fn gen_format_patch(
 
     // Get staged changes in dependency
     let get_diff_cached = rt
-        .block_on(async { git_parent.spawn_with(|c| c.args(&diff_args)).await })
+        .block_on(async { git_parent.spawn_with(|c| c.args(&diff_args), None).await })
         .map_err(|cause| Error::chain("Failed to generate diff", cause))?;
 
     if !get_diff_cached.is_empty() {
@@ -668,8 +685,8 @@ pub fn gen_format_patch(
                     .arg(&from_path_relative)
                     .arg("-p1")
                     .arg(&diff_cached_path)
-            })
-            .and_then(|_| git.clone().spawn_with(|c| c.arg("add").arg("--all")))
+            }, None)
+            .and_then(|_| git.clone().spawn_with(|c| c.arg("add").arg("--all"), None))
             .await
         }).map_err(|cause| Error::chain("Could not apply staged changes on top of patched upstream repository. Did you commit all previously patched modifications?", cause))?;
 
@@ -718,18 +735,21 @@ pub fn gen_format_patch(
 
         // Generate format-patch
         rt.block_on(async {
-            git.spawn_with(|c| {
-                c.arg("format-patch")
-                    .arg("-o")
-                    .arg(patch_dir.to_str().unwrap())
-                    .arg("-1")
-                    .arg(format!("--start-number={}", max_number + 1))
-                    .arg(format!(
-                        "--relative={}",
-                        from_path_relative.to_str().unwrap()
-                    ))
-                    .arg("HEAD")
-            })
+            git.spawn_with(
+                |c| {
+                    c.arg("format-patch")
+                        .arg("-o")
+                        .arg(patch_dir.to_str().unwrap())
+                        .arg("-1")
+                        .arg(format!("--start-number={}", max_number + 1))
+                        .arg(format!(
+                            "--relative={}",
+                            from_path_relative.to_str().unwrap()
+                        ))
+                        .arg("HEAD")
+                },
+                None,
+            )
             .await
         })?;
     }
