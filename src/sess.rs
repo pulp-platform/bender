@@ -543,10 +543,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             &self.sess.config.git,
             self.sess.git_throttle.clone(),
         );
-        let name2 = String::from(name);
         let url = String::from(url);
         let url2 = url.clone();
-        let url3 = url.clone();
 
         // Either initialize the repository or update it if needed.
         if !db_dir.join("config").exists() {
@@ -579,7 +577,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 })
                 .await
                 .map_err(move |cause| {
-                    if url3.contains("git@") && !self.sess.suppress_warnings.contains("W07") {
+                    if url2.contains("git@") && !self.sess.suppress_warnings.contains("W07") {
                         warnln!("[W07] Please ensure your public ssh key is added to the git server.");
                     }
                     if !self.sess.suppress_warnings.contains("W07") {
@@ -616,7 +614,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 })
                 .await
                 .map_err(move |cause| {
-                    if url3.contains("git@") && !self.sess.suppress_warnings.contains("W07") {
+                    if url2.contains("git@") && !self.sess.suppress_warnings.contains("W07") {
                         warnln!("[W07] Please ensure your public ssh key is added to the git server.");
                     }
                     if !self.sess.suppress_warnings.contains("W07") {
