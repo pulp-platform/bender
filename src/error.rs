@@ -7,8 +7,33 @@ use std;
 use std::fmt;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::{Arc, RwLock};
+
+use indicatif::MultiProgress;
 
 pub static ENABLE_DEBUG: AtomicBool = AtomicBool::new(false);
+
+/// A global hook for the progress bar
+pub static GLOBAL_MULTI_PROGRESS: RwLock<Option<MultiProgress>> = RwLock::new(None);
+
+/// Helper function to print diagnostics safely without messing up progress bars.
+pub fn print_diagnostic(severity: Severity, msg: &str) {
+    let text = format!("{} {}", severity, msg);
+
+    // Try to acquire read access to the global progress bar
+    if let Ok(guard) = GLOBAL_MULTI_PROGRESS.read() {
+        if let Some(mp) = &*guard {
+            // SUSPEND: Hides progress bars, prints the message, then redraws bars.
+            mp.suspend(|| {
+                eprintln!("{}", text);
+            });
+            return;
+        }
+    }
+
+    // Fallback: Just print if no bar is registered or lock is poisoned
+    eprintln!("{}", text);
+}
 
 /// Print an error.
 #[macro_export]
@@ -45,7 +70,7 @@ macro_rules! debugln {
 /// Emit a diagnostic message.
 macro_rules! diagnostic {
     ($severity:expr; $($arg:tt)*) => {
-        eprintln!("{} {}", $severity, format!($($arg)*))
+        $crate::error::print_diagnostic($severity, &format!($($arg)*))
     }
 }
 
