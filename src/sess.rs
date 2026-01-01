@@ -556,9 +556,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             // Initialize.
             self.sess.stats.num_database_init.increment();
-            // TODO MICHAERO: May need throttle
-            // stageln!("Cloning", "{} ({})", name2, url2);
-            // TODO(fischeti): Is this actually the cloning stage?
             git.clone()
                 .spawn_with(|c| c.arg("init").arg("--bare"), None)
                 .await?;
@@ -571,10 +568,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 name,
             ));
             git.clone()
-                .fetch("origin", pb.clone())
+                .fetch("origin", pb)
                 .and_then(|_| async {
                     if let Some(reference) = fetch_ref {
-                        git.clone().fetch_ref("origin", reference, pb.clone()).await
+                        git.clone().fetch_ref("origin", reference, None).await
                     } else {
                         Ok(())
                     }
@@ -603,19 +600,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 return Ok(git);
             }
             self.sess.stats.num_database_fetch.increment();
-            // TODO MICHAERO: May need throttle
-            // stageln!("Fetching", "{} ({})", name2, url2);
-            // TODO(fischeti): Is this actually the fetching stage?
             let pb = Some(ProgressHandler::new(
                 self.sess.progress.clone(),
                 GitProgressOps::Fetch,
                 name,
             ));
             git.clone()
-                .fetch("origin", pb.clone())
+                .fetch("origin", pb)
                 .and_then(|_| async {
                     if let Some(reference) = fetch_ref {
-                        git.clone().fetch_ref("origin", reference, pb.clone()).await
+                        git.clone().fetch_ref("origin", reference, None).await
                     } else {
                         Ok(())
                     }
@@ -955,7 +949,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         // Perform the checkout if necessary.
         if clear != CheckoutState::Clean {
-            // stageln!("Checkout", "{} ({})", name, url);
 
             // First generate a tag to be cloned in the database. This is
             // necessary since `git clone` does not accept commits, but only
@@ -1021,6 +1014,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .arg(path)
                                 .arg("--branch")
                                 .arg(tag_name_2)
+                                .arg("--progress")
                         },
                         pb,
                     )

@@ -206,7 +206,7 @@ impl<'ctx> Git<'ctx> {
         self.clone()
             .spawn_with(
                 |c| c.arg("fetch").arg("--prune").arg(r1).arg("--progress"),
-                pb.clone(),
+                pb,
             )
             .and_then(|_| {
                 self.spawn_with(
