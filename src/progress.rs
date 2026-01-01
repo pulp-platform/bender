@@ -182,7 +182,7 @@ impl ProgressHandler {
         }
     }
 
-    pub fn handle_line(&self, line: &str, state: &mut ProgressState) {
+    pub fn update_pb(&self, line: &str, state: &mut ProgressState) {
         let progress = parse_git_line(line);
         let target_pb = state.sub_pb.as_ref().unwrap_or(&state.pb);
 
@@ -256,7 +256,7 @@ pub async fn monitor_stderr(
                         if let Ok(line) = std::str::from_utf8(&buffer) {
                             // Update UI if we have a handler
                             if let Some(h) = &handler {
-                                h.handle_line(line, &mut state.as_mut().unwrap());
+                                h.update_pb(line, &mut state.as_mut().unwrap());
                             }
                         }
                         buffer.clear();
