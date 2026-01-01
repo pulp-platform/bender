@@ -208,19 +208,16 @@ impl ProgressHandler {
                     sub.finish_and_clear();
                 }
             }
-            GitProgress::Receiving { current, total, .. } => {
+            GitProgress::Receiving { current, .. } => {
                 target_pb.set_message(style("Receiving objects").dim().to_string());
-                target_pb.set_length(total as u64);
                 target_pb.set_position(current as u64);
             }
             GitProgress::Resolving { percent, .. } => {
                 target_pb.set_message(style("Resolving deltas").dim().to_string());
-                target_pb.set_length(100);
                 target_pb.set_position(percent as u64);
             }
             GitProgress::Checkout { percent, .. } => {
                 target_pb.set_message(style("Checking out").dim().to_string());
-                target_pb.set_length(100);
                 target_pb.set_position(percent as u64);
             }
             _ => {}
