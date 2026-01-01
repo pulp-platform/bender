@@ -125,7 +125,6 @@ pub struct ProgressState {
 }
 
 /// This struct captures (static) information neeed to handle progress updates for a git operation.
-#[derive(Clone)]
 pub struct ProgressHandler {
     /// Reference to the multi-progress bar, which can manage multiple progress bars.
     mpb: MultiProgress,
