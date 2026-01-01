@@ -215,9 +215,8 @@ impl<'ctx> Git<'ctx> {
                             .arg("--tags")
                             .arg("--prune")
                             .arg(r2)
-                            .arg("--progress")
                     },
-                    pb,
+                    None,
                 )
             })
             .await
