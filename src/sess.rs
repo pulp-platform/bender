@@ -97,7 +97,6 @@ impl<'ctx> Session<'ctx> {
         force_fetch: bool,
         git_throttle: usize,
     ) -> Session<'ctx> {
-
         // Initialize the global multi-progress bar
         // to handle warning and error messages correctly.
         let mpb = MultiProgress::new();
