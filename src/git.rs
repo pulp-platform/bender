@@ -210,12 +210,7 @@ impl<'ctx> Git<'ctx> {
             )
             .and_then(|_| {
                 self.spawn_with(
-                    |c| {
-                        c.arg("fetch")
-                            .arg("--tags")
-                            .arg("--prune")
-                            .arg(r2)
-                    },
+                    |c| c.arg("fetch").arg("--tags").arg("--prune").arg(r2),
                     None,
                 )
             })
