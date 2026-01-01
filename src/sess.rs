@@ -98,7 +98,6 @@ impl<'ctx> Session<'ctx> {
         git_throttle: usize,
         suppress_warnings: IndexSet<String>,
     ) -> Session<'ctx> {
-
         // Initialize the global multi-progress bar
         // to handle warning and error messages correctly.
         let mpb = MultiProgress::new();
@@ -131,7 +130,7 @@ impl<'ctx> Session<'ctx> {
             git_throttle: Arc::new(Semaphore::new(git_throttle)),
             local_only,
             suppress_warnings,
-            progress:mpb,
+            progress: mpb,
         }
     }
 
