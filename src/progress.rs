@@ -300,7 +300,7 @@ pub async fn monitor_stderr(
 ) -> String {
     let mut reader = BufReader::new(stream);
     let mut buffer = Vec::new();
-    let mut collected_stderr = String::new();
+    let mut raw_log = Vec::new();
 
     // Add a new progress bar and state if we have a handler
     let mut state = handler.as_ref().map(|h| h.start());
@@ -308,10 +308,7 @@ pub async fn monitor_stderr(
     loop {
         match reader.read_u8().await {
             Ok(byte) => {
-                // Collect raw error output (simplified for brevity)
-                if byte.is_ascii() {
-                    collected_stderr.push(byte as char);
-                }
+                raw_log.push(byte);
 
                 if byte == b'\r' || byte == b'\n' {
                     if !buffer.is_empty() {
@@ -333,7 +330,7 @@ pub async fn monitor_stderr(
 
     handler.map(|h| h.finish(&mut state.unwrap()));
 
-    collected_stderr
+    String::from_utf8_lossy(&raw_log).to_string()
 }
 
 #[cfg(test)]
