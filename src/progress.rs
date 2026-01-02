@@ -244,6 +244,11 @@ impl ProgressHandler {
             GitProgressOps::Submodule => "Updated",
         };
 
+        let op_suffix_str = match self.git_op {
+            GitProgressOps::Submodule => " submodules",
+            _ => "",
+        };
+
         // Format the duration nicely based on its length
         let duration_str = match state.start_time.elapsed().as_millis() {
             ms if ms < 1000 => format!("in {}ms", ms),
@@ -251,9 +256,10 @@ impl ProgressHandler {
         };
         self.mpb
             .println(format!(
-                "  {} {} {}",
+                "  {} {}{} {}",
                 style(op_str).green().bold(),
                 style(&self.name).bold(),
+                style(op_suffix_str).dim(),
                 style(duration_str).dim()
             ))
             .unwrap();
