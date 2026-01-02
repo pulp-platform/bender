@@ -428,6 +428,12 @@ pub fn version_req_bottom_bound(req: &VersionReq) -> Result<Option<Version>> {
         Ok(Some(bottom_bound))
     } else {
         Ok(None)
+/// Format time duration with proper units.
+pub fn fmt_duration(duration: std::time::Duration) -> String {
+    match duration.as_millis() {
+        t if t < 1000 => format!("in {}ms", t),
+        t if t < 60_000 => format!("in {:.1}s", t as f64 / 1000.0),
+        t => format!("in {:.1}min", t as f64 / 60000.0),
     }
 }
 

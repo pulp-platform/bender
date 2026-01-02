@@ -1,6 +1,8 @@
 // Copyright (c) 2025 ETH Zurich
 // Tim Fischer <fischeti@iis.ee.ethz.ch>
 
+use crate::util::fmt_duration;
+
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -244,17 +246,12 @@ impl ProgressHandler {
             GitProgressOps::Submodule => "Updated Submodules",
         };
 
-        // Format the duration nicely based on its length
-        let duration_str = match state.start_time.elapsed().as_millis() {
-            ms if ms < 1000 => format!("in {}ms", ms),
-            ms => format!("in {:.1}s", ms as f64 / 1000.0),
-        };
         self.mpb
             .println(format!(
                 "  {} {} {}",
                 green_bold!(op_str),
                 bold!(&self.name),
-                dim!(duration_str)
+                dim!(fmt_duration(state.start_time.elapsed()))
             ))
             .unwrap();
     }
