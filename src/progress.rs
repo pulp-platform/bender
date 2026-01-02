@@ -341,12 +341,72 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parsing_logic() {
+    fn test_parsing_receiving() {
         // Copy your existing unit tests here
         let p = parse_git_line("Receiving objects: 34% (123/456)");
         match p {
             GitProgress::Receiving { percent, .. } => assert_eq!(percent, 34),
             _ => panic!("Failed to parse receiving"),
+        }
+    }
+    #[test]
+    fn test_parsing_receiving_done() {
+        // Copy your existing unit tests here
+        let p =
+            parse_git_line("Receiving objects: 100% (1955/1955), 1.51 MiB | 45.53 MiB/s, done.");
+        match p {
+            GitProgress::Receiving { percent, .. } => assert_eq!(percent, 100),
+            _ => panic!("Failed to parse receiving"),
+        }
+    }
+    #[test]
+    fn test_parsing_resolving() {
+        // Copy your existing unit tests here
+        let p = parse_git_line("Resolving deltas: 56% (789/1400)");
+        match p {
+            GitProgress::Resolving { percent, .. } => assert_eq!(percent, 56),
+            _ => panic!("Failed to parse receiving"),
+        }
+    }
+    #[test]
+    fn test_parsing_resolving_deltas_done() {
+        // Copy your existing unit tests here
+        let p = parse_git_line("Resolving deltas: 100% (1122/1122), done.");
+        match p {
+            GitProgress::Resolving { percent, .. } => assert_eq!(percent, 100),
+            _ => panic!("Failed to parse receiving"),
+        }
+    }
+    #[test]
+    fn test_parsing_cloning_into() {
+        let p = parse_git_line("Cloning into 'myrepo'...");
+        match p {
+            GitProgress::CloningInto { name } => assert_eq!(name, "myrepo"),
+            _ => panic!("Failed to parse cloning into"),
+        }
+    }
+    #[test]
+    fn test_parsing_submodule_registered() {
+        let p = parse_git_line("Submodule 'libs/mylib' ... registered for path 'libs/mylib'");
+        match p {
+            GitProgress::SubmoduleRegistered { name } => assert_eq!(name, "mylib"),
+            _ => panic!("Failed to parse submodule registered"),
+        }
+    }
+    #[test]
+    fn test_parsing_submodule_end() {
+        let p = parse_git_line("Submodule path 'libs/mylib': checked out 'abc1234'");
+        match p {
+            GitProgress::SubmoduleEnd { name } => assert_eq!(name, "mylib"),
+            _ => panic!("Failed to parse submodule end"),
+        }
+    }
+    #[test]
+    fn test_parsing_error() {
+        let p = parse_git_line("fatal: unable to access 'https://example.com/repo.git/': Could not resolve host: example.com");
+        match p {
+            GitProgress::Error(msg) => assert!(msg.contains("fatal: unable to access")),
+            _ => panic!("Failed to parse error"),
         }
     }
 }
