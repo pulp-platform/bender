@@ -214,3 +214,12 @@ pub fn try_modification_time<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
     };
     md.modified().ok()
 }
+
+/// Format time duration with proper units.
+pub fn fmt_duration(duration: std::time::Duration) -> String {
+    match duration.as_millis() {
+        t if t < 1000 => format!("in {}ms", t),
+        t if t < 60_000 => format!("in {:.1}s", t as f64 / 1000.0),
+        t => format!("in {:.1}min", t as f64 / 60000.0),
+    }
+}
