@@ -43,6 +43,7 @@ pub enum GitProgressOps {
     Checkout,
     Clone,
     Fetch,
+    Submodule,
 }
 
 static RE_GIT: OnceLock<Regex> = OnceLock::new();
@@ -166,6 +167,7 @@ impl ProgressHandler {
             GitProgressOps::Clone => "Cloning",
             GitProgressOps::Fetch => "Fetching",
             GitProgressOps::Checkout => "Checkout",
+            GitProgressOps::Submodule => "Update",
         };
         let prefix = format!(
             "{} {}",
@@ -239,6 +241,7 @@ impl ProgressHandler {
             GitProgressOps::Clone => "Cloned",
             GitProgressOps::Fetch => "Fetched",
             GitProgressOps::Checkout => "Checked out",
+            GitProgressOps::Submodule => "Updated",
         };
         let duration = state.start_time.elapsed();
         let duration_str = if duration.as_secs() > 0 {
