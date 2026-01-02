@@ -563,17 +563,19 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             // Initialize.
             self.sess.stats.num_database_init.increment();
+            // The progress bar object for cloning. We only use it for the
+            // last fetch operation, which is the only network operation here.
+            let pb = Some(ProgressHandler::new(
+                self.sess.progress.clone(),
+                GitProgressOps::Clone,
+                name,
+            ));
             git.clone()
                 .spawn_with(|c| c.arg("init").arg("--bare"), None)
                 .await?;
             git.clone()
                 .spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url), None)
                 .await?;
-            let pb = Some(ProgressHandler::new(
-                self.sess.progress.clone(),
-                GitProgressOps::Clone,
-                name,
-            ));
             git.clone()
                 .fetch("origin", pb)
                 .and_then(|_| async {
@@ -607,6 +609,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 return Ok(git);
             }
             self.sess.stats.num_database_fetch.increment();
+            // The progress bar object for fetching.
             let pb = Some(ProgressHandler::new(
                 self.sess.progress.clone(),
                 GitProgressOps::Fetch,
@@ -1009,7 +1012,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             if clear == CheckoutState::ToClone {
                 let pb = Some(ProgressHandler::new(
                     self.sess.progress.clone(),
-                    GitProgressOps::Clone,
+                    GitProgressOps::Checkout,
                     name,
                 ));
                 git.clone()
@@ -1026,11 +1029,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     )
                     .await?;
             } else if clear == CheckoutState::ToCheckout {
-                let pb = Some(ProgressHandler::new(
-                    self.sess.progress.clone(),
-                    GitProgressOps::Fetch,
-                    name,
-                ));
                 local_git
                     .clone()
                     .spawn_with(
@@ -1041,7 +1039,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .arg("--prune")
                                 .arg("--progress")
                         },
-                        pb,
+                        None,
                     )
                     .await?;
                 let pb = Some(ProgressHandler::new(
@@ -1062,24 +1060,26 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     )
                     .await?;
             }
-            let pb = Some(ProgressHandler::new(
-                self.sess.progress.clone(),
-                GitProgressOps::Clone,
-                name,
-            ));
-            local_git
-                .clone()
-                .spawn_with(
-                    move |c| {
-                        c.arg("submodule")
-                            .arg("update")
-                            .arg("--init")
-                            .arg("--recursive")
-                            .arg("--progress")
-                    },
-                    pb,
-                )
-                .await?;
+            if path.join(".gitmodules").exists() {
+                let pb = Some(ProgressHandler::new(
+                    self.sess.progress.clone(),
+                    GitProgressOps::Submodule,
+                    name,
+                ));
+                local_git
+                    .clone()
+                    .spawn_with(
+                        move |c| {
+                            c.arg("submodule")
+                                .arg("update")
+                                .arg("--init")
+                                .arg("--recursive")
+                                .arg("--progress")
+                        },
+                        pb,
+                    )
+                    .await?;
+            }
         }
         Ok(path)
     }
