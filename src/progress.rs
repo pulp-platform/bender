@@ -243,11 +243,11 @@ impl ProgressHandler {
             GitProgressOps::Checkout => "Checked out",
             GitProgressOps::Submodule => "Updated",
         };
-        let duration = state.start_time.elapsed();
-        let duration_str = if duration.as_secs() > 0 {
-            format!("in {}s", duration.as_secs())
-        } else {
-            format!("in {}ms", duration.as_millis())
+
+        // Format the duration nicely based on its length
+        let duration_str = match state.start_time.elapsed().as_millis() {
+            ms if ms < 1000 => format!("in {}ms", ms),
+            ms => format!("in {:.1}s", ms as f64 / 1000.0),
         };
         self.mpb
             .println(format!(
