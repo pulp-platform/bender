@@ -8,6 +8,7 @@ use tokio::runtime::Runtime;
 
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
+use crate::util::fmt_duration;
 
 /// Checkout all dependencies referenced in the Lock file
 #[derive(Args, Debug)]
@@ -26,7 +27,15 @@ pub fn run(sess: &Session, args: &CheckoutArgs) -> Result<()> {
 pub fn run_plain(sess: &Session, force: bool, update_list: &[String]) -> Result<()> {
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
-    let _srcs = rt.block_on(io.sources(force, update_list))?;
+    let start_time = std::time::Instant::now();
+    let _srcs = rt.block_on(io.sources(forcibly, update_list))?;
+    let num_dependencies = io.sess.names.lock().unwrap().len();
+    infoln!(
+        "{} {} dependencies {}",
+        dim!("Checked out"),
+        num_dependencies,
+        dim!(fmt_duration(start_time.elapsed()))
+    );
 
     Ok(())
 }

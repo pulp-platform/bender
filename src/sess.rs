@@ -66,7 +66,7 @@ pub struct Session<'ctx> {
     /// The internalized strings.
     strings: Mutex<IndexSet<&'ctx str>>,
     /// The package name table.
-    names: Mutex<IndexMap<String, DependencyRef>>,
+    pub names: Mutex<IndexMap<String, DependencyRef>>,
     /// The dependency graph.
     graph: Mutex<Arc<IndexMap<DependencyRef, IndexSet<DependencyRef>>>>,
     /// The topologically sorted list of packages.
