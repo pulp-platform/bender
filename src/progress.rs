@@ -13,9 +13,7 @@ use tokio::io::{AsyncReadExt, BufReader};
 
 static RE_GIT: OnceLock<Regex> = OnceLock::new();
 
-/// Parses a line of git output.
-/// (Put your `GitProgress` enum and `parse_git_line` function here)
-#[derive(Debug, PartialEq, Clone)]
+/// The result of parsing a git progress line.
 pub enum GitProgress {
     SubmoduleRegistered { name: String },
     CloningInto { name: String },
@@ -27,7 +25,7 @@ pub enum GitProgress {
     Other,
 }
 
-/// This struct captures (dynamic) state information for a git operation's progress.
+/// Captures (dynamic) state information for a git operation's progress.
 /// for instance, the actuall progress bars to update.
 pub struct ProgressState {
     /// The progress bar of the current package.
@@ -40,7 +38,7 @@ pub struct ProgressState {
     start_time: std::time::Instant,
 }
 
-/// This struct captures (static) information neeed to handle progress updates for a git operation.
+/// Captures (static) information neeed to handle progress updates for a git operation.
 pub struct ProgressHandler {
     /// Reference to the multi-progress bar, which can manage multiple progress bars.
     mpb: MultiProgress,
@@ -59,22 +57,30 @@ pub enum GitProgressOps {
     Submodule,
 }
 
+/// Monitor the stderr stream of a git process and update progress bars
+/// of a given handler accordingly.
 pub async fn monitor_stderr(
     stream: impl tokio::io::AsyncRead + Unpin,
     handler: Option<ProgressHandler>,
 ) -> String {
     let mut reader = BufReader::new(stream);
-    let mut buffer = Vec::new();
-    let mut raw_log = Vec::new();
+    let mut buffer = Vec::new(); // Buffer for accumulating bytes of a line
+    let mut raw_log = Vec::new(); // The full raw log output
 
     // Add a new progress bar and state if we have a handler
     let mut state = handler.as_ref().map(|h| h.start());
 
+    // We loop over the stream reading byte by byte
+    // and process lines as they are completed.
     loop {
         match reader.read_u8().await {
             Ok(byte) => {
                 raw_log.push(byte);
 
+                // Git output lines end with either \n or \r
+                // Every time we encounter one, we process the line.
+                // Note: \r is used for progress updates, meaning the line
+                // is overwritten in place.
                 if byte == b'\r' || byte == b'\n' {
                     if !buffer.is_empty() {
                         if let Ok(line) = std::str::from_utf8(&buffer) {
@@ -83,18 +89,22 @@ pub async fn monitor_stderr(
                                 h.update_pb(line, &mut state.as_mut().unwrap());
                             }
                         }
+                        // Clear the buffer for the next line
                         buffer.clear();
                     }
                 } else {
                     buffer.push(byte);
                 }
             }
+            // We break the loop on EOF or error
             Err(_) => break,
         }
     }
 
+    // Finalize the progress bar if we have a handler
     handler.map(|h| h.finish(&mut state.unwrap()));
 
+    // Return the full raw log as a string
     String::from_utf8_lossy(&raw_log).to_string()
 }
 
@@ -108,6 +118,8 @@ impl ProgressHandler {
         }
     }
 
+    /// Adds a new progress bar to the multi-progress and returns the initial state
+    /// that is needed to track progress updates.
     pub fn start(&self) -> ProgressState {
         // Create and configure the main progress bar
         let style = ProgressStyle::with_template(
@@ -117,8 +129,10 @@ impl ProgressHandler {
         .progress_chars("-- ")
         .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]);
 
+        // Create and attach the progress bar to the multi-progress bar.
         let pb = self.mpb.add(ProgressBar::new(100).with_style(style));
 
+        // Set the prefix based on the git operation
         let prefix = match self.git_op {
             GitProgressOps::Clone => "Cloning",
             GitProgressOps::Fetch => "Fetching",
@@ -127,6 +141,7 @@ impl ProgressHandler {
         };
         let prefix = format!("{} {}", green_bold!(prefix), bold!(&self.name));
         pb.set_prefix(prefix);
+
         // Configure the spinners to automatically tick every 100ms
         pb.enable_steady_tick(Duration::from_millis(100));
 
@@ -138,7 +153,9 @@ impl ProgressHandler {
         }
     }
 
+    /// Update the progress bar(s) based on a parsed git progress line.
     pub fn update_pb(&self, line: &str, state: &mut ProgressState) {
+        // Parse the line to determine the type of progress update
         let progress = parse_git_line(line);
 
         // Target the active submodule if one exists, otherwise the main bar
@@ -149,9 +166,11 @@ impl ProgressHandler {
         };
 
         match progress {
+            // This case is only relevant for submodule operations i.e. `git submodule update`
+            // It indicates that a new submodule has been registered, and we create a new progress bar for it.
             GitProgress::SubmoduleRegistered { name } => {
                 if self.git_op == GitProgressOps::Submodule {
-                    // The main simply becomes a spinner since the sub-bar will show progress
+                    // The main bar simply becomes a spinner since the sub-bar will show progress
                     // on the subsequent line.
                     state.pb.set_style(
                         ProgressStyle::with_template("{spinner:.green} {prefix:<32!}").unwrap(),
@@ -164,11 +183,11 @@ impl ProgressHandler {
                     .unwrap()
                     .progress_chars("-- ");
 
-                    // Tree Logic
-                    let ref_bar = match state.sub_bars.last() {
+                    // We can have multiple sub-bars, and we insert them after the last one.
+                    // In order to maintain proper tree-like structure, we need to update the previous last bar
+                    // to have a "T" connector (├─) instead of an "L"
+                    let prev_bar = match state.sub_bars.last() {
                         Some((last_name, last_pb)) => {
-                            // Update the previous last bar to have a "T" connector (├─)
-                            // because it is no longer the last one.
                             let prev_prefix = format!("{} {}", dim!("├─ "), dim!(last_name));
                             last_pb.set_prefix(prev_prefix);
                             last_pb // Insert the new one after this one
@@ -176,18 +195,23 @@ impl ProgressHandler {
                         None => &state.pb, // Insert the first one after the main bar
                     };
 
-                    // Create bar immediately
+                    // Create the new sub-bar and insert it in the multi-progress *after* the previous sub-bar
                     let sub_pb = self
                         .mpb
-                        .insert_after(ref_bar, ProgressBar::new(100).with_style(style));
+                        .insert_after(prev_bar, ProgressBar::new(100).with_style(style));
 
+                    // Set the prefix and initial message
                     let sub_prefix = format!("{} {}", dim!("└─ "), dim!(&name));
                     sub_pb.set_prefix(sub_prefix);
                     sub_pb.set_message(format!("{}", dim!("Waiting...")));
 
+                    // Store the sub-bar in the state for later updates
                     state.sub_bars.insert(name, sub_pb);
                 }
             }
+            // This indicates that we are starting to clone a submodule.
+            // Again, it is only relevant for submodule operations. For normal
+            // clones, we just update the main bar.
             GitProgress::CloningInto { name } => {
                 if self.git_op == GitProgressOps::Submodule {
                     // Logic to handle missing 'checked out' lines:
@@ -199,7 +223,7 @@ impl ProgressHandler {
                             }
                         }
                     }
-                    // Activate the new bar
+                    // Set the new bar to active
                     if let Some(bar) = state.sub_bars.get(&name) {
                         // Switch style to the active progress bar style
                         bar.set_message(format!("{}", dim!("Cloning...")));
@@ -207,26 +231,33 @@ impl ProgressHandler {
                     state.active_sub = Some(name);
                 }
             }
+            // Indicates that we have finished processing a submodule.
             GitProgress::SubmoduleEnd { name } => {
+                // We finish and clear the sub-bar
                 if let Some(bar) = state.sub_bars.get(&name) {
                     bar.finish_and_clear();
                 }
+                // If this was the active submodule, we clear the active state
                 if state.active_sub.as_ref() == Some(&name) {
                     state.active_sub = None;
                 }
             }
+            // Update the progress percentage for receiving objects
             GitProgress::Receiving { percent, .. } => {
                 target_pb.set_message(format!("{}", dim!("Receiving objects")));
                 target_pb.set_position(percent as u64);
             }
+            // Update the progress percentage for resolving deltas
             GitProgress::Resolving { percent, .. } => {
                 target_pb.set_message(format!("{}", dim!("Resolving deltas")));
                 target_pb.set_position(percent as u64);
             }
+            // Update the progress percentage for checking out files
             GitProgress::Checkout { percent, .. } => {
                 target_pb.set_message(format!("{}", dim!("Checking out")));
                 target_pb.set_position(percent as u64);
             }
+            // Handle errors by finishing and clearing the target bar, then logging the error
             GitProgress::Error(err_msg) => {
                 target_pb.finish_and_clear();
                 // TODO(fischeti): Consider enumerating error
@@ -241,6 +272,7 @@ impl ProgressHandler {
         }
     }
 
+    // Finalize the progress bars and print a completion message.
     pub fn finish(self, state: &mut ProgressState) {
         // Clear all sub bars that might be lingering
         for pb in state.sub_bars.values() {
@@ -256,6 +288,7 @@ impl ProgressHandler {
             GitProgressOps::Submodule => "Updated Submodules",
         };
 
+        // Print a completion message on top of active progress bars
         self.mpb
             .println(format!(
                 "  {} {} {}",
@@ -267,6 +300,7 @@ impl ProgressHandler {
     }
 }
 
+/// Parse a git progress line and return the corresponding `GitProgress` enum.
 pub fn parse_git_line(line: &str) -> GitProgress {
     let line = line.trim();
     let re = RE_GIT.get_or_init(|| {
