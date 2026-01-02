@@ -144,7 +144,7 @@ impl ProgressHandler {
     pub fn new(mpb: MultiProgress, git_op: GitProgressOps, name: &str) -> Self {
         // Set the style for progress bars
         let style = ProgressStyle::with_template(
-            "{spinner:.green} {prefix:<24!} {bar:40.cyan/blue} {percent:>3}% {msg}",
+            "{spinner:.green} {prefix:<32!} {bar:40.cyan/blue} {percent:>3}% {msg}",
         )
         .unwrap()
         .progress_chars("-- ")
@@ -167,7 +167,7 @@ impl ProgressHandler {
             GitProgressOps::Clone => "Cloning",
             GitProgressOps::Fetch => "Fetching",
             GitProgressOps::Checkout => "Checkout",
-            GitProgressOps::Submodule => "Update",
+            GitProgressOps::Submodule => "Update Submodules",
         };
         let prefix = format!(
             "{} {}",
@@ -241,12 +241,7 @@ impl ProgressHandler {
             GitProgressOps::Clone => "Cloned",
             GitProgressOps::Fetch => "Fetched",
             GitProgressOps::Checkout => "Checked out",
-            GitProgressOps::Submodule => "Updated",
-        };
-
-        let op_suffix_str = match self.git_op {
-            GitProgressOps::Submodule => " submodules",
-            _ => "",
+            GitProgressOps::Submodule => "Updated Submodules",
         };
 
         // Format the duration nicely based on its length
@@ -256,10 +251,9 @@ impl ProgressHandler {
         };
         self.mpb
             .println(format!(
-                "  {} {}{} {}",
+                "  {} {} {}",
                 style(op_str).green().bold(),
                 style(&self.name).bold(),
-                style(op_suffix_str).dim(),
                 style(duration_str).dim()
             ))
             .unwrap();
