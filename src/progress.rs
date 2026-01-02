@@ -35,6 +35,7 @@ pub enum GitProgress {
         current: usize,
         total: usize,
     },
+    Error(String),
     Other,
 }
 
@@ -57,8 +58,8 @@ pub fn parse_git_line(line: &str) -> GitProgress {
             (?:
                 Cloning\ into\ '(?P<clone_path>[^']+)'\.\.\. |
                 Submodule\ path\ '(?P<sub_end_path>[^']+)':\ checked\ out\ '.* |
-                (?P<phase>Receiving\ objects|Resolving\ deltas|Checking\ out\ files):\s+(?P<percent>\d+)%
-                (?: \s+ \( (?P<current>\d+) / (?P<total>\d+) \) )?
+                (?P<phase>Receiving\ objects|Resolving\ deltas|Checking\ out\ files):\s+(?P<percent>\d+)% |
+                (?P<error>fatal:.*|error:.*|remote:\ aborting.*)  # <--- Capture errors
             )
         ").expect("Invalid Regex")
     });
@@ -108,6 +109,9 @@ pub fn parse_git_line(line: &str) -> GitProgress {
                 },
                 _ => GitProgress::Other,
             };
+        }
+        if let Some(err) = caps.name("error") {
+            return GitProgress::Error(err.as_str().to_string());
         }
     }
     // Otherwise, we don't care
@@ -227,6 +231,16 @@ impl ProgressHandler {
             GitProgress::Checkout { percent, .. } => {
                 target_pb.set_message(dim!("Checking out").to_string());
                 target_pb.set_position(percent as u64);
+            }
+            GitProgress::Error(err_msg) => {
+                target_pb.finish_and_clear();
+                // TODO(fischeti): Consider enumerating error
+                errorln!(
+                    "{} {}: {}",
+                    "Error during git operation of",
+                    bold!(&self.name),
+                    err_msg
+                );
             }
             _ => {}
         }
