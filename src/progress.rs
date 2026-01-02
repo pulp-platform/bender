@@ -43,6 +43,7 @@ pub enum GitProgressOps {
     Checkout,
     Clone,
     Fetch,
+    Submodule,
 }
 
 static RE_GIT: OnceLock<Regex> = OnceLock::new();
@@ -119,17 +120,14 @@ pub struct ProgressState {
     pb: ProgressBar,
     /// The progress bar for submodules, if any.
     sub_pb: Option<ProgressBar>,
-    /// Whether the main progress bar is done.
-    /// This is used to determine when to start submodule progress bars.
-    main_done: bool,
+    /// The start time of the operation.
+    start_time: std::time::Instant,
 }
 
 /// This struct captures (static) information neeed to handle progress updates for a git operation.
 pub struct ProgressHandler {
     /// Reference to the multi-progress bar, which can manage multiple progress bars.
     mpb: MultiProgress,
-    /// The style used for progress bars.
-    style: ProgressStyle,
     /// The type of git operation being performed.
     git_op: GitProgressOps,
     /// The name of the repository being processed.
@@ -139,36 +137,34 @@ pub struct ProgressHandler {
 impl ProgressHandler {
     /// Create a new progress handler for a git operation.
     pub fn new(mpb: MultiProgress, git_op: GitProgressOps, name: &str) -> Self {
-        // Set the style for progress bars
-        let style = ProgressStyle::with_template(
-            "{spinner:.green} {prefix:<24!} {bar:40.cyan/blue} {percent:>3}% {msg}",
+        Self {
+            mpb,
+            git_op,
+            name: name.to_string(),
+        }
+    }
+
+    pub fn start(&self) -> ProgressState {
+        // Create and configure the main progress bar
+        let pb_style = ProgressStyle::with_template(
+            "{spinner:.green} {prefix:<32!} {bar:40.cyan/blue} {percent:>3}% {msg}",
         )
         .unwrap()
         .progress_chars("-- ")
         .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]);
 
-        Self {
-            mpb,
-            git_op,
-            name: name.to_string(),
-            style,
-        }
-    }
-
-    pub fn start(&self) -> ProgressState {
-        // Add a new progress bar to the multi-progress (with a length of 100)
-        let pb = self.mpb.add(ProgressBar::new(100));
-        pb.set_style(self.style.clone());
+        let pb = self.mpb.add(ProgressBar::new(100).with_style(pb_style));
 
         let prefix = match self.git_op {
             GitProgressOps::Clone => "Cloning",
             GitProgressOps::Fetch => "Fetching",
             GitProgressOps::Checkout => "Checkout",
+            GitProgressOps::Submodule => "Update Submodules",
         };
         let prefix = format!(
             "{} {}",
             console::style(prefix).bold().green(),
-            console::style(&self.name).bright()
+            console::style(&self.name).bold()
         );
         pb.set_prefix(prefix);
         // Configure the spinners to automatically tick every 100ms
@@ -177,7 +173,7 @@ impl ProgressHandler {
         ProgressState {
             pb,
             sub_pb: None,
-            main_done: false,
+            start_time: std::time::Instant::now(),
         }
     }
 
@@ -187,19 +183,36 @@ impl ProgressHandler {
 
         match progress {
             GitProgress::CloningInto { path } => {
-                if state.main_done {
-                    state.pb.set_position(100);
-                    state.pb.set_message(style("Done.").dim().to_string());
+                // Only spawn a sub-bar if we are explicitly running the 'Submodule' op.
+                // For normal Clone/Checkout, 'Cloning into' is just the main repo header, which we ignore.
+                if self.git_op == GitProgressOps::Submodule {
+                    if let Some(sub) = state.sub_pb.take() {
+                        sub.finish_and_clear();
+                    }
+                    // The main simply becomes a spinner since the sub-bar will show progress
+                    // on the subsequent line.
+                    state.pb.set_style(
+                        ProgressStyle::with_template("{spinner:.green} {prefix:<32!}").unwrap(),
+                    );
 
-                    let sub_pb = self.mpb.insert_after(&state.pb, ProgressBar::new(100));
-                    sub_pb.set_style(self.style.clone());
+                    // The submodule style is similar to the main bar, but indented and without spinner
+                    let sub_pb_style = ProgressStyle::with_template(
+                        "    {prefix:<32!} {bar:40.cyan/blue} {percent:>3}% {msg}",
+                    )
+                    .unwrap()
+                    .progress_chars("-- ");
 
+                    // Create the submodule progress bar below the main one
+                    let sub_pb = self
+                        .mpb
+                        .insert_after(&state.pb, ProgressBar::new(100).with_style(sub_pb_style));
+
+                    // Set the submodule prefix to the submodule name
                     let sub_name = path.split('/').last().unwrap_or(&path);
-                    let sub_prefix = format!("  {} {}", style("└─ ").dim(), style(sub_name).dim());
+                    let sub_prefix = format!("{} {}", style("└─ ").dim(), style(sub_name).dim());
                     sub_pb.set_prefix(sub_prefix);
                     state.sub_pb = Some(sub_pb);
                 }
-                state.main_done = true;
             }
             GitProgress::SubmoduleEnd { .. } => {
                 if let Some(sub) = state.sub_pb.take() {
@@ -227,6 +240,28 @@ impl ProgressHandler {
             sub.finish_and_clear();
         }
         state.pb.finish_and_clear();
+
+        // Print a final message indicating completion
+        let op_str = match self.git_op {
+            GitProgressOps::Clone => "Cloned",
+            GitProgressOps::Fetch => "Fetched",
+            GitProgressOps::Checkout => "Checked out",
+            GitProgressOps::Submodule => "Updated Submodules",
+        };
+
+        // Format the duration nicely based on its length
+        let duration_str = match state.start_time.elapsed().as_millis() {
+            ms if ms < 1000 => format!("in {}ms", ms),
+            ms => format!("in {:.1}s", ms as f64 / 1000.0),
+        };
+        self.mpb
+            .println(format!(
+                "  {} {} {}",
+                style(op_str).green().bold(),
+                style(&self.name).bold(),
+                style(duration_str).dim()
+            ))
+            .unwrap();
     }
 }
 
