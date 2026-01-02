@@ -91,6 +91,30 @@ pub enum Severity {
     Error,
 }
 
+/// Style a message in green bold.
+#[macro_export]
+macro_rules! green_bold {
+    ($arg:expr) => {
+        console::style($arg).green().bold()
+    };
+}
+
+/// Style a message in dimmed text.
+#[macro_export]
+macro_rules! dim {
+    ($arg:expr) => {
+        console::style($arg).dim()
+    };
+}
+
+/// Style a message in bold text.
+#[macro_export]
+macro_rules! bold {
+    ($arg:expr) => {
+        console::style($arg).bold()
+    };
+}
+
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let styled_str = match *self {
