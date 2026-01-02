@@ -170,7 +170,7 @@ impl ProgressHandler {
         let prefix = format!(
             "{} {}",
             console::style(prefix).bold().green(),
-            console::style(&self.name).bright()
+            console::style(&self.name).bold()
         );
         pb.set_prefix(prefix);
         // Configure the spinners to automatically tick every 100ms
@@ -192,10 +192,13 @@ impl ProgressHandler {
             GitProgress::CloningInto { path } => {
                 if state.main_done {
                     state.pb.set_position(100);
-                    state.pb.set_message(style("Done.").dim().to_string());
+                    state
+                        .pb
+                        .finish_with_message(style("Submodules").dim().to_string());
 
                     let sub_pb = self.mpb.insert_after(&state.pb, ProgressBar::new(100));
-                    sub_pb.set_style(self.style.clone());
+                    // We don't want any spinner for submodules since the main one already has a spinner
+                    sub_pb.set_style(self.style.clone().tick_strings(&[" ", " "]));
 
                     let sub_name = path.split('/').last().unwrap_or(&path);
                     let sub_prefix = format!("  {} {}", style("└─ ").dim(), style(sub_name).dim());
@@ -247,7 +250,7 @@ impl ProgressHandler {
             .println(format!(
                 "  {} {} {}",
                 style(op_str).green().bold(),
-                style(&self.name).bright()
+                style(&self.name).bold(),
                 style(duration_str).dim()
             ))
             .unwrap();
