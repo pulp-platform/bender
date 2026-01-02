@@ -9,6 +9,7 @@ use std::fmt;
 use std::sync::atomic::{AtomicBool, ATOMIC_BOOL_INIT};
 use std::sync::{Arc, RwLock};
 
+use console::style;
 use indicatif::MultiProgress;
 
 #[allow(deprecated)]
@@ -92,13 +93,13 @@ pub enum Severity {
 
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let (color, prefix) = match *self {
-            Severity::Error => ("\x1B[31;1m", "error"),
-            Severity::Warning => ("\x1B[33;1m", "warning"),
-            Severity::Note => ("\x1B[;1m", "note"),
-            Severity::Debug => ("\x1B[34;1m", "debug"),
+        let styled_str = match *self {
+            Severity::Error => style("Error:").red().bold(),
+            Severity::Warning => style("Warning:").yellow().bold(),
+            Severity::Note => style("Note:").white().bold(),
+            Severity::Debug => style("Debug:").blue().bold(),
         };
-        write!(f, "{}{}:\x1B[m", color, prefix)
+        write!(f, "  {}", styled_str)
     }
 }
 
@@ -181,5 +182,9 @@ macro_rules! stageln {
 
 /// Print stage progress.
 pub fn println_stage(stage: &str, message: &str) {
-    eprintln!("\x1B[32;1m{:>12}\x1B[0m {}", stage, message);
+    eprintln!(
+        "  {} {}",
+        style(format!("{:>12}", stage)).green().bold(),
+        message
+    );
 }
