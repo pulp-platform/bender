@@ -9,6 +9,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::sync::{Arc, RwLock};
 
+use console::style;
 use indicatif::MultiProgress;
 
 pub static ENABLE_DEBUG: AtomicBool = AtomicBool::new(false);
@@ -43,8 +44,8 @@ macro_rules! errorln {
 
 /// Print an informational note.
 #[macro_export]
-macro_rules! noteln {
-    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Note; $($arg)*); }
+macro_rules! infoln {
+    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Info; $($arg)*); }
 }
 
 /// Print debug information. Omitted in release builds.
@@ -56,6 +57,12 @@ macro_rules! debugln {
             diagnostic!($crate::error::Severity::Debug; $($arg)*);
         }
     }
+}
+
+/// Format and print stage progress.
+#[macro_export]
+macro_rules! stageln {
+    ($stage_name:expr, $($arg:tt)*) => { diagnostic!($crate::error::Severity::Stage($stage_name); $($arg)*); }
 }
 
 /// Print debug information. Omitted in release builds.
@@ -78,20 +85,46 @@ macro_rules! diagnostic {
 #[derive(PartialEq, Eq)]
 pub enum Severity {
     Debug,
-    Note,
+    Info,
     Warning,
     Error,
+    Stage(&'static str),
+}
+
+/// Style a message in green bold.
+#[macro_export]
+macro_rules! green_bold {
+    ($arg:expr) => {
+        console::style($arg).green().bold()
+    };
+}
+
+/// Style a message in dimmed text.
+#[macro_export]
+macro_rules! dim {
+    ($arg:expr) => {
+        console::style($arg).dim()
+    };
+}
+
+/// Style a message in bold text.
+#[macro_export]
+macro_rules! bold {
+    ($arg:expr) => {
+        console::style($arg).bold()
+    };
 }
 
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let (color, prefix) = match *self {
-            Severity::Error => ("\x1B[31;1m", "error"),
-            Severity::Warning => ("\x1B[33;1m", "warning"),
-            Severity::Note => ("\x1B[;1m", "note"),
-            Severity::Debug => ("\x1B[34;1m", "debug"),
+        let styled_str = match *self {
+            Severity::Error => style("Error:").red().bold(),
+            Severity::Warning => style("Warning:").yellow().bold(),
+            Severity::Info => style("Info:").white().bold(),
+            Severity::Debug => style("Debug:").blue().bold(),
+            Severity::Stage(name) => style(name).green().bold(),
         };
-        write!(f, "{}{}:\x1B[m", color, prefix)
+        write!(f, "  {}", styled_str)
     }
 }
 
@@ -162,17 +195,4 @@ impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Error {
         Error::chain("Cannot startup runtime.".to_string(), err)
     }
-}
-
-/// Format and print stage progress.
-#[macro_export]
-macro_rules! stageln {
-    ($stage:expr, $($arg:tt)*) => {
-        $crate::error::println_stage($stage, &format!($($arg)*))
-    }
-}
-
-/// Print stage progress.
-pub fn println_stage(stage: &str, message: &str) {
-    eprintln!("\x1B[32;1m{:>12}\x1B[0m {}", stage, message);
 }

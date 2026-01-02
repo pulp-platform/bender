@@ -102,7 +102,6 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
             DependencySource::Git(ref url) => {
                 let git = Git::new(tmp_path, &sess.config.git, sess.git_throttle.clone());
                 rt.block_on(async {
-                    // stageln!("Cloning", "{} ({})", vendor_package.name, url);
                     let pb = ProgressHandler::new(
                         sess.progress.clone(),
                         GitProgressOps::Clone,
