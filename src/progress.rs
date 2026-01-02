@@ -11,6 +11,8 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use regex::Regex;
 use tokio::io::{AsyncReadExt, BufReader};
 
+static RE_GIT: OnceLock<Regex> = OnceLock::new();
+
 /// Parses a line of git output.
 /// (Put your `GitProgress` enum and `parse_git_line` function here)
 #[derive(Debug, PartialEq, Clone)]
@@ -23,83 +25,6 @@ pub enum GitProgress {
     Checkout { percent: u8 },
     Error(String),
     Other,
-}
-
-/// The git operation types that currently support progress reporting.
-#[derive(Debug, PartialEq, Clone)]
-pub enum GitProgressOps {
-    Checkout,
-    Clone,
-    Fetch,
-    Submodule,
-}
-
-static RE_GIT: OnceLock<Regex> = OnceLock::new();
-
-/// Helper to extract the name from a git path.
-fn path_to_name(path: &str) -> String {
-    path.trim_end_matches('/')
-        .split('/')
-        .last()
-        .unwrap_or(path)
-        .to_string()
-}
-
-pub fn parse_git_line(line: &str) -> GitProgress {
-    let line = line.trim();
-    let re = RE_GIT.get_or_init(|| {
-        Regex::new(r"(?x)
-            ^ # Start
-            (?:
-                # 1. Registration: Capture the path, ignore the descriptive name
-                Submodule\ '[^']+'\ .*\ registered\ for\ path\ '(?P<reg_path>[^']+)' |
-
-                # 2. Cloning: Capture the path
-                Cloning\ into\ '(?P<clone_path>[^']+)'\.\.\. |
-
-                # 3. Completion: Capture the name
-                Submodule\ path\ '(?P<sub_end_name>[^']+)':\ checked\ out\ '.* |
-
-                # 4. Progress
-                (?P<phase>Receiving\ objects|Resolving\ deltas|Checking\ out\ files):\s+(?P<percent>\d+)% |
-
-                # 5. Errors
-                (?P<error>fatal:.*|error:.*|remote:\ aborting.*)
-            )
-        ").expect("Invalid Regex")
-    });
-
-    if let Some(caps) = re.captures(line) {
-        if let Some(path) = caps.name("reg_path") {
-            return GitProgress::SubmoduleRegistered {
-                name: path_to_name(path.as_str()),
-            };
-        }
-        if let Some(path) = caps.name("clone_path") {
-            return GitProgress::CloningInto {
-                name: path_to_name(path.as_str()),
-            };
-        }
-        if let Some(path) = caps.name("sub_end_name") {
-            return GitProgress::SubmoduleEnd {
-                name: path_to_name(path.as_str()),
-            };
-        }
-        if let Some(err) = caps.name("error") {
-            return GitProgress::Error(err.as_str().to_string());
-        }
-        if let Some(phase) = caps.name("phase") {
-            let percent = caps.name("percent").unwrap().as_str().parse().unwrap_or(0);
-            return match phase.as_str() {
-                "Receiving objects" => GitProgress::Receiving { percent },
-                "Resolving deltas" => GitProgress::Resolving { percent },
-                "Checking out files" => GitProgress::Checkout { percent },
-                _ => GitProgress::Other,
-            };
-        }
-    }
-    // Otherwise, we don't care
-    GitProgress::Other
 }
 
 /// This struct captures (dynamic) state information for a git operation's progress.
@@ -123,6 +48,54 @@ pub struct ProgressHandler {
     git_op: GitProgressOps,
     /// The name of the repository being processed.
     name: String,
+}
+
+/// The git operation types that currently support progress reporting.
+#[derive(PartialEq)]
+pub enum GitProgressOps {
+    Checkout,
+    Clone,
+    Fetch,
+    Submodule,
+}
+
+pub async fn monitor_stderr(
+    stream: impl tokio::io::AsyncRead + Unpin,
+    handler: Option<ProgressHandler>,
+) -> String {
+    let mut reader = BufReader::new(stream);
+    let mut buffer = Vec::new();
+    let mut raw_log = Vec::new();
+
+    // Add a new progress bar and state if we have a handler
+    let mut state = handler.as_ref().map(|h| h.start());
+
+    loop {
+        match reader.read_u8().await {
+            Ok(byte) => {
+                raw_log.push(byte);
+
+                if byte == b'\r' || byte == b'\n' {
+                    if !buffer.is_empty() {
+                        if let Ok(line) = std::str::from_utf8(&buffer) {
+                            // Update UI if we have a handler
+                            if let Some(h) = &handler {
+                                h.update_pb(line, &mut state.as_mut().unwrap());
+                            }
+                        }
+                        buffer.clear();
+                    }
+                } else {
+                    buffer.push(byte);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    handler.map(|h| h.finish(&mut state.unwrap()));
+
+    String::from_utf8_lossy(&raw_log).to_string()
 }
 
 impl ProgressHandler {
@@ -294,43 +267,70 @@ impl ProgressHandler {
     }
 }
 
-pub async fn monitor_stderr(
-    stream: impl tokio::io::AsyncRead + Unpin,
-    handler: Option<ProgressHandler>,
-) -> String {
-    let mut reader = BufReader::new(stream);
-    let mut buffer = Vec::new();
-    let mut raw_log = Vec::new();
+pub fn parse_git_line(line: &str) -> GitProgress {
+    let line = line.trim();
+    let re = RE_GIT.get_or_init(|| {
+        Regex::new(r"(?x)
+            ^ # Start
+            (?:
+                # 1. Registration: Capture the path, ignore the descriptive name
+                Submodule\ '[^']+'\ .*\ registered\ for\ path\ '(?P<reg_path>[^']+)' |
 
-    // Add a new progress bar and state if we have a handler
-    let mut state = handler.as_ref().map(|h| h.start());
+                # 2. Cloning: Capture the path
+                Cloning\ into\ '(?P<clone_path>[^']+)'\.\.\. |
 
-    loop {
-        match reader.read_u8().await {
-            Ok(byte) => {
-                raw_log.push(byte);
+                # 3. Completion: Capture the name
+                Submodule\ path\ '(?P<sub_end_name>[^']+)':\ checked\ out\ '.* |
 
-                if byte == b'\r' || byte == b'\n' {
-                    if !buffer.is_empty() {
-                        if let Ok(line) = std::str::from_utf8(&buffer) {
-                            // Update UI if we have a handler
-                            if let Some(h) = &handler {
-                                h.update_pb(line, &mut state.as_mut().unwrap());
-                            }
-                        }
-                        buffer.clear();
-                    }
-                } else {
-                    buffer.push(byte);
-                }
-            }
-            Err(_) => break,
+                # 4. Progress
+                (?P<phase>Receiving\ objects|Resolving\ deltas|Checking\ out\ files):\s+(?P<percent>\d+)% |
+
+                # 5. Errors
+                (?P<error>fatal:.*|error:.*|remote:\ aborting.*)
+            )
+        ").expect("Invalid Regex")
+    });
+
+    if let Some(caps) = re.captures(line) {
+        if let Some(path) = caps.name("reg_path") {
+            return GitProgress::SubmoduleRegistered {
+                name: path_to_name(path.as_str()),
+            };
+        }
+        if let Some(path) = caps.name("clone_path") {
+            return GitProgress::CloningInto {
+                name: path_to_name(path.as_str()),
+            };
+        }
+        if let Some(path) = caps.name("sub_end_name") {
+            return GitProgress::SubmoduleEnd {
+                name: path_to_name(path.as_str()),
+            };
+        }
+        if let Some(err) = caps.name("error") {
+            return GitProgress::Error(err.as_str().to_string());
+        }
+        if let Some(phase) = caps.name("phase") {
+            let percent = caps.name("percent").unwrap().as_str().parse().unwrap_or(0);
+            return match phase.as_str() {
+                "Receiving objects" => GitProgress::Receiving { percent },
+                "Resolving deltas" => GitProgress::Resolving { percent },
+                "Checking out files" => GitProgress::Checkout { percent },
+                _ => GitProgress::Other,
+            };
         }
     }
+    // Otherwise, we don't care
+    GitProgress::Other
+}
 
-    handler.map(|h| h.finish(&mut state.unwrap()));
-
-    String::from_utf8_lossy(&raw_log).to_string()
+/// Helper to extract the name from a git path.
+fn path_to_name(path: &str) -> String {
+    path.trim_end_matches('/')
+        .split('/')
+        .last()
+        .unwrap_or(path)
+        .to_string()
 }
 
 #[cfg(test)]
