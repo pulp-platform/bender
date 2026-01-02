@@ -4,7 +4,6 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use regex::Regex;
 use tokio::io::{AsyncReadExt, BufReader};
@@ -146,14 +145,14 @@ impl ProgressHandler {
 
     pub fn start(&self) -> ProgressState {
         // Create and configure the main progress bar
-        let pb_style = ProgressStyle::with_template(
+        let style = ProgressStyle::with_template(
             "{spinner:.green} {prefix:<32!} {bar:40.cyan/blue} {percent:>3}% {msg}",
         )
         .unwrap()
         .progress_chars("-- ")
         .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]);
 
-        let pb = self.mpb.add(ProgressBar::new(100).with_style(pb_style));
+        let pb = self.mpb.add(ProgressBar::new(100).with_style(style));
 
         let prefix = match self.git_op {
             GitProgressOps::Clone => "Cloning",
@@ -161,11 +160,7 @@ impl ProgressHandler {
             GitProgressOps::Checkout => "Checkout",
             GitProgressOps::Submodule => "Update Submodules",
         };
-        let prefix = format!(
-            "{} {}",
-            console::style(prefix).bold().green(),
-            console::style(&self.name).bold()
-        );
+        let prefix = format!("{} {}", green_bold!(prefix), bold!(&self.name));
         pb.set_prefix(prefix);
         // Configure the spinners to automatically tick every 100ms
         pb.enable_steady_tick(Duration::from_millis(100));
@@ -196,7 +191,7 @@ impl ProgressHandler {
                     );
 
                     // The submodule style is similar to the main bar, but indented and without spinner
-                    let sub_pb_style = ProgressStyle::with_template(
+                    let style = ProgressStyle::with_template(
                         "    {prefix:<32!} {bar:40.cyan/blue} {percent:>3}% {msg}",
                     )
                     .unwrap()
@@ -205,11 +200,11 @@ impl ProgressHandler {
                     // Create the submodule progress bar below the main one
                     let sub_pb = self
                         .mpb
-                        .insert_after(&state.pb, ProgressBar::new(100).with_style(sub_pb_style));
+                        .insert_after(&state.pb, ProgressBar::new(100).with_style(style));
 
                     // Set the submodule prefix to the submodule name
                     let sub_name = path.split('/').last().unwrap_or(&path);
-                    let sub_prefix = format!("{} {}", style("└─ ").dim(), style(sub_name).dim());
+                    let sub_prefix = format!("{} {}", dim!("└─ "), dim!(sub_name));
                     sub_pb.set_prefix(sub_prefix);
                     state.sub_pb = Some(sub_pb);
                 }
@@ -220,15 +215,15 @@ impl ProgressHandler {
                 }
             }
             GitProgress::Receiving { current, .. } => {
-                target_pb.set_message(style("Receiving objects").dim().to_string());
+                target_pb.set_message(dim!("Receiving objects").to_string());
                 target_pb.set_position(current as u64);
             }
             GitProgress::Resolving { percent, .. } => {
-                target_pb.set_message(style("Resolving deltas").dim().to_string());
+                target_pb.set_message(dim!("Resolving deltas").to_string());
                 target_pb.set_position(percent as u64);
             }
             GitProgress::Checkout { percent, .. } => {
-                target_pb.set_message(style("Checking out").dim().to_string());
+                target_pb.set_message(dim!("Checking out").to_string());
                 target_pb.set_position(percent as u64);
             }
             _ => {}
@@ -257,9 +252,9 @@ impl ProgressHandler {
         self.mpb
             .println(format!(
                 "  {} {} {}",
-                style(op_str).green().bold(),
-                style(&self.name).bold(),
-                style(duration_str).dim()
+                green_bold!(op_str),
+                bold!(&self.name),
+                dim!(duration_str)
             ))
             .unwrap();
     }
