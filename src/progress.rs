@@ -210,7 +210,7 @@ impl ProgressHandler {
 
                     let sub_prefix = format!("{} {}", dim!("└─ "), dim!(&name));
                     sub_pb.set_prefix(sub_prefix);
-                    sub_pb.set_message(dim!("Waiting...").to_string());
+                    sub_pb.set_message(format!("{}", dim!("Waiting...")));
 
                     state.sub_bars.insert(name, sub_pb);
                 }
@@ -229,7 +229,7 @@ impl ProgressHandler {
                     // Activate the new bar
                     if let Some(bar) = state.sub_bars.get(&name) {
                         // Switch style to the active progress bar style
-                        bar.set_message(dim!("Cloning...").to_string());
+                        bar.set_message(format!("{}", dim!("Cloning...")));
                     }
                     state.active_sub = Some(name);
                 }
@@ -243,15 +243,15 @@ impl ProgressHandler {
                 }
             }
             GitProgress::Receiving { percent, .. } => {
-                target_pb.set_message(dim!("Receiving objects").to_string());
+                target_pb.set_message(format!("{}", dim!("Receiving objects")));
                 target_pb.set_position(percent as u64);
             }
             GitProgress::Resolving { percent, .. } => {
-                target_pb.set_message(dim!("Resolving deltas").to_string());
+                target_pb.set_message(format!("{}", dim!("Resolving deltas")));
                 target_pb.set_position(percent as u64);
             }
             GitProgress::Checkout { percent, .. } => {
-                target_pb.set_message(dim!("Checking out").to_string());
+                target_pb.set_message(format!("{}", dim!("Checking out")));
                 target_pb.set_position(percent as u64);
             }
             GitProgress::Error(err_msg) => {
