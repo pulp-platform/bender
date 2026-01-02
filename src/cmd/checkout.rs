@@ -8,6 +8,7 @@ use tokio::runtime::Runtime;
 
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
+use crate::util::fmt_duration;
 
 /// Assemble the `checkout` subcommand.
 pub fn new() -> Command {
@@ -31,7 +32,15 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 pub fn run_plain(sess: &Session, forcibly: bool, update_list: &[String]) -> Result<()> {
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
+    let start_time = std::time::Instant::now();
     let _srcs = rt.block_on(io.sources(forcibly, update_list))?;
+    let num_dependencies = io.sess.names.lock().unwrap().len();
+    infoln!(
+        "{} {} dependencies {}",
+        dim!("Checked out"),
+        num_dependencies,
+        dim!(fmt_duration(start_time.elapsed()))
+    );
 
     Ok(())
 }
