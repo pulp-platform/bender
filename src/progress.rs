@@ -227,6 +227,20 @@ impl ProgressHandler {
             sub.finish_and_clear();
         }
         state.pb.finish_and_clear();
+
+        // Print a final message indicating completion
+        let op_str = match self.git_op {
+            GitProgressOps::Clone => "Cloned",
+            GitProgressOps::Fetch => "Fetched",
+            GitProgressOps::Checkout => "Checked out",
+        };
+        self.mpb
+            .println(format!(
+                "  {} {}",
+                style(op_str).green().bold(),
+                style(&self.name).bright()
+            ))
+            .unwrap();
     }
 }
 
