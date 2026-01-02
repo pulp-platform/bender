@@ -51,8 +51,8 @@ macro_rules! warnln {
 
 /// Print an informational note.
 #[macro_export]
-macro_rules! noteln {
-    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Note; $($arg)*); }
+macro_rules! infoln {
+    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Info; $($arg)*); }
 }
 
 /// Print debug information. Omitted in release builds.
@@ -92,7 +92,7 @@ macro_rules! diagnostic {
 #[derive(PartialEq, Eq)]
 pub enum Severity {
     Debug,
-    Note,
+    Info,
     Warning,
     Error,
     Stage(&'static str),
@@ -127,7 +127,7 @@ impl fmt::Display for Severity {
         let styled_str = match *self {
             Severity::Error => style("Error:").red().bold(),
             Severity::Warning => style("Warning:").yellow().bold(),
-            Severity::Note => style("Note:").white().bold(),
+            Severity::Info => style("Info:").white().bold(),
             Severity::Debug => style("Debug:").blue().bold(),
             Severity::Stage(name) => style(name).green().bold(),
         };
