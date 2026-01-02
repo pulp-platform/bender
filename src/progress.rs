@@ -122,6 +122,8 @@ pub struct ProgressState {
     /// Whether the main progress bar is done.
     /// This is used to determine when to start submodule progress bars.
     main_done: bool,
+    /// The start time of the operation.
+    start_time: std::time::Instant,
 }
 
 /// This struct captures (static) information neeed to handle progress updates for a git operation.
@@ -178,6 +180,7 @@ impl ProgressHandler {
             pb,
             sub_pb: None,
             main_done: false,
+            start_time: std::time::Instant::now(),
         }
     }
 
@@ -234,11 +237,18 @@ impl ProgressHandler {
             GitProgressOps::Fetch => "Fetched",
             GitProgressOps::Checkout => "Checked out",
         };
+        let duration = state.start_time.elapsed();
+        let duration_str = if duration.as_secs() > 0 {
+            format!("in {}s", duration.as_secs())
+        } else {
+            format!("in {}ms", duration.as_millis())
+        };
         self.mpb
             .println(format!(
-                "  {} {}",
+                "  {} {} {}",
                 style(op_str).green().bold(),
                 style(&self.name).bright()
+                style(duration_str).dim()
             ))
             .unwrap();
     }
