@@ -3,6 +3,7 @@
 
 use crate::util::fmt_duration;
 
+use indexmap::IndexMap;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -14,27 +15,12 @@ use tokio::io::{AsyncReadExt, BufReader};
 /// (Put your `GitProgress` enum and `parse_git_line` function here)
 #[derive(Debug, PartialEq, Clone)]
 pub enum GitProgress {
-    CloningInto {
-        path: String,
-    },
-    SubmoduleEnd {
-        path: String,
-    },
-    Receiving {
-        percent: u8,
-        current: usize,
-        total: usize,
-    },
-    Resolving {
-        percent: u8,
-        current: usize,
-        total: usize,
-    },
-    Checkout {
-        percent: u8,
-        current: usize,
-        total: usize,
-    },
+    SubmoduleRegistered { name: String },
+    CloningInto { name: String },
+    SubmoduleEnd { name: String },
+    Receiving { percent: u8 },
+    Resolving { percent: u8 },
+    Checkout { percent: u8 },
     Error(String),
     Other,
 }
@@ -50,68 +36,66 @@ pub enum GitProgressOps {
 
 static RE_GIT: OnceLock<Regex> = OnceLock::new();
 
+/// Helper to extract the name from a git path.
+fn path_to_name(path: &str) -> String {
+    path.trim_end_matches('/')
+        .split('/')
+        .last()
+        .unwrap_or(path)
+        .to_string()
+}
+
 pub fn parse_git_line(line: &str) -> GitProgress {
     let line = line.trim();
     let re = RE_GIT.get_or_init(|| {
         Regex::new(r"(?x)
             ^ # Start
             (?:
+                # 1. Registration: Capture the path, ignore the descriptive name
+                Submodule\ '[^']+'\ .*\ registered\ for\ path\ '(?P<reg_path>[^']+)' |
+
+                # 2. Cloning: Capture the path
                 Cloning\ into\ '(?P<clone_path>[^']+)'\.\.\. |
-                Submodule\ path\ '(?P<sub_end_path>[^']+)':\ checked\ out\ '.* |
+
+                # 3. Completion: Capture the name
+                Submodule\ path\ '(?P<sub_end_name>[^']+)':\ checked\ out\ '.* |
+
+                # 4. Progress
                 (?P<phase>Receiving\ objects|Resolving\ deltas|Checking\ out\ files):\s+(?P<percent>\d+)% |
-                (?P<error>fatal:.*|error:.*|remote:\ aborting.*)  # <--- Capture errors
+
+                # 5. Errors
+                (?P<error>fatal:.*|error:.*|remote:\ aborting.*)
             )
         ").expect("Invalid Regex")
     });
 
     if let Some(caps) = re.captures(line) {
-        // Case 1: Cloning into...
+        if let Some(path) = caps.name("reg_path") {
+            return GitProgress::SubmoduleRegistered {
+                name: path_to_name(path.as_str()),
+            };
+        }
         if let Some(path) = caps.name("clone_path") {
             return GitProgress::CloningInto {
-                path: path.as_str().to_string(),
+                name: path_to_name(path.as_str()),
             };
         }
-
-        // Case 2: Submodule finished
-        if let Some(path) = caps.name("sub_end_path") {
+        if let Some(path) = caps.name("sub_end_name") {
             return GitProgress::SubmoduleEnd {
-                path: path.as_str().to_string(),
-            };
-        }
-
-        // Case 3: Progress
-        if let Some(phase) = caps.name("phase") {
-            let percent = caps.name("percent").unwrap().as_str().parse().unwrap_or(0);
-            let current = caps
-                .name("current")
-                .map(|m| m.as_str().parse().unwrap_or(0))
-                .unwrap_or(0);
-            let total = caps
-                .name("total")
-                .map(|m| m.as_str().parse().unwrap_or(0))
-                .unwrap_or(0);
-
-            return match phase.as_str() {
-                "Receiving objects" => GitProgress::Receiving {
-                    percent,
-                    current,
-                    total,
-                },
-                "Resolving deltas" => GitProgress::Resolving {
-                    percent,
-                    current,
-                    total,
-                },
-                "Checking out files" => GitProgress::Checkout {
-                    percent,
-                    current,
-                    total,
-                },
-                _ => GitProgress::Other,
+                name: path_to_name(path.as_str()),
             };
         }
         if let Some(err) = caps.name("error") {
             return GitProgress::Error(err.as_str().to_string());
+        }
+        if let Some(phase) = caps.name("phase") {
+            let percent = caps.name("percent").unwrap().as_str().parse().unwrap_or(0);
+            return match phase.as_str() {
+                "Receiving objects" => GitProgress::Receiving { percent },
+                "Resolving deltas" => GitProgress::Resolving { percent },
+                "Checking out files" => GitProgress::Checkout { percent },
+                _ => GitProgress::Other,
+            };
         }
     }
     // Otherwise, we don't care
@@ -123,8 +107,10 @@ pub fn parse_git_line(line: &str) -> GitProgress {
 pub struct ProgressState {
     /// The progress bar of the current package.
     pb: ProgressBar,
-    /// The progress bar for submodules, if any.
-    sub_pb: Option<ProgressBar>,
+    /// The sub-progress bar (for submodules), if any.
+    pub sub_bars: IndexMap<String, ProgressBar>,
+    // The currently active submodule, if any.
+    pub active_sub: Option<String>,
     /// The start time of the operation.
     start_time: std::time::Instant,
 }
@@ -173,23 +159,25 @@ impl ProgressHandler {
 
         ProgressState {
             pb,
-            sub_pb: None,
+            sub_bars: IndexMap::new(),
+            active_sub: None,
             start_time: std::time::Instant::now(),
         }
     }
 
     pub fn update_pb(&self, line: &str, state: &mut ProgressState) {
         let progress = parse_git_line(line);
-        let target_pb = state.sub_pb.as_ref().unwrap_or(&state.pb);
+
+        // Target the active submodule if one exists, otherwise the main bar
+        let target_pb = if let Some(name) = &state.active_sub {
+            state.sub_bars.get(name).unwrap_or(&state.pb)
+        } else {
+            &state.pb
+        };
 
         match progress {
-            GitProgress::CloningInto { path } => {
-                // Only spawn a sub-bar if we are explicitly running the 'Submodule' op.
-                // For normal Clone/Checkout, 'Cloning into' is just the main repo header, which we ignore.
+            GitProgress::SubmoduleRegistered { name } => {
                 if self.git_op == GitProgressOps::Submodule {
-                    if let Some(sub) = state.sub_pb.take() {
-                        sub.finish_and_clear();
-                    }
                     // The main simply becomes a spinner since the sub-bar will show progress
                     // on the subsequent line.
                     state.pb.set_style(
@@ -203,26 +191,60 @@ impl ProgressHandler {
                     .unwrap()
                     .progress_chars("-- ");
 
-                    // Create the submodule progress bar below the main one
+                    // Tree Logic
+                    let ref_bar = match state.sub_bars.last() {
+                        Some((last_name, last_pb)) => {
+                            // Update the previous last bar to have a "T" connector (├─)
+                            // because it is no longer the last one.
+                            let prev_prefix = format!("{} {}", dim!("├─ "), dim!(last_name));
+                            last_pb.set_prefix(prev_prefix);
+                            last_pb // Insert the new one after this one
+                        }
+                        None => &state.pb, // Insert the first one after the main bar
+                    };
+
+                    // Create bar immediately
                     let sub_pb = self
                         .mpb
-                        .insert_after(&state.pb, ProgressBar::new(100).with_style(style));
+                        .insert_after(ref_bar, ProgressBar::new(100).with_style(style));
 
-                    // Set the submodule prefix to the submodule name
-                    let sub_name = path.split('/').last().unwrap_or(&path);
-                    let sub_prefix = format!("{} {}", dim!("└─ "), dim!(sub_name));
+                    let sub_prefix = format!("{} {}", dim!("└─ "), dim!(&name));
                     sub_pb.set_prefix(sub_prefix);
-                    state.sub_pb = Some(sub_pb);
+                    sub_pb.set_message(dim!("Waiting...").to_string());
+
+                    state.sub_bars.insert(name, sub_pb);
                 }
             }
-            GitProgress::SubmoduleEnd { .. } => {
-                if let Some(sub) = state.sub_pb.take() {
-                    sub.finish_and_clear();
+            GitProgress::CloningInto { name } => {
+                if self.git_op == GitProgressOps::Submodule {
+                    // Logic to handle missing 'checked out' lines:
+                    // If we are activating 'bar', but 'foo' was active, assume 'foo' is done.
+                    if let Some(prev) = &state.active_sub {
+                        if prev != &name {
+                            if let Some(b) = state.sub_bars.get(prev) {
+                                b.finish_and_clear();
+                            }
+                        }
+                    }
+                    // Activate the new bar
+                    if let Some(bar) = state.sub_bars.get(&name) {
+                        // Switch style to the active progress bar style
+                        bar.set_message(dim!("Cloning...").to_string());
+                    }
+                    state.active_sub = Some(name);
                 }
             }
-            GitProgress::Receiving { current, .. } => {
+            GitProgress::SubmoduleEnd { name } => {
+                if let Some(bar) = state.sub_bars.get(&name) {
+                    bar.finish_and_clear();
+                }
+                if state.active_sub.as_ref() == Some(&name) {
+                    state.active_sub = None;
+                }
+            }
+            GitProgress::Receiving { percent, .. } => {
                 target_pb.set_message(dim!("Receiving objects").to_string());
-                target_pb.set_position(current as u64);
+                target_pb.set_position(percent as u64);
             }
             GitProgress::Resolving { percent, .. } => {
                 target_pb.set_message(dim!("Resolving deltas").to_string());
@@ -247,8 +269,9 @@ impl ProgressHandler {
     }
 
     pub fn finish(self, state: &mut ProgressState) {
-        if let Some(sub) = state.sub_pb.take() {
-            sub.finish_and_clear();
+        // Clear all sub bars that might be lingering
+        for pb in state.sub_bars.values() {
+            pb.finish_and_clear();
         }
         state.pb.finish_and_clear();
 
