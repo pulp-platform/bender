@@ -66,6 +66,12 @@ macro_rules! debugln {
     }
 }
 
+/// Format and print stage progress.
+#[macro_export]
+macro_rules! stageln {
+    ($stage_name:expr, $($arg:tt)*) => { diagnostic!($crate::error::Severity::Stage($stage_name); $($arg)*); }
+}
+
 /// Print debug information. Omitted in release builds.
 #[macro_export]
 #[cfg(not(debug_assertions))]
@@ -89,6 +95,7 @@ pub enum Severity {
     Note,
     Warning,
     Error,
+    Stage(&'static str),
 }
 
 /// Style a message in green bold.
@@ -122,6 +129,7 @@ impl fmt::Display for Severity {
             Severity::Warning => style("Warning:").yellow().bold(),
             Severity::Note => style("Note:").white().bold(),
             Severity::Debug => style("Debug:").blue().bold(),
+            Severity::Stage(name) => style(name).green().bold(),
         };
         write!(f, "  {}", styled_str)
     }
@@ -194,21 +202,4 @@ impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Error {
         Error::chain("Cannot startup runtime.".to_string(), err)
     }
-}
-
-/// Format and print stage progress.
-#[macro_export]
-macro_rules! stageln {
-    ($stage:expr, $($arg:tt)*) => {
-        $crate::error::println_stage($stage, &format!($($arg)*))
-    }
-}
-
-/// Print stage progress.
-pub fn println_stage(stage: &str, message: &str) {
-    eprintln!(
-        "  {} {}",
-        style(format!("{:>12}", stage)).green().bold(),
-        message
-    );
 }
