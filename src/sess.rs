@@ -545,11 +545,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 ))
             }
         };
-        let git = Git::new(
-            db_dir,
-            &self.sess.config.git,
-            self.sess.git_throttle.clone(),
-        );
+        let git = Git::new(db_dir, &self.sess.config.git);
         let url = String::from(url);
         let url2 = url.clone();
 
@@ -571,16 +567,20 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 name,
             ));
             git.clone()
-                .spawn_with(|c| c.arg("init").arg("--bare"), None)
+                .spawn_with(|c| c.arg("init").arg("--bare"), None, None)
                 .await?;
             git.clone()
-                .spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url), None)
+                .spawn_with(
+                    |c| c.arg("remote").arg("add").arg("origin").arg(url),
+                    None,
+                    None,
+                )
                 .await?;
             git.clone()
-                .fetch("origin", pb)
+                .fetch("origin", Some(self.sess.git_throttle.clone()), pb)
                 .and_then(|_| async {
                     if let Some(reference) = fetch_ref {
-                        git.clone().fetch_ref("origin", reference, None).await
+                        git.clone().fetch_ref("origin", reference, Some(self.sess.git_throttle.clone()), None).await
                     } else {
                         Ok(())
                     }
@@ -616,10 +616,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 name,
             ));
             git.clone()
-                .fetch("origin", pb)
+                .fetch("origin", Some(self.sess.git_throttle.clone()), pb)
                 .and_then(|_| async {
                     if let Some(reference) = fetch_ref {
-                        git.clone().fetch_ref("origin", reference, None).await
+                        git.clone().fetch_ref("origin", reference, Some(self.sess.git_throttle.clone()), None).await
                     } else {
                         Ok(())
                     }
@@ -870,7 +870,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             ToCheckout,
             ToClone,
         }
-        let local_git = Git::new(path, &self.sess.config.git, self.sess.git_throttle.clone());
+        let local_git = Git::new(path, &self.sess.config.git);
         let clear = if path.exists() {
             // Scrap checkouts with the wrong tag.
             let current_checkout = local_git.clone().current_checkout().await;
@@ -911,7 +911,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 if checkout_already_good == CheckoutState::ToCheckout {
                     if local_git
                         .clone()
-                        .spawn_with(|c| c.arg("status").arg("--porcelain"), None)
+                        .spawn_with(|c| c.arg("status").arg("--porcelain"), None, None)
                         .await
                         .is_ok()
                     {
@@ -977,6 +977,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             .arg("--no-sign")
                     },
                     None,
+                    None,
                 )
                 .await
             {
@@ -993,9 +994,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     ));
                     // Attempt to fetch from remote and retry, as commits seem unavailable.
                     git.clone()
-                        .spawn_with(move |c| c.arg("fetch").arg("--all").arg("--progress"), pb)
+                        .spawn_with(
+                            move |c| c.arg("fetch").arg("--all").arg("--progress"),
+                            Some(self.sess.git_throttle.clone()),
+                            pb,
+                        )
                         .await?;
-                    git.clone().spawn_with(move |c| c.arg("tag").arg(tag_name_1).arg(revision).arg("--force").arg("--no-sign"), None).map_err(|cause| {
+                    git.clone().spawn_with(move |c| c.arg("tag").arg(tag_name_1).arg(revision).arg("--force").arg("--no-sign"), None, None).map_err(|cause| {
                         if !self.sess.suppress_warnings.contains("W08") {
                             warnln!("[W08] Please ensure the commits are available on the remote or run bender update");
                         }
@@ -1025,6 +1030,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .arg(tag_name_2)
                                 .arg("--progress")
                         },
+                        None,
                         pb,
                     )
                     .await?;
@@ -1039,6 +1045,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .arg("--prune")
                                 .arg("--progress")
                         },
+                        None,
                         None,
                     )
                     .await?;
@@ -1056,6 +1063,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .arg("--force")
                                 .arg("--progress")
                         },
+                        Some(self.sess.git_throttle.clone()),
                         pb,
                     )
                     .await?;
@@ -1076,6 +1084,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .arg("--recursive")
                                 .arg("--progress")
                         },
+                        Some(self.sess.git_throttle.clone()),
                         pb,
                     )
                     .await?;

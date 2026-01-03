@@ -29,18 +29,12 @@ pub struct Git<'ctx> {
     pub path: &'ctx Path,
     /// The session within which commands will be executed.
     pub git: &'ctx String,
-    /// Reference to the throttle object.
-    pub throttle: Arc<Semaphore>,
 }
 
 impl<'ctx> Git<'ctx> {
     /// Create a new git context.
-    pub fn new(path: &'ctx Path, git: &'ctx String, throttle: Arc<Semaphore>) -> Git<'ctx> {
-        Git {
-            path,
-            git,
-            throttle,
-        }
+    pub fn new(path: &'ctx Path, git: &'ctx String) -> Git<'ctx> {
+        Git { path, git }
     }
 
     /// Create a new git command.
@@ -69,10 +63,15 @@ impl<'ctx> Git<'ctx> {
         self,
         mut cmd: Command,
         check: bool,
+        throttle: Option<Arc<Semaphore>>,
         pb: Option<ProgressHandler>,
     ) -> Result<String> {
         // Acquire the throttle semaphore
-        let permit = self.throttle.clone().acquire_owned().await.unwrap();
+        // let permit = self.throttle.clone().acquire_owned().await.unwrap();
+        let permit = match throttle {
+            Some(sem) => Some(sem.acquire_owned().await.unwrap()),
+            None => None,
+        };
 
         // Configure pipes for streaming
         cmd.stdout(Stdio::piped());
@@ -160,28 +159,38 @@ impl<'ctx> Git<'ctx> {
     /// This is a convenience function that creates a command, passes it to the
     /// closure `f` for configuration, then passes it to the `spawn` function
     /// and returns the future.
-    pub async fn spawn_with<F>(self, f: F, pb: Option<ProgressHandler>) -> Result<String>
+    pub async fn spawn_with<F>(
+        self,
+        f: F,
+        throttle: Option<Arc<Semaphore>>,
+        pb: Option<ProgressHandler>,
+    ) -> Result<String>
     where
         F: FnOnce(&mut Command) -> &mut Command,
     {
         let mut cmd = Command::new(self.git);
         cmd.current_dir(self.path);
         f(&mut cmd);
-        self.spawn(cmd, true, pb).await
+        self.spawn(cmd, true, throttle, pb).await
     }
 
     /// Assemble a command and schedule it for execution.
     ///
     /// This is the same as `spawn_with()`, but returns the stdout regardless of
     /// whether the command failed or not.
-    pub async fn spawn_unchecked_with<F>(self, f: F, pb: Option<ProgressHandler>) -> Result<String>
+    pub async fn spawn_unchecked_with<F>(
+        self,
+        f: F,
+        throttle: Option<Arc<Semaphore>>,
+        pb: Option<ProgressHandler>,
+    ) -> Result<String>
     where
         F: FnOnce(&mut Command) -> &mut Command,
     {
         let mut cmd = Command::new(self.git);
         cmd.current_dir(self.path);
         f(&mut cmd);
-        self.spawn(cmd, false, pb).await
+        self.spawn(cmd, false, throttle, pb).await
     }
 
     /// Assemble a command and execute it interactively.
@@ -200,17 +209,24 @@ impl<'ctx> Git<'ctx> {
     }
 
     /// Fetch the tags and refs of a remote.
-    pub async fn fetch(self, remote: &str, pb: Option<ProgressHandler>) -> Result<()> {
+    pub async fn fetch(
+        self,
+        remote: &str,
+        throttle: Option<Arc<Semaphore>>,
+        pb: Option<ProgressHandler>,
+    ) -> Result<()> {
         let r1 = String::from(remote);
         let r2 = String::from(remote);
         self.clone()
             .spawn_with(
                 |c| c.arg("fetch").arg("--prune").arg(r1).arg("--progress"),
+                throttle.clone(),
                 pb,
             )
             .and_then(|_| {
                 self.spawn_with(
                     |c| c.arg("fetch").arg("--tags").arg("--prune").arg(r2),
+                    throttle,
                     None,
                 )
             })
@@ -223,10 +239,12 @@ impl<'ctx> Git<'ctx> {
         self,
         remote: &str,
         reference: &str,
+        throttle: Option<Arc<Semaphore>>,
         pb: Option<ProgressHandler>,
     ) -> Result<()> {
         self.spawn_with(
             |c| c.arg("fetch").arg(remote).arg(reference).arg("--progress"),
+            throttle,
             pb,
         )
         .await
@@ -235,7 +253,7 @@ impl<'ctx> Git<'ctx> {
 
     /// Stage all local changes.
     pub async fn add_all(self) -> Result<()> {
-        self.spawn_with(|c| c.arg("add").arg("--all"), None)
+        self.spawn_with(|c| c.arg("add").arg("--all"), None, None)
             .await
             .map(|_| ())
     }
@@ -255,6 +273,7 @@ impl<'ctx> Git<'ctx> {
                             .arg(msg)
                     },
                     None,
+                    None,
                 )
                 .await
                 .map(|_| ()),
@@ -268,7 +287,7 @@ impl<'ctx> Git<'ctx> {
 
     /// List all refs and their hashes.
     pub async fn list_refs(self) -> Result<Vec<(String, String)>> {
-        self.spawn_unchecked_with(|c| c.arg("show-ref").arg("--dereference"), None)
+        self.spawn_unchecked_with(|c| c.arg("show-ref").arg("--dereference"), None, None)
             .and_then(|raw| async move {
                 let mut all_revs = raw
                     .lines()
@@ -303,15 +322,20 @@ impl<'ctx> Git<'ctx> {
 
     /// List all revisions.
     pub async fn list_revs(self) -> Result<Vec<String>> {
-        self.spawn_with(|c| c.arg("rev-list").arg("--all").arg("--date-order"), None)
-            .await
-            .map(|raw| raw.lines().map(String::from).collect())
+        self.spawn_with(
+            |c| c.arg("rev-list").arg("--all").arg("--date-order"),
+            None,
+            None,
+        )
+        .await
+        .map(|raw| raw.lines().map(String::from).collect())
     }
 
     /// Determine the currently checked out revision.
     pub async fn current_checkout(self) -> Result<Option<String>> {
         self.spawn_with(
             |c| c.arg("rev-parse").arg("--revs-only").arg("HEAD^{commit}"),
+            None,
             None,
         )
         .await
@@ -320,7 +344,7 @@ impl<'ctx> Git<'ctx> {
 
     /// Determine the url of a remote.
     pub async fn remote_url(self, remote: &str) -> Result<String> {
-        self.spawn_with(|c| c.arg("remote").arg("get-url").arg(remote), None)
+        self.spawn_with(|c| c.arg("remote").arg("get-url").arg(remote), None, None)
             .await
             .map(|raw| raw.lines().take(1).map(String::from).next().unwrap())
     }
@@ -342,6 +366,7 @@ impl<'ctx> Git<'ctx> {
                 c
             },
             None,
+            None,
         )
         .await
         .map(|raw| raw.lines().map(TreeEntry::parse).collect())
@@ -349,7 +374,7 @@ impl<'ctx> Git<'ctx> {
 
     /// Read the content of a file.
     pub async fn cat_file<O: AsRef<OsStr>>(self, hash: O) -> Result<String> {
-        self.spawn_with(|c| c.arg("cat-file").arg("blob").arg(hash), None)
+        self.spawn_with(|c| c.arg("cat-file").arg("blob").arg(hash), None, None)
             .await
     }
 }
