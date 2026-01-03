@@ -25,6 +25,7 @@ use async_recursion::async_recursion;
 use futures::future::join_all;
 use futures::TryFutureExt;
 use indexmap::{IndexMap, IndexSet};
+use indicatif::MultiProgress;
 use semver::Version;
 use tokio::sync::Semaphore;
 use typed_arena::Arena;
@@ -33,6 +34,7 @@ use crate::cli::read_manifest;
 use crate::config::{self, Config, Manifest, PartialManifest};
 use crate::error::*;
 use crate::git::Git;
+use crate::progress::{GitProgressOps, ProgressHandler};
 use crate::src::SourceGroup;
 use crate::target::TargetSpec;
 use crate::util::try_modification_time;
@@ -62,7 +64,7 @@ pub struct Session<'ctx> {
     /// The internalized strings.
     strings: Mutex<IndexSet<&'ctx str>>,
     /// The package name table.
-    names: Mutex<IndexMap<String, DependencyRef>>,
+    pub names: Mutex<IndexMap<String, DependencyRef>>,
     /// The dependency graph.
     graph: Mutex<Arc<IndexMap<DependencyRef, IndexSet<DependencyRef>>>>,
     /// The topologically sorted list of packages.
@@ -79,6 +81,8 @@ pub struct Session<'ctx> {
     pub local_only: bool,
     /// A list of warnings to suppress.
     pub suppress_warnings: IndexSet<String>,
+    /// The global progress bar manager.
+    pub progress: MultiProgress,
 }
 
 impl<'ctx> Session<'ctx> {
@@ -94,6 +98,13 @@ impl<'ctx> Session<'ctx> {
         git_throttle: usize,
         suppress_warnings: IndexSet<String>,
     ) -> Session<'ctx> {
+        // Initialize the global multi-progress bar
+        // to handle warning and error messages correctly.
+        let mpb = MultiProgress::new();
+        if let Ok(mut global_mpb) = GLOBAL_MULTI_PROGRESS.write() {
+            *global_mpb = Some(mpb.clone());
+        }
+
         Session {
             root,
             manifest,
@@ -119,6 +130,7 @@ impl<'ctx> Session<'ctx> {
             git_throttle: Arc::new(Semaphore::new(git_throttle)),
             local_only,
             suppress_warnings,
+            progress: mpb,
         }
     }
 
@@ -533,15 +545,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 ))
             }
         };
-        let git = Git::new(
-            db_dir,
-            &self.sess.config.git,
-            self.sess.git_throttle.clone(),
-        );
-        let name2 = String::from(name);
+        let git = Git::new(db_dir, &self.sess.config.git);
         let url = String::from(url);
         let url2 = url.clone();
-        let url3 = url.clone();
 
         // Either initialize the repository or update it if needed.
         if !db_dir.join("config").exists() {
@@ -553,26 +559,35 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             // Initialize.
             self.sess.stats.num_database_init.increment();
-            // TODO MICHAERO: May need throttle
-            stageln!("Cloning", "{} ({})", name2, url2);
+            // The progress bar object for cloning. We only use it for the
+            // last fetch operation, which is the only network operation here.
+            let pb = Some(ProgressHandler::new(
+                self.sess.progress.clone(),
+                GitProgressOps::Clone,
+                name,
+            ));
             git.clone()
-                .spawn_with(|c| c.arg("init").arg("--bare"))
+                .spawn_with(|c| c.arg("init").arg("--bare"), None, None)
                 .await?;
             git.clone()
-                .spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url))
+                .spawn_with(
+                    |c| c.arg("remote").arg("add").arg("origin").arg(url),
+                    None,
+                    None,
+                )
                 .await?;
             git.clone()
-                .fetch("origin")
+                .fetch("origin", Some(self.sess.git_throttle.clone()), pb)
                 .and_then(|_| async {
                     if let Some(reference) = fetch_ref {
-                        git.clone().fetch_ref("origin", reference).await
+                        git.clone().fetch_ref("origin", reference, Some(self.sess.git_throttle.clone()), None).await
                     } else {
                         Ok(())
                     }
                 })
                 .await
                 .map_err(move |cause| {
-                    if url3.contains("git@") && !self.sess.suppress_warnings.contains("W07") {
+                    if url2.contains("git@") && !self.sess.suppress_warnings.contains("W07") {
                         warnln!("[W07] Please ensure your public ssh key is added to the git server.");
                     }
                     if !self.sess.suppress_warnings.contains("W07") {
@@ -594,20 +609,24 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 return Ok(git);
             }
             self.sess.stats.num_database_fetch.increment();
-            // TODO MICHAERO: May need throttle
-            stageln!("Fetching", "{} ({})", name2, url2);
+            // The progress bar object for fetching.
+            let pb = Some(ProgressHandler::new(
+                self.sess.progress.clone(),
+                GitProgressOps::Fetch,
+                name,
+            ));
             git.clone()
-                .fetch("origin")
+                .fetch("origin", Some(self.sess.git_throttle.clone()), pb)
                 .and_then(|_| async {
                     if let Some(reference) = fetch_ref {
-                        git.clone().fetch_ref("origin", reference).await
+                        git.clone().fetch_ref("origin", reference, Some(self.sess.git_throttle.clone()), None).await
                     } else {
                         Ok(())
                     }
                 })
                 .await
                 .map_err(move |cause| {
-                    if url3.contains("git@") && !self.sess.suppress_warnings.contains("W07") {
+                    if url2.contains("git@") && !self.sess.suppress_warnings.contains("W07") {
                         warnln!("[W07] Please ensure your public ssh key is added to the git server.");
                     }
                     if !self.sess.suppress_warnings.contains("W07") {
@@ -851,7 +870,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             ToCheckout,
             ToClone,
         }
-        let local_git = Git::new(path, &self.sess.config.git, self.sess.git_throttle.clone());
+        let local_git = Git::new(path, &self.sess.config.git);
         let clear = if path.exists() {
             // Scrap checkouts with the wrong tag.
             let current_checkout = local_git.clone().current_checkout().await;
@@ -892,7 +911,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 if checkout_already_good == CheckoutState::ToCheckout {
                     if local_git
                         .clone()
-                        .spawn_with(|c| c.arg("status").arg("--porcelain"))
+                        .spawn_with(|c| c.arg("status").arg("--porcelain"), None, None)
                         .await
                         .is_ok()
                     {
@@ -940,8 +959,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         // Perform the checkout if necessary.
         if clear != CheckoutState::Clean {
-            stageln!("Checkout", "{} ({})", name, url);
-
             // First generate a tag to be cloned in the database. This is
             // necessary since `git clone` does not accept commits, but only
             // branches or tags for shallow clones.
@@ -951,13 +968,17 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             let git = self.git_database(name, url, false, Some(revision)).await?;
             match git
                 .clone()
-                .spawn_with(move |c| {
-                    c.arg("tag")
-                        .arg(tag_name_0)
-                        .arg(revision)
-                        .arg("--force")
-                        .arg("--no-sign")
-                })
+                .spawn_with(
+                    move |c| {
+                        c.arg("tag")
+                            .arg(tag_name_0)
+                            .arg(revision)
+                            .arg("--force")
+                            .arg("--no-sign")
+                    },
+                    None,
+                    None,
+                )
                 .await
             {
                 Ok(r) => Ok(r),
@@ -966,11 +987,20 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         "checkout_git: failed to tag commit {:?}, attempting fetch.",
                         cause
                     );
+                    let pb = Some(ProgressHandler::new(
+                        self.sess.progress.clone(),
+                        GitProgressOps::Checkout,
+                        name,
+                    ));
                     // Attempt to fetch from remote and retry, as commits seem unavailable.
                     git.clone()
-                        .spawn_with(move |c| c.arg("fetch").arg("--all"))
+                        .spawn_with(
+                            move |c| c.arg("fetch").arg("--all").arg("--progress"),
+                            Some(self.sess.git_throttle.clone()),
+                            pb,
+                        )
                         .await?;
-                    git.clone().spawn_with(move |c| c.arg("tag").arg(tag_name_1).arg(revision).arg("--force").arg("--no-sign")).map_err(|cause| {
+                    git.clone().spawn_with(move |c| c.arg("tag").arg(tag_name_1).arg(revision).arg("--force").arg("--no-sign"), None, None).map_err(|cause| {
                         if !self.sess.suppress_warnings.contains("W08") {
                             warnln!("[W08] Please ensure the commits are available on the remote or run bender update");
                         }
@@ -985,34 +1015,80 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 }
             }?;
             if clear == CheckoutState::ToClone {
+                let pb = Some(ProgressHandler::new(
+                    self.sess.progress.clone(),
+                    GitProgressOps::Checkout,
+                    name,
+                ));
                 git.clone()
-                    .spawn_with(move |c| {
-                        c.arg("clone")
-                            .arg(git.path)
-                            .arg(path)
-                            .arg("--branch")
-                            .arg(tag_name_2)
-                    })
+                    .spawn_with(
+                        move |c| {
+                            c.arg("clone")
+                                .arg(git.path)
+                                .arg(path)
+                                .arg("--branch")
+                                .arg(tag_name_2)
+                                .arg("--progress")
+                        },
+                        None,
+                        pb,
+                    )
                     .await?;
             } else if clear == CheckoutState::ToCheckout {
                 local_git
                     .clone()
-                    .spawn_with(move |c| c.arg("fetch").arg("--all").arg("--tags").arg("--prune"))
+                    .spawn_with(
+                        move |c| {
+                            c.arg("fetch")
+                                .arg("--all")
+                                .arg("--tags")
+                                .arg("--prune")
+                                .arg("--progress")
+                        },
+                        None,
+                        None,
+                    )
                     .await?;
+                let pb = Some(ProgressHandler::new(
+                    self.sess.progress.clone(),
+                    GitProgressOps::Checkout,
+                    name,
+                ));
                 local_git
                     .clone()
-                    .spawn_with(move |c| c.arg("checkout").arg(tag_name_2).arg("--force"))
+                    .spawn_with(
+                        move |c| {
+                            c.arg("checkout")
+                                .arg(tag_name_2)
+                                .arg("--force")
+                                .arg("--progress")
+                        },
+                        Some(self.sess.git_throttle.clone()),
+                        pb,
+                    )
                     .await?;
             }
-            local_git
-                .clone()
-                .spawn_with(move |c| {
-                    c.arg("submodule")
-                        .arg("update")
-                        .arg("--init")
-                        .arg("--recursive")
-                })
-                .await?;
+            if path.join(".gitmodules").exists() {
+                let pb = Some(ProgressHandler::new(
+                    self.sess.progress.clone(),
+                    GitProgressOps::Submodule,
+                    name,
+                ));
+                local_git
+                    .clone()
+                    .spawn_with(
+                        move |c| {
+                            c.arg("submodule")
+                                .arg("update")
+                                .arg("--init")
+                                .arg("--recursive")
+                                .arg("--progress")
+                        },
+                        Some(self.sess.git_throttle.clone()),
+                        pb,
+                    )
+                    .await?;
+            }
         }
         Ok(path)
     }

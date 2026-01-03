@@ -7,10 +7,35 @@ use std;
 use std::fmt;
 #[allow(deprecated)]
 use std::sync::atomic::{AtomicBool, ATOMIC_BOOL_INIT};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
+
+use console::style;
+use indicatif::MultiProgress;
 
 #[allow(deprecated)]
 pub static ENABLE_DEBUG: AtomicBool = ATOMIC_BOOL_INIT;
+
+/// A global hook for the progress bar
+pub static GLOBAL_MULTI_PROGRESS: RwLock<Option<MultiProgress>> = RwLock::new(None);
+
+/// Helper function to print diagnostics safely without messing up progress bars.
+pub fn print_diagnostic(severity: Severity, msg: &str) {
+    let text = format!("{} {}", severity, msg);
+
+    // Try to acquire read access to the global progress bar
+    if let Ok(guard) = GLOBAL_MULTI_PROGRESS.read() {
+        if let Some(mp) = &*guard {
+            // SUSPEND: Hides progress bars, prints the message, then redraws bars.
+            mp.suspend(|| {
+                eprintln!("{}", text);
+            });
+            return;
+        }
+    }
+
+    // Fallback: Just print if no bar is registered or lock is poisoned
+    eprintln!("{}", text);
+}
 
 /// Print an error.
 #[macro_export]
@@ -26,8 +51,8 @@ macro_rules! warnln {
 
 /// Print an informational note.
 #[macro_export]
-macro_rules! noteln {
-    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Note; $($arg)*); }
+macro_rules! infoln {
+    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Info; $($arg)*); }
 }
 
 /// Print debug information. Omitted in release builds.
@@ -39,6 +64,12 @@ macro_rules! debugln {
             diagnostic!($crate::error::Severity::Debug; $($arg)*);
         }
     }
+}
+
+/// Format and print stage progress.
+#[macro_export]
+macro_rules! stageln {
+    ($stage_name:expr, $($arg:tt)*) => { diagnostic!($crate::error::Severity::Stage($stage_name); $($arg)*); }
 }
 
 /// Print debug information. Omitted in release builds.
@@ -53,7 +84,7 @@ macro_rules! debugln {
 /// Emit a diagnostic message.
 macro_rules! diagnostic {
     ($severity:expr; $($arg:tt)*) => {
-        eprintln!("{} {}", $severity, format!($($arg)*))
+        $crate::error::print_diagnostic($severity, &format!($($arg)*))
     }
 }
 
@@ -61,20 +92,54 @@ macro_rules! diagnostic {
 #[derive(PartialEq, Eq)]
 pub enum Severity {
     Debug,
-    Note,
+    Info,
     Warning,
     Error,
+    Stage(&'static str),
+}
+
+/// Style a message in green bold.
+#[macro_export]
+macro_rules! green_bold {
+    ($arg:expr) => {
+        console::style($arg).green().bold()
+    };
+}
+
+/// Style a message in green bold.
+#[macro_export]
+macro_rules! red_bold {
+    ($arg:expr) => {
+        console::style($arg).red().bold()
+    };
+}
+
+/// Style a message in dimmed text.
+#[macro_export]
+macro_rules! dim {
+    ($arg:expr) => {
+        console::style($arg).dim()
+    };
+}
+
+/// Style a message in bold text.
+#[macro_export]
+macro_rules! bold {
+    ($arg:expr) => {
+        console::style($arg).bold()
+    };
 }
 
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let (color, prefix) = match *self {
-            Severity::Error => ("\x1B[31;1m", "error"),
-            Severity::Warning => ("\x1B[33;1m", "warning"),
-            Severity::Note => ("\x1B[;1m", "note"),
-            Severity::Debug => ("\x1B[34;1m", "debug"),
+        let styled_str = match *self {
+            Severity::Error => style("Error:").red().bold(),
+            Severity::Warning => style("Warning:").yellow().bold(),
+            Severity::Info => style("Info:").white().bold(),
+            Severity::Debug => style("Debug:").blue().bold(),
+            Severity::Stage(name) => style(name).green().bold(),
         };
-        write!(f, "{}{}:\x1B[m", color, prefix)
+        write!(f, "  {}", styled_str)
     }
 }
 
@@ -145,17 +210,4 @@ impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Error {
         Error::chain("Cannot startup runtime.".to_string(), err)
     }
-}
-
-/// Format and print stage progress.
-#[macro_export]
-macro_rules! stageln {
-    ($stage:expr, $($arg:tt)*) => {
-        $crate::error::println_stage($stage, &format!($($arg)*))
-    }
-}
-
-/// Print stage progress.
-pub fn println_stage(stage: &str, message: &str) {
-    eprintln!("\x1B[32;1m{:>12}\x1B[0m {}", stage, message);
 }
