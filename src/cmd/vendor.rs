@@ -96,14 +96,14 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         let dep_path = match dep_src {
             DependencySource::Path(path) => path,
             DependencySource::Git(ref url) => {
-                let git = Git::new(tmp_path, &sess.config.git, sess.git_throttle.clone());
+                let git = Git::new(tmp_path, &sess.config.git);
                 rt.block_on(async {
                     let pb = ProgressHandler::new(
                         sess.progress.clone(),
                         GitProgressOps::Clone,
                         vendor_package.name.as_str(),
                     );
-                    git.clone().spawn_with(|c| c.arg("clone").arg(url).arg("."), Some(pb))
+                    git.clone().spawn_with(|c| c.arg("clone").arg(url).arg("."), Some(sess.git_throttle.clone()), Some(pb))
                     .map_err(move |cause| {
                         if url.contains("git@") {
                             warnln!("[W07] Please ensure your public ssh key is added to the git server.");
@@ -123,8 +123,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                         GitProgressOps::Checkout,
                         vendor_package.name.as_str(),
                     );
-                    git.clone().spawn_with(|c| c.arg("checkout").arg(rev_hash), Some(pb)).await?;
-                    if *rev_hash != git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{}^{{commit}}", rev_hash)), None).await?.trim_end_matches('\n') {
+                    git.clone().spawn_with(|c| c.arg("checkout").arg(rev_hash), None ,Some(pb)).await?;
+                    if *rev_hash != git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{}^{{commit}}", rev_hash)), None, None).await?.trim_end_matches('\n') {
                         Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout"))
                     } else {
                         Ok(())
@@ -190,7 +190,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
             seen_paths.insert(patch_link.to_prefix.clone());
         }
-        let git = Git::new(tmp_path, &sess.config.git, sess.git_throttle.clone());
+        let git = Git::new(tmp_path, &sess.config.git);
 
         match matches.subcommand() {
             Some(("diff", matches)) => {
@@ -450,6 +450,7 @@ pub fn apply_patches(
                             c
                         },
                         None,
+                        None,
                     )
                 })
                 .await
@@ -530,6 +531,7 @@ pub fn diff(
                         .expect("Failed to convert from_prefix to string.")
                 ))
             },
+            None,
             None,
         )
         .await
@@ -619,7 +621,6 @@ pub fn gen_format_patch(
             to_path.parent().unwrap()
         },
         &sess.config.git,
-        sess.git_throttle.clone(),
     );
 
     // If the patch link maps a file, use the parent directory for the following git operations.
@@ -666,7 +667,11 @@ pub fn gen_format_patch(
 
     // Get staged changes in dependency
     let get_diff_cached = rt
-        .block_on(async { git_parent.spawn_with(|c| c.args(&diff_args), None).await })
+        .block_on(async {
+            git_parent
+                .spawn_with(|c| c.args(&diff_args), None, None)
+                .await
+        })
         .map_err(|cause| Error::chain("Failed to generate diff", cause))?;
 
     if !get_diff_cached.is_empty() {
@@ -684,8 +689,8 @@ pub fn gen_format_patch(
                     .arg(&from_path_relative)
                     .arg("-p1")
                     .arg(&diff_cached_path)
-            }, None)
-            .and_then(|_| git.clone().spawn_with(|c| c.arg("add").arg("--all"), None))
+            }, None, None)
+            .and_then(|_| git.clone().spawn_with(|c| c.arg("add").arg("--all"), None, None))
             .await
         }).map_err(|cause| Error::chain("Could not apply staged changes on top of patched upstream repository. Did you commit all previously patched modifications?", cause))?;
 
@@ -747,6 +752,7 @@ pub fn gen_format_patch(
                         ))
                         .arg("HEAD")
                 },
+                None,
                 None,
             )
             .await
