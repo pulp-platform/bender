@@ -105,6 +105,14 @@ pub fn main() -> Result<()> {
     // Parse the arguments.
     let matches = app.clone().get_matches();
 
+    let diagnostic = Diagnostics::new(
+        matches
+            .get_many::<String>("suppress")
+            .unwrap_or_default()
+            .map(|s| s.to_owned())
+            .collect(),
+    );
+
     let mut suppressed_warnings: IndexSet<String> = matches
         .get_many::<String>("suppress")
         .unwrap_or_default()
@@ -177,6 +185,7 @@ pub fn main() -> Result<()> {
         matches.get_flag("local"),
         force_fetch,
         git_throttle,
+        diagnostic,
         suppressed_warnings,
     );
 
@@ -245,13 +254,10 @@ pub fn main() -> Result<()> {
                     )
                 })?;
                 if !meta.file_type().is_symlink() {
-                    if !sess.suppress_warnings.contains("W01") {
-                        warnln!(
-                            "[W01] Skipping link to package {} at {:?} since there is something there",
-                            pkg_name,
-                            path
-                        );
-                    }
+                    sess.diagnostics.emit(Warnings::SkipPackageLink {
+                        pkg_name: pkg_name.clone(),
+                        path: path.clone(),
+                    });
                     continue;
                 }
                 if path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
@@ -489,7 +495,11 @@ fn load_config(
 }
 
 /// Load a configuration file if it exists.
-fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<PartialConfig>> {
+fn maybe_load_config(
+    path: &Path,
+    warn_config_loaded: bool,
+    diagnostics: &Diagnostics,
+) -> Result<Option<PartialConfig>> {
     use std::fs::File;
     debugln!("maybe_load_config: {:?}", path);
     if !path.exists() {
@@ -499,6 +509,12 @@ fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<Par
         .map_err(|cause| Error::chain(format!("Cannot open config {:?}.", path), cause))?;
     let partial: PartialConfig = serde_yaml_ng::from_reader(file)
         .map_err(|cause| Error::chain(format!("Syntax error in config {:?}.", path), cause))?;
+    diagnostics.emit_if(
+        warn_config_loaded,
+        Warnings::UsingConfigForOverrides {
+            path: path.to_path_buf(),
+        },
+    );
     if warn_config_loaded {
         warnln!("[W02] Using config at {:?} for overrides.", path)
     };

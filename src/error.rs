@@ -3,13 +3,14 @@
 
 //! Error chaining and reporting facilities.
 
-use std;
 use std::fmt;
+use std::path::PathBuf;
 #[allow(deprecated)]
 use std::sync::atomic::{AtomicBool, ATOMIC_BOOL_INIT};
 use std::sync::{Arc, RwLock};
 
 use console::style;
+use indexmap::IndexSet;
 use indicatif::MultiProgress;
 
 #[allow(deprecated)]
@@ -130,6 +131,14 @@ macro_rules! bold {
     };
 }
 
+/// Style a message with underlined text.
+#[macro_export]
+macro_rules! underline {
+    ($arg:expr) => {
+        console::style($arg).underlined()
+    };
+}
+
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let styled_str = match *self {
@@ -209,5 +218,92 @@ impl From<Error> for String {
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Error {
         Error::chain("Cannot startup runtime.".to_string(), err)
+    }
+}
+
+#[repr(i32)]
+pub enum Warnings {
+    SkipPackageLink { pkg_name: String, path: PathBuf } = 1,
+    UsingConfigForOverrides { path: PathBuf } = 2,
+    _NumWarnings,
+}
+
+impl Warnings {
+    /// Get the warning code as an integer, e.g., 1.
+    fn code(&self) -> i32 {
+        // From rust docs:
+        // If the enumeration specifies a primitive representation,
+        // then the discriminant may be reliably accessed via unsafe pointer casting:
+        // https://doc.rust-lang.org/reference/items/enumerations.html#r-items.enum.discriminant.access-memory
+        // Rust stores the discrimanant as the same type as the representation, which
+        // can be accesed by casting the enum reference to a pointer of that type.
+        unsafe { *(self as *const Self as *const i32) }
+    }
+
+    /// Get the warning code as a string, e.g., "W01".
+    fn code_str(&self) -> String {
+        format!("W{:02}", self.code())
+    }
+}
+
+/// A diagnostics handler for warnings and errors.
+pub struct Diagnostics {
+    /// A set of suppressed warning codes.
+    suppress_warnings: IndexSet<i32>,
+}
+
+impl Diagnostics {
+    pub fn new(suppress_warnings: IndexSet<String>) -> Diagnostics {
+        // Build the set of suppressed warning codes, either all...
+        if suppress_warnings.contains("all") || suppress_warnings.contains("Wall") {
+            return Diagnostics {
+                suppress_warnings: (1..=Warnings::_NumWarnings.code()).collect(),
+            };
+        }
+        // ...or only specific ones.
+        let suppress_warnings = suppress_warnings
+            .iter()
+            .filter_map(|s| s.strip_prefix('W'))
+            .filter_map(|s| s.parse::<i32>().ok())
+            .collect();
+
+        Diagnostics { suppress_warnings }
+    }
+
+    /// Emit a warning if it is not suppressed.
+    pub fn emit(&self, warning: Warnings) {
+        if !self.suppress_warnings.contains(&warning.code()) {
+            eprintln!("{}", warning);
+        }
+    }
+
+    /// Emit a warning if
+    pub fn emit_if(&self, condition: bool, warning: Warnings) {
+        if condition {
+            self.emit(warning);
+        }
+    }
+}
+
+impl fmt::Display for Warnings {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // Helper macro to write a warning message, with given code and format args.
+        macro_rules! warn {
+            ($($arg:tt)*) => {{
+                let prefix = console::style(format!("  Warning[{}]", self.code_str())).yellow().bold();
+                write!(f, "{}: ", prefix)?;
+                write!(f, $($arg)*)
+            }};
+        }
+        match self {
+            Warnings::SkipPackageLink { pkg_name, path } => {
+                warn!(
+                    "Skipping link to package {} at path {}, which does not exist.",
+                    bold!(pkg_name),
+                    underline!(path.display())
+                )
+            }
+            _ => Ok(()),
+        }
     }
 }

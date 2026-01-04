@@ -81,6 +81,8 @@ pub struct Session<'ctx> {
     pub local_only: bool,
     /// A list of warnings to suppress.
     pub suppress_warnings: IndexSet<String>,
+    /// The diagnostic handlers for warnings and errors.
+    pub diagnostics: Diagnostics,
     /// The global progress bar manager.
     pub progress: MultiProgress,
 }
@@ -96,6 +98,7 @@ impl<'ctx> Session<'ctx> {
         local_only: bool,
         force_fetch: bool,
         git_throttle: usize,
+        diagnostics: Diagnostics,
         suppress_warnings: IndexSet<String>,
     ) -> Session<'ctx> {
         // Initialize the global multi-progress bar
@@ -130,6 +133,7 @@ impl<'ctx> Session<'ctx> {
             git_throttle: Arc::new(Semaphore::new(git_throttle)),
             local_only,
             suppress_warnings,
+            diagnostics,
             progress: mpb,
         }
     }
