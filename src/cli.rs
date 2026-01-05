@@ -35,24 +35,24 @@ use crate::sess::{Session, SessionArenas, SessionIo};
 #[command(styles = cli_styles())]
 struct Cli {
     /// Sets a custom root working directory
-    #[arg(short, long, global = true)]
+    #[arg(short, long, global = true, help_heading = "Global Options")]
     dir: Option<String>,
 
     /// Disables fetching of remotes (e.g. for air-gapped computers)
-    #[arg(long, global = true, action = ArgAction::SetTrue)]
+    #[arg(long, global = true, action = ArgAction::SetTrue, help_heading = "Global Options")]
     local: bool,
 
     /// Sets the maximum number of concurrent git operations
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Global Options")]
     git_throttle: Option<usize>,
 
     /// Suppresses specific warnings. Use `all` to suppress all warnings.
-    #[arg(long, global = true, action = ArgAction::Append, value_parser = value_parser!(String))]
+    #[arg(long, global = true, action = ArgAction::Append, value_parser = value_parser!(String), help_heading = "Global Options")]
     suppress: Vec<String>,
 
     /// Print additional debug information
     #[cfg(debug_assertions)]
-    #[arg(long, global = true, action = clap::ArgAction::SetTrue)]
+    #[arg(long, global = true, action = clap::ArgAction::SetTrue, help_heading = "Global Options")]
     debug: bool,
 
     #[command(subcommand)]
