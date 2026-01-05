@@ -14,6 +14,7 @@ use std::fs::{canonicalize, metadata};
 #[cfg(windows)]
 use dunce::canonicalize;
 
+use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::parser::ValuesRef;
 use clap::{value_parser, ArgAction, CommandFactory, Parser, Subcommand};
 use indexmap::IndexSet;
@@ -31,6 +32,7 @@ use crate::sess::{Session, SessionArenas, SessionIo};
 #[command(name = "bender")]
 #[command(author, version, about, long_about = None)]
 #[command(after_help = "Type 'bender <SUBCOMMAND> --help' for more information...")]
+#[command(styles = cli_styles())]
 struct Cli {
     /// Sets a custom root working directory
     #[arg(short, long, global = true)]
@@ -77,6 +79,18 @@ enum Commands {
     Init,
     Snapshot(cmd::snapshot::SnapshotArgs),
     Audit(cmd::audit::AuditArgs),
+}
+
+// Define a custom style for the CLI
+fn cli_styles() -> Styles {
+    Styles::styled()
+        .header(AnsiColor::Green.on_default() | Effects::BOLD)
+        .usage(AnsiColor::Green.on_default() | Effects::BOLD)
+        .literal(AnsiColor::Cyan.on_default() | Effects::BOLD)
+        .placeholder(AnsiColor::Cyan.on_default())
+        .error(AnsiColor::Red.on_default() | Effects::BOLD)
+        .valid(AnsiColor::Cyan.on_default() | Effects::BOLD)
+        .invalid(AnsiColor::Yellow.on_default() | Effects::BOLD)
 }
 
 /// Inner main function which can return an error.
