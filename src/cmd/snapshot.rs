@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::process::Command as SysCommand;
 
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::{ArgAction, Args};
 use indexmap::IndexMap;
 use tokio::runtime::Runtime;
 
@@ -16,52 +16,70 @@ use crate::error::*;
 use crate::sess::{DependencySource, Session, SessionIo};
 
 /// Assemble the `snapshot` subcommand.
-pub fn new() -> Command {
-    Command::new("snapshot")
-        .about("Snapshot the cloned IPs from the working directory into the Bender.lock file")
-        .arg(
-            Arg::new("working_dir")
-                .long("working-dir")
-                .num_args(1)
-                .required(false)
-                .default_value("working_dir")
-                .help("Working directory to snapshot dependencies from"),
-        )
-        .arg(
-            Arg::new("no_skip")
-                .long("no-skip")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Do not skip dependencies that are dirty"),
-        )
-        .arg(
-            Arg::new("checkout")
-                .long("checkout")
-                .short('c')
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Checkout the dependencies snapshotted into the lockfile"),
-        )
-        .arg(
-            Arg::new("forcibly")
-                .long("force")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .requires("checkout")
-                .help("Force update of dependencies in a custom checkout_dir. Please use carefully to avoid losing work."),
-        )
+// pub fn new() -> Command {
+//     Command::new("snapshot")
+//         .about("Snapshot the cloned IPs from the working directory into the Bender.lock file")
+//         .arg(
+//             Arg::new("working_dir")
+//                 .long("working-dir")
+//                 .num_args(1)
+//                 .required(false)
+//                 .default_value("working_dir")
+//                 .help("Working directory to snapshot dependencies from"),
+//         )
+//         .arg(
+//             Arg::new("no_skip")
+//                 .long("no-skip")
+//                 .num_args(0)
+//                 .action(ArgAction::SetTrue)
+//                 .help("Do not skip dependencies that are dirty"),
+//         )
+//         .arg(
+//             Arg::new("checkout")
+//                 .long("checkout")
+//                 .short('c')
+//                 .num_args(0)
+//                 .action(ArgAction::SetTrue)
+//                 .help("Checkout the dependencies snapshotted into the lockfile"),
+//         )
+//         .arg(
+//             Arg::new("forcibly")
+//                 .long("force")
+//                 .num_args(0)
+//                 .action(ArgAction::SetTrue)
+//                 .requires("checkout")
+//                 .help("Force update of dependencies in a custom checkout_dir. Please use carefully to avoid losing work."),
+//         )
+// }
+
+/// Snapshot the cloned IPs from the working directory into the Bender.lock file
+#[derive(Args, Debug)]
+pub struct SnapshotArgs {
+    /// Working directory to snapshot dependencies from
+    #[arg(long = "working-dir", default_value = "working_dir")]
+    pub working_dir: String,
+
+    /// Do not skip dependencies that are dirty
+    #[arg(long = "no-skip", action = ArgAction::SetTrue)]
+    pub no_skip: bool,
+
+    /// Checkout the dependencies snapshotted into the lockfile
+    #[arg(long = "checkout", short = 'c', action = ArgAction::SetTrue)]
+    pub checkout: bool,
+
+    /// Force update of dependencies in a custom checkout_dir. Please use carefully to avoid losing work.
+    #[arg(long = "force", action = ArgAction::SetTrue, requires = "checkout")]
+    pub forcibly: bool,
 }
 
 /// Execute the `snapshot` subcommand.
-pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
-    let working_dir = matches.get_one::<String>("working_dir").unwrap();
-
+pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
     let mut snapshot_list = Vec::new();
 
     // Loop through existing deps to find the ones that are overridden to the working directory
     for (name, dep) in sess.config.overrides.iter() {
-        if let Dependency::Path(override_path, _) = dep {
-            if override_path.starts_with(sess.root.join(working_dir)) {
+        if let Dependency::Path(override_path) = dep {
+            if override_path.starts_with(sess.root.join(&args.working_dir)) {
                 if let DependencySource::Path(dep_path) =
                     sess.dependency_source(sess.dependency_with_name(name)?)
                 {
@@ -74,7 +92,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                             .output()?
                             .stdout
                             .is_empty()
-                            && !matches.get_flag("no_skip")
+                            && !args.no_skip
                         {
                             warnln!(
                                 "Skipping dirty dependency {}\
@@ -217,12 +235,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     serde_yaml_ng::to_writer(&file, &locked)
         .map_err(|cause| Error::chain(format!("Cannot write lockfile {:?}.", sess.root), cause))?;
 
-    if matches.get_flag("checkout") {
+    if args.checkout {
         sess.load_locked(&locked)?;
 
         let rt = Runtime::new()?;
         let io = SessionIo::new(sess);
-        let _srcs = rt.block_on(io.sources(matches.get_flag("forcibly"), &[]))?;
+        let _srcs = rt.block_on(io.sources(args.forcibly, &[]))?;
     }
 
     let snapshotted_deps = snapshot_list

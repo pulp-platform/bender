@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::{ArgAction, Args};
 use indexmap::IndexSet;
 use tabwriter::TabWriter;
 
@@ -17,55 +17,34 @@ use crate::lockfile::*;
 use crate::resolver::DependencyResolver;
 use crate::sess::Session;
 
-/// Assemble the `update` subcommand.
-pub fn new() -> Command {
-    Command::new("update")
-        .about("Update the dependencies")
-        .arg(
-            Arg::new("fetch")
-                .short('f')
-                .long("fetch")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("forces fetch of git dependencies"),
-        )
-        .arg(
-            Arg::new("no-checkout")
-                .long("no-checkout")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Disables checkout of dependencies"),
-        )
-        .arg(
-            Arg::new("ignore-checkout-dir")
-                .long("ignore-checkout-dir")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Overwrites modified dependencies in `checkout_dir` if specified"),
-        )
-        .arg(
-            Arg::new("dep")
-                .required(false)
-                .num_args(1..)
-                .help("Dependencies to update"),
-        )
-        .arg(
-            Arg::new("recursive")
-                .long("recursive")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .requires("dep")
-                .help(
-                    "Update requested dependencies recursively, i.e., including their dependencies",
-                ),
-        )
+/// Update the dependencies
+#[derive(Args, Debug)]
+pub struct UpdateArgs {
+    /// forces fetch of git dependencies
+    #[arg(short = 'f', long = "fetch", action = ArgAction::SetTrue)]
+    pub fetch: bool,
+
+    /// Disables checkout of dependencies
+    #[arg(long = "no-checkout", action = ArgAction::SetTrue)]
+    pub no_checkout: bool,
+
+    /// Overwrites modified dependencies in `checkout_dir` if specified
+    #[arg(long = "ignore-checkout-dir", action = ArgAction::SetTrue)]
+    pub ignore_checkout_dir: bool,
+
+    /// Dependencies to update
+    #[arg(num_args(1..))]
+    pub dep: Option<Vec<String>>,
+
+    /// Update requested dependencies recursively, i.e., including their dependencies
+    #[arg(long = "recursive", action = ArgAction::SetTrue, requires = "dep")]
+    pub recursive: bool,
 }
 
 /// Execute the `update` subcommand.
-pub fn setup(matches: &ArgMatches, suppress_warnings: &IndexSet<String>) -> Result<bool> {
-    let force_fetch = matches.get_flag("fetch");
-    if matches.get_flag("local") && matches.get_flag("fetch") && !suppress_warnings.contains("W14")
-    {
+pub fn setup(args: &UpdateArgs, suppress_warnings: &IndexSet<String>) -> Result<bool> {
+    let force_fetch = args.fetch;
+    if args.fetch && !suppress_warnings.contains("W14") {
         warnln!(
             "[W14] As --local argument is set for bender command, no fetching will be performed."
         );
@@ -75,19 +54,18 @@ pub fn setup(matches: &ArgMatches, suppress_warnings: &IndexSet<String>) -> Resu
 
 /// Execute an update (for the `update` subcommand).
 pub fn run<'ctx>(
-    matches: &ArgMatches,
+    args: &UpdateArgs,
     sess: &'ctx Session<'ctx>,
     existing: Option<&'ctx Locked>,
 ) -> Result<(Locked, Vec<String>)> {
-    let ignore_checkout_dir = matches.get_flag("ignore-checkout-dir");
-
+    let ignore_checkout_dir = args.ignore_checkout_dir;
     let mut keep_locked = match existing {
         Some(existing) => existing.packages.keys().collect(),
         None => IndexSet::new(),
     };
 
-    let mut requested = match matches.get_many::<String>("dep") {
-        Some(deps) => deps.map(|dep| dep.to_string()).collect(),
+    let mut requested = match args.dep.as_ref() {
+        Some(deps) => deps.iter().cloned().collect(),
         None => {
             keep_locked = IndexSet::new();
             IndexSet::new()
@@ -104,7 +82,7 @@ pub fn run<'ctx>(
     }
 
     // Unlock dependencies recursively
-    if matches.get_flag("recursive") {
+    if args.recursive {
         if let Some(existing_locked) = existing {
             let mut nochange = true;
             while nochange {
@@ -215,12 +193,12 @@ pub fn run_plain<'ctx>(
 /// Execute the final checkout (if not disabled).
 pub fn run_final<'ctx>(
     sess: &'ctx Session<'ctx>,
-    matches: &ArgMatches,
+    args: &UpdateArgs,
     update_list: &[String],
 ) -> Result<()> {
-    if matches.get_flag("no-checkout") {
+    if args.no_checkout {
         Ok(())
     } else {
-        cmd::checkout::run_plain(sess, matches.get_flag("ignore-checkout-dir"), update_list)
+        cmd::checkout::run_plain(sess, args.ignore_checkout_dir, update_list)
     }
 }

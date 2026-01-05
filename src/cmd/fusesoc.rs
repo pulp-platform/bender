@@ -11,7 +11,7 @@ use std::fs::read_to_string;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
+use clap::{ArgAction, Args};
 use indexmap::{IndexMap, IndexSet};
 use is_terminal::IsTerminal;
 use itertools::Itertools;
@@ -24,62 +24,36 @@ use crate::src::{SourceFile, SourceGroup};
 use crate::target::TargetSet;
 use crate::target::TargetSpec;
 
-/// Assemble the `fusesoc` subcommand.
-pub fn new() -> Command {
-    Command::new("fusesoc")
-        .about("Creates a FuseSoC `.core` file for all dependencies where none is present")
-        .arg(
-            Arg::new("single")
-                .long("single")
-                .help("Only create a `.core` file for the top package, based directly on the `Bender.yml`.")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-        )
-        .arg(
-            Arg::new("license")
-                .long("license")
-                .help(
-                    "Additional commented info (e.g. License) to add to the top of the YAML file.",
-                )
-                .num_args(1)
-                .action(ArgAction::Append)
-                .value_parser(value_parser!(String)),
-        )
-        .arg(
-            Arg::new("vendor")
-                .long("fuse_vendor")
-                .help("Vendor string to add for generated `.core` files")
-                .num_args(1)
-                .value_parser(value_parser!(String)),
-        )
-        .arg(
-            Arg::new("version")
-                .long("fuse_version")
-                .help("Version string for the top package to add for generated `.core` file.")
-                .num_args(1)
-                .value_parser(value_parser!(String)),
-        )
+/// Creates a FuseSoC `.core` file for all dependencies where none is present
+#[derive(Args, Debug)]
+pub struct FusesocArgs {
+    /// Only create a `.core` file for the top package, based directly on the `Bender.yml.`
+    #[arg(long = "single", action = ArgAction::SetTrue)]
+    pub single: bool,
+
+    /// Additional commented info (e.g. License) to add to the top of the YAML file.
+    #[arg(long = "license", action = ArgAction::Append)]
+    pub license: Vec<String>,
+
+    /// Vendor string to add for generated `.core` files
+    #[arg(long = "fuse_vendor")]
+    pub vendor: Option<String>,
+
+    /// Version string for the top package to add for generated `.core` file.
+    #[arg(long = "fuse_version")]
+    pub version: Option<String>,
 }
 
 /// Execute the `fusesoc --single` subcomand.
-pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
+pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
     let bender_generate_flag = "Created by bender from the available manifest file.";
-    let lic_string = matches.get_many::<String>("license").unwrap_or_default();
-    let mut lic_vec: Vec<&String> = Vec::new();
-    for line in lic_string.clone() {
-        lic_vec.push(line);
-    }
-    let vendor_string = match matches.get_one::<String>("vendor") {
-        Some(vendor) => vendor,
-        None => "",
-    };
-    let version_string = match matches.get_one::<String>("version") {
+    let vendor_string = args.vendor.as_deref().unwrap_or("");
+    let version_string = match &args.version {
         Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
             Error::chain(format!("Unable to parse version {}.", version), cause)
         })?),
         None => None,
     };
-
     let name = &sess.manifest.package.name;
 
     let srcs = match &sess.manifest.sources {
@@ -149,7 +123,7 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
         &fuse_depend_string,
         &pkg_manifest_paths,
         bender_generate_flag.to_string(),
-        lic_vec.clone(),
+        &args.license,
     )?;
 
     fs::write(core_path, fuse_str).map_err(|cause| {
@@ -164,18 +138,10 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
 }
 
 /// Execute the `fusesoc` subcommand.
-pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
+pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
     let bender_generate_flag = "Created by bender from the available manifest file.";
-    let lic_string = matches.get_many::<String>("license").unwrap_or_default();
-    let mut lic_vec: Vec<&String> = Vec::new();
-    for line in lic_string.clone() {
-        lic_vec.push(line);
-    }
-    let vendor_string = match matches.get_one::<String>("vendor") {
-        Some(vendor) => vendor,
-        None => "",
-    };
-    let version_string = match matches.get_one::<String>("version") {
+    let vendor_string = args.vendor.as_deref().unwrap_or("");
+    let version_string = match &args.version {
         Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
             Error::chain(format!("Unable to parse version {}.", version), cause)
         })?),
@@ -356,7 +322,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             &fuse_depend_string,
             &pkg_manifest_paths,
             bender_generate_flag.to_string(),
-            lic_vec.clone(),
+            &args.license,
         )?;
 
         fs::write(&generate_files[pkg], fuse_str).map_err(|cause| {
@@ -373,12 +339,12 @@ fn get_fuse_file_str(
     fuse_depend_string: &IndexMap<String, String>,
     pkg_manifest_paths: &IndexMap<String, PathBuf>,
     bender_generate_flag: String,
-    lic_string: Vec<&String>,
+    lic_string: &[String],
 ) -> Result<String> {
     let mut fuse_str = "CAPI=2:\n".to_string();
     fuse_str.push_str(&format!("# {}\n\n", bender_generate_flag));
 
-    for line in lic_string.clone() {
+    for line in lic_string {
         fuse_str.push_str("# ");
         fuse_str.push_str(line);
         fuse_str.push('\n');

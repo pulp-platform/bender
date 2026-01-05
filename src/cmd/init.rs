@@ -10,17 +10,10 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Command as SysCommand;
 
-use clap::{ArgMatches, Command};
-
 use crate::error::*;
 
-/// Assemble the `init` subcommand.
-pub fn new() -> Command {
-    Command::new("init").about("Initialize a Bender package")
-}
-
 /// Execute the `init` subcommand.
-pub fn run(_matches: &ArgMatches) -> Result<()> {
+pub fn run() -> Result<()> {
     // Get working directory name
     let binding = current_dir()?;
     let cwd = binding

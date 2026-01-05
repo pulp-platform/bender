@@ -5,37 +5,30 @@
 
 use std::io::Write;
 
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::{ArgAction, Args};
 use futures::future::join_all;
 use tokio::runtime::Runtime;
 
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
 
-/// Assemble the `path` subcommand.
-pub fn new() -> Command {
-    Command::new("path")
-        .about("Get the path to a dependency")
-        .arg(
-            Arg::new("name")
-                .num_args(1..)
-                .required(true)
-                .help("Package names to get the path for"),
-        )
-        .arg(
-            Arg::new("checkout")
-                .long("checkout")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Force check out of dependency."),
-        )
+/// Get the path to a dependency
+#[derive(Args, Debug)]
+pub struct PathArgs {
+    /// Package names to get the path for
+    #[arg(num_args(1..))]
+    pub name: Vec<String>,
+
+    /// Force check out of dependency.
+    #[arg(long = "checkout", action = ArgAction::SetTrue)]
+    pub checkout: bool,
 }
 
 /// Execute the `path` subcommand.
-pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
-    let ids = matches
-        .get_many::<String>("name")
-        .unwrap()
+pub fn run(sess: &Session, args: &PathArgs) -> Result<()> {
+    let ids = args
+        .name
+        .iter()
         .map(|n| Ok((n, sess.dependency_with_name(&n.to_lowercase())?)))
         .collect::<Result<Vec<_>>>()?;
 
@@ -48,7 +41,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         .collect::<Vec<_>>();
 
     // Check out if requested or not done yet
-    if matches.get_flag("checkout") || !paths.iter().all(|p| p.exists()) {
+    if args.checkout || !paths.iter().all(|p| p.exists()) {
         debugln!("main: obtain checkouts {:?}", ids);
         let rt = Runtime::new()?;
         let checkouts = rt

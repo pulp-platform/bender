@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::{ArgAction, Args};
 use futures::future::join_all;
 use semver::VersionReq;
 use tabwriter::TabWriter;
@@ -16,36 +16,24 @@ use crate::cmd::parents::get_parent_array;
 use crate::error::*;
 use crate::sess::{DependencyVersions, Session, SessionIo};
 
-/// Assemble the `audit` subcommand.
-pub fn new() -> Command {
-    Command::new("audit")
-        .about("Get information about version conflicts and possible updates.")
-        .arg(
-            Arg::new("only-update")
-                .long("only-update")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Only show packages that can be updated."),
-        )
-        .arg(
-            Arg::new("fetch")
-                .long("fetch")
-                .short('f')
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Force fetch of git dependencies."),
-        )
-        .arg(
-            Arg::new("ignore-url-conflict")
-                .long("ignore-url-conflict")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Ignore URL conflicts when auditing."),
-        )
+/// Get information about version conflicts and possible updates.
+#[derive(Args, Debug)]
+pub struct AuditArgs {
+    /// Only show packages that can be updated.
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub only_update: bool,
+
+    /// Force fetch of git dependencies.
+    #[arg(short, long, action = ArgAction::SetTrue)]
+    pub fetch: bool,
+
+    /// Ignore URL conflicts when auditing.
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub ignore_url_conflict: bool,
 }
 
 /// Execute the `audit` subcommand.
-pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
+pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
 
@@ -58,10 +46,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             .clone()
             .iter()
             .map(|&pkg| async move {
-                futures::join!(
-                    async { *pkg },
-                    io_ref.dependency_versions(*pkg, matches.get_flag("fetch"))
-                )
+                futures::join!(async { *pkg }, io_ref.dependency_versions(*pkg, args.fetch))
             })
             .collect::<Vec<_>>();
         join_all(futures).await
@@ -122,7 +107,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     }
                 }
             }
-            if parent[1] != url && !matches.get_flag("ignore-url-conflict") {
+            if parent[1] != url && !args.ignore_url_conflict {
                 conflicting = true;
             }
         }
@@ -162,7 +147,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         if let Some(ref current_version) = current_version {
             if version_req_exists {
                 if let Some(highest_version) = highest_version {
-                    if *highest_version == *current_version && !matches.get_flag("only-update") {
+                    if *highest_version == *current_version && !args.only_update {
                         audit_str.push_str(&format!(
                             "  is \x1B[32;1mUp-to-date:\x1B[m\t@ {}\n",
                             current_version_unwrapped
