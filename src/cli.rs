@@ -4,7 +4,6 @@
 //! Main command line tool implementation.
 
 use std;
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 
@@ -15,7 +14,6 @@ use std::fs::{canonicalize, metadata};
 use dunce::canonicalize;
 
 use clap::builder::styling::{AnsiColor, Effects, Styles};
-use clap::parser::ValuesRef;
 use clap::{value_parser, ArgAction, CommandFactory, Parser, Subcommand};
 use indexmap::IndexSet;
 use serde_yaml_ng;
@@ -78,6 +76,8 @@ enum Commands {
     /// Initialize a Bender package
     Init,
     Snapshot(cmd::snapshot::SnapshotArgs),
+    #[command(external_subcommand)]
+    Plugin(Vec<String>),
 }
 
 // Define a custom style for the CLI
@@ -293,8 +293,15 @@ pub fn main() -> Result<()> {
         Commands::Vendor(args) => cmd::vendor::run(&sess, &args),
         Commands::Fusesoc(args) => cmd::fusesoc::run(&sess, &args),
         Commands::Snapshot(args) => cmd::snapshot::run(&sess, &args),
-        // TODO(fischeti): Re-enable plugins?
-        _ => Ok(()),
+        Commands::Plugin(args) => {
+            let (plugin_name, plugin_args) = args
+                .split_first()
+                .ok_or_else(|| Error::new("No command specified.".to_string()))?;
+            execute_plugin(&sess, plugin_name, plugin_args)
+        }
+        Commands::Completion(_) | Commands::Init | Commands::Clean(_) => {
+            unreachable!()
+        }
     }
 }
 
@@ -488,11 +495,7 @@ fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<Par
 }
 
 /// Execute a plugin.
-fn execute_plugin(
-    sess: &Session,
-    plugin: &str,
-    matches: Option<ValuesRef<OsString>>,
-) -> Result<()> {
+fn execute_plugin(sess: &Session, plugin: &str, args: &[String]) -> Result<()> {
     debugln!("main: execute plugin `{}`", plugin);
 
     // Obtain a list of declared plugins.
@@ -522,9 +525,8 @@ fn execute_plugin(
     );
     cmd.env("BENDER_MANIFEST_DIR", sess.root);
     cmd.current_dir(sess.root);
-    if let Some(args) = matches {
-        cmd.args(args);
-    }
+    cmd.args(args);
+
     debugln!("main: executing plugin {:#?}", cmd);
     let stat = cmd.status().map_err(|cause| {
         Error::chain(
