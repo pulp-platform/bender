@@ -23,7 +23,7 @@ pub struct CloneArgs {
     pub name: String,
 
     /// Relative directory to clone PKG into (default: working_dir)
-    #[arg(short = 'p', long = "path", default_value = "working_dir", num_args(1))]
+    #[arg(short, long, default_value = "working_dir", num_args(1))]
     pub path: String,
 }
 

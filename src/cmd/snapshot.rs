@@ -43,7 +43,7 @@ use crate::sess::{DependencySource, Session, SessionIo};
 //                 .help("Checkout the dependencies snapshotted into the lockfile"),
 //         )
 //         .arg(
-//             Arg::new("forcibly")
+//             Arg::new("force")
 //                 .long("force")
 //                 .num_args(0)
 //                 .action(ArgAction::SetTrue)
@@ -56,20 +56,20 @@ use crate::sess::{DependencySource, Session, SessionIo};
 #[derive(Args, Debug)]
 pub struct SnapshotArgs {
     /// Working directory to snapshot dependencies from
-    #[arg(long = "working-dir", default_value = "working_dir")]
+    #[arg(long, default_value = "working_dir")]
     pub working_dir: String,
 
     /// Do not skip dependencies that are dirty
-    #[arg(long = "no-skip", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub no_skip: bool,
 
     /// Checkout the dependencies snapshotted into the lockfile
-    #[arg(long = "checkout", short = 'c', action = ArgAction::SetTrue)]
+    #[arg(long, short = 'c', action = ArgAction::SetTrue)]
     pub checkout: bool,
 
     /// Force update of dependencies in a custom checkout_dir. Please use carefully to avoid losing work.
-    #[arg(long = "force", action = ArgAction::SetTrue, requires = "checkout")]
-    pub forcibly: bool,
+    #[arg(long, action = ArgAction::SetTrue, requires = "checkout")]
+    pub force: bool,
 }
 
 /// Execute the `snapshot` subcommand.
@@ -240,7 +240,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
 
         let rt = Runtime::new()?;
         let io = SessionIo::new(sess);
-        let _srcs = rt.block_on(io.sources(args.forcibly, &[]))?;
+        let _srcs = rt.block_on(io.sources(args.force, &[]))?;
     }
 
     let snapshotted_deps = snapshot_list
