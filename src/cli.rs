@@ -109,9 +109,7 @@ pub fn main() -> Result<()> {
     }
 
     let force_fetch = match cli.command {
-        Some(Commands::Update(ref intern_matches)) => {
-            cmd::update::setup(intern_matches, &suppressed_warnings)?
-        }
+        Some(Commands::Update(ref args)) => cmd::update::setup(args, &suppressed_warnings)?,
         _ => false,
     };
 
@@ -156,8 +154,8 @@ pub fn main() -> Result<()> {
         suppressed_warnings,
     );
 
-    if let Some(Commands::Clean(ref intern_matches)) = cli.command {
-        return cmd::clean::run(&sess, intern_matches.all, &root_dir);
+    if let Some(Commands::Clean(args)) = cli.command {
+        return cmd::clean::run(&sess, args.all, &root_dir);
     }
 
     // Read the existing lockfile.
