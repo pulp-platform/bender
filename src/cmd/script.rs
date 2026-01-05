@@ -22,15 +22,15 @@ use crate::target::TargetSet;
 #[derive(Args, Debug)]
 pub struct ScriptArgs {
     /// Only include sources that match the given target
-    #[arg(short, long, action = ArgAction::Append)]
+    #[arg(short, long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
     pub target: Vec<String>,
 
     /// Remove any default targets that may be added to the generated script
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue, global = true, help_heading = "General Script Options")]
     pub no_default_target: bool,
 
     /// Pass an additional define to all source files
-    #[arg(short = 'D', long, action = ArgAction::Append)]
+    #[arg(short = 'D', long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
     pub define: Vec<String>,
 
     /// Pass an argument to vcom calls (vsim/vhdlan/riviera/synopsys only)
@@ -81,24 +81,39 @@ pub struct ScriptArgs {
     pub no_source_annotations: bool,
 
     /// Specify package to show sources for
-    #[arg(short, long, action = ArgAction::Append)]
+    #[arg(short, long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
     pub package: Vec<String>,
 
     /// Exclude all dependencies, i.e. only top level or specified package(s)
-    #[arg(short, long, action = ArgAction::SetTrue)]
+    #[arg(short, long, action = ArgAction::SetTrue, global = true, help_heading = "General Script Options")]
     pub no_deps: bool,
 
     /// Specify package to exclude from sources
-    #[arg(short, long, action = ArgAction::Append)]
+    #[arg(short, long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
     pub exclude: Vec<String>,
 
     /// Add the `rtl` target to any fileset without a target specification
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue, global = true, help_heading = "General Script Options")]
     pub assume_rtl: bool,
 
     /// Ignore passed targets
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue, global = true, help_heading = "General Script Options")]
     pub ignore_passed_targets: bool,
+
+    /// Choose compilation mode option
+    #[arg(
+        long,
+        default_value_t,
+        value_enum,
+        global = true,
+        help_heading = "General Script Options"
+    )]
+    pub compilation_mode: CompilationMode,
+
+    /// Do not abort analysis/compilation on first caught error
+    #[arg(long, action = ArgAction::SetTrue, global = true, help_heading = "General Script Options")]
+    pub no_abort_on_error: bool,
+
     /// Format of the generated script
     #[command(subcommand)]
     pub format: ScriptFormat,
@@ -125,18 +140,6 @@ pub struct CommonSimArgs {
     /// Pass an argument to vlog calls
     #[arg(long, action = ArgAction::Append)]
     pub vlog_arg: Vec<String>,
-}
-
-/// Common compilation arguments
-#[derive(Args, Debug)]
-pub struct CommonCompileArgs {
-    /// Choose compilation mode option
-    #[arg(long, default_value_t, value_enum)]
-    pub compilation_mode: CompilationMode,
-
-    /// Do not abort analysis/compilation on first caught error
-    #[arg(long, action = ArgAction::SetTrue)]
-    pub no_abort_on_error: bool,
 }
 
 /// Common arguments for Vivado scripts
@@ -180,20 +183,12 @@ pub enum ScriptFormat {
         /// Common simulation arguments
         #[command(flatten)]
         common_sim: CommonSimArgs,
-
-        /// Common compilation arguments
-        #[command(flatten)]
-        common_compile: CommonCompileArgs,
     },
     /// Synopsys VCS script
     Vcs {
         /// Common simulation arguments
         #[command(flatten)]
         common_sim: CommonSimArgs,
-
-        /// Common compilation arguments
-        #[command(flatten)]
-        common_compile: CommonCompileArgs,
 
         /// Specify a `vlogan` command
         #[arg(long, default_value = "vlogan")]
@@ -210,33 +205,17 @@ pub enum ScriptFormat {
         /// Common simulation arguments
         #[command(flatten)]
         common_sim: CommonSimArgs,
-
-        /// Common compilation arguments
-        #[command(flatten)]
-        common_compile: CommonCompileArgs,
     },
     /// Synopsys Formality script
-    Formality {
-        /// Common compilation arguments
-        #[command(flatten)]
-        common_compile: CommonCompileArgs,
-    },
+    Formality,
     /// Riviera script
     Riviera {
         /// Common simulation arguments
         #[command(flatten)]
         common_sim: CommonSimArgs,
-
-        /// Common compilation arguments
-        #[command(flatten)]
-        common_compile: CommonCompileArgs,
     },
     /// Cadence Genus script
-    Genus {
-        /// Common compilation arguments
-        #[command(flatten)]
-        common_compile: CommonCompileArgs,
-    },
+    Genus {},
     /// Xilinx Vivado synthesis script
     Vivado {
         /// Do not change `simset` fileset
@@ -246,10 +225,6 @@ pub enum ScriptFormat {
         /// Common arguments for Vivado scripts
         #[command(flatten)]
         only: OnlyArgs,
-
-        /// Common compilation arguments
-        #[command(flatten)]
-        common_compile: CommonCompileArgs,
     },
     /// Xilinx Vivado simulation script
     VivadoSim {
@@ -262,11 +237,7 @@ pub enum ScriptFormat {
         only: OnlyArgs,
     },
     /// Mentor Graphics Precision script
-    Precision {
-        /// Common compilation arguments
-        #[command(flatten)]
-        common_compile: CommonCompileArgs,
-    },
+    Precision {},
     /// Custom template script
     Template {
         /// Path to a file containing the tera template string to be formatted.
@@ -356,6 +327,8 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
 
     let mut opts: RenderOptions = RenderOptions::default();
+    opts.compilation_mode = args.compilation_mode;
+    opts.no_abort_on_error = args.no_abort_on_error;
 
     // Generate the corresponding output.
     let template_content = match &args.format {
@@ -373,70 +346,39 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             opts.only_sources = only.sources;
             include_str!("../script_fmt/flist-plus.tera").to_string()
         }
-        ScriptFormat::Vsim {
-            common_sim,
-            common_compile,
-        } => {
+        ScriptFormat::Vsim { common_sim } => {
             opts.vcom_args = common_sim.vcom_arg.clone();
             opts.vlog_args = common_sim.vlog_arg.clone();
-            opts.compilation_mode = common_compile.compilation_mode;
-            opts.no_abort_on_error = common_compile.no_abort_on_error;
             include_str!("../script_fmt/vsim_tcl.tera").to_string()
         }
         ScriptFormat::Vcs {
             vlogan_bin,
             vhdlan_bin,
-            common_compile,
             common_sim,
         } => {
             opts.vcom_args = common_sim.vcom_arg.clone();
             opts.vlog_args = common_sim.vlog_arg.clone();
             opts.vlogan_bin = Some(vlogan_bin.clone());
             opts.vhdlan_bin = Some(vhdlan_bin.clone());
-            opts.compilation_mode = common_compile.compilation_mode;
-            opts.no_abort_on_error = common_compile.no_abort_on_error;
             include_str!("../script_fmt/vcs_sh.tera").to_string()
         }
         ScriptFormat::Verilator => include_str!("../script_fmt/verilator_sh.tera").to_string(),
-        ScriptFormat::Synopsys {
-            common_sim,
-            common_compile,
-        } => {
+        ScriptFormat::Synopsys { common_sim } => {
             opts.vcom_args = common_sim.vcom_arg.clone();
             opts.vlog_args = common_sim.vlog_arg.clone();
-            opts.compilation_mode = common_compile.compilation_mode;
-            opts.no_abort_on_error = common_compile.no_abort_on_error;
             include_str!("../script_fmt/synopsys_tcl.tera").to_string()
         }
-        ScriptFormat::Formality { common_compile } => {
-            opts.compilation_mode = common_compile.compilation_mode;
-            opts.no_abort_on_error = common_compile.no_abort_on_error;
-            include_str!("../script_fmt/formality_tcl.tera").to_string()
-        }
-        ScriptFormat::Riviera {
-            common_sim,
-            common_compile,
-        } => {
+        ScriptFormat::Formality {} => include_str!("../script_fmt/formality_tcl.tera").to_string(),
+        ScriptFormat::Riviera { common_sim } => {
             opts.vcom_args = common_sim.vcom_arg.clone();
             opts.vlog_args = common_sim.vlog_arg.clone();
-            opts.compilation_mode = common_compile.compilation_mode;
-            opts.no_abort_on_error = common_compile.no_abort_on_error;
             include_str!("../script_fmt/riviera_tcl.tera").to_string()
         }
-        ScriptFormat::Genus { common_compile } => {
-            opts.compilation_mode = common_compile.compilation_mode;
-            opts.no_abort_on_error = common_compile.no_abort_on_error;
-            include_str!("../script_fmt/genus_tcl.tera").to_string()
-        }
-        ScriptFormat::Vivado {
-            no_simset,
-            only,
-            common_compile,
-        } => {
+        ScriptFormat::Genus {} => include_str!("../script_fmt/genus_tcl.tera").to_string(),
+        ScriptFormat::Vivado { no_simset, only } => {
             opts.only_defines = only.defines;
             opts.only_includes = only.includes;
             opts.only_sources = only.sources;
-            opts.compilation_mode = common_compile.compilation_mode;
             if *no_simset {
                 opts.vivado_filesets = vec![""];
             } else {
@@ -453,11 +395,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             }
             include_str!("../script_fmt/vivado_tcl.tera").to_string()
         }
-        ScriptFormat::Precision { common_compile } => {
-            opts.compilation_mode = common_compile.compilation_mode;
-            opts.no_abort_on_error = common_compile.no_abort_on_error;
-            include_str!("../script_fmt/precision_tcl.tera").to_string()
-        }
+        ScriptFormat::Precision {} => include_str!("../script_fmt/precision_tcl.tera").to_string(),
         ScriptFormat::Template { template } => std::fs::read_to_string(template)?,
         ScriptFormat::TemplateJson => JSON.to_string(),
     };
