@@ -20,7 +20,7 @@ pub struct PathArgs {
     pub name: Vec<String>,
 
     /// Force check out of dependency.
-    #[arg(long = "checkout", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub checkout: bool,
 }
 

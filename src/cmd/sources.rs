@@ -20,31 +20,31 @@ use crate::target::TargetSet;
 #[derive(Args, Debug)]
 pub struct SourcesArgs {
     /// Filter sources by target
-    #[arg(short = 't', long = "target", action = ArgAction::Append)]
+    #[arg(short, long, action = ArgAction::Append)]
     pub target: Vec<String>,
 
     /// Flatten JSON struct
-    #[arg(short = 'f', long = "flatten", action = ArgAction::SetTrue)]
+    #[arg(short, long, action = ArgAction::SetTrue)]
     pub flatten: bool,
 
     /// Specify package to show sources for
-    #[arg(short = 'p', long = "package", action = ArgAction::Append)]
+    #[arg(short, long, action = ArgAction::Append)]
     pub package: Vec<String>,
 
     /// Exclude all dependencies, i.e. only top level or specified package(s)
-    #[arg(short = 'n', long = "no-deps", action = ArgAction::SetTrue)]
+    #[arg(short, long, action = ArgAction::SetTrue)]
     pub no_deps: bool,
 
     /// Specify package to exclude from sources
-    #[arg(short = 'e', long = "exclude", action = ArgAction::Append)]
+    #[arg(short, long, action = ArgAction::Append)]
     pub exclude: Vec<String>,
 
     /// Add the `rtl` target to any fileset without a target specification
-    #[arg(long = "assume-rtl", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub assume_rtl: bool,
 
     /// Exports the raw internal source tree.
-    #[arg(long = "raw", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub raw: bool,
 
     /// Ignore passed targets

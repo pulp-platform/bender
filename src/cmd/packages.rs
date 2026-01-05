@@ -17,19 +17,19 @@ use crate::sess::{DependencySource, Session, SessionIo};
 #[derive(Args, Debug)]
 pub struct PackagesArgs {
     /// Print the dependencies for each package
-    #[arg(short = 'g', long = "graph", action = ArgAction::SetTrue)]
+    #[arg(short, long, action = ArgAction::SetTrue)]
     pub graph: bool,
 
     /// Do not group packages by topological rank
-    #[arg(short = 'f', long = "flat", action = ArgAction::SetTrue)]
+    #[arg(short, long, action = ArgAction::SetTrue)]
     pub flat: bool,
 
     /// Print the version of each package
-    #[arg(long = "version", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub version: bool,
 
     /// Print the targets available for each package
-    #[arg(long = "targets", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub targets: bool,
 }
 

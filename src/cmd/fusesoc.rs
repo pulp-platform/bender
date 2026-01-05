@@ -28,27 +28,27 @@ use crate::target::TargetSpec;
 #[derive(Args, Debug)]
 pub struct FusesocArgs {
     /// Only create a `.core` file for the top package, based directly on the `Bender.yml.`
-    #[arg(long = "single", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub single: bool,
 
     /// Additional commented info (e.g. License) to add to the top of the YAML file.
-    #[arg(long = "license", action = ArgAction::Append)]
+    #[arg(long, action = ArgAction::Append)]
     pub license: Vec<String>,
 
     /// Vendor string to add for generated `.core` files
-    #[arg(long = "fuse_vendor")]
-    pub vendor: Option<String>,
+    #[arg(long)]
+    pub fuse_vendor: Option<String>,
 
     /// Version string for the top package to add for generated `.core` file.
-    #[arg(long = "fuse_version")]
-    pub version: Option<String>,
+    #[arg(long)]
+    pub fuse_version: Option<String>,
 }
 
 /// Execute the `fusesoc --single` subcomand.
 pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
     let bender_generate_flag = "Created by bender from the available manifest file.";
-    let vendor_string = args.vendor.as_deref().unwrap_or("");
-    let version_string = match &args.version {
+    let vendor_string = args.fuse_vendor.as_deref().unwrap_or("");
+    let version_string = match &args.fuse_version {
         Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
             Error::chain(format!("Unable to parse version {}.", version), cause)
         })?),
@@ -140,8 +140,8 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
 /// Execute the `fusesoc` subcommand.
 pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
     let bender_generate_flag = "Created by bender from the available manifest file.";
-    let vendor_string = args.vendor.as_deref().unwrap_or("");
-    let version_string = match &args.version {
+    let vendor_string = args.fuse_vendor.as_deref().unwrap_or("");
+    let version_string = match &args.fuse_version {
         Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
             Error::chain(format!("Unable to parse version {}.", version), cause)
         })?),

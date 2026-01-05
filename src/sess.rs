@@ -788,7 +788,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     pub async fn checkout(
         &'io self,
         dep_id: DependencyRef,
-        forcibly: bool,
+        force: bool,
         update_list: &[String],
     ) -> Result<&'ctx Path> {
         // Check if the checkout is already in the cache.
@@ -821,7 +821,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     checkout_dir,
                     self.sess.intern_string(url),
                     self.sess.intern_string(dep.revision.as_ref().unwrap()),
-                    forcibly,
+                    force,
                     update_list,
                 )
                 .await
@@ -847,7 +847,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         path: &'ctx Path,
         url: &'ctx str,
         revision: &'ctx str,
-        forcibly: bool,
+        force: bool,
         update_list: &[String],
     ) -> Result<&'ctx Path> {
         #[derive(Eq, PartialEq)]
@@ -890,7 +890,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             // the workspace configuration.
             if (checkout_already_good != CheckoutState::Clean)
                 && self.sess.manifest.workspace.checkout_dir.is_some()
-                && !forcibly
+                && !force
                 && !update_list.contains(&name.to_string())
             {
                 // If no unstaged changes, do a fetch and checkout (without cleaning the repo).
@@ -1331,7 +1331,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     pub async fn dependency_manifest(
         &'io self,
         dep_id: DependencyRef,
-        forcibly: bool,
+        force: bool,
         update_list: &[String],
     ) -> Result<Option<&'ctx Manifest>> {
         // Check if the manifest is already in the cache.
@@ -1349,7 +1349,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // Otherwise ensure that there is a checkout of the dependency and read
         // the manifest there.
         self.sess.stats.num_calls_dependency_manifest.increment();
-        self.checkout(dep_id, forcibly, update_list)
+        self.checkout(dep_id, force, update_list)
             .await
             .and_then(move |path| {
                 let manifest_path = path.join("Bender.yml");
@@ -1379,7 +1379,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     /// its dependencies..
     pub async fn sources(
         &'io self,
-        forcibly: bool,
+        force: bool,
         update_list: &[String],
     ) -> Result<SourceGroup<'ctx>> {
         // Check if we already have the source manifest.
@@ -1396,7 +1396,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     join_all(
                         pkgs.iter()
                             .map(move |&pkg| async move {
-                                self.dependency_manifest(pkg, forcibly, update_list).await
+                                self.dependency_manifest(pkg, force, update_list).await
                             })
                             .collect::<Vec<_>>(),
                     )
@@ -1589,7 +1589,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     }
 
     /// Load the plugins declared by any of the dependencies.
-    pub async fn plugins(&'io self, forcibly: bool) -> Result<&'ctx Plugins> {
+    pub async fn plugins(&'io self, force: bool) -> Result<&'ctx Plugins> {
         // Check if we already have the list of plugins.
         if let Some(cached) = *self.sess.plugins.lock().unwrap() {
             return Ok(cached);
@@ -1604,7 +1604,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     join_all(
                         pkgs.iter()
                             .map(move |&pkg| async move {
-                                self.dependency_manifest(pkg, forcibly, &[])
+                                self.dependency_manifest(pkg, force, &[])
                                     .await
                                     .map(move |m| (pkg, m))
                             })

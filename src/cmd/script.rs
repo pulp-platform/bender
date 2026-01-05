@@ -222,59 +222,59 @@ pub struct ScriptArgs {
     pub format: String,
 
     /// Only include sources that match the given target
-    #[arg(short = 't', long = "target", action = ArgAction::Append)]
+    #[arg(short, long, action = ArgAction::Append)]
     pub target: Vec<String>,
 
     /// Remove any default targets that may be added to the generated script
-    #[arg(long = "no-default-target", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub no_default_target: bool,
 
     /// Use relative paths (flist generation only)
-    #[arg(long = "relative-path", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub relative_path: bool,
 
     /// Pass an additional define to all source files
-    #[arg(short = 'D', long = "define", action = ArgAction::Append)]
+    #[arg(short = 'D', long, action = ArgAction::Append)]
     pub define: Vec<String>,
 
     /// Pass an argument to vcom calls (vsim/vhdlan/riviera/synopsys only)
-    #[arg(long = "vcom-arg", action = ArgAction::Append)]
+    #[arg(long, action = ArgAction::Append)]
     pub vcom_arg: Vec<String>,
 
     /// Pass an argument to vlog calls (vsim/vlogan/riviera/synopsys only)
-    #[arg(long = "vlog-arg", action = ArgAction::Append)]
+    #[arg(long, action = ArgAction::Append)]
     pub vlog_arg: Vec<String>,
 
     /// Only output commands to define macros (Vivado/flist only)
-    #[arg(long = "only-defines", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub only_defines: bool,
 
     /// Only output commands to define include directories (Vivado/flist only)
-    #[arg(long = "only-includes", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub only_includes: bool,
 
     /// Only output commands to define source files (Vivado/flist only)
-    #[arg(long = "only-sources", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub only_sources: bool,
 
     /// Do not change `simset` fileset (Vivado only)
-    #[arg(long = "no-simset", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub no_simset: bool,
 
     /// Specify a `vlogan` command
-    #[arg(long = "vlogan-bin", default_value = "vlogan")]
+    #[arg(long, default_value = "vlogan")]
     pub vlogan_bin: String,
 
     /// Specify a `vhdlan` command
-    #[arg(long = "vhdlan-bin", default_value = "vhdlan")]
+    #[arg(long, default_value = "vhdlan")]
     pub vhdlan_bin: String,
 
     /// Do not abort analysis/compilation on first caught error (only for programs that support early aborting)
-    #[arg(long = "no-abort-on-error", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub no_abort_on_error: bool,
 
     /// Choose compilation mode option: separate/common
-    #[arg(long = "compilation_mode", default_value = "separate", value_parser = [
+    #[arg(long, default_value = "separate", value_parser = [
         PossibleValue::new("separate"),
         PossibleValue::new("common"),
     ])]
@@ -285,23 +285,23 @@ pub struct ScriptArgs {
     pub no_source_annotations: bool,
 
     /// Specify package to show sources for
-    #[arg(short = 'p', long = "package", action = ArgAction::Append)]
+    #[arg(short, long, action = ArgAction::Append)]
     pub package: Vec<String>,
 
     /// Exclude all dependencies, i.e. only top level or specified package(s)
-    #[arg(short = 'n', long = "no-deps", action = ArgAction::SetTrue)]
+    #[arg(short, long, action = ArgAction::SetTrue)]
     pub no_deps: bool,
 
     /// Specify package to exclude from sources
-    #[arg(short = 'e', long = "exclude", action = ArgAction::Append)]
+    #[arg(short, long, action = ArgAction::Append)]
     pub exclude: Vec<String>,
 
     /// Path to a file containing the tera template string to be formatted.
-    #[arg(long = "template", required_if_eq("format", "template"))]
+    #[arg(long, required_if_eq("format", "template"))]
     pub template: Option<String>,
 
     /// Add the `rtl` target to any fileset without a target specification
-    #[arg(long = "assume-rtl", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub assume_rtl: bool,
 
     /// Ignore passed targets

@@ -21,15 +21,15 @@ use crate::sess::Session;
 #[derive(Args, Debug)]
 pub struct UpdateArgs {
     /// forces fetch of git dependencies
-    #[arg(short = 'f', long = "fetch", action = ArgAction::SetTrue)]
+    #[arg(short, long, action = ArgAction::SetTrue)]
     pub fetch: bool,
 
     /// Disables checkout of dependencies
-    #[arg(long = "no-checkout", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub no_checkout: bool,
 
     /// Overwrites modified dependencies in `checkout_dir` if specified
-    #[arg(long = "ignore-checkout-dir", action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub ignore_checkout_dir: bool,
 
     /// Dependencies to update
@@ -37,7 +37,7 @@ pub struct UpdateArgs {
     pub dep: Option<Vec<String>>,
 
     /// Update requested dependencies recursively, i.e., including their dependencies
-    #[arg(long = "recursive", action = ArgAction::SetTrue, requires = "dep")]
+    #[arg(long, action = ArgAction::SetTrue, requires = "dep")]
     pub recursive: bool,
 }
 
