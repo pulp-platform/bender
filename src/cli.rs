@@ -54,7 +54,7 @@ struct Cli {
     debug: bool,
 
     #[command(subcommand)]
-    command: Option<Commands>,
+    command: Commands,
 }
 
 #[derive(Subcommand, Debug)]
@@ -98,18 +98,18 @@ pub fn main() -> Result<()> {
 
     // Handle commands that do not require a session.
     match &cli.command {
-        Some(Commands::Completion(args)) => {
+        Commands::Completion(args) => {
             let mut cmd = Cli::command();
             return cmd::completion::run(args, &mut cmd);
         }
-        Some(Commands::Init) => {
+        Commands::Init => {
             return cmd::init::run();
         }
         _ => {}
     }
 
     let force_fetch = match cli.command {
-        Some(Commands::Update(ref args)) => cmd::update::setup(args, &suppressed_warnings)?,
+        Commands::Update(ref args) => cmd::update::setup(args, &suppressed_warnings)?,
         _ => false,
     };
 
@@ -133,7 +133,7 @@ pub fn main() -> Result<()> {
     // Gather and parse the tool configuration.
     let config = load_config(
         &root_dir,
-        matches!(cli.command, Some(Commands::Update(_))) && !suppressed_warnings.contains("W02"),
+        matches!(cli.command, Commands::Update(_)) && !suppressed_warnings.contains("W02"),
         &suppressed_warnings,
     )?;
     debugln!("main: {:#?}", config);
@@ -154,7 +154,7 @@ pub fn main() -> Result<()> {
         suppressed_warnings,
     );
 
-    if let Some(Commands::Clean(args)) = cli.command {
+    if let Commands::Clean(args) = cli.command {
         return cmd::clean::run(&sess, args.all, &root_dir);
     }
 
@@ -168,11 +168,10 @@ pub fn main() -> Result<()> {
 
     // Resolve the dependencies if the lockfile does not exist or is outdated.
     let (locked_list, update_list) = match &cli.command {
-        Some(Commands::Fusesoc(args @ FusesocArgs { single: true, .. })) => {
+        Commands::Fusesoc(args @ FusesocArgs { single: true, .. }) => {
             return cmd::fusesoc::run_single(&sess, args);
         }
-        Some(Commands::Update(args)) => cmd::update::run(args, &sess, locked_existing.as_ref())?,
-        None => return Err(Error::new("Please specify a command.".to_string())),
+        Commands::Update(args) => cmd::update::run(args, &sess, locked_existing.as_ref())?,
         _ if locked_existing.is_none() => {
             cmd::update::run_plain(false, &sess, locked_existing.as_ref(), IndexSet::new())?
         }
@@ -194,7 +193,7 @@ pub fn main() -> Result<()> {
             let pkg_path = io.get_package_path(sess.dependency_with_name(pkg_name)?);
 
             // Checkout if we are running update or package path does not exist yet
-            if matches!(cli.command, Some(Commands::Update(_))) || !pkg_path.clone().exists() {
+            if matches!(cli.command, Commands::Update(_)) || !pkg_path.clone().exists() {
                 let rt = Runtime::new()?;
                 rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?, false, &[]))?;
             }
@@ -270,19 +269,19 @@ pub fn main() -> Result<()> {
     // Dispatch the different subcommands.
 
     match cli.command {
-        Some(Commands::Path(args)) => cmd::path::run(&sess, &args),
-        Some(Commands::Parents(args)) => cmd::parents::run(&sess, &args),
-        Some(Commands::Clone(args)) => cmd::clone::run(&sess, &root_dir, &args),
-        Some(Commands::Packages(args)) => cmd::packages::run(&sess, &args),
-        Some(Commands::Sources(args)) => cmd::sources::run(&sess, &args),
-        Some(Commands::Config) => cmd::config::run(&sess),
-        Some(Commands::Script(args)) => cmd::script::run(&sess, &args),
-        Some(Commands::Checkout(args)) => cmd::checkout::run(&sess, &args),
-        Some(Commands::Update(args)) => cmd::update::run_final(&sess, &args, &update_list),
-        Some(Commands::Vendor(args)) => cmd::vendor::run(&sess, &args),
-        Some(Commands::Fusesoc(args)) => cmd::fusesoc::run(&sess, &args),
-        Some(Commands::Snapshot(args)) => cmd::snapshot::run(&sess, &args),
-        Some(Commands::Audit(args)) => cmd::audit::run(&sess, &args),
+        Commands::Path(args) => cmd::path::run(&sess, &args),
+        Commands::Parents(args) => cmd::parents::run(&sess, &args),
+        Commands::Clone(args) => cmd::clone::run(&sess, &root_dir, &args),
+        Commands::Packages(args) => cmd::packages::run(&sess, &args),
+        Commands::Sources(args) => cmd::sources::run(&sess, &args),
+        Commands::Config => cmd::config::run(&sess),
+        Commands::Script(args) => cmd::script::run(&sess, &args),
+        Commands::Checkout(args) => cmd::checkout::run(&sess, &args),
+        Commands::Update(args) => cmd::update::run_final(&sess, &args, &update_list),
+        Commands::Vendor(args) => cmd::vendor::run(&sess, &args),
+        Commands::Fusesoc(args) => cmd::fusesoc::run(&sess, &args),
+        Commands::Snapshot(args) => cmd::snapshot::run(&sess, &args),
+        Commands::Audit(args) => cmd::audit::run(&sess, &args),
         // TODO(fischeti): Re-enable plugins?
         _ => Ok(()),
     }
