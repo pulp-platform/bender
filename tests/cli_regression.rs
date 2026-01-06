@@ -13,15 +13,13 @@ static SETUP: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
 fn get_test_env() -> &'static (PathBuf, PathBuf) {
     SETUP.get_or_init(|| {
         let root = Path::new("target/tmp_regression");
-        let install_root = root.join("golden_install"); // Clean separate dir for the binary
+        let install_root = root.join("golden_install");
         let repo_dir = Path::new("tests/cli_regression").to_path_buf();
 
-        // 1. Install Golden Bender
-        // Cargo install --root X puts the binary at X/bin/bender
+        // Install Golden Bender
         let bender_exe = install_root.join("bin").join("bender");
 
         if !bender_exe.exists() {
-            println!("--- SETUP: Installing Bender (master) as golden reference ---");
             // Create dir to ensure root exists
             std::fs::create_dir_all(&install_root).expect("Failed to create install dir");
 
@@ -44,10 +42,7 @@ fn get_test_env() -> &'static (PathBuf, PathBuf) {
 
         let bender_exe_abs = std::env::current_dir().unwrap().join(&bender_exe);
 
-        // Checkout the repo
-        println!("--- SETUP: Initializing common_cells ---");
-        println! {"Repo dir: {}", repo_dir.display()};
-        println! {"Bender exe: {}", bender_exe.display()};
+        // Checkout the dependencies in the beginning
         let status = SysCommand::new(&bender_exe_abs)
             .arg("checkout")
             .current_dir(&repo_dir)
@@ -70,21 +65,19 @@ fn run_regression(subcommand_args: &[&str]) {
     let mut full_args = vec!["-d", repo_dir.to_str().unwrap()];
     full_args.extend(subcommand_args);
 
-    println!("Testing: {} {}", golden_bin.display(), full_args.join(" "));
-
-    // 1. Run GOLDEN
+    // Run GOLDEN
     let golden_out = SysCommand::new(golden_bin)
         .args(&full_args)
         .output()
         .expect("Failed to execute golden binary");
 
-    // 2. Run NEW (Current Build)
+    // Run NEW (Current Build)
     let new_out = cargo::cargo_bin_cmd!()
         .args(&full_args)
         .output()
         .expect("Failed to execute new binary");
 
-    // 3. Compare
+    // Compare
     let golden_stdout = String::from_utf8_lossy(&golden_out.stdout);
     let new_stdout = String::from_utf8_lossy(&new_out.stdout);
 
