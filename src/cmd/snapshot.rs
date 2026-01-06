@@ -15,43 +15,6 @@ use crate::config::{Dependency, Locked, LockedSource};
 use crate::error::*;
 use crate::sess::{DependencySource, Session, SessionIo};
 
-/// Assemble the `snapshot` subcommand.
-// pub fn new() -> Command {
-//     Command::new("snapshot")
-//         .about("Snapshot the cloned IPs from the working directory into the Bender.lock file")
-//         .arg(
-//             Arg::new("working_dir")
-//                 .long("working-dir")
-//                 .num_args(1)
-//                 .required(false)
-//                 .default_value("working_dir")
-//                 .help("Working directory to snapshot dependencies from"),
-//         )
-//         .arg(
-//             Arg::new("no_skip")
-//                 .long("no-skip")
-//                 .num_args(0)
-//                 .action(ArgAction::SetTrue)
-//                 .help("Do not skip dependencies that are dirty"),
-//         )
-//         .arg(
-//             Arg::new("checkout")
-//                 .long("checkout")
-//                 .short('c')
-//                 .num_args(0)
-//                 .action(ArgAction::SetTrue)
-//                 .help("Checkout the dependencies snapshotted into the lockfile"),
-//         )
-//         .arg(
-//             Arg::new("force")
-//                 .long("force")
-//                 .num_args(0)
-//                 .action(ArgAction::SetTrue)
-//                 .requires("checkout")
-//                 .help("Force update of dependencies in a custom checkout_dir. Please use carefully to avoid losing work."),
-//         )
-// }
-
 /// Snapshot the cloned IPs from the working directory into the Bender.lock file
 #[derive(Args, Debug)]
 pub struct SnapshotArgs {

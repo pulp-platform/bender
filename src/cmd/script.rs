@@ -130,6 +130,7 @@ pub enum CompilationMode {
     Common,
 }
 
+// TODO(fischeti): Consider deprecating them in favor of tool-specific args.
 /// Common simulation arguments
 #[derive(Args, Debug)]
 pub struct CommonSimArgs {
