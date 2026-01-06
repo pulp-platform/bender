@@ -88,14 +88,7 @@ fn run_regression(subcommand_args: &[&str]) {
     let golden_stdout = String::from_utf8_lossy(&golden_out.stdout);
     let new_stdout = String::from_utf8_lossy(&new_out.stdout);
 
-    assert_eq!(
-        golden_stdout,
-        new_stdout,
-        "STDOUT mismatch.\nCMD: bender {}\n\n--- GOLDEN ---\n{}\n\n--- NEW ---\n{}",
-        full_args.join(" "),
-        golden_stdout,
-        new_stdout
-    );
+    assert_eq!(golden_stdout, new_stdout);
 }
 
 // The Macro generates the tests
