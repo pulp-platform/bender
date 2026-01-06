@@ -627,11 +627,17 @@ impl<'ctx> DependencyResolver<'ctx> {
                     Ok(v) => {
                         // TODO attempt refetch (if not already done)
                         if v.is_empty() && id == con_src {
+                            let additional_str = if let DependencyConstraint::Version(__) = con {
+                                " Ensure git tags are formatted as `vX.Y.Z`.".to_string()
+                            } else {
+                                "".to_string()
+                            };
                             return Err(Error::new(format!(
-                                "Dependency `{}` from `{}` cannot satisfy requirement `{}`, may need fetch.",
+                                "Dependency `{}` from `{}` cannot satisfy requirement `{}`.{} You may need to run update with --fetch.",
                                 name,
                                 self.sess.dependency_source(*id),
-                                con
+                                con,
+                                additional_str
                             )));
                         }
                         Ok((*id, v))
