@@ -35,55 +35,15 @@ pub struct PatchLink {
     pub exclude: Vec<PathBuf>,
 }
 
-/// Assemble the `vendor` subcommand.
-// pub fn new() -> Command {
-//     Command::new("vendor")
-//         .subcommand_required(true).arg_required_else_help(true)
-//         .about("Copy source code from upstream external repositories into this repository")
-//         .long_about("Copy source code from upstream external repositories into this repository. Functions similar to the lowrisc vendor.py script.")
-//         .after_help("Type 'bender vendor <SUBCOMMAND> --help' for more information about a vendor subcommand.")
-//         .subcommand(Command::new("diff")
-//             .about("Display a diff of the local tree and the upstream tree with patches applied.")
-//             .arg(
-//                 Arg::new("err_on_diff")
-//                     .long("err_on_diff")
-//                     .short('e')
-//                     .num_args(0..=1)
-//                     .help("Return error code 1 when a diff is encountered. (Optional) override the error message by providing a value."),
-//             )
-//         )
-//         .subcommand(Command::new("init")
-//             .about("(Re-)initialize the external dependencies.")
-//             .long_about("(Re-)initialize the external dependencies. Copies the upstream files into the target directories and applies existing patches.")
-//             .arg(
-//                 Arg::new("no_patch")
-//                     .short('n')
-//                     .action(ArgAction::SetTrue)
-//                     .long("no_patch")
-//                     .help("Do not apply patches when initializing dependencies"),
-//             )
-//         )
-//         .subcommand(Command::new("patch")
-//             .about("Generate a patch file from staged local changes")
-//             .arg(
-//                 Arg::new("plain")
-//                 .action(ArgAction::SetTrue)
-//                 .long("plain")
-//                 .help("Generate a plain diff instead of a format-patch.")
-//                 .long_help("Generate a plain diff instead of a format-patch. Includes all local changes (not only the staged ones)."),
-//             )
-//             .arg(
-//                 Arg::new("message")
-//                 .long("message")
-//                 .short('m')
-//                 .num_args(1)
-//                 .action(ArgAction::Append)
-//                 .help("The message to be associated with the format-patch."),
-//             )
-//         )
-// }
-
+/// Copy source code from upstream external repositories into this repository
 #[derive(Args, Debug)]
+#[command(
+    about = "Copy source code from upstream external repositories into this repository",
+    long_about = "Copy source code from upstream external repositories into this repository. Functions similar to the lowrisc vendor.py script.",
+    after_help = "Type 'bender vendor <SUBCOMMAND> --help' for more information about a vendor subcommand.",
+    subcommand_required = true,
+    arg_required_else_help = true
+)]
 pub struct VendorArgs {
     /// Subcommand for vendor
     #[command(subcommand)]
