@@ -249,6 +249,7 @@ pub enum ScriptFormat {
         template: String,
     },
     /// JSON output
+    #[command(alias = "template_json")]
     TemplateJson,
 }
 
