@@ -235,6 +235,8 @@ Git dependencies are automatically checked out and cloned, and are considered fo
 
 All git tags of the form `vX.Y.Z` are considered a version of the package.
 
+> Note: Git tags without the `v` prefix will not be detected by bender. eg: use `v1.2.3`, and **NOT** `1.2.3`
+
 [Relevant dependency resolution code](https://github.com/pulp-platform/bender/blob/master/src/resolver.rs)
 
 
