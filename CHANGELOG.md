@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Added
 - Add flag for `rtl` target to files without target in script and sources.
+- Add `pass_targets` to dependencies to allow passing targets for hierarchical file filtering (not only global).
 
 ## 0.29.1 - 2025-11-24
 ### Fixed

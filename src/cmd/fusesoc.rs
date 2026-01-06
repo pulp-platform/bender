@@ -90,6 +90,7 @@ pub fn run_single(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 sess.manifest.dependencies.keys().cloned().collect(),
                 IndexMap::new(),
                 version_string.clone(),
+                IndexMap::new(),
             )
             .flatten()),
         None => Err(Error::new("Error in loading sources")),
@@ -356,6 +357,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 files: Default::default(),
                 dependencies: Default::default(),
                 version: None,
+                passed_targets: TargetSet::empty(),
             })
             .flatten();
 
@@ -557,6 +559,7 @@ fn get_fuse_depend_string(
             files: Default::default(),
             dependencies: Default::default(),
             version: None,
+            passed_targets: TargetSet::empty(),
         })
         .flatten();
 
@@ -573,6 +576,7 @@ fn get_fuse_depend_string(
                 files: group.files.clone(),
                 dependencies: group.dependencies.clone(),
                 version: version_string.clone(),
+                passed_targets: TargetSet::empty(),
             })
             .collect()
     } else {

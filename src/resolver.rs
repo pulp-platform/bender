@@ -111,8 +111,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                                     dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
                                     &checkout.display());
                             }
-                            self.checked_out
-                                .insert(depname, config::Dependency::Path(dir.unwrap().path()));
+                            self.checked_out.insert(
+                                depname,
+                                config::Dependency::Path(dir.unwrap().path(), Vec::new()),
+                            );
                         } else if !(SysCommand::new(&self.sess.config.git) // If not in a clean state
                             .arg("status")
                             .arg("--porcelain")
@@ -128,8 +130,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                                     dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
                                     &checkout.display());
                             }
-                            self.checked_out
-                                .insert(depname, config::Dependency::Path(dir.unwrap().path()));
+                            self.checked_out.insert(
+                                depname,
+                                config::Dependency::Path(dir.unwrap().path(), Vec::new()),
+                            );
                         }
                     }
                 }
@@ -355,7 +359,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 let name = name.as_str();
                 debugln!("resolve: registering {} from lockfile", &name);
                 let dep = match &locked_package.source {
-                    LockedSource::Path(p) => config::Dependency::Path(p.clone()),
+                    LockedSource::Path(p) => config::Dependency::Path(p.clone(), Vec::new()),
                     LockedSource::Registry(..) => {
                         unreachable!("Registry dependencies not yet supported.");
                     }
@@ -373,6 +377,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                                         pre: parsed_version.pre,
                                     }],
                                 },
+                                Vec::new(),
                             )
                         } else {
                             config::Dependency::GitRevision(
@@ -389,6 +394,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                                         return None;
                                     }
                                 },
+                                Vec::new(),
                             )
                         }
                     }
@@ -415,13 +421,13 @@ impl<'ctx> DependencyResolver<'ctx> {
                     unreachable!("Registry dependencies not yet supported.");
                     // TODO should probably be config::Dependeny::Version(vers, str?)
                 }
-                DependencySource::Path(p) => config::Dependency::Path(p),
+                DependencySource::Path(p) => config::Dependency::Path(p, Vec::new()),
                 DependencySource::Git(u) => match &cnstr {
                     DependencyConstraint::Version(v) => {
-                        config::Dependency::GitVersion(u, v.clone())
+                        config::Dependency::GitVersion(u, v.clone(), Vec::new())
                     }
                     DependencyConstraint::Revision(r) => {
-                        config::Dependency::GitRevision(u, r.clone())
+                        config::Dependency::GitRevision(u, r.clone(), Vec::new())
                     }
                     _ => unreachable!(),
                 },
