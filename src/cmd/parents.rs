@@ -17,6 +17,7 @@ use crate::sess::{Session, SessionIo};
 
 /// List packages calling this dependency
 #[derive(Args, Debug)]
+#[command(alias = "parent")]
 pub struct ParentsArgs {
     /// Package name to get the parents for
     #[arg(num_args(1))]
