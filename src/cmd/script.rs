@@ -130,19 +130,6 @@ pub enum CompilationMode {
     Common,
 }
 
-// TODO(fischeti): Consider deprecating them in favor of tool-specific args.
-/// Common simulation arguments
-#[derive(Args, Debug)]
-pub struct CommonSimArgs {
-    /// Pass an argument to vcom calls
-    #[arg(long, action = ArgAction::Append)]
-    pub vcom_arg: Vec<String>,
-
-    /// Pass an argument to vlog calls
-    #[arg(long, action = ArgAction::Append)]
-    pub vlog_arg: Vec<String>,
-}
-
 /// Common arguments for Vivado scripts
 #[derive(Args, Debug)]
 pub struct OnlyArgs {
@@ -181,15 +168,23 @@ pub enum ScriptFormat {
     },
     /// ModelSim/QuestaSim script
     Vsim {
-        /// Common simulation arguments
-        #[command(flatten)]
-        common_sim: CommonSimArgs,
+        /// Pass arguments to vlog calls
+        #[arg(long = "vsim-vlog-arg", action = ArgAction::Append, alias = "vlog-arg")]
+        vlog_args: Vec<String>,
+
+        /// Pass arguments to vcom calls
+        #[arg(long = "vsim-vcom-arg", action = ArgAction::Append, alias = "vcom-arg")]
+        vcom_args: Vec<String>,
     },
     /// Synopsys VCS script
     Vcs {
-        /// Common simulation arguments
-        #[command(flatten)]
-        common_sim: CommonSimArgs,
+        /// Pass arguments to vlogan calls
+        #[arg(long, action = ArgAction::Append, alias = "vlog-arg")]
+        vlogan_args: Vec<String>,
+
+        /// Pass arguments to vhdlan calls
+        #[arg(long, action = ArgAction::Append, alias = "vcom-arg")]
+        vhdlan_args: Vec<String>,
 
         /// Specify a `vlogan` command
         #[arg(long, default_value = "vlogan")]
@@ -203,17 +198,25 @@ pub enum ScriptFormat {
     Verilator,
     /// Synopsys EDA tool script
     Synopsys {
-        /// Common simulation arguments
-        #[command(flatten)]
-        common_sim: CommonSimArgs,
+        /// Pass arguments to verilog compilation calls
+        #[arg(long = "synopsys-vlog-arg", action = ArgAction::Append, alias = "vlog-arg")]
+        verilog_args: Vec<String>,
+
+        /// Pass arguments to vhdl compilation calls
+        #[arg(long = "synopsys-vcom-arg", action = ArgAction::Append, alias = "vcom-arg")]
+        vhdl_args: Vec<String>,
     },
     /// Synopsys Formality script
     Formality,
     /// Riviera script
     Riviera {
-        /// Common simulation arguments
-        #[command(flatten)]
-        common_sim: CommonSimArgs,
+        /// Pass arguments to vlog calls
+        #[arg(long = "riviera-vlog-arg", action = ArgAction::Append, alias = "vlog-arg")]
+        vlog_args: Vec<String>,
+
+        /// Pass arguments to vcom calls
+        #[arg(long = "riviera-vcom-arg", action = ArgAction::Append, alias = "vcom-arg")]
+        vcom_args: Vec<String>,
     },
     /// Cadence Genus script
     Genus {},
@@ -347,32 +350,42 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             opts.only_sources = only.sources;
             include_str!("../script_fmt/flist-plus.tera").to_string()
         }
-        ScriptFormat::Vsim { common_sim } => {
-            opts.vcom_args = common_sim.vcom_arg.clone();
-            opts.vlog_args = common_sim.vlog_arg.clone();
+        ScriptFormat::Vsim {
+            vlog_args,
+            vcom_args,
+        } => {
+            opts.vlog_args = vlog_args.clone();
+            opts.vcom_args = vcom_args.clone();
             include_str!("../script_fmt/vsim_tcl.tera").to_string()
         }
         ScriptFormat::Vcs {
             vlogan_bin,
             vhdlan_bin,
-            common_sim,
+            vlogan_args,
+            vhdlan_args,
         } => {
-            opts.vcom_args = common_sim.vcom_arg.clone();
-            opts.vlog_args = common_sim.vlog_arg.clone();
+            opts.vcom_args = vhdlan_args.clone();
+            opts.vlog_args = vlogan_args.clone();
             opts.vlogan_bin = Some(vlogan_bin.clone());
             opts.vhdlan_bin = Some(vhdlan_bin.clone());
             include_str!("../script_fmt/vcs_sh.tera").to_string()
         }
         ScriptFormat::Verilator => include_str!("../script_fmt/verilator_sh.tera").to_string(),
-        ScriptFormat::Synopsys { common_sim } => {
-            opts.vcom_args = common_sim.vcom_arg.clone();
-            opts.vlog_args = common_sim.vlog_arg.clone();
+        ScriptFormat::Synopsys {
+            verilog_args,
+            vhdl_args,
+        } => {
+            opts.vcom_args = vhdl_args.clone();
+            opts.vlog_args = verilog_args.clone();
             include_str!("../script_fmt/synopsys_tcl.tera").to_string()
         }
         ScriptFormat::Formality {} => include_str!("../script_fmt/formality_tcl.tera").to_string(),
-        ScriptFormat::Riviera { common_sim } => {
-            opts.vcom_args = common_sim.vcom_arg.clone();
-            opts.vlog_args = common_sim.vlog_arg.clone();
+        ScriptFormat::Riviera {
+            vlog_args,
+            vcom_args,
+        } => {
+            opts.vcom_args = vcom_args.clone();
+            opts.vlog_args = vlog_args.clone();
             include_str!("../script_fmt/riviera_tcl.tera").to_string()
         }
         ScriptFormat::Genus {} => include_str!("../script_fmt/genus_tcl.tera").to_string(),
