@@ -2,9 +2,9 @@ name: ci
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
   workflow_dispatch:
 
 jobs:
@@ -60,3 +60,16 @@ jobs:
           toolchain: stable
           components: clippy
       - run: cargo clippy --all-features
+
+  unused-deps:
+    name: Unused Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Install machete
+        run: cargo install cargo-machete
+      - name: Check for unused dependencies
+        run: cargo machete
