@@ -1,11 +1,12 @@
 // Copyright (c) 2025 ETH Zurich
 // Tim Fischer <fischeti@iis.ee.ethz.ch>
 
-use assert_cmd::cargo;
-
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 use std::sync::OnceLock;
+
+use assert_cmd::cargo;
+use pretty_assertions::assert_eq;
 
 static SETUP: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
 
