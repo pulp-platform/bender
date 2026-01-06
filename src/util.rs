@@ -224,7 +224,7 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
     let mut found = false; // major, minor, patch
     for comp in req.comparators.iter() {
         match comp.op {
-            semver::Op::Exact => {
+            semver::Op::Exact | semver::Op::LessEq => {
                 let max_exact = Version {
                     major: if comp.minor.is_some() {
                         comp.major
@@ -266,35 +266,6 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
                 if top_bound > max_less {
                     found = true;
                     top_bound = max_less;
-                }
-            }
-            semver::Op::LessEq => {
-                let max_less_eq = Version {
-                    major: if comp.minor.is_some() {
-                        comp.major
-                    } else {
-                        comp.major + 1
-                    },
-                    minor: if comp.minor.is_some() {
-                        if comp.patch.is_some() {
-                            comp.minor.unwrap()
-                        } else {
-                            comp.minor.unwrap() + 1
-                        }
-                    } else {
-                        0
-                    },
-                    patch: if comp.patch.is_some() {
-                        comp.patch.unwrap() + 1
-                    } else {
-                        0
-                    },
-                    pre: semver::Prerelease::EMPTY,
-                    build: semver::BuildMetadata::EMPTY,
-                };
-                if top_bound > max_less_eq {
-                    found = true;
-                    top_bound = max_less_eq;
                 }
             }
             semver::Op::Tilde => {
@@ -392,7 +363,11 @@ pub fn version_req_bottom_bound(req: &VersionReq) -> Result<Option<Version>> {
     let mut found = false;
     for comp in req.comparators.iter() {
         match comp.op {
-            semver::Op::Exact => {
+            semver::Op::Exact
+            | semver::Op::GreaterEq
+            | semver::Op::Tilde
+            | semver::Op::Caret
+            | semver::Op::Wildcard => {
                 let min_exact = Version {
                     major: comp.major,
                     minor: comp.minor.unwrap_or(0),
@@ -434,60 +409,8 @@ pub fn version_req_bottom_bound(req: &VersionReq) -> Result<Option<Version>> {
                     bottom_bound = min_greater;
                 }
             }
-            semver::Op::GreaterEq => {
-                let min_greater_eq = Version {
-                    major: comp.major,
-                    minor: comp.minor.unwrap_or(0),
-                    patch: comp.patch.unwrap_or(0),
-                    pre: comp.pre.clone(),
-                    build: semver::BuildMetadata::EMPTY,
-                };
-                if bottom_bound < min_greater_eq {
-                    found = true;
-                    bottom_bound = min_greater_eq;
-                }
-            }
             semver::Op::Less | semver::Op::LessEq => {
                 // No lower bound
-            }
-            semver::Op::Tilde => {
-                let min_tilde = Version {
-                    major: comp.major,
-                    minor: comp.minor.unwrap_or(0),
-                    patch: comp.patch.unwrap_or(0),
-                    pre: comp.pre.clone(),
-                    build: semver::BuildMetadata::EMPTY,
-                };
-                if bottom_bound < min_tilde {
-                    found = true;
-                    bottom_bound = min_tilde;
-                }
-            }
-            semver::Op::Caret => {
-                let min_caret = Version {
-                    major: comp.major,
-                    minor: comp.minor.unwrap_or(0),
-                    patch: comp.patch.unwrap_or(0),
-                    pre: comp.pre.clone(),
-                    build: semver::BuildMetadata::EMPTY,
-                };
-                if bottom_bound < min_caret {
-                    found = true;
-                    bottom_bound = min_caret;
-                }
-            }
-            semver::Op::Wildcard => {
-                let min_wildcard = Version {
-                    major: comp.major,
-                    minor: comp.minor.unwrap_or(0),
-                    patch: comp.patch.unwrap_or(0),
-                    pre: comp.pre.clone(),
-                    build: semver::BuildMetadata::EMPTY,
-                };
-                if bottom_bound < min_wildcard {
-                    found = true;
-                    bottom_bound = min_wildcard;
-                }
             }
             _ => {
                 return Err(Error::new(format!(
