@@ -14,8 +14,11 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::SystemTime;
 
+use semver::{Version, VersionReq};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
+
+use crate::error::*;
 
 /// A type that cannot be materialized.
 #[derive(Debug)]
@@ -213,4 +216,214 @@ pub fn try_modification_time<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
         Err(_) => return None,
     };
     md.modified().ok()
+}
+
+/// Extract excluded top bound from a version requirement.
+pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
+    let mut top_bound = Version::new(u64::MAX, u64::MAX, u64::MAX);
+    let mut found = false; // major, minor, patch
+    for comp in req.comparators.iter() {
+        match comp.op {
+            semver::Op::Exact | semver::Op::LessEq => {
+                let max_exact = Version {
+                    major: if comp.minor.is_some() {
+                        comp.major
+                    } else {
+                        comp.major + 1
+                    },
+                    minor: if comp.minor.is_some() {
+                        if comp.patch.is_some() {
+                            comp.minor.unwrap()
+                        } else {
+                            comp.minor.unwrap() + 1
+                        }
+                    } else {
+                        0
+                    },
+                    patch: if comp.patch.is_some() {
+                        comp.patch.unwrap() + 1
+                    } else {
+                        0
+                    },
+                    pre: semver::Prerelease::EMPTY,
+                    build: semver::BuildMetadata::EMPTY,
+                };
+                if top_bound > max_exact {
+                    found = true;
+                    top_bound = max_exact;
+                }
+            }
+            semver::Op::Greater | semver::Op::GreaterEq => {} // No upper bound
+            semver::Op::Less => {
+                // found = true;
+                let max_less = Version {
+                    major: comp.major,
+                    minor: comp.minor.unwrap_or(0),
+                    patch: comp.patch.unwrap_or(0),
+                    pre: semver::Prerelease::EMPTY,
+                    build: semver::BuildMetadata::EMPTY,
+                };
+                if top_bound > max_less {
+                    found = true;
+                    top_bound = max_less;
+                }
+            }
+            semver::Op::Tilde => {
+                let max_tilde = Version {
+                    major: if comp.minor.is_some() {
+                        comp.major
+                    } else {
+                        comp.major + 1
+                    },
+                    minor: if comp.minor.is_some() {
+                        comp.minor.unwrap() + 1
+                    } else {
+                        0
+                    },
+                    patch: 0,
+                    pre: semver::Prerelease::EMPTY,
+                    build: semver::BuildMetadata::EMPTY,
+                };
+                if top_bound > max_tilde {
+                    found = true;
+                    top_bound = max_tilde;
+                }
+            }
+            semver::Op::Caret => {
+                let max_caret = if comp.major > 0 || comp.minor.is_none() {
+                    Version {
+                        major: comp.major + 1,
+                        minor: 0,
+                        patch: 0,
+                        pre: semver::Prerelease::EMPTY,
+                        build: semver::BuildMetadata::EMPTY,
+                    }
+                } else if comp.minor.unwrap() > 0 || comp.patch.is_none() {
+                    Version {
+                        major: comp.major,
+                        minor: comp.minor.unwrap() + 1,
+                        patch: 0,
+                        pre: semver::Prerelease::EMPTY,
+                        build: semver::BuildMetadata::EMPTY,
+                    }
+                } else {
+                    Version {
+                        major: comp.major,
+                        minor: comp.minor.unwrap(),
+                        patch: comp.patch.unwrap() + 1,
+                        pre: semver::Prerelease::EMPTY,
+                        build: semver::BuildMetadata::EMPTY,
+                    }
+                };
+                if top_bound > max_caret {
+                    found = true;
+                    top_bound = max_caret;
+                }
+            }
+            semver::Op::Wildcard => {
+                let max_wildcard = Version {
+                    major: if comp.minor.is_some() {
+                        comp.major
+                    } else {
+                        comp.major + 1
+                    },
+                    minor: if comp.minor.is_some() {
+                        comp.minor.unwrap() + 1
+                    } else {
+                        0
+                    },
+                    patch: 0,
+                    pre: semver::Prerelease::EMPTY,
+                    build: semver::BuildMetadata::EMPTY,
+                };
+                if top_bound > max_wildcard {
+                    found = true;
+                    top_bound = max_wildcard;
+                }
+            }
+            _ => {
+                return Err(Error::new(format!(
+                    "Cannot extract top bound from version requirement: {}",
+                    req
+                )));
+            }
+        }
+    }
+
+    if found {
+        Ok(Some(top_bound))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Extract bottom bound from a version requirement.
+pub fn version_req_bottom_bound(req: &VersionReq) -> Result<Option<Version>> {
+    let mut bottom_bound = Version::new(0, 0, 0);
+    let mut found = false;
+    for comp in req.comparators.iter() {
+        match comp.op {
+            semver::Op::Exact
+            | semver::Op::GreaterEq
+            | semver::Op::Tilde
+            | semver::Op::Caret
+            | semver::Op::Wildcard => {
+                let min_exact = Version {
+                    major: comp.major,
+                    minor: comp.minor.unwrap_or(0),
+                    patch: comp.patch.unwrap_or(0),
+                    pre: comp.pre.clone(),
+                    build: semver::BuildMetadata::EMPTY,
+                };
+                if bottom_bound < min_exact {
+                    found = true;
+                    bottom_bound = min_exact;
+                }
+            }
+            semver::Op::Greater => {
+                let min_greater = Version {
+                    major: if comp.minor.is_some() {
+                        comp.major
+                    } else {
+                        comp.major + 1
+                    },
+                    minor: if comp.minor.is_some() {
+                        if comp.patch.is_some() {
+                            comp.minor.unwrap() + 1
+                        } else {
+                            comp.minor.unwrap()
+                        }
+                    } else {
+                        0
+                    },
+                    patch: if comp.patch.is_some() {
+                        comp.patch.unwrap() + 1
+                    } else {
+                        0
+                    },
+                    pre: comp.pre.clone(),
+                    build: semver::BuildMetadata::EMPTY,
+                };
+                if bottom_bound < min_greater {
+                    found = true;
+                    bottom_bound = min_greater;
+                }
+            }
+            semver::Op::Less | semver::Op::LessEq => {
+                // No lower bound
+            }
+            _ => {
+                return Err(Error::new(format!(
+                    "Cannot extract bottom bound from version requirement: {}",
+                    req
+                )));
+            }
+        }
+    }
+
+    if found {
+        Ok(Some(bottom_bound))
+    } else {
+        Ok(None)
+    }
 }

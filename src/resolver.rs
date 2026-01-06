@@ -29,6 +29,7 @@ use crate::sess::{
     DependencyConstraint, DependencyRef, DependencySource, DependencyVersion, DependencyVersions,
     Session, SessionIo,
 };
+use crate::util::{version_req_bottom_bound, version_req_top_bound};
 
 /// A dependency resolver.
 pub struct DependencyResolver<'ctx> {
@@ -708,10 +709,19 @@ impl<'ctx> DependencyResolver<'ctx> {
         let mut constr_align = String::from("");
         for &(pkg_name, ref con, ref dsrc) in all_cons {
             constr_align.push_str(&format!(
-                "\n- package `{}`\trequires\t`{}` at `{}`",
+                "\n- package `{}`\trequires\t`{}`{}\tat `{}`",
                 pkg_name,
                 con,
-                self.sess.dependency_source(*dsrc)
+                match con {
+                    DependencyConstraint::Version(req) => format!(
+                        " ({} <= x < {})",
+                        version_req_bottom_bound(req)?.unwrap(),
+                        version_req_top_bound(req)?.unwrap()
+                    ),
+                    DependencyConstraint::Revision(_) => "".to_string(),
+                    DependencyConstraint::Path => "".to_string(),
+                },
+                self.sess.dependency_source(*dsrc),
             ));
             cons.push((con, dsrc));
         }
@@ -724,7 +734,56 @@ impl<'ctx> DependencyResolver<'ctx> {
             String::from_utf8(tw.into_inner().unwrap()).unwrap()
         );
 
-        cons = cons.into_iter().unique().collect();
+        cons = cons.into_iter().unique().collect::<Vec<_>>();
+        cons.sort_by(|a, b| a.1.cmp(b.1));
+        // sort constraint for identical sources
+        cons =
+            cons.into_iter()
+                .chunk_by(|&(_, src)| src)
+                .into_iter()
+                .flat_map(|(_src, group)| {
+                    let mut g: Vec<_> = group.collect();
+                    g.sort_by(|a, b| match (a.0, b.0) {
+                        (DependencyConstraint::Version(va), DependencyConstraint::Version(vb)) => {
+                            if version_req_top_bound(vb).unwrap_or(Some(semver::Version::new(
+                                u64::MAX,
+                                u64::MAX,
+                                u64::MAX,
+                            ))) == version_req_top_bound(va)
+                                .unwrap_or(Some(semver::Version::new(u64::MAX, u64::MAX, u64::MAX)))
+                            {
+                                return version_req_bottom_bound(vb)
+                                    .unwrap_or(Some(semver::Version::new(0, 0, 0)))
+                                    .cmp(
+                                        &version_req_bottom_bound(va)
+                                            .unwrap_or(Some(semver::Version::new(0, 0, 0))),
+                                    );
+                            }
+                            version_req_top_bound(vb)
+                                .unwrap_or(Some(semver::Version::new(u64::MAX, u64::MAX, u64::MAX)))
+                                .cmp(&version_req_top_bound(va).unwrap_or(Some(
+                                    semver::Version::new(u64::MAX, u64::MAX, u64::MAX),
+                                )))
+                        }
+                        (
+                            DependencyConstraint::Revision(ra),
+                            DependencyConstraint::Revision(rb),
+                        ) => ra.cmp(rb),
+                        (DependencyConstraint::Path, DependencyConstraint::Path) => {
+                            std::cmp::Ordering::Equal
+                        }
+                        (DependencyConstraint::Path, _) => std::cmp::Ordering::Greater,
+                        (_, DependencyConstraint::Path) => std::cmp::Ordering::Less,
+                        (DependencyConstraint::Version(_), DependencyConstraint::Revision(_)) => {
+                            std::cmp::Ordering::Greater
+                        }
+                        (DependencyConstraint::Revision(_), DependencyConstraint::Version(_)) => {
+                            std::cmp::Ordering::Less
+                        }
+                    });
+                    g
+                })
+                .collect::<Vec<_>>();
         if let Some((cnstr, src, _, _)) = self.locked.get(name) {
             let _ = write!(
                 msg,
@@ -732,6 +791,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 cnstr,
                 self.sess.dependency_source(*src)
             );
+            cons.insert(0, (cnstr, src));
         }
         // Let user resolve conflict if both stderr and stdin go to a TTY.
         if std::io::stderr().is_terminal() && std::io::stdin().is_terminal() {
@@ -743,21 +803,31 @@ impl<'ctx> DependencyResolver<'ctx> {
                         select a revision for `{}` among:",
                     msg, name
                 );
+
+                let mut tw2 = TabWriter::new(vec![]);
                 for (idx, e) in cons.iter().enumerate() {
-                    eprintln!(
-                        "{}) `{}` at `{}`",
+                    writeln!(
+                        &mut tw2,
+                        "{})\t`{}`\tat `{}`",
                         idx,
                         e.0,
                         self.sess.dependency_source(*e.1)
-                    );
+                    )
+                    .unwrap();
                 }
+                tw2.flush().unwrap();
+                eprintln!("{}", String::from_utf8(tw2.into_inner().unwrap()).unwrap());
+
                 loop {
                     eprint!("Enter a number or hit enter to abort: ");
                     io::stdout().flush().unwrap();
                     let mut buffer = String::new();
                     io::stdin().read_line(&mut buffer).unwrap();
                     if buffer.starts_with('\n') {
-                        break Err(Error::new(msg));
+                        break Err(Error::new(format!(
+                            "Dependency requirements conflict with each other on dependency `{}`. Manual resolution aborted.\n",
+                            name
+                        )));
                     }
                     let choice = match buffer.trim().parse::<usize>() {
                         Ok(u) => u,
