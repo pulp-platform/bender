@@ -17,6 +17,7 @@ use crate::target::TargetSpec;
 
 /// Information about the dependency graph
 #[derive(Args, Debug)]
+#[command(alias = "package")]
 pub struct PackagesArgs {
     /// Print the dependencies for each package
     #[arg(short, long, action = ArgAction::SetTrue)]
