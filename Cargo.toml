@@ -41,3 +41,6 @@ tera = "1.19"
 
 [target.'cfg(windows)'.dependencies]
 dunce = "1.0.4"
+
+[dev-dependencies]
+assert_cmd = "2.1.1"
