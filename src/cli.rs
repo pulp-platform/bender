@@ -33,24 +33,29 @@ use crate::sess::{Session, SessionArenas, SessionIo};
 #[command(styles = cli_styles())]
 struct Cli {
     /// Sets a custom root working directory
-    #[arg(short, long, global = true, help_heading = "Global Options")]
+    #[arg(short, long, global = true, help_heading = "Global Options", env = "BENDER_DIR", value_parser = value_parser!(String))]
     dir: Option<String>,
 
     /// Disables fetching of remotes (e.g. for air-gapped computers)
-    #[arg(long, global = true, action = ArgAction::SetTrue, help_heading = "Global Options")]
+    #[arg(long, global = true, action = ArgAction::SetTrue, help_heading = "Global Options", env = "BENDER_LOCAL")]
     local: bool,
 
     /// Sets the maximum number of concurrent git operations
-    #[arg(long, global = true, help_heading = "Global Options")]
+    #[arg(
+        long,
+        global = true,
+        help_heading = "Global Options",
+        env = "BENDER_GIT_THROTTLE"
+    )]
     git_throttle: Option<usize>,
 
     /// Suppresses specific warnings. Use `all` to suppress all warnings.
-    #[arg(long, global = true, action = ArgAction::Append, value_parser = value_parser!(String), help_heading = "Global Options")]
+    #[arg(long, global = true, action = ArgAction::Append, help_heading = "Global Options", env = "BENDER_SUPPRESS_WARNINGS")]
     suppress: Vec<String>,
 
     /// Print additional debug information
     #[cfg(debug_assertions)]
-    #[arg(long, global = true, action = clap::ArgAction::SetTrue, help_heading = "Global Options")]
+    #[arg(long, global = true, action = ArgAction::SetTrue, help_heading = "Global Options", env = "BENDER_DEBUG")]
     debug: bool,
 
     #[command(subcommand)]
