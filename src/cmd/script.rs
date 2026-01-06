@@ -211,11 +211,11 @@ pub enum ScriptFormat {
     /// Riviera script
     Riviera {
         /// Pass arguments to vlog calls
-        #[arg(long = "riviera-vlog-arg", action = ArgAction::Append, alias = "vlog-arg")]
+        #[arg(long, action = ArgAction::Append, alias = "vlog-arg")]
         vlog_args: Vec<String>,
 
         /// Pass arguments to vcom calls
-        #[arg(long = "riviera-vcom-arg", action = ArgAction::Append, alias = "vcom-arg")]
+        #[arg(long, action = ArgAction::Append, alias = "vcom-arg")]
         vcom_args: Vec<String>,
     },
     /// Cadence Genus script
