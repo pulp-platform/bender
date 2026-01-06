@@ -307,6 +307,7 @@ Individual commands may also set tool-specific targets:
 - `vcs`
 - `verilator`
 - `synopsys`
+- `fusion-compiler`
 - `riviera`
 - `genus`
 - `vivado`
@@ -315,6 +316,7 @@ Individual commands may also set vendor-specific targets:
 
 - `xilinx`
 - `synopsys`
+- `fusion-compiler`
 
 Individual commands may also set technology-specific targets:
 
