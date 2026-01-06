@@ -1,7 +1,11 @@
 [package]
 name = "bender"
 version = "0.29.1"
-authors = ["Fabian Schuiki <fschuiki@iis.ee.ethz.ch>", "Andreas Kurth <akurth@iis.ee.ethz.ch>", "Michael Rogenmoser <michael@rogenmoser.us>"]
+authors = [
+  "Fabian Schuiki <fschuiki@iis.ee.ethz.ch>",
+  "Andreas Kurth <akurth@iis.ee.ethz.ch>",
+  "Michael Rogenmoser <michael@rogenmoser.us>",
+]
 repository = "https://github.com/pulp-platform/bender"
 description = "A dependency management tool for hardware projects."
 readme = "README.md"
@@ -25,7 +29,6 @@ blake2 = "0.10"
 typed-arena = "2"
 dirs = "6"
 pathdiff = "0.2"
-common-path = "1.0.0"
 itertools = "0.14"
 is-terminal = "0.4"
 tabwriter = "1.2.1"
