@@ -56,13 +56,15 @@ pub enum VendorSubcommand {
     /// Display a diff of the local tree and the upstream tree with patches applied.
     Diff {
         /// Return error code 1 when a diff is encountered. (Optional) override the error message by providing a value.
-        #[arg(long = "err_on_diff", num_args(0..=1))]
+        // alias is for backward compatibility
+        #[arg(long, num_args(0..=1), alias="err_on_diff")]
         err_on_diff: Option<String>,
     },
     /// (Re-)initialize the external dependencies.
     Init {
         /// Do not apply patches when initializing dependencies
-        #[arg(short = 'n', long = "no_patch", action = ArgAction::SetTrue)]
+        // alias is for backward compatibility
+        #[arg(short, long, action = ArgAction::SetTrue, alias="no_patch")]
         no_patch: bool,
     },
     /// Generate a patch file from staged local changes
