@@ -70,11 +70,11 @@ pub enum VendorSubcommand {
     /// Generate a patch file from staged local changes
     Patch {
         /// Generate a plain diff instead of a format-patch.
-        #[arg(long = "plain", action = ArgAction::SetTrue, help = "Generate a plain diff instead of a format-patch.", long_help = "Generate a plain diff instead of a format-patch. Includes all local changes (not only the staged ones).")]
+        #[arg(long, action = ArgAction::SetTrue, help = "Generate a plain diff instead of a format-patch.", long_help = "Generate a plain diff instead of a format-patch. Includes all local changes (not only the staged ones).")]
         plain: bool,
 
         /// The message to be associated with the format-patch.
-        #[arg(short = 'm', long = "message", action = ArgAction::Append, num_args(1))]
+        #[arg(short, long, action = ArgAction::Append, num_args(1))]
         message: Option<String>,
     },
 }
