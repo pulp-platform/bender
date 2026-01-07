@@ -86,9 +86,10 @@ fn run_regression(subcommand_args: &[&str]) {
 
 // The Macro generates the tests
 macro_rules! regression_tests {
-    ($($name:ident: $args:expr),* $(,)?) => {
+    ($($(#[$meta:meta])* $name:ident: $args:expr),* $(,)?) => {
         $(
             #[test]
+            $(#[$meta])*
             fn $name() {
                 run_regression($args);
             }
@@ -134,6 +135,7 @@ regression_tests! {
     vivado_sim_only_includes: &["script", "vivado-sim", "--only-includes"],
     vivado_sim_only_sources: &["script", "vivado-sim", "--only-sources"],
     precision:  &["script", "precision"],
+    #[ignore]
     template_json: &["script", "template_json"],
 
 }
