@@ -146,7 +146,6 @@ pub struct OnlyArgs {
     pub sources: bool,
 }
 
-// TODO(fischeti): Check if help texts are correct.
 /// Script format enum
 #[derive(Subcommand, Debug)]
 pub enum ScriptFormat {
