@@ -169,11 +169,11 @@ pub enum ScriptFormat {
     /// ModelSim/QuestaSim script
     Vsim {
         /// Pass arguments to vlog calls
-        #[arg(long = "vsim-vlog-arg", action = ArgAction::Append, alias = "vlog-arg")]
+        #[arg(long, action = ArgAction::Append, alias = "vlog-arg")]
         vlog_args: Vec<String>,
 
         /// Pass arguments to vcom calls
-        #[arg(long = "vsim-vcom-arg", action = ArgAction::Append, alias = "vcom-arg")]
+        #[arg(long, action = ArgAction::Append, alias = "vcom-arg")]
         vcom_args: Vec<String>,
     },
     /// Synopsys VCS script
@@ -199,11 +199,11 @@ pub enum ScriptFormat {
     /// Synopsys EDA tool script
     Synopsys {
         /// Pass arguments to verilog compilation calls
-        #[arg(long = "synopsys-vlog-arg", action = ArgAction::Append, alias = "vlog-arg")]
+        #[arg(long, action = ArgAction::Append, alias = "vlog-arg")]
         verilog_args: Vec<String>,
 
         /// Pass arguments to vhdl compilation calls
-        #[arg(long = "synopsys-vcom-arg", action = ArgAction::Append, alias = "vcom-arg")]
+        #[arg(long, action = ArgAction::Append, alias = "vcom-arg")]
         vhdl_args: Vec<String>,
     },
     /// Synopsys Formality script
