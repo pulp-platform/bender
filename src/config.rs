@@ -23,6 +23,7 @@ use semver;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_yaml_ng::Value;
+#[cfg(unix)]
 use subst;
 
 use crate::error::*;
