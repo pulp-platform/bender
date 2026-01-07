@@ -35,14 +35,14 @@ pub struct FusesocArgs {
     #[arg(long, action = ArgAction::Append)]
     pub license: Vec<String>,
 
-    // TODO(fischeti): Maybe create deprecation warning (changed from `--fuse_vendor` to `--fuse-vendor`)
     /// Vendor string to add for generated `.core` files
-    #[arg(long)]
+    // alias is for backward compatibility
+    #[arg(long, alias = "fuse_vendor")]
     pub fuse_vendor: Option<String>,
 
-    // TODO(fischeti): Maybe create deprecation warning (changed from `--fuse_version` to `--fuse-version`)
     /// Version string for the top package to add for generated `.core` file.
-    #[arg(long)]
+    // alias is for backward compatibility
+    #[arg(long, alias = "fuse_version")]
     pub fuse_version: Option<String>,
 }
 
