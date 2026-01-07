@@ -390,7 +390,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             include_str!("../script_fmt/riviera_tcl.tera").to_string()
         }
         ScriptFormat::Genus {} => include_str!("../script_fmt/genus_tcl.tera").to_string(),
-        ScriptFormat::Vivado { no_simset, only } => {
+        ScriptFormat::Vivado { no_simset, only } | ScriptFormat::VivadoSim { no_simset, only } => {
             opts.only_defines = only.defines;
             opts.only_includes = only.includes;
             opts.only_sources = only.sources;
@@ -399,15 +399,6 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             } else {
                 opts.vivado_filesets = vec!["", " -simset"];
             };
-            include_str!("../script_fmt/vivado_tcl.tera").to_string()
-        }
-        ScriptFormat::VivadoSim { no_simset, only } => {
-            opts.only_defines = only.defines;
-            opts.only_includes = only.includes;
-            opts.only_sources = only.sources;
-            if !*no_simset {
-                opts.vivado_filesets = vec!["simset"];
-            }
             include_str!("../script_fmt/vivado_tcl.tera").to_string()
         }
         ScriptFormat::Precision {} => include_str!("../script_fmt/precision_tcl.tera").to_string(),
