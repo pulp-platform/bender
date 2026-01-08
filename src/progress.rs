@@ -188,7 +188,7 @@ impl ProgressHandler {
                     // to have a "T" connector (├─) instead of an "L"
                     let prev_bar = match state.sub_bars.last() {
                         Some((last_name, last_pb)) => {
-                            let prev_prefix = format!("{} {}", dim!("├─ "), dim!(last_name));
+                            let prev_prefix = format!("{} {}", dim!("├─"), last_name);
                             last_pb.set_prefix(prev_prefix);
                             last_pb // Insert the new one after this one
                         }
@@ -199,9 +199,8 @@ impl ProgressHandler {
                     let sub_pb = self
                         .mpb
                         .insert_after(prev_bar, ProgressBar::new(100).with_style(style));
-
                     // Set the prefix and initial message
-                    let sub_prefix = format!("{} {}", dim!("└─ "), dim!(&name));
+                    let sub_prefix = format!("{} {}", dim!("╰─"), &name);
                     sub_pb.set_prefix(sub_prefix);
                     sub_pb.set_message(format!("{}", dim!("Waiting...")));
 
