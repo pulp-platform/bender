@@ -338,7 +338,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
     let template_content = match &args.format {
         ScriptFormat::Flist { relative_path } => {
             opts.relative_path = *relative_path;
-            include_str!("../script_fmt/flist.tera").to_string()
+            include_str!("../script_fmt/flist.tera")
         }
         ScriptFormat::FlistPlus {
             relative_path,
@@ -348,7 +348,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             opts.only_defines = only.defines;
             opts.only_includes = only.includes;
             opts.only_sources = only.sources;
-            include_str!("../script_fmt/flist-plus.tera").to_string()
+            include_str!("../script_fmt/flist-plus.tera")
         }
         ScriptFormat::Vsim {
             vlog_args,
@@ -356,7 +356,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         } => {
             opts.vlog_args = vlog_args.clone();
             opts.vcom_args = vcom_args.clone();
-            include_str!("../script_fmt/vsim_tcl.tera").to_string()
+            include_str!("../script_fmt/vsim_tcl.tera")
         }
         ScriptFormat::Vcs {
             vlogan_bin,
@@ -368,27 +368,27 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             opts.vlog_args = vlogan_args.clone();
             opts.vlogan_bin = Some(vlogan_bin.clone());
             opts.vhdlan_bin = Some(vhdlan_bin.clone());
-            include_str!("../script_fmt/vcs_sh.tera").to_string()
+            include_str!("../script_fmt/vcs_sh.tera")
         }
-        ScriptFormat::Verilator => include_str!("../script_fmt/verilator_sh.tera").to_string(),
+        ScriptFormat::Verilator => include_str!("../script_fmt/verilator_sh.tera"),
         ScriptFormat::Synopsys {
             verilog_args,
             vhdl_args,
         } => {
             opts.vcom_args = vhdl_args.clone();
             opts.vlog_args = verilog_args.clone();
-            include_str!("../script_fmt/synopsys_tcl.tera").to_string()
+            include_str!("../script_fmt/synopsys_tcl.tera")
         }
-        ScriptFormat::Formality {} => include_str!("../script_fmt/formality_tcl.tera").to_string(),
+        ScriptFormat::Formality {} => include_str!("../script_fmt/formality_tcl.tera"),
         ScriptFormat::Riviera {
             vlog_args,
             vcom_args,
         } => {
             opts.vcom_args = vcom_args.clone();
             opts.vlog_args = vlog_args.clone();
-            include_str!("../script_fmt/riviera_tcl.tera").to_string()
+            include_str!("../script_fmt/riviera_tcl.tera")
         }
-        ScriptFormat::Genus {} => include_str!("../script_fmt/genus_tcl.tera").to_string(),
+        ScriptFormat::Genus {} => include_str!("../script_fmt/genus_tcl.tera"),
         ScriptFormat::Vivado { no_simset, only } | ScriptFormat::VivadoSim { no_simset, only } => {
             opts.only_defines = only.defines;
             opts.only_includes = only.includes;
@@ -398,11 +398,11 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             } else {
                 opts.vivado_filesets = vec!["", " -simset"];
             };
-            include_str!("../script_fmt/vivado_tcl.tera").to_string()
+            include_str!("../script_fmt/vivado_tcl.tera")
         }
-        ScriptFormat::Precision {} => include_str!("../script_fmt/precision_tcl.tera").to_string(),
-        ScriptFormat::Template { template } => std::fs::read_to_string(template)?,
-        ScriptFormat::TemplateJson => JSON.to_string(),
+        ScriptFormat::Precision {} => include_str!("../script_fmt/precision_tcl.tera"),
+        ScriptFormat::Template { template } => &std::fs::read_to_string(template)?,
+        ScriptFormat::TemplateJson => &JSON.to_string(),
     };
 
     emit_template(sess, &template_content, args, opts, targets, srcs)
