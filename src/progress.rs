@@ -123,7 +123,7 @@ impl ProgressHandler {
     pub fn start(&self) -> ProgressState {
         // Create and configure the main progress bar
         let style = ProgressStyle::with_template(
-            "{spinner:.green} {prefix:<32!} {bar:40.cyan/blue} {percent:>3}% {msg}",
+            "{spinner:.cyan} {prefix:<32!} {bar:40.cyan/blue} {percent:>3}% {msg}",
         )
         .unwrap()
         .progress_chars("-- ")
@@ -136,10 +136,10 @@ impl ProgressHandler {
         let prefix = match self.git_op {
             GitProgressOps::Clone => "Cloning",
             GitProgressOps::Fetch => "Fetching",
-            GitProgressOps::Checkout => "Checkout",
-            GitProgressOps::Submodule => "Update Submodules",
+            GitProgressOps::Checkout => "Checking out",
+            GitProgressOps::Submodule => "Updating Submodules",
         };
-        let prefix = format!("{} {}", green_bold!(prefix), bold!(&self.name));
+        let prefix = format!("{} {}", cyan_bold!(prefix), bold!(&self.name));
         pb.set_prefix(prefix);
 
         // Configure the spinners to automatically tick every 100ms
@@ -173,7 +173,7 @@ impl ProgressHandler {
                     // The main bar simply becomes a spinner since the sub-bar will show progress
                     // on the subsequent line.
                     state.pb.set_style(
-                        ProgressStyle::with_template("{spinner:.green} {prefix:<32!}").unwrap(),
+                        ProgressStyle::with_template("{spinner:.cyan} {prefix:<40!}").unwrap(),
                     );
 
                     // The submodule style is similar to the main bar, but indented and without spinner
@@ -188,7 +188,7 @@ impl ProgressHandler {
                     // to have a "T" connector (├─) instead of an "L"
                     let prev_bar = match state.sub_bars.last() {
                         Some((last_name, last_pb)) => {
-                            let prev_prefix = format!("{} {}", dim!("├─ "), dim!(last_name));
+                            let prev_prefix = format!("{} {}", dim!("├─"), last_name);
                             last_pb.set_prefix(prev_prefix);
                             last_pb // Insert the new one after this one
                         }
@@ -199,9 +199,8 @@ impl ProgressHandler {
                     let sub_pb = self
                         .mpb
                         .insert_after(prev_bar, ProgressBar::new(100).with_style(style));
-
                     // Set the prefix and initial message
-                    let sub_prefix = format!("{} {}", dim!("└─ "), dim!(&name));
+                    let sub_prefix = format!("{} {}", dim!("╰─"), &name);
                     sub_pb.set_prefix(sub_prefix);
                     sub_pb.set_message(format!("{}", dim!("Waiting...")));
 

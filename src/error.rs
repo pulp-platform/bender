@@ -99,6 +99,14 @@ macro_rules! green_bold {
     };
 }
 
+/// Style a message in cyan bold.
+#[macro_export]
+macro_rules! cyan_bold {
+    ($arg:expr) => {
+        console::style($arg).cyan().bold()
+    };
+}
+
 /// Style a message in green bold.
 #[macro_export]
 macro_rules! red_bold {
