@@ -127,7 +127,7 @@ impl<'ctx> SourceGroup<'ctx> {
                             None => Some(trgt.clone()),
                             Some(pkg) => {
                                 let parts: Vec<&str> = trgt.splitn(2, ':').collect();
-                                if pkg == parts[0].to_lowercase().as_str() {
+                                if pkg == parts[0].to_lowercase().as_str() || parts[0] == "*" {
                                     Some(parts[1].to_string())
                                 } else {
                                     None
@@ -145,7 +145,29 @@ impl<'ctx> SourceGroup<'ctx> {
         } else {
             &local_targets
         };
-        if !self.target.matches(all_targets) {
+
+        // collect negative targets to be removed
+        let neg_targets = all_targets
+            .iter()
+            .filter_map(|t| {
+                if t.starts_with('-') {
+                    Some(t[1..].to_string())
+                } else {
+                    None
+                }
+            })
+            .collect::<IndexSet<_>>();
+
+        // remove negative targets from all_targets
+        let all_targets = TargetSet::new(all_targets.iter().filter_map(|t| {
+            if t.starts_with('-') || neg_targets.contains(t) {
+                None
+            } else {
+                Some(t.clone())
+            }
+        }).collect::<IndexSet<_>>());
+
+        if !self.target.matches(&all_targets) {
             return None;
         }
         let files = self
@@ -153,12 +175,12 @@ impl<'ctx> SourceGroup<'ctx> {
             .iter()
             .filter_map(|file| match *file {
                 SourceFile::Group(ref group) => group
-                    .filter_targets(all_targets, use_passed)
+                    .filter_targets(&targets, use_passed)
                     .map(|g| SourceFile::Group(Box::new(g))),
                 ref other => Some(other.clone()),
             })
             .collect();
-        let mut target_defs = local_targets
+        let mut target_defs = all_targets
             .into_iter()
             .filter_map(|t| match t.contains(':') {
                 true => None,
@@ -167,7 +189,9 @@ impl<'ctx> SourceGroup<'ctx> {
             .collect::<IndexSet<_>>();
         target_defs.sort();
         let mut defines: IndexMap<String, Option<&str>> = self.defines.clone();
-        defines.extend(target_defs.into_iter().map(|t| (t, None)));
+        if let Some(_) = self.package {
+            defines.extend(target_defs.into_iter().map(|t| (t, None)));
+        }
 
         Some(
             SourceGroup {
