@@ -74,17 +74,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         let pkg_name = sess.dependency_name(*pkg);
         let parent_array = get_parent_array(sess, &rt, &io, pkg_name, false)?;
         let current_version = sess.dependency(*pkg).version.clone();
-        let current_version_unwrapped = if current_version.is_some() {
-            format!("{}", current_version.clone().unwrap())
-        } else {
-            "".to_string()
-        };
+        let current_version_unwrapped = current_version
+            .clone()
+            .map(|v| v.to_string())
+            .unwrap_or_default();
         let current_revision = sess.dependency(*pkg).revision.clone();
-        let current_revision_unwrapped = if current_revision.is_some() {
-            current_revision.clone().unwrap().to_string()
-        } else {
-            "".to_string()
-        };
+        let current_revision_unwrapped = current_revision.clone().unwrap_or_default();
         let available_versions = match dep_versions.get(pkg).unwrap().clone() {
             DependencyVersions::Git(versions) => versions.versions,
             _ => vec![],
@@ -97,16 +92,11 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         let mut conflicting = false;
         let mut version_req_exists = false;
         let mut compatible_versions = available_versions.clone();
-        let default_version = parent_array
+        let (default_version, url) = parent_array
             .values()
             .next()
-            .unwrap_or(&vec!["".to_string()])[0]
-            .clone();
-        let url = parent_array
-            .values()
-            .next()
-            .unwrap_or(&vec!["".to_string(), "".to_string()])[1]
-            .clone();
+            .map(|v| (v[0].clone(), v[1].clone()))
+            .unwrap_or_else(|| ("".to_string(), "".to_string()));
         for parent in parent_array.values() {
             match VersionReq::parse(&parent[0]) {
                 Ok(parent_version) => {
@@ -148,57 +138,56 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 "\x1B[31;1m{:>12}:\x1B[m {} \t{}\n",
                 "Hash", pkg_name, current_revision_unwrapped
             ));
-            if highest_version.is_some() {
+            if let Some(highest_version) = highest_version {
                 audit_str.push_str(&format!(
                     "\x1B[31;1m{:>12} \x1B[m highest: \t{}\n",
-                    "",
-                    highest_version.unwrap()
+                    "", highest_version
                 ));
             }
         }
 
         // if up-to-date:
-        if current_version.is_some()
-            && version_req_exists
-            && highest_version.is_some()
-            && *highest_version.unwrap() == current_version.clone().unwrap()
-            && !matches.get_flag("only-update")
-        {
-            audit_str.push_str(&format!(
-                "\x1B[32;1m{:>12}:\x1B[m {} \t@ {}\n",
-                "Up-to-date", pkg_name, current_version_unwrapped
-            ));
+        if let Some(ref current_version) = current_version {
+            if version_req_exists {
+                if let Some(highest_version) = highest_version {
+                    if *highest_version == *current_version && !matches.get_flag("only-update") {
+                        audit_str.push_str(&format!(
+                            "\x1B[32;1m{:>12}:\x1B[m {} \t@ {}\n",
+                            "Up-to-date", pkg_name, current_version_unwrapped
+                        ));
+                    }
+                }
+            }
         }
 
         // if not up-to-date but newest compatible:
-        if current_version.is_some()
-            && version_req_exists
-            && max_compatible.is_some()
-            && *max_compatible.unwrap() > current_version.clone().unwrap()
-        {
-            audit_str.push_str(&format!(
-                "\x1B[32;1m{:>12}:\x1B[m {} \t{} -> {}\n",
-                "Auto-update",
-                pkg_name,
-                current_version_unwrapped,
-                max_compatible.unwrap()
-            ));
+        if let Some(ref current_version) = current_version {
+            if version_req_exists {
+                if let Some(max_compatible) = max_compatible {
+                    if *max_compatible > *current_version {
+                        audit_str.push_str(&format!(
+                            "\x1B[32;1m{:>12}:\x1B[m {} \t{} -> {}\n",
+                            "Auto-update", pkg_name, current_version_unwrapped, max_compatible
+                        ));
+                    }
+                }
+            }
         }
 
         // if not up-to-date and newest incompatible:
-        if current_version.is_some()
-            && version_req_exists
-            && highest_version.is_some()
-            && *highest_version.unwrap() > current_version.clone().unwrap()
-            && (max_compatible.is_none() || *max_compatible.unwrap() < *highest_version.unwrap())
-        {
-            audit_str.push_str(&format!(
-                "\x1B[33;1m{:>12}:\x1B[m {} \t{} -> {}\n",
-                "Update",
-                pkg_name,
-                current_version_unwrapped,
-                highest_version.unwrap()
-            ));
+        if let Some(current_version) = current_version {
+            if version_req_exists {
+                if let Some(highest_version) = highest_version {
+                    if *highest_version > current_version
+                        && (max_compatible.is_none() || *max_compatible.unwrap() < *highest_version)
+                    {
+                        audit_str.push_str(&format!(
+                            "\x1B[33;1m{:>12}:\x1B[m {} \t{} -> {}\n",
+                            "Update", pkg_name, current_version_unwrapped, highest_version
+                        ));
+                    }
+                }
+            }
         }
     }
 
