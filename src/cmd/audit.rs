@@ -95,6 +95,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         let highest_version = available_versions.iter().max();
 
         let mut conflicting = false;
+        let mut version_req_exists = false;
         let mut compatible_versions = available_versions.clone();
         let default_version = parent_array
             .values()
@@ -110,6 +111,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             match VersionReq::parse(&parent[0]) {
                 Ok(parent_version) => {
                     compatible_versions.retain(|v| parent_version.matches(v));
+                    version_req_exists = true;
                 }
                 Err(_) => {
                     if parent[0] != default_version {
@@ -121,7 +123,11 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 conflicting = true;
             }
         }
-        let max_compatible = compatible_versions.iter().max();
+        let max_compatible = if version_req_exists {
+            compatible_versions.iter().max()
+        } else {
+            None
+        };
 
         // if conflicting:
         if conflicting {
@@ -137,7 +143,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         }
 
         // if rev:
-        if current_version.is_none() && current_revision.is_some() {
+        if (current_version.is_none() || !version_req_exists) && current_revision.is_some() {
             audit_str.push_str(&format!(
                 "\x1B[31;1m{:>12}:\x1B[m {} \t{}\n",
                 "Hash", pkg_name, current_revision_unwrapped
@@ -153,6 +159,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
         // if up-to-date:
         if current_version.is_some()
+            && version_req_exists
             && highest_version.is_some()
             && *highest_version.unwrap() == current_version.clone().unwrap()
             && !matches.get_flag("only-update")
@@ -165,6 +172,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
         // if not up-to-date but newest compatible:
         if current_version.is_some()
+            && version_req_exists
             && max_compatible.is_some()
             && *max_compatible.unwrap() > current_version.clone().unwrap()
         {
@@ -179,6 +187,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
         // if not up-to-date and newest incompatible:
         if current_version.is_some()
+            && version_req_exists
             && highest_version.is_some()
             && *highest_version.unwrap() > current_version.clone().unwrap()
             && (max_compatible.is_none() || *max_compatible.unwrap() < *highest_version.unwrap())
