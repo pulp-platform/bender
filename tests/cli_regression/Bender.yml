@@ -13,3 +13,5 @@ sources:
     target: target
     files:
       - src2.sv
+  - src3.vhd
+  - sv: src4.e
