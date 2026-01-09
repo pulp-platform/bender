@@ -135,7 +135,6 @@ regression_tests! {
     cli_vivado_sim_only_includes:   &["script", "vivado-sim", "--only-includes"],
     cli_vivado_sim_only_sources:    &["script", "vivado-sim", "--only-sources"],
     cli_precision:                  &["script", "precision"],
-    #[ignore]
     cli_template_json:              &["script", "template_json"],
 
 }
