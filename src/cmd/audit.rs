@@ -77,6 +77,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     let mut audit_str = String::from("");
 
+    let name_width = pkgs
+        .iter()
+        .map(|pkg| sess.dependency_name(**pkg).len())
+        .max()
+        .unwrap_or(10);
+
     for pkg in pkgs {
         let pkg_name = sess.dependency_name(*pkg);
         let parent_array = get_parent_array(sess, &rt, &io, pkg_name, false)?;
@@ -126,29 +132,28 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             None
         };
 
+        audit_str.push_str(&format!("{:>1$}\t", pkg_name, name_width));
+
         // if conflicting:
         if conflicting {
-            audit_str.push_str(&format!(
-                "\x1B[31;1m{:>12}:\x1B[m {} \t-> check parents\n",
-                "Conflict", pkg_name
-            ));
+            audit_str.push_str(" has a \x1B[31;1mConflict:\x1B[m\t-> check parents\n\t");
         }
 
         // if path:
         if current_version.is_none() && current_revision.is_none() {
-            audit_str.push_str(&format!("\x1B[;1m{:>12}:\x1B[m {}\t\n", "Path", pkg_name));
+            audit_str.push_str("    uses a \x1B[;1mPath\x1B[m\t\n");
         }
 
         // if rev:
         if (current_version.is_none() || !version_req_exists) && current_revision.is_some() {
             audit_str.push_str(&format!(
-                "\x1B[31;1m{:>12}:\x1B[m {} \t{}\n",
-                "Hash", pkg_name, current_revision_unwrapped
+                "    uses a \x1B[31;1mHash:\x1B[m\t{}\n",
+                current_revision_unwrapped
             ));
             if let Some(highest_version) = highest_version {
                 audit_str.push_str(&format!(
-                    "\x1B[31;1m{:>12} \x1B[m highest: \t{}\n",
-                    "", highest_version
+                    "\t\x1B[31;1m\x1B[m\thighest version: {}\n",
+                    highest_version
                 ));
             }
         }
@@ -159,8 +164,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 if let Some(highest_version) = highest_version {
                     if *highest_version == *current_version && !matches.get_flag("only-update") {
                         audit_str.push_str(&format!(
-                            "\x1B[32;1m{:>12}:\x1B[m {} \t@ {}\n",
-                            "Up-to-date", pkg_name, current_version_unwrapped
+                            "  is \x1B[32;1mUp-to-date:\x1B[m\t@ {}\n",
+                            current_version_unwrapped
                         ));
                     }
                 }
@@ -173,8 +178,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 if let Some(max_compatible) = max_compatible {
                     if *max_compatible > *current_version {
                         audit_str.push_str(&format!(
-                            "\x1B[32;1m{:>12}:\x1B[m {} \t{} -> {}\n",
-                            "Auto-update", pkg_name, current_version_unwrapped, max_compatible
+                            "can \x1B[32;1mAuto-update:\x1B[m\t{} -> {}\n",
+                            current_version_unwrapped, max_compatible
                         ));
                     }
                 }
@@ -189,8 +194,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                         && (max_compatible.is_none() || *max_compatible.unwrap() < *highest_version)
                     {
                         audit_str.push_str(&format!(
-                            "\x1B[33;1m{:>12}:\x1B[m {} \t{} -> {}\n",
-                            "Update", pkg_name, current_version_unwrapped, highest_version
+                            "     can \x1B[33;1mUpdate:\x1B[m\t{} -> {}\n",
+                            current_version_unwrapped, highest_version
                         ));
                     }
                 }
