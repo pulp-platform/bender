@@ -35,6 +35,13 @@ pub fn new() -> Command {
                 .action(ArgAction::SetTrue)
                 .help("Force fetch of git dependencies."),
         )
+        .arg(
+            Arg::new("ignore-url-conflict")
+                .long("ignore-url-conflict")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
+                .help("Ignore URL conflicts when auditing."),
+        )
 }
 
 /// Execute the `audit` subcommand.
@@ -109,7 +116,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     }
                 }
             }
-            if parent[1] != url {
+            if parent[1] != url && !matches.get_flag("ignore-url-conflict") {
                 conflicting = true;
             }
         }
