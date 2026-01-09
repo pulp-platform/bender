@@ -3,14 +3,12 @@
 
 //! The `script` subcommand.
 
-use std::fs;
 use std::io::Write;
-use std::path::Path;
 use std::path::PathBuf;
 
-use clap::builder::PossibleValue;
-use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
+use clap::{ArgAction, Args, Subcommand, ValueEnum};
 use indexmap::{IndexMap, IndexSet};
+use serde::Serialize;
 use tera::{Context, Tera};
 use tokio::runtime::Runtime;
 
@@ -20,183 +18,187 @@ use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::{TargetSet, TargetSpec};
 
-/// Assemble the `script` subcommand.
-pub fn new() -> Command {
-    Command::new("script")
-        .about("Emit tool scripts for the package")
-        .arg(
-            Arg::new("target")
-                .short('t')
-                .long("target")
-                .help("Only include sources that match the given target")
-                .num_args(1)
-                .action(ArgAction::Append)
-                .value_parser(value_parser!(String)),
-        )
-        .arg(
-            Arg::new("no-default-target")
-                .long("no-default-target")
-                .help("Remove any default targets that may be added to the generated script")
-                .num_args(0)
-                .action(ArgAction::SetTrue),
-        )
-        .arg(
-            Arg::new("format")
-                .help("Format of the generated script")
-                .required(true)
-                .num_args(1)
-                .value_parser([
-                    PossibleValue::new("flist"),
-                    PossibleValue::new("flist-plus"),
-                    PossibleValue::new("vsim"),
-                    PossibleValue::new("vcs"),
-                    PossibleValue::new("verilator"),
-                    PossibleValue::new("synopsys"),
-                    PossibleValue::new("formality"),
-                    PossibleValue::new("riviera"),
-                    PossibleValue::new("genus"),
-                    PossibleValue::new("vivado"),
-                    PossibleValue::new("vivado-sim"),
-                    PossibleValue::new("precision"),
-                    PossibleValue::new("template"),
-                    PossibleValue::new("template_json"),
-                ]),
-        )
-        .arg(
-            Arg::new("relative-path")
-                .long("relative-path")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Use relative paths (flist generation only)"),
-        )
-        .arg(
-            Arg::new("define")
-                .short('D')
-                .long("define")
-                .help("Pass an additional define to all source files")
-                .num_args(1..)
-                .action(ArgAction::Append)
-                .value_parser(value_parser!(String)),
-        )
-        .arg(
-            Arg::new("vcom-arg")
-                .long("vcom-arg")
-                .help("Pass an argument to vcom calls (vsim/vhdlan/riviera/synopsys only)")
-                .num_args(1..)
-                .action(ArgAction::Append)
-                .value_parser(value_parser!(String)),
-        )
-        .arg(
-            Arg::new("vlog-arg")
-                .long("vlog-arg")
-                .help("Pass an argument to vlog calls (vsim/vlogan/riviera/synopsys only)")
-                .num_args(1..)
-                .action(ArgAction::Append)
-                .value_parser(value_parser!(String)),
-        )
-        .arg(
-            Arg::new("only-defines")
-                .long("only-defines")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Only output commands to define macros (Vivado/flist only)"),
-        )
-        .arg(
-            Arg::new("only-includes")
-                .long("only-includes")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Only output commands to define include directories (Vivado/flist only)"),
-        )
-        .arg(
-            Arg::new("only-sources")
-                .long("only-sources")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Only output commands to define source files (Vivado/flist only)"),
-        )
-        .arg(
-            Arg::new("no-simset")
-                .long("no-simset")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Do not change `simset` fileset (Vivado only)"),
-        )
-        .arg(
-            Arg::new("vlogan-bin")
-                .long("vlogan-bin")
-                .help("Specify a `vlogan` command")
-                .num_args(1)
-                .default_value("vlogan")
-                .value_parser(value_parser!(String)),
-        )
-        .arg(
-            Arg::new("vhdlan-bin")
-                .long("vhdlan-bin")
-                .help("Specify a `vhdlan` command")
-                .num_args(1)
-                .default_value("vhdlan")
-                .value_parser(value_parser!(String)),
-        )
-        .arg(
-            Arg::new("no-abort-on-error")
-                .long("no-abort-on-error")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Do not abort analysis/compilation on first caught error (only for programs that support early aborting)")
-        )
-        .arg(
-            Arg::new("compilation_mode")
-                .long("compilation-mode")
-                .help("Choose compilation mode option: separate/common")
-                .num_args(1)
-                .default_value("separate")
-                .value_parser([
-                    PossibleValue::new("separate"),
-                    PossibleValue::new("common"),
-                ])
-        )
-        .arg(
-            Arg::new("package")
-                .short('p')
-                .long("package")
-                .help("Specify package to show sources for")
-                .num_args(1)
-                .action(ArgAction::Append)
-                .value_parser(value_parser!(String)),
-        )
-        .arg(
-            Arg::new("no_deps")
-                .short('n')
-                .long("no-deps")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Exclude all dependencies, i.e. only top level or specified package(s)"),
-        )
-        .arg(
-            Arg::new("exclude")
-                .short('e')
-                .long("exclude")
-                .help("Specify package to exclude from sources")
-                .num_args(1)
-                .action(ArgAction::Append)
-                .value_parser(value_parser!(String)),
-        )
-        .arg(
-            Arg::new("template")
-                .long("template")
-                .required_if_eq("format", "template")
-                .help("Path to a file containing the tera template string to be formatted.")
-                .num_args(1)
-                .value_parser(value_parser!(String)),
-        )
-        .arg(
-            Arg::new("assume_rtl")
-                .long("assume-rtl")
-                .help("Add the `rtl` target to any fileset without a target specification")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-        )
+/// Emit tool scripts for the package
+#[derive(Args, Debug)]
+pub struct ScriptArgs {
+    /// Only include sources that match the given target
+    #[arg(short, long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
+    pub target: Vec<String>,
+
+    /// Remove any default targets that may be added to the generated script
+    #[arg(long, action = ArgAction::SetTrue, global = true, help_heading = "General Script Options")]
+    pub no_default_target: bool,
+
+    /// Pass an additional define to all source files
+    #[arg(short = 'D', long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
+    pub define: Vec<String>,
+
+    /// Specify package to show sources for
+    #[arg(short, long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
+    pub package: Vec<String>,
+
+    /// Exclude all dependencies, i.e. only top level or specified package(s)
+    #[arg(short, long, action = ArgAction::SetTrue, global = true, help_heading = "General Script Options")]
+    pub no_deps: bool,
+
+    /// Specify package to exclude from sources
+    #[arg(short, long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
+    pub exclude: Vec<String>,
+
+    /// Add the `rtl` target to any fileset without a target specification
+    #[arg(long, action = ArgAction::SetTrue, global = true, help_heading = "General Script Options")]
+    pub assume_rtl: bool,
+
+    /// Choose compilation mode option
+    #[arg(
+        long,
+        default_value_t,
+        value_enum,
+        global = true,
+        help_heading = "General Script Options"
+    )]
+    pub compilation_mode: CompilationMode,
+
+    /// Do not abort analysis/compilation on first caught error
+    #[arg(long, action = ArgAction::SetTrue, global = true, help_heading = "General Script Options")]
+    pub no_abort_on_error: bool,
+
+    /// Format of the generated script
+    #[command(subcommand)]
+    pub format: ScriptFormat,
+}
+
+/// Compilation mode enum
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CompilationMode {
+    #[default]
+    /// Compile each source file group separately
+    Separate,
+    /// Compile all source file groups together in a common compilation unit
+    Common,
+}
+
+/// Common arguments for Vivado scripts
+#[derive(Args, Debug)]
+pub struct OnlyArgs {
+    /// Only output commands to define macros
+    #[arg(long="only-defines", action = ArgAction::SetTrue)]
+    pub defines: bool,
+
+    /// Only output commands to define include directories
+    #[arg(long="only-includes", action = ArgAction::SetTrue)]
+    pub includes: bool,
+
+    /// Only output commands to define source files
+    #[arg(long="only-sources", action = ArgAction::SetTrue)]
+    pub sources: bool,
+}
+
+/// Script format enum
+#[derive(Subcommand, Debug)]
+pub enum ScriptFormat {
+    /// A general file list
+    Flist {
+        /// Use relative paths
+        #[arg(long, action = ArgAction::SetTrue)]
+        relative_path: bool,
+    },
+    /// An extended file list with include dirs and defines
+    FlistPlus {
+        /// Use relative paths
+        #[arg(long, action = ArgAction::SetTrue)]
+        relative_path: bool,
+
+        /// Common arguments for Vivado scripts
+        #[command(flatten)]
+        only: OnlyArgs,
+    },
+    /// ModelSim/QuestaSim script
+    Vsim {
+        /// Pass arguments to vlog calls
+        #[arg(long, action = ArgAction::Append, alias = "vlog-arg")]
+        vlog_args: Vec<String>,
+
+        /// Pass arguments to vcom calls
+        #[arg(long, action = ArgAction::Append, alias = "vcom-arg")]
+        vcom_args: Vec<String>,
+    },
+    /// Synopsys VCS script
+    Vcs {
+        /// Pass arguments to vlogan calls
+        #[arg(long, action = ArgAction::Append, alias = "vlog-arg")]
+        vlogan_args: Vec<String>,
+
+        /// Pass arguments to vhdlan calls
+        #[arg(long, action = ArgAction::Append, alias = "vcom-arg")]
+        vhdlan_args: Vec<String>,
+
+        /// Specify a `vlogan` command
+        #[arg(long, default_value = "vlogan")]
+        vlogan_bin: String,
+
+        /// Specify a `vhdlan` command
+        #[arg(long, default_value = "vhdlan")]
+        vhdlan_bin: String,
+    },
+    /// Verilator script
+    Verilator,
+    /// Synopsys EDA tool script
+    Synopsys {
+        /// Pass arguments to verilog compilation calls
+        #[arg(long, action = ArgAction::Append, alias = "vlog-arg")]
+        verilog_args: Vec<String>,
+
+        /// Pass arguments to vhdl compilation calls
+        #[arg(long, action = ArgAction::Append, alias = "vcom-arg")]
+        vhdl_args: Vec<String>,
+    },
+    /// Synopsys Formality script
+    Formality,
+    /// Riviera script
+    Riviera {
+        /// Pass arguments to vlog calls
+        #[arg(long, action = ArgAction::Append, alias = "vlog-arg")]
+        vlog_args: Vec<String>,
+
+        /// Pass arguments to vcom calls
+        #[arg(long, action = ArgAction::Append, alias = "vcom-arg")]
+        vcom_args: Vec<String>,
+    },
+    /// Cadence Genus script
+    Genus {},
+    /// Xilinx Vivado synthesis script
+    Vivado {
+        /// Do not change `simset` fileset
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_simset: bool,
+
+        /// Common arguments for Vivado scripts
+        #[command(flatten)]
+        only: OnlyArgs,
+    },
+    /// Xilinx Vivado simulation script
+    VivadoSim {
+        /// Do not change `simset` fileset
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_simset: bool,
+
+        /// Common arguments for Vivado scripts
+        #[command(flatten)]
+        only: OnlyArgs,
+    },
+    /// Mentor Graphics Precision script
+    Precision {},
+    /// Custom template script
+    Template {
+        /// Path to a file containing the tera template string to be formatted.
+        #[arg(long)]
+        template: String,
+    },
+    /// JSON output
+    #[command(alias = "template_json")]
+    TemplateJson,
 }
 
 fn get_package_strings<I>(packages: I) -> IndexSet<String>
@@ -211,7 +213,7 @@ where
 }
 
 /// Execute the `script` subcommand.
-pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
+pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
     let mut srcs = rt.block_on(io.sources(false, &[]))?;
@@ -221,41 +223,36 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     fn concat<T: Clone>(a: &[T], b: &[T]) -> Vec<T> {
         a.iter().chain(b).cloned().collect()
     }
-    let format = matches.get_one::<String>("format").unwrap();
-    let format_targets: Vec<&str> = if !matches.get_flag("no-default-target") {
-        match format.as_str() {
-            "flist" => vec!["flist"],
-            "flist-plus" => vec!["flist"],
-            "vsim" => vec!["vsim", "simulation"],
-            "vcs" => vec!["vcs", "simulation"],
-            "verilator" => vec!["verilator", "synthesis"],
-            "synopsys" => vec!["synopsys", "synthesis"],
-            "formality" => vec!["synopsys", "synthesis", "formality"],
-            "riviera" => vec!["riviera", "simulation"],
-            "genus" => vec!["genus", "synthesis"],
-            "vivado" => concat(vivado_targets, &["synthesis"]),
-            "vivado-sim" => concat(vivado_targets, &["simulation"]),
-            "precision" => vec!["precision", "fpga", "synthesis"],
-            "template" => vec![],
-            "template_json" => vec![],
-            _ => unreachable!(),
+    let format_targets: Vec<&str> = if !args.no_default_target {
+        match args.format {
+            ScriptFormat::Flist { .. } => vec!["flist"],
+            ScriptFormat::FlistPlus { .. } => vec!["flist"],
+            ScriptFormat::Vsim { .. } => vec!["vsim", "simulation"],
+            ScriptFormat::Vcs { .. } => vec!["vcs", "simulation"],
+            ScriptFormat::Verilator => vec!["verilator", "synthesis"],
+            ScriptFormat::Synopsys { .. } => vec!["synopsys", "synthesis"],
+            ScriptFormat::Formality { .. } => vec!["synopsys", "synthesis", "formality"],
+            ScriptFormat::Riviera { .. } => vec!["riviera", "simulation"],
+            ScriptFormat::Genus { .. } => vec!["genus", "synthesis"],
+            ScriptFormat::Vivado { .. } => concat(vivado_targets, &["synthesis"]),
+            ScriptFormat::VivadoSim { .. } => concat(vivado_targets, &["simulation"]),
+            ScriptFormat::Precision { .. } => vec!["precision", "fpga", "synthesis"],
+            ScriptFormat::Template { .. } => vec![],
+            ScriptFormat::TemplateJson => vec![],
         }
     } else {
         vec![]
     };
 
     // Filter the sources by target.
-    let targets = matches
-        .get_many::<String>("target")
-        .map(|t| {
-            TargetSet::new(
-                t.map(|element| element.as_str())
-                    .chain(format_targets.clone()),
-            )
-        })
-        .unwrap_or_else(|| TargetSet::new(format_targets));
+    let targets = TargetSet::new(
+        args.target
+            .iter()
+            .map(|s| s.as_str())
+            .chain(format_targets.into_iter()),
+    );
 
-    if matches.get_flag("assume_rtl") {
+    if args.assume_rtl {
         srcs = srcs.assign_target("rtl".to_string());
     }
 
@@ -276,21 +273,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     // Filter the sources by specified packages.
     let packages = &srcs.get_package_list(
         sess,
-        &matches
-            .get_many::<String>("package")
-            .map(get_package_strings)
-            .unwrap_or_default(),
-        &matches
-            .get_many::<String>("exclude")
-            .map(get_package_strings)
-            .unwrap_or_default(),
-        matches.get_flag("no_deps"),
+        &get_package_strings(&args.package),
+        &get_package_strings(&args.exclude),
+        args.no_deps,
     );
 
-    if matches.contains_id("package")
-        || matches.contains_id("exclude")
-        || matches.get_flag("no_deps")
-    {
+    if !args.package.is_empty() || !args.exclude.is_empty() || args.no_deps {
         srcs = srcs
             .filter_packages(packages)
             .unwrap_or_else(|| SourceGroup {
@@ -313,133 +301,82 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         .map(|f| f.validate("", false, &sess.suppress_warnings))
         .collect::<Result<Vec<_>>>()?;
 
-    // Validate format-specific options.
-    if (matches.contains_id("vcom-arg") || matches.contains_id("vlog-arg"))
-        && format != "vsim"
-        && format != "vcs"
-        && format != "riviera"
-        && format != "synopsys"
-        && format != "template"
-        && format != "template_json"
-    {
-        return Err(Error::new(
-            "vsim/vcs-only options can only be used for 'vcs', 'vsim' or 'riviera' format!",
-        ));
-    }
-    if (matches.get_flag("only-defines")
-        || matches.get_flag("only-includes")
-        || matches.get_flag("only-sources"))
-        && !format.starts_with("vivado")
-        && format != "template"
-        && format != "template_json"
-        && !format.starts_with("flist")
-    {
-        return Err(Error::new(
-            "only-x options can only be used for 'vivado', 'flist', or custom format!",
-        ));
-    }
-
-    if matches.get_flag("no-simset") && !format.starts_with("vivado") {
-        return Err(Error::new(
-            "Vivado-only options can only be used for 'vivado' format!",
-        ));
-    }
+    let mut opts: RenderOptions = RenderOptions::default();
+    opts.compilation_mode = args.compilation_mode;
+    opts.no_abort_on_error = args.no_abort_on_error;
 
     // Generate the corresponding output.
-    match format.as_str() {
-        "flist" => emit_template(
-            sess,
-            include_str!("../script_fmt/flist.tera"),
-            matches,
-            targets,
-            srcs,
-        ),
-        "flist-plus" => emit_template(
-            sess,
-            include_str!("../script_fmt/flist-plus.tera"),
-            matches,
-            targets,
-            srcs,
-        ),
-        "vsim" => emit_template(
-            sess,
-            include_str!("../script_fmt/vsim_tcl.tera"),
-            matches,
-            targets,
-            srcs,
-        ),
-        "vcs" => emit_template(
-            sess,
-            include_str!("../script_fmt/vcs_sh.tera"),
-            matches,
-            targets,
-            srcs,
-        ),
-        "verilator" => emit_template(
-            sess,
-            include_str!("../script_fmt/verilator_sh.tera"),
-            matches,
-            targets,
-            srcs,
-        ),
-        "synopsys" => emit_template(
-            sess,
-            include_str!("../script_fmt/synopsys_tcl.tera"),
-            matches,
-            targets,
-            srcs,
-        ),
-        "formality" => emit_template(
-            sess,
-            include_str!("../script_fmt/formality_tcl.tera"),
-            matches,
-            targets,
-            srcs,
-        ),
-        "riviera" => emit_template(
-            sess,
-            include_str!("../script_fmt/riviera_tcl.tera"),
-            matches,
-            targets,
-            srcs,
-        ),
-        "genus" => emit_template(
-            sess,
-            include_str!("../script_fmt/genus_tcl.tera"),
-            matches,
-            targets,
-            srcs,
-        ),
-        "vivado" => emit_template(
-            sess,
-            include_str!("../script_fmt/vivado_tcl.tera"),
-            matches,
-            targets,
-            srcs,
-        ),
-        "vivado-sim" => emit_template(
-            sess,
-            include_str!("../script_fmt/vivado_tcl.tera"),
-            matches,
-            targets,
-            srcs,
-        ),
-        "precision" => emit_template(
-            sess,
-            include_str!("../script_fmt/precision_tcl.tera"),
-            matches,
-            targets,
-            srcs,
-        ),
-        "template" => {
-            let custom_tpl_path = Path::new(matches.get_one::<String>("template").unwrap());
-            let custom_tpl_str =
-                &String::from_utf8(fs::read(custom_tpl_path)?).map_err(|e| Error::chain("", e))?;
-            emit_template(sess, custom_tpl_str, matches, targets, srcs)
+    let template_content = match &args.format {
+        ScriptFormat::Flist { relative_path } => {
+            opts.relative_path = *relative_path;
+            include_str!("../script_fmt/flist.tera")
         }
-        "template_json" => emit_template(sess, JSON, matches, targets, srcs),
-        _ => unreachable!(),
-    }
+        ScriptFormat::FlistPlus {
+            relative_path,
+            only,
+        } => {
+            opts.relative_path = *relative_path;
+            opts.only_defines = only.defines;
+            opts.only_includes = only.includes;
+            opts.only_sources = only.sources;
+            include_str!("../script_fmt/flist-plus.tera")
+        }
+        ScriptFormat::Vsim {
+            vlog_args,
+            vcom_args,
+        } => {
+            opts.vlog_args = vlog_args.clone();
+            opts.vcom_args = vcom_args.clone();
+            include_str!("../script_fmt/vsim_tcl.tera")
+        }
+        ScriptFormat::Vcs {
+            vlogan_bin,
+            vhdlan_bin,
+            vlogan_args,
+            vhdlan_args,
+        } => {
+            opts.vcom_args = vhdlan_args.clone();
+            opts.vlog_args = vlogan_args.clone();
+            opts.vlogan_bin = Some(vlogan_bin.clone());
+            opts.vhdlan_bin = Some(vhdlan_bin.clone());
+            include_str!("../script_fmt/vcs_sh.tera")
+        }
+        ScriptFormat::Verilator => include_str!("../script_fmt/verilator_sh.tera"),
+        ScriptFormat::Synopsys {
+            verilog_args,
+            vhdl_args,
+        } => {
+            opts.vcom_args = vhdl_args.clone();
+            opts.vlog_args = verilog_args.clone();
+            include_str!("../script_fmt/synopsys_tcl.tera")
+        }
+        ScriptFormat::Formality {} => include_str!("../script_fmt/formality_tcl.tera"),
+        ScriptFormat::Riviera {
+            vlog_args,
+            vcom_args,
+        } => {
+            opts.vcom_args = vcom_args.clone();
+            opts.vlog_args = vlog_args.clone();
+            include_str!("../script_fmt/riviera_tcl.tera")
+        }
+        ScriptFormat::Genus {} => include_str!("../script_fmt/genus_tcl.tera"),
+        ScriptFormat::Vivado { no_simset, only } | ScriptFormat::VivadoSim { no_simset, only } => {
+            opts.only_defines = only.defines;
+            opts.only_includes = only.includes;
+            opts.only_sources = only.sources;
+            if *no_simset {
+                opts.vivado_filesets = vec![""];
+            } else {
+                opts.vivado_filesets = vec!["", " -simset"];
+            };
+            include_str!("../script_fmt/vivado_tcl.tera")
+        }
+        ScriptFormat::Precision {} => include_str!("../script_fmt/precision_tcl.tera"),
+        ScriptFormat::Template { template } => &std::fs::read_to_string(template)?,
+        ScriptFormat::TemplateJson => &JSON.to_string(),
+    };
+
+    emit_template(sess, &template_content, args, opts, targets, srcs)
 }
 
 /// Subdivide the source files in a group.
@@ -485,15 +422,34 @@ fn relativize_path(path: &std::path::Path, root: &std::path::Path) -> String {
 
 static HEADER_AUTOGEN: &str = "This script was generated automatically by bender.";
 
-fn add_defines_from_matches(defines: &mut IndexMap<String, Option<String>>, matches: &ArgMatches) {
-    if let Some(d) = matches.get_many::<String>("define") {
-        defines.extend(d.map(|t| {
-            let mut parts = t.splitn(2, '=');
-            let name = parts.next().unwrap().trim(); // split always has at least one element
-            let value = parts.next().map(|v| v.trim().to_string());
-            (name.to_string(), value)
-        }));
-    }
+fn add_defines(defines: &mut IndexMap<String, Option<String>>, define_args: &[String]) {
+    defines.extend(define_args.iter().map(|t| {
+        let mut parts = t.splitn(2, '=');
+        let name = parts.next().unwrap().trim();
+        let value = parts.next().map(|v| v.trim().to_string());
+        (name.to_string(), value)
+    }));
+}
+
+/// Configuration for the template rendering
+#[derive(Default)]
+struct RenderOptions {
+    // Source filtering options
+    only_defines: bool,
+    only_includes: bool,
+    only_sources: bool,
+
+    // Template variables
+    no_abort_on_error: bool,
+    relative_path: bool,
+    vlog_args: Vec<String>,
+    vcom_args: Vec<String>,
+    vlogan_bin: Option<String>,
+    vhdlan_bin: Option<String>,
+    compilation_mode: CompilationMode,
+
+    // Pre-calculated fileset list for Vivado
+    vivado_filesets: Vec<&'static str>,
 }
 
 static JSON: &str = "json";
@@ -501,7 +457,8 @@ static JSON: &str = "json";
 fn emit_template(
     sess: &Session,
     template: &str,
-    matches: &ArgMatches,
+    args: &ScriptArgs,
+    opts: RenderOptions,
     targets: TargetSet,
     srcs: Vec<SourceGroup>,
 ) -> Result<()> {
@@ -510,7 +467,7 @@ fn emit_template(
     tera_context.insert("HEADER_AUTOGEN", HEADER_AUTOGEN);
     tera_context.insert("root", sess.root);
     // tera_context.insert("srcs", &srcs);
-    tera_context.insert("abort_on_error", &!matches.get_flag("no-abort-on-error"));
+    tera_context.insert("abort_on_error", &!opts.no_abort_on_error);
 
     let mut target_defines: IndexMap<String, Option<String>> = IndexMap::new();
     target_defines.extend(
@@ -521,7 +478,7 @@ fn emit_template(
     target_defines.sort_keys();
 
     let mut global_defines = target_defines.clone();
-    add_defines_from_matches(&mut global_defines, matches);
+    add_defines(&mut global_defines, &args.define);
     tera_context.insert("global_defines", &global_defines);
 
     let mut all_defines = IndexMap::new();
@@ -539,40 +496,35 @@ fn emit_template(
         all_files.append(&mut src.files.clone());
     }
     all_defines.extend(target_defines.clone());
-    add_defines_from_matches(&mut all_defines, matches);
-    let all_defines = if (!matches.get_flag("only-includes") && !matches.get_flag("only-sources"))
-        || matches.get_flag("only-defines")
-    {
+    add_defines(&mut all_defines, &args.define);
+    let all_defines = if (!opts.only_includes && !opts.only_sources) || opts.only_defines {
         all_defines.into_iter().collect()
     } else {
         IndexSet::new()
     };
+
     tera_context.insert("all_defines", &all_defines);
 
     all_incdirs.sort();
-    let all_incdirs: IndexSet<PathBuf> = if (!matches.get_flag("only-defines")
-        && !matches.get_flag("only-sources"))
-        || matches.get_flag("only-includes")
-    {
-        all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
-    } else {
-        IndexSet::new()
-    };
+    let all_incdirs: IndexSet<PathBuf> =
+        if (!opts.only_defines && !opts.only_sources) || opts.only_includes {
+            all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
+        } else {
+            IndexSet::new()
+        };
     tera_context.insert("all_incdirs", &all_incdirs);
-    let all_files: IndexSet<PathBuf> = if (!matches.get_flag("only-defines")
-        && !matches.get_flag("only-includes"))
-        || matches.get_flag("only-sources")
-    {
-        all_files
-            .into_iter()
-            .filter_map(|file| match file {
-                SourceFile::File(p, _) => Some(p.to_path_buf()),
-                _ => None,
-            })
-            .collect()
-    } else {
-        IndexSet::new()
-    };
+    let all_files: IndexSet<PathBuf> =
+        if (!opts.only_defines && !opts.only_includes) || opts.only_sources {
+            all_files
+                .into_iter()
+                .filter_map(|file| match file {
+                    SourceFile::File(p, _) => Some(p.to_path_buf()),
+                    _ => None,
+                })
+                .collect()
+        } else {
+            IndexSet::new()
+        };
     tera_context.insert("all_files", &all_files);
 
     let mut split_srcs = vec![];
@@ -601,7 +553,7 @@ fn emit_template(
                                 .map(|(k, &v)| (k.to_string(), v.map(String::from))),
                         );
                         local_defines.extend(target_defines.clone());
-                        add_defines_from_matches(&mut local_defines, matches);
+                        add_defines(&mut local_defines, &args.define);
                         local_defines.into_iter().collect()
                     },
                     incdirs: {
@@ -640,56 +592,34 @@ fn emit_template(
             _ => {}
         }
     }
-    let split_srcs = if !matches.get_flag("only-defines") && !matches.get_flag("only-includes") {
+    let split_srcs = if !opts.only_defines && !opts.only_includes {
         split_srcs
     } else {
         vec![]
     };
     tera_context.insert("srcs", &split_srcs);
 
-    let all_verilog: IndexSet<PathBuf> =
-        if !matches.get_flag("only-defines") && !matches.get_flag("only-includes") {
-            all_verilog.into_iter().collect()
-        } else {
-            IndexSet::new()
-        };
-    let all_vhdl: IndexSet<PathBuf> =
-        if !matches.get_flag("only-defines") && !matches.get_flag("only-includes") {
-            all_vhdl.into_iter().collect()
-        } else {
-            IndexSet::new()
-        };
+    let all_verilog: IndexSet<PathBuf> = if !opts.only_defines && !opts.only_includes {
+        all_verilog.into_iter().collect()
+    } else {
+        IndexSet::new()
+    };
+    let all_vhdl: IndexSet<PathBuf> = if !opts.only_defines && !opts.only_includes {
+        all_vhdl.into_iter().collect()
+    } else {
+        IndexSet::new()
+    };
     tera_context.insert("all_verilog", &all_verilog);
     tera_context.insert("all_vhdl", &all_vhdl);
 
-    let vlog_args: Vec<String> = if let Some(args) = matches.get_many::<String>("vlog-arg") {
-        args.map(Into::into).collect()
-    } else {
-        [].to_vec()
-    };
-    tera_context.insert("vlog_args", &vlog_args);
-    let vcom_args: Vec<String> = if let Some(args) = matches.get_many::<String>("vcom-arg") {
-        args.map(Into::into).collect()
-    } else {
-        [].to_vec()
-    };
-    tera_context.insert("vcom_args", &vcom_args);
+    tera_context.insert("vlog_args", &opts.vlog_args);
+    tera_context.insert("vcom_args", &opts.vcom_args);
 
-    tera_context.insert("vlogan_bin", &matches.get_one::<String>("vlogan-bin"));
-    tera_context.insert("vhdlan_bin", &matches.get_one::<String>("vhdlan-bin"));
-    tera_context.insert("relativize_path", &matches.get_flag("relative-path"));
-    tera_context.insert(
-        "compilation_mode",
-        &matches.get_one::<String>("compilation_mode"),
-    );
-
-    let vivado_filesets = if matches.get_flag("no-simset") {
-        vec![""]
-    } else {
-        vec!["", " -simset"]
-    };
-
-    tera_context.insert("vivado_filesets", &vivado_filesets);
+    tera_context.insert("vlogan_bin", &opts.vlogan_bin);
+    tera_context.insert("vhdlan_bin", &opts.vhdlan_bin);
+    tera_context.insert("relativize_path", &opts.relative_path);
+    tera_context.insert("compilation_mode", &opts.compilation_mode);
+    tera_context.insert("vivado_filesets", &opts.vivado_filesets);
 
     if template == "json" {
         let _ = writeln!(std::io::stdout(), "{:#}", tera_context.into_json());
