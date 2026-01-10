@@ -242,6 +242,9 @@ impl ReportHandler for DiagnosticRenderer {
         let corner = " ╰─›"; // Final corner with arrow
 
         if let Some(help) = diagnostic.help() {
+            // Styled messages (e.g. 'pkg.bold()') will reset the style afterwards,
+            // so we need to re-apply dimming after each reset.
+            let help = help.to_string().replace("\x1b[0m", "\x1b[0m\x1b[2m");
             write!(
                 f,
                 "\n{} {} {}",
