@@ -77,6 +77,8 @@ pub struct Session<'ctx> {
     pub git_throttle: Arc<Semaphore>,
     /// A toggle to disable remote fetches & clones
     pub local_only: bool,
+    /// A diagnostics handler.
+    pub diagnostics: Diagnostics,
     /// A list of warnings to suppress.
     pub suppress_warnings: IndexSet<String>,
 }
@@ -92,6 +94,7 @@ impl<'ctx> Session<'ctx> {
         local_only: bool,
         force_fetch: bool,
         git_throttle: usize,
+        diagnostics: Diagnostics,
         suppress_warnings: IndexSet<String>,
     ) -> Session<'ctx> {
         Session {
@@ -118,6 +121,7 @@ impl<'ctx> Session<'ctx> {
             cache: Default::default(),
             git_throttle: Arc::new(Semaphore::new(git_throttle)),
             local_only,
+            diagnostics,
             suppress_warnings,
         }
     }

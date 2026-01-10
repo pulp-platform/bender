@@ -130,10 +130,6 @@ pub fn main() -> Result<()> {
     miette::set_hook(Box::new(|_| Box::new(DiagnosticRenderer))).unwrap();
     let diagnostics = Diagnostics::new(suppressed);
 
-    diagnostics.emit(Warnings::Warning1);
-    diagnostics.emit(Warnings::Warning1); // should not be emitted again
-    diagnostics.emit(Warnings::Warning2);
-
     return Ok(());
 
     let mut suppressed_warnings: IndexSet<String> = matches
@@ -202,6 +198,7 @@ pub fn main() -> Result<()> {
         cli.local,
         force_fetch,
         git_throttle,
+        diagnostics,
         suppressed_warnings,
     );
 
