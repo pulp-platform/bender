@@ -40,6 +40,7 @@ subst = "0.3"
 tera = "1.19"
 miette = { version = "7.6.0", features = ["fancy"] }
 thiserror = "2.0.17"
+owo-colors = "4.2.3"
 
 [target.'cfg(windows)'.dependencies]
 dunce = "1.0.4"

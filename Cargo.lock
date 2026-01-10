@@ -158,6 +158,7 @@ dependencies = [
  "is-terminal",
  "itertools",
  "miette",
+ "owo-colors",
  "pathdiff",
  "pretty_assertions",
  "semver",
