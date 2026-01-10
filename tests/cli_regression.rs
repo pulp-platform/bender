@@ -19,6 +19,12 @@ fn get_test_env() -> &'static (PathBuf, PathBuf) {
         // Install Golden Bender
         let bender_exe = install_root.join("bin").join("bender");
 
+        let golden_branch = std::env::var("BENDER_TEST_GOLDEN_BRANCH")
+            .or_else(|_| std::env::var("GITHUB_BASE_REF")) // For GitHub Actions
+            .unwrap_or_else(|_| "master".to_string());
+
+        println!("Using golden bender branch: {}", golden_branch);
+
         if !bender_exe.exists() {
             // Create dir to ensure root exists
             std::fs::create_dir_all(&install_root).expect("Failed to create install dir");
@@ -29,7 +35,7 @@ fn get_test_env() -> &'static (PathBuf, PathBuf) {
                     "--git",
                     "https://github.com/pulp-platform/bender",
                     "--branch",
-                    "master",
+                    &golden_branch,
                     "--root",
                     install_root.to_str().unwrap(),
                     "bender",
