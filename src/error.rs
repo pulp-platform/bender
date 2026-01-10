@@ -219,14 +219,12 @@ impl Warnings {
         }
 
         // Check whether the warning was already emitted
-        // We scope the lock to keep the critical section short
-        {
-            let mut emitted = diag.emitted.lock().unwrap();
-            if emitted.contains(&self) {
-                return;
-            }
-            emitted.insert(self.clone());
+        let mut emitted = diag.emitted.lock().unwrap();
+        if emitted.contains(&self) {
+            return;
         }
+        emitted.insert(self.clone());
+        drop(emitted);
 
         // Print the warning report (consumes self i.e. the warning)
         eprintln!("{:?}", miette::Report::new(self));
@@ -310,4 +308,16 @@ pub enum Warnings {
         help("Check the existing file or directory that is preventing the link.")
     )]
     SkippingPackageLink(String, PathBuf),
+
+    #[error("Using config at {} for overrides.", path!(path))]
+    #[diagnostic(severity(Warning), code(W02))]
+    UsingConfigForOverride { path: PathBuf },
+
+    #[error("Ignoring unknown field {} in package {}.", field!(field), pkg!(pkg))]
+    #[diagnostic(
+        severity(Warning),
+        code(W03),
+        help("Check for typos in {} or remove it from the {} manifest.", field!(field), pkg!(pkg))
+    )]
+    IgnoreUnknownField { field: String, pkg: String },
 }
