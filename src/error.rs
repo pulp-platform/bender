@@ -188,25 +188,27 @@ impl Diagnostics {
 
     /// Emit a warning if it is not suppressed or already emitted.
     pub fn emit(&self, warning: Warnings) {
-        // Extract the code (e.g., "W07") automatically from the derived implementation
-        let code = warning.code().map(|c| c.to_string());
-
         // Check whether the command is suppressed
-        if let Some(code) = &code {
-            if self.all_suppressed || self.suppressed.contains(code) {
+        if let Some(code) = warning.code() {
+            if self.all_suppressed || self.suppressed.contains(&code.to_string()) {
                 return;
             }
         }
 
         // Check whether the warning was already emitted
-        let mut emitted = self.emitted.borrow_mut();
-        if emitted.contains(&warning) {
-            return;
+        // We scope the borrow so it drops immediately after the check
+        {
+            if self.emitted.borrow().contains(&warning) {
+                return;
+            }
         }
 
-        // Record the emitted warning and print it
-        emitted.insert(warning.clone());
-        eprintln!("{:?}", miette::Report::new(warning));
+        // Record the emitted warning
+        self.emitted.borrow_mut().insert(warning.clone());
+
+        // Print the warning report
+        let report = miette::Report::new(warning);
+        eprintln!("{:?}", report);
     }
 }
 
