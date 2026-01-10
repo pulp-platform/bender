@@ -182,13 +182,6 @@ pub struct Diagnostics {
     emitted: Mutex<HashSet<Warnings>>,
 }
 
-#[macro_export]
-macro_rules! warn {
-    ($warning:expr) => {
-        $crate::error::Diagnostics::emit($warning)
-    };
-}
-
 impl Diagnostics {
     /// Create a new diagnostics manager.
     pub fn init(suppressed: HashSet<String>) {
@@ -211,37 +204,32 @@ impl Diagnostics {
             .get()
             .expect("Diagnostics not initialized!")
     }
+}
 
-    /// Emit a warning if it is not suppressed or already emitted.
-    pub fn emit(warning: Warnings) {
+impl Warnings {
+    /// Checks suppression, deduplicates, and emits the warning to stderr.
+    pub fn emit(self) {
         let diag = Diagnostics::get();
 
         // Check whether the command is suppressed
-        if let Some(code) = warning.code() {
+        if let Some(code) = self.code() {
             if diag.all_suppressed || diag.suppressed.contains(&code.to_string()) {
                 return;
             }
         }
 
         // Check whether the warning was already emitted
-        let mut emitted = diag.emitted.lock().unwrap();
-        if emitted.contains(&warning) {
-            return;
+        // We scope the lock to keep the critical section short
+        {
+            let mut emitted = diag.emitted.lock().unwrap();
+            if emitted.contains(&self) {
+                return;
+            }
+            emitted.insert(self.clone());
         }
 
-        // Record the emitted warning
-        emitted.insert(warning.clone());
-        drop(emitted);
-
-        // Print the warning report
-        eprintln!("{:?}", miette::Report::new(warning));
-    }
-
-    /// Emit a warning if the condition is true.
-    pub fn emit_if(condition: bool, warning: Warnings) {
-        if condition {
-            Diagnostics::emit(warning);
-        }
+        // Print the warning report (consumes self i.e. the warning)
+        eprintln!("{:?}", miette::Report::new(self));
     }
 }
 
@@ -299,6 +287,13 @@ macro_rules! pkg {
 macro_rules! path {
     ($pkg:expr) => {
         $pkg.display().underline()
+    };
+}
+
+/// Italicize a field name in diagnostic messages.
+macro_rules! field {
+    ($field:expr) => {
+        $field.italic()
     };
 }
 

@@ -259,10 +259,7 @@ pub fn main() -> Result<()> {
                     )
                 })?;
                 if !meta.file_type().is_symlink() {
-                    warn!(Warnings::SkippingPackageLink(
-                        pkg_name.clone(),
-                        path.clone(),
-                    ));
+                    Warnings::SkippingPackageLink(pkg_name.clone(), path.clone()).emit();
                     continue;
                 }
                 if path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
@@ -519,9 +516,10 @@ fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<Par
     let partial: PartialConfig = serde_yaml_ng::from_reader(file)
         .map_err(|cause| Error::chain(format!("Syntax error in config {:?}.", path), cause))?;
     if warn_config_loaded {
-        warn!(Warnings::UsingConfigForOverride {
-            path: path.to_path_buf()
-        });
+        Warnings::UsingConfigForOverride {
+            path: path.to_path_buf(),
+        }
+        .emit();
     }
     Ok(Some(partial.prefix_paths(path.parent().unwrap())?))
 }
