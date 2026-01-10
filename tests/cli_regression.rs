@@ -8,18 +8,16 @@ use std::sync::OnceLock;
 use assert_cmd::cargo;
 use pretty_assertions::assert_eq;
 
-static SETUP: OnceLock<(PathBuf, PathBuf, PathBuf)> = OnceLock::new();
+static SETUP: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
 
-fn get_test_env() -> &'static (PathBuf, PathBuf, PathBuf) {
+fn get_test_env() -> &'static (PathBuf, PathBuf) {
     SETUP.get_or_init(|| {
         let root = Path::new("target/tmp_regression");
         let install_root = root.join("golden_install");
-        let install_root_new = root.join("new_install");
-        let repo_dir: PathBuf = Path::new("tests/cli_regression").to_path_buf();
+        let repo_dir = Path::new("tests/cli_regression").to_path_buf();
 
         // Install Golden Bender
         let bender_exe = install_root.join("bin").join("bender");
-        let bender_new = install_root.join("bin").join("bender");
 
         if !bender_exe.exists() {
             // Create dir to ensure root exists
@@ -42,27 +40,6 @@ fn get_test_env() -> &'static (PathBuf, PathBuf, PathBuf) {
             assert!(status.success(), "Failed to install golden bender");
         }
 
-        if !bender_new.exists() {
-            // Create dir to ensure root exists
-            std::fs::create_dir_all(&install_root).expect("Failed to create install dir");
-
-            let status = SysCommand::new("cargo")
-                .args(&[
-                    "install",
-                    "--git",
-                    "https://github.com/pulp-platform/bender",
-                    "--branch",
-                    "fischeti/cli-regression",
-                    "--root",
-                    install_root_new.to_str().unwrap(),
-                    "bender",
-                ])
-                .status()
-                .expect("Failed to run cargo install");
-
-            assert!(status.success(), "Failed to install golden bender");
-        }
-
         let bender_exe_abs = std::env::current_dir().unwrap().join(&bender_exe);
 
         // Checkout the dependencies in the beginning
@@ -76,12 +53,12 @@ fn get_test_env() -> &'static (PathBuf, PathBuf, PathBuf) {
             "Failed to initialize common_cells with bender"
         );
 
-        (bender_exe, bender_new, repo_dir)
+        (bender_exe, repo_dir)
     })
 }
 
 fn run_regression(subcommand_args: &[&str]) {
-    let (golden_bin, new_bin, repo_dir) = get_test_env();
+    let (golden_bin, repo_dir) = get_test_env();
 
     // Construct common args: -d /path/to/repo <SUBCOMMAND_ARGS>
     // We add the directory flag automatically here.
@@ -95,7 +72,7 @@ fn run_regression(subcommand_args: &[&str]) {
         .expect("Failed to execute golden binary");
 
     // Run NEW (Current Build)
-    let new_out = SysCommand::new(new_bin)
+    let new_out = cargo::cargo_bin_cmd!()
         .args(&full_args)
         .output()
         .expect("Failed to execute new binary");
