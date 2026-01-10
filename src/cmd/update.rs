@@ -42,11 +42,9 @@ pub struct UpdateArgs {
 }
 
 /// Execute the `update` subcommand.
-pub fn setup(args: &UpdateArgs, local: bool, suppress_warnings: &IndexSet<String>) -> Result<bool> {
-    if local && args.fetch && !suppress_warnings.contains("W14") {
-        warnln!(
-            "[W14] As --local argument is set for bender command, no fetching will be performed."
-        );
+pub fn setup(args: &UpdateArgs, local: bool) -> Result<bool> {
+    if local && args.fetch {
+        Warnings::LocalNoFetch.emit();
     }
     Ok(args.fetch)
 }

@@ -269,7 +269,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                 }
 
                 // Generate patch
-                sorted_links.into_iter().try_for_each( |patch_link| {
+                sorted_links.into_iter().try_for_each(|patch_link| {
                     match patch_link.patch_dir.clone() {
                         Some(patch_dir) => {
                             if *plain {
@@ -283,11 +283,16 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                             } else {
                                 gen_format_patch(&rt, sess, git.clone(), patch_link, vendor_package.target_dir.clone(), message.as_ref())
                             }
-                        },
+                        }
                         None => {
-                            warnln!("[W15] No patch directory specified for package {}, mapping {} => {}. Skipping patch generation.", vendor_package.name.clone(), patch_link.from_prefix.to_str().unwrap(), patch_link.to_prefix.to_str().unwrap());
+                            Warnings::NoPatchDir {
+                                vendor_pkg: vendor_package.name.clone(),
+                                from_prefix: patch_link.from_prefix.clone(),
+                                to_prefix: patch_link.to_prefix.clone(),
+                            }
+                            .emit();
                             Ok(())
-                        },
+                        }
                     }
                 })
             }

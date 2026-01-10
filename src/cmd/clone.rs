@@ -138,8 +138,8 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
             {
                 Err(Error::new("git fetch failed".to_string()))?;
             }
-        } else if !sess.suppress_warnings.contains("W14") {
-            warnln!("[W14] fetch not performed due to --local argument.");
+        } else {
+            Warnings::LocalNoFetch.emit();
         }
 
         eprintln!(
@@ -263,11 +263,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
                     )
                 })?;
                 if !meta.file_type().is_symlink() {
-                    warnln!(
-                        "[W15] Skipping link to package {} at {:?} since there is something there",
-                        pkg_name,
-                        link_path
-                    );
+                    Warnings::SkippingPackageLink(pkg_name.clone(), link_path.to_path_buf()).emit();
                     continue;
                 }
                 if link_path.read_link().map(|d| d != pkg_path).unwrap_or(true) {

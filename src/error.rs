@@ -254,20 +254,32 @@ impl ReportHandler for DiagnosticRenderer {
         write!(f, "{}", diagnostic)?;
 
         // Below the message, there might be an additional help message
-        let _branch = " ├─›"; // Branching with arrow
+        let branch = " ├─›"; // Branching with arrow
         let corner = " ╰─›"; // Final corner with arrow
 
         if let Some(help) = diagnostic.help() {
-            // Styled messages (e.g. 'pkg.bold()') will reset the style afterwards,
-            // so we need to re-apply dimming after each reset.
-            let help = help.to_string().replace("\x1b[0m", "\x1b[0m\x1b[2m");
-            write!(
-                f,
-                "\n{} {} {}",
-                corner.dimmed(),
-                "help:".bold(),
-                help.dimmed()
-            )?;
+            // Convert to string and split by lines
+            let help_str = help.to_string();
+            let lines: Vec<&str> = help_str.lines().collect();
+
+            // Print each line with the appropriate help prefix and branching
+            for (i, line) in lines.iter().enumerate() {
+                // Determine the tree character
+                let is_last = i == lines.len() - 1;
+                let prefix = if is_last { corner } else { branch };
+
+                // Styled messages (e.g. 'pkg.bold()') will reset the style afterwards,
+                // so we need to re-apply dimming after each reset.
+                let line = line.replace("\x1b[0m", "\x1b[0m\x1b[2m");
+
+                write!(
+                    f,
+                    "\n{} {} {}",
+                    prefix.dimmed(),
+                    "help:".bold(),
+                    line.dimmed()
+                )?;
+            }
         }
 
         Ok(())
@@ -381,4 +393,36 @@ pub enum Warnings {
         help("Please check that {} is correct and accessible.", path!(.1.display()))
     )]
     MaybePathIssues(String, PathBuf),
+
+    #[error("Dependency package name {} does not match the package name {} in its manifest.", pkg!(.0), pkg!(.1))]
+    #[diagnostic(
+        severity(Warning),
+        code(W11),
+        help("Check that the dependency name in your root manifest matches the name in the {} manifest.", pkg!(.0))
+    )]
+    DepPkgNameNotMatching(String, String),
+
+    #[error("Manifest for package {} not found at {}.", pkg!(pkg), path!(src))]
+    #[diagnostic(severity(Warning), code(W12))]
+    ManifestNotFound { pkg: String, src: String },
+
+    #[error("Name issue with package {}. `export_include_dirs` cannot be handled.", pkg!(.0))]
+    #[diagnostic(
+        severity(Warning),
+        code(W13),
+        help("Could be related to name missmatch, check `bender update`.")
+    )]
+    ExportDirNameIssue(String),
+
+    #[error("If `--local` is used, no fetching will be performed.")]
+    #[diagnostic(severity(Warning), code(W14))]
+    LocalNoFetch,
+
+    #[error("No patch directory found for package {} when trying to apply patches from {} to {}. Skipping patch generation.", pkg!(vendor_pkg), path!(from_prefix.display()), path!(to_prefix.display()))]
+    #[diagnostic(severity(Warning), code(W15))]
+    NoPatchDir {
+        vendor_pkg: String,
+        from_prefix: PathBuf,
+        to_prefix: PathBuf,
+    },
 }

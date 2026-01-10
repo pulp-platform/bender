@@ -1163,11 +1163,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 if manifest_path.exists() {
                     match read_manifest(&manifest_path, &self.sess.suppress_warnings) {
                         Ok(m) => {
-                            if dep.name != m.package.name
-                                && !self.sess.suppress_warnings.contains("W11")
-                            {
-                                warnln!("[W11] Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
-                                    dep.name, m.package.name); // TODO: This should be an error
+                            if dep.name != m.package.name {
+                                Warnings::DepPkgNameNotMatching(
+                                    dep.name.clone(),
+                                    m.package.name.clone(),
+                                )
+                                .emit();
                             }
                             Ok(Some(self.sess.intern_manifest(m)))
                         }
@@ -1198,11 +1199,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
                     match partial.validate_ignore_sources("", true, &self.sess.suppress_warnings) {
                         Ok(m) => {
-                            if dep.name != m.package.name
-                                && !self.sess.suppress_warnings.contains("W11")
-                            {
-                                warnln!("[W11] Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
-                                    dep.name, m.package.name); // TODO: This should be an error
+                            if dep.name != m.package.name {
+                                Warnings::DepPkgNameNotMatching(
+                                    dep.name.clone(),
+                                    m.package.name.clone(),
+                                )
+                                .emit();
                             }
                             Ok(Some(self.sess.intern_manifest(m)))
                         }
@@ -1229,13 +1231,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             }
                         }
                     }
-                    if !self.sess.suppress_warnings.contains("W12") {
-                        warnln!(
-                            "[W12] Manifest not found for {:?} at {:?}",
-                            dep.name,
-                            dep.source
-                        );
+                    Warnings::ManifestNotFound {
+                        pkg: dep.name.clone(),
+                        src: manifest_path.display().to_string(),
                     }
+                    .emit();
                     Ok(None)
                 }
             }
@@ -1291,9 +1291,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Ok(Some(self.sess.intern_manifest(full)))
                     }
                     None => {
-                        if !self.sess.suppress_warnings.contains("W12") {
-                            warnln!("[W12] Manifest not found for {:?}", dep.name);
+                        Warnings::ManifestNotFound {
+                            pkg: dep.name.clone(),
+                            src: url.to_string(),
                         }
+                        .emit();
                         Ok(None)
                     }
                 };
@@ -1304,18 +1306,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     .lock()
                     .unwrap()
                     .insert(cache_key, manifest);
-                if dep.name
-                    != match manifest {
-                        Some(x) => &x.package.name,
-                        None => "dead",
-                    }
-                    && !self.sess.suppress_warnings.contains("W11")
-                {
-                    warnln!("[W11] Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
-                            dep.name, match manifest {
-                                Some(x) => &x.package.name,
-                                None => "dead"
-                            }); // TODO (micprog): This should be an error
+                let pkg_name = match manifest {
+                    Some(x) => x.package.name.clone(),
+                    None => "dead".to_string(),
+                };
+                if dep.name != pkg_name {
+                    Warnings::DepPkgNameNotMatching(dep.name.clone(), pkg_name.clone()).emit();
                 }
                 Ok(manifest)
             }
@@ -1531,21 +1527,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 IndexMap::new();
                             export_include_dirs.insert(
                                 m.package.name.clone(),
-                                m.export_include_dirs
-                                    .iter()
-                                    .map(PathBuf::as_path)
-                                    .collect(),
+                                m.export_include_dirs.iter().map(PathBuf::as_path).collect(),
                             );
                             if !m.dependencies.is_empty() {
                                 for i in m.dependencies.keys() {
                                     if !all_export_include_dirs.contains_key(i) {
-                                        if !self.sess.suppress_warnings.contains("W13") {
-                                            warnln!("[W13] Name issue with {:?}, `export_include_dirs` not handled\n\tCould relate to name mismatch, see `bender update`", i);
-                                        }
-                                        export_include_dirs.insert(i.clone(), IndexSet::new());
+                                        Warnings::ExportDirNameIssue(i.clone()).emit();
+                                        export_include_dirs.insert(i.to_string(), IndexSet::new());
                                     } else {
                                         export_include_dirs.insert(
-                                            i.clone(),
+                                            i.to_string(),
                                             all_export_include_dirs[i].clone(),
                                         );
                                     }
