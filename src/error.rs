@@ -213,6 +213,13 @@ impl Diagnostics {
         let report = miette::Report::new(warning);
         eprintln!("{:?}", report);
     }
+
+    /// Emit a warning if the condition is true.
+    pub fn emit_if(&self, condition: bool, warning: Warnings) {
+        if condition {
+            self.emit(warning);
+        }
+    }
 }
 
 pub struct DiagnosticRenderer;
