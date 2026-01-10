@@ -4,6 +4,8 @@
 //! Main command line tool implementation.
 
 use std;
+use std::collections::HashSet;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 
@@ -125,9 +127,19 @@ pub fn main() -> Result<()> {
         })
         .collect();
 
-    if suppressed_warnings.contains("all") || suppressed_warnings.contains("Wall") {
-        suppressed_warnings.extend((1..24).map(|i| format!("W{:02}", i)));
-    }
+    let diagnostics = Diagnostics::new(suppressed);
+
+    diagnostics.emit(Warnings::Warning1);
+    diagnostics.emit(Warnings::Warning1); // should not be emitted again
+    diagnostics.emit(Warnings::Warning2);
+
+    return Ok(());
+
+    let mut suppressed_warnings: IndexSet<String> = matches
+        .get_many::<String>("suppress")
+        .unwrap_or_default()
+        .map(|s| s.to_owned())
+        .collect();
 
     #[cfg(debug_assertions)]
     if cli.debug {

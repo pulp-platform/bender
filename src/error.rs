@@ -159,3 +159,71 @@ macro_rules! stageln {
 pub fn println_stage(stage: &str, message: &str) {
     eprintln!("\x1B[32;1m{:>12}\x1B[0m {}", stage, message);
 }
+
+use std::cell::RefCell;
+use std::collections::HashSet;
+
+use miette::Diagnostic;
+use thiserror::Error;
+
+/// A diagnostics manager that handles warnings (and errors).
+pub struct Diagnostics {
+    /// A set of suppressed warnings.
+    suppressed: HashSet<String>,
+    /// Whether all warnings are suppressed.
+    all_suppressed: bool,
+    /// A set of already emitted warnings.
+    emitted: RefCell<HashSet<Warnings>>,
+}
+
+impl Diagnostics {
+    /// Create a new diagnostics manager.
+    pub fn new(suppressed: HashSet<String>) -> Diagnostics {
+        Diagnostics {
+            all_suppressed: suppressed.contains("all") || suppressed.contains("Wall"),
+            suppressed: suppressed,
+            emitted: RefCell::new(HashSet::new()),
+        }
+    }
+
+    /// Emit a warning if it is not suppressed or already emitted.
+    pub fn emit(&self, warning: Warnings) {
+        // Extract the code (e.g., "W07") automatically from the derived implementation
+        let code = warning.code().map(|c| c.to_string());
+
+        // Check whether the command is suppressed
+        if let Some(code) = &code {
+            if self.all_suppressed || self.suppressed.contains(code) {
+                return;
+            }
+        }
+
+        // Check whether the warning was already emitted
+        let mut emitted = self.emitted.borrow_mut();
+        if emitted.contains(&warning) {
+            return;
+        }
+
+        // Record the emitted warning and print it
+        emitted.insert(warning.clone());
+        eprintln!("{:?}", miette::Report::new(warning));
+    }
+}
+
+#[derive(Error, Diagnostic, Hash, Eq, PartialEq, Debug, Clone)]
+pub enum Warnings {
+    #[error("This is warning 1")]
+    #[diagnostic(
+        severity(Warning),
+        code(W01),
+        help("Consider checking the configuration.")
+    )]
+    Warning1,
+    #[error("This is warning 2")]
+    #[diagnostic(
+        severity(Warning),
+        code(W02),
+        help("Consider updating your dependencies.")
+    )]
+    Warning2,
+}
