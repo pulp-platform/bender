@@ -162,6 +162,7 @@ pub fn println_stage(stage: &str, message: &str) {
 
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 use miette::{Diagnostic, ReportHandler};
 use owo_colors::OwoColorize;
@@ -254,20 +255,31 @@ impl ReportHandler for DiagnosticRenderer {
     }
 }
 
+/// Bold a package name in diagnostic messages.
+macro_rules! pkg {
+    ($pkg:expr) => {
+        $pkg.bold()
+    };
+}
+
+/// Underline a path in diagnostic messages.
+macro_rules! path {
+    ($pkg:expr) => {
+        $pkg.display().underline()
+    };
+}
+
 #[derive(Error, Diagnostic, Hash, Eq, PartialEq, Debug, Clone)]
 pub enum Warnings {
-    #[error("This is warning 1")]
+    #[error(
+        "Skipping link to package {} at {} since there is something there",
+        pkg!(.0),
+        path!(.1)
+    )]
     #[diagnostic(
         severity(Warning),
         code(W01),
-        help("Consider checking the configuration.")
+        help("Check the existing file or directory that is preventing the link.")
     )]
-    Warning1,
-    #[error("This is warning 2")]
-    #[diagnostic(
-        severity(Warning),
-        code(W02),
-        help("Consider updating your dependencies.")
-    )]
-    Warning2,
+    SkippingPackageLink(String, PathBuf),
 }

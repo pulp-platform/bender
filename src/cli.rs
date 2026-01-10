@@ -130,9 +130,7 @@ pub fn main() -> Result<()> {
     miette::set_hook(Box::new(|_| Box::new(DiagnosticRenderer))).unwrap();
     let diagnostics = Diagnostics::new(suppressed);
 
-    return Ok(());
-
-    let mut suppressed_warnings: IndexSet<String> = matches
+    let suppressed_warnings: IndexSet<String> = matches
         .get_many::<String>("suppress")
         .unwrap_or_default()
         .map(|s| s.to_owned())
@@ -262,13 +260,10 @@ pub fn main() -> Result<()> {
                     )
                 })?;
                 if !meta.file_type().is_symlink() {
-                    if !sess.suppress_warnings.contains("W01") {
-                        warnln!(
-                            "[W01] Skipping link to package {} at {:?} since there is something there",
-                            pkg_name,
-                            path
-                        );
-                    }
+                    sess.diagnostics.emit(Warnings::SkippingPackageLink(
+                        pkg_name.clone(),
+                        path.clone(),
+                    ));
                     continue;
                 }
                 if path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
