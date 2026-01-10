@@ -284,7 +284,7 @@ macro_rules! pkg {
 /// Underline a path in diagnostic messages.
 macro_rules! path {
     ($pkg:expr) => {
-        $pkg.display().underline()
+        $pkg.underline()
     };
 }
 
@@ -300,7 +300,7 @@ pub enum Warnings {
     #[error(
         "Skipping link to package {} at {} since there is something there",
         pkg!(.0),
-        path!(.1)
+        path!(.1.display())
     )]
     #[diagnostic(
         severity(Warning),
@@ -309,7 +309,7 @@ pub enum Warnings {
     )]
     SkippingPackageLink(String, PathBuf),
 
-    #[error("Using config at {} for overrides.", path!(path))]
+    #[error("Using config at {} for overrides.", path!(path.display()))]
     #[diagnostic(severity(Warning), code(W02))]
     UsingConfigForOverride { path: PathBuf },
 
@@ -320,4 +320,65 @@ pub enum Warnings {
         help("Check for typos in {} or remove it from the {} manifest.", field!(field), pkg!(pkg))
     )]
     IgnoreUnknownField { field: String, pkg: String },
+
+    #[error("Source group in package {} contains no source files.", pkg!(.0))]
+    #[diagnostic(
+        severity(Warning),
+        code(W04),
+        help("Add source files to the source group or remove it from the manifest.")
+    )]
+    NoFilesInSourceGroup(String),
+
+    #[error("No files matched the global pattern {}.", path!(path))]
+    #[diagnostic(severity(Warning), code(W05))]
+    NoFilesForGlobalPattern { path: String },
+
+    #[error("Dependency {} in checkout_dir {} is not a git repository. Setting as path dependency.", pkg!(.0), path!(.1.display()))]
+    #[diagnostic(
+        severity(Warning),
+        code(W06),
+        help("Use `bender clone` to work on git dependencies.\nRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.")
+    )]
+    NotAGitDependency(String, PathBuf),
+
+    // TODO(fischeti): Why are there two W07 variants?
+    // TODO(fischeti): This is part of an error, not a warning. Move to Error enum later?
+    #[error("SSH key might be missing.")]
+    #[diagnostic(
+        severity(Warning),
+        code(W07),
+        help("Please ensure your public ssh key is added to the git server.")
+    )]
+    SshKeyMaybeMissing,
+
+    // TODO(fischeti): Why are there two W07 variants?
+    // TODO(fischeti): This is part of an error, not a warning. Move to Error enum later?
+    #[error("SSH key might be missing.")]
+    #[diagnostic(
+        severity(Warning),
+        code(W07),
+        help("Please ensure the url is correct and you have access to the repository.")
+    )]
+    UrlMaybeIncorrect,
+
+    // TODO(fischeti): This is part of an error, not a warning. Move to Error enum later?
+    #[error("Revision {} not found in repository {}.", pkg!(.0), pkg!(.1))]
+    #[diagnostic(
+        severity(Warning),
+        code(W08),
+        help("Check that the revision exists in the remote repository or run `bender update`.")
+    )]
+    RevisionNotFound(String, String),
+
+    #[error("Path dependency {} inside git dependency {} detected. This is currently not fully suppored and your milage may vary.", pkg!(pkg), pkg!(top_pkg))]
+    #[diagnostic(severity(Warning), code(W09))]
+    PathDepInGitDep { pkg: String, top_pkg: String },
+
+    #[error("There may be issues in the path for {}.", pkg!(.0))]
+    #[diagnostic(
+        severity(Warning),
+        code(W10),
+        help("Please check that {} is correct and accessible.", path!(.1.display()))
+    )]
+    MaybePathIssues(String, PathBuf),
 }

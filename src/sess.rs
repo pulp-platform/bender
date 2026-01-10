@@ -577,14 +577,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 })
                 .await
                 .map_err(move |cause| {
-                    if url3.contains("git@") && !self.sess.suppress_warnings.contains("W07") {
-                        warnln!("[W07] Please ensure your public ssh key is added to the git server.");
+                    if url3.contains("git@") {
+                        Warnings::SshKeyMaybeMissing.emit();
                     }
-                    if !self.sess.suppress_warnings.contains("W07") {
-                        warnln!(
-                            "[W07] Please ensure the url is correct and you have access to the repository."
-                        );
-                    }
+                    Warnings::UrlMaybeIncorrect.emit();
                     Error::chain(
                         format!("Failed to initialize git database in {:?}.", db_dir),
                         cause,
@@ -612,14 +608,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 })
                 .await
                 .map_err(move |cause| {
-                    if url3.contains("git@") && !self.sess.suppress_warnings.contains("W07") {
-                        warnln!("[W07] Please ensure your public ssh key is added to the git server.");
+                    if url3.contains("git@") {
+                        Warnings::SshKeyMaybeMissing.emit();
                     }
-                    if !self.sess.suppress_warnings.contains("W07") {
-                        warnln!(
-                            "[W07] Please ensure the url is correct and you have access to the repository."
-                        );
-                    }
+                    Warnings::UrlMaybeIncorrect.emit();
                     Error::chain(
                         format!("Failed to update git database in {:?}.", db_dir),
                         cause,
@@ -975,18 +967,26 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     git.clone()
                         .spawn_with(move |c| c.arg("fetch").arg("--all"))
                         .await?;
-                    git.clone().spawn_with(move |c| c.arg("tag").arg(tag_name_1).arg(revision).arg("--force").arg("--no-sign")).map_err(|cause| {
-                        if !self.sess.suppress_warnings.contains("W08") {
-                            warnln!("[W08] Please ensure the commits are available on the remote or run bender update");
-                        }
-                        Error::chain(
-                            format!(
-                                "Failed to checkout commit {} for {} given in Bender.lock.\n",
-                                revision, name
-                            ),
-                            cause,
-                        )
-                    }).await
+                    git.clone()
+                        .spawn_with(move |c| {
+                            c.arg("tag")
+                                .arg(tag_name_1)
+                                .arg(revision)
+                                .arg("--force")
+                                .arg("--no-sign")
+                        })
+                        .map_err(|cause| {
+                            Warnings::RevisionNotFound(revision.to_string(), name.to_string())
+                                .emit();
+                            Error::chain(
+                                format!(
+                                    "Failed to checkout commit {} for {} given in Bender.lock.\n",
+                                    revision, name
+                                ),
+                                cause,
+                            )
+                        })
+                        .await
                 }
             }?;
             if clear == CheckoutState::ToClone {
@@ -1036,10 +1036,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         for dep in (dep_iter_mut).iter_mut() {
             if let (_, config::Dependency::Path(ref path, _)) = dep {
                 if !path.starts_with("/") {
-                    if !self.sess.suppress_warnings.contains("W09") {
-                        warnln!("[W09] Path dependencies ({:?}) in git dependencies ({:?}) currently not fully supported. \
-                        Your mileage may vary.", dep.0, top_package_name);
+                    Warnings::PathDepInGitDep {
+                        pkg: dep.0.clone(),
+                        top_pkg: top_package_name.clone(),
                     }
+                    .emit();
 
                     let sub_entries = db
                         .clone()
@@ -1155,8 +1156,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         use self::DependencyVersion as DepVer;
         match (&dep.source, version) {
             (DepSrc::Path(path), DepVer::Path) => {
-                if !path.starts_with("/") && !self.sess.suppress_warnings.contains("W10") {
-                    warnln!("[W10] There may be issues in the path for {:?}.", dep.name);
+                if !path.is_absolute() {
+                    Warnings::MaybePathIssues(dep.name.clone(), path.to_path_buf()).emit();
                 }
                 let manifest_path = path.join("Bender.yml");
                 if manifest_path.exists() {

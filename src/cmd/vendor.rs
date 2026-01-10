@@ -104,9 +104,9 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                     git.clone().spawn_with(|c| c.arg("clone").arg(url).arg("."))
                     .map_err(move |cause| {
                         if url.contains("git@") {
-                            warnln!("[W07] Please ensure your public ssh key is added to the git server.");
+                            Warnings::SshKeyMaybeMissing.emit();
                         }
-                        warnln!("[W07] Please ensure the url is correct and you have access to the repository.");
+                        Warnings::UrlMaybeIncorrect.emit();
                         Error::chain(
                             format!("Failed to initialize git database in {:?}.", tmp_path),
                             cause,

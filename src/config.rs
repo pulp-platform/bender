@@ -454,13 +454,11 @@ impl Validate for PartialManifest {
                 p.name = p.name.to_lowercase();
                 if !pre_output {
                     p.extra.iter().for_each(|(k, _)| {
-                        if !suppress_warnings.contains("W03") {
-                            warnln!(
-                                "[W03] Ignoring unknown field `{}` in manifest package for {}.",
-                                k,
-                                p.name
-                            );
+                        Warnings::IgnoreUnknownField {
+                            field: k.clone(),
+                            pkg: p.name.clone(),
                         }
+                        .emit();
                     });
                 }
                 p
@@ -513,13 +511,11 @@ impl Validate for PartialManifest {
         };
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
-                if !suppress_warnings.contains("W03") {
-                    warnln!(
-                        "[W03] Ignoring unknown field `{}` in manifest for {}.",
-                        k,
-                        pkg.name
-                    );
+                Warnings::IgnoreUnknownField {
+                    field: k.clone(),
+                    pkg: pkg.name.clone(),
                 }
+                .emit();
             });
         }
         Ok(Manifest {
@@ -657,13 +653,11 @@ impl Validate for PartialDependency {
         }
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
-                if !suppress_warnings.contains("W03") {
-                    warnln!(
-                        "[W03] Ignoring unknown field `{}` in a dependency in manifest for {}.",
-                        k,
-                        package_name
-                    );
+                Warnings::IgnoreUnknownField {
+                    field: k.clone(),
+                    pkg: package_name.to_string(),
                 }
+                .emit();
             });
         }
         if let Some(path) = self.path {
@@ -1044,21 +1038,16 @@ impl Validate for PartialSources {
                     .collect();
                 let files: Vec<SourceFile> = files?;
                 let files: Vec<SourceFile> = files.into_iter().collect();
-                if files.is_empty() && !pre_output && !suppress_warnings.contains("W04") {
-                    warnln!(
-                        "[W04] No source files specified in a sourcegroup in manifest for {}.",
-                        package_name
-                    );
+                if files.is_empty() && !pre_output {
+                    Warnings::NoFilesInSourceGroup(package_name.to_string()).emit();
                 }
                 if !pre_output {
                     extra.iter().for_each(|(k, _)| {
-                        if !suppress_warnings.contains("W03") {
-                            warnln!(
-                                "[W03] Ignoring unknown field `{}` in sources in manifest for {}.",
-                                k,
-                                package_name
-                            );
+                        Warnings::IgnoreUnknownField {
+                            field: k.clone(),
+                            pkg: package_name.to_string(),
                         }
+                        .emit();
                     });
                 }
                 Ok(SourceFile::Group(Box::new(Sources {
@@ -1259,8 +1248,8 @@ impl GlobFile for PartialSourceFile {
                             })
                         })
                         .collect::<Result<Vec<PartialSourceFile>>>()?;
-                    if out.is_empty() && !suppress_warnings.contains("W05") {
-                        warnln!("[W05] No files found for glob pattern {:?}", path);
+                    if out.is_empty() {
+                        Warnings::NoFilesForGlobalPattern { path: path.clone() }.emit();
                     }
                     Ok(out)
                 } else {
@@ -1323,13 +1312,11 @@ impl Validate for PartialWorkspace {
             .collect();
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
-                if !suppress_warnings.contains("W03") {
-                    warnln!(
-                        "[W03] Ignoring unknown field `{}` in workspace configuration in manifest for {}.",
-                        k,
-                        package_name
-                    );
+                Warnings::IgnoreUnknownField {
+                    field: k.clone(),
+                    pkg: package_name.to_string(),
                 }
+                .emit();
             });
         }
         Ok(Workspace {

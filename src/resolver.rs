@@ -104,16 +104,11 @@ impl<'ctx> DependencyResolver<'ctx> {
                     //  - the dependency is not in a clean state (i.e., was modified)
                     if !ignore_checkout {
                         if !is_git_repo {
-                            if !self.sess.suppress_warnings.contains("W06") {
-                                warnln!("[W06] Dependency `{}` in checkout_dir `{}` is not a git repository. Setting as path dependency.\n\
-                                        \tPlease use `bender clone` to work on git dependencies.\n\
-                                        \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
-                                    dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
-                                    &checkout.display());
-                            }
+                            Warnings::NotAGitDependency(depname.clone(), checkout.clone()).emit();
                             self.checked_out.insert(
                                 depname,
-                                config::Dependency::Path(dir.unwrap().path(), Vec::new()),
+                                config::Dependency::Path(dir.unwrap().path()),
+                                vec![],
                             );
                         } else if !(SysCommand::new(&self.sess.config.git) // If not in a clean state
                             .arg("status")
@@ -123,16 +118,11 @@ impl<'ctx> DependencyResolver<'ctx> {
                             .stdout
                             .is_empty())
                         {
-                            if !self.sess.suppress_warnings.contains("W06") {
-                                warnln!("[W06] Dependency `{}` in checkout_dir `{}` is not in a clean state. Setting as path dependency.\n\
-                                        \tPlease use `bender clone` to work on git dependencies.\n\
-                                        \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
-                                    dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
-                                    &checkout.display());
-                            }
+                            Warnings::NotAGitDependency(depname.clone(), checkout.clone()).emit();
                             self.checked_out.insert(
                                 depname,
-                                config::Dependency::Path(dir.unwrap().path(), Vec::new()),
+                                config::Dependency::Path(dir.unwrap().path()),
+                                vec![],
                             );
                         }
                     }
