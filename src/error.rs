@@ -160,64 +160,87 @@ pub fn println_stage(stage: &str, message: &str) {
     eprintln!("\x1B[32;1m{:>12}\x1B[0m {}", stage, message);
 }
 
-use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use miette::{Diagnostic, ReportHandler};
 use owo_colors::OwoColorize;
 use thiserror::Error;
 
+static GLOBAL_DIAGNOSTICS: OnceLock<Diagnostics> = OnceLock::new();
+
 /// A diagnostics manager that handles warnings (and errors).
+#[derive(Debug)]
 pub struct Diagnostics {
     /// A set of suppressed warnings.
     suppressed: HashSet<String>,
     /// Whether all warnings are suppressed.
     all_suppressed: bool,
     /// A set of already emitted warnings.
-    /// Implemented as a RefCell to allow interior mutability.
-    emitted: RefCell<HashSet<Warnings>>,
+    /// Requires synchronization as warnings may be emitted from multiple threads.
+    emitted: Mutex<HashSet<Warnings>>,
+}
+
+#[macro_export]
+macro_rules! warn {
+    ($warning:expr) => {
+        $crate::error::Diagnostics::emit($warning)
+    };
 }
 
 impl Diagnostics {
     /// Create a new diagnostics manager.
-    pub fn new(suppressed: HashSet<String>) -> Diagnostics {
-        Diagnostics {
+    pub fn init(suppressed: HashSet<String>) {
+        // Set up miette with our custom renderer
+        miette::set_hook(Box::new(|_| Box::new(DiagnosticRenderer))).unwrap();
+        let diag = Diagnostics {
             all_suppressed: suppressed.contains("all") || suppressed.contains("Wall"),
             suppressed: suppressed,
-            emitted: RefCell::new(HashSet::new()),
-        }
+            emitted: Mutex::new(HashSet::new()),
+        };
+
+        GLOBAL_DIAGNOSTICS
+            .set(diag)
+            .expect("Diagnostics already initialized!");
+    }
+
+    /// Get the global diagnostics manager.
+    fn get() -> &'static Diagnostics {
+        GLOBAL_DIAGNOSTICS
+            .get()
+            .expect("Diagnostics not initialized!")
     }
 
     /// Emit a warning if it is not suppressed or already emitted.
-    pub fn emit(&self, warning: Warnings) {
+    pub fn emit(warning: Warnings) {
+        let diag = Diagnostics::get();
+
         // Check whether the command is suppressed
         if let Some(code) = warning.code() {
-            if self.all_suppressed || self.suppressed.contains(&code.to_string()) {
+            if diag.all_suppressed || diag.suppressed.contains(&code.to_string()) {
                 return;
             }
         }
 
         // Check whether the warning was already emitted
-        // We scope the borrow so it drops immediately after the check
-        {
-            if self.emitted.borrow().contains(&warning) {
-                return;
-            }
+        let mut emitted = diag.emitted.lock().unwrap();
+        if emitted.contains(&warning) {
+            return;
         }
 
         // Record the emitted warning
-        self.emitted.borrow_mut().insert(warning.clone());
+        emitted.insert(warning.clone());
+        drop(emitted);
 
         // Print the warning report
-        let report = miette::Report::new(warning);
-        eprintln!("{:?}", report);
+        eprintln!("{:?}", miette::Report::new(warning));
     }
 
     /// Emit a warning if the condition is true.
-    pub fn emit_if(&self, condition: bool, warning: Warnings) {
+    pub fn emit_if(condition: bool, warning: Warnings) {
         if condition {
-            self.emit(warning);
+            Diagnostics::emit(warning);
         }
     }
 }

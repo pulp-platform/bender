@@ -127,8 +127,8 @@ pub fn main() -> Result<()> {
         })
         .collect();
 
-    miette::set_hook(Box::new(|_| Box::new(DiagnosticRenderer))).unwrap();
-    let diagnostics = Diagnostics::new(suppressed);
+    Diagnostics::init(suppressed);
+
 
     let suppressed_warnings: IndexSet<String> = matches
         .get_many::<String>("suppress")
@@ -196,7 +196,6 @@ pub fn main() -> Result<()> {
         cli.local,
         force_fetch,
         git_throttle,
-        diagnostics,
         suppressed_warnings,
     );
 
@@ -260,7 +259,7 @@ pub fn main() -> Result<()> {
                     )
                 })?;
                 if !meta.file_type().is_symlink() {
-                    sess.diagnostics.emit(Warnings::SkippingPackageLink(
+                    warn!(Warnings::SkippingPackageLink(
                         pkg_name.clone(),
                         path.clone(),
                     ));
@@ -520,8 +519,10 @@ fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<Par
     let partial: PartialConfig = serde_yaml_ng::from_reader(file)
         .map_err(|cause| Error::chain(format!("Syntax error in config {:?}.", path), cause))?;
     if warn_config_loaded {
-        warnln!("[W02] Using config at {:?} for overrides.", path)
-    };
+        warn!(Warnings::UsingConfigForOverride {
+            path: path.to_path_buf()
+        });
+    }
     Ok(Some(partial.prefix_paths(path.parent().unwrap())?))
 }
 
