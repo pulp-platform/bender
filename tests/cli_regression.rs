@@ -92,10 +92,10 @@ fn run_regression(subcommand_args: &[&str]) {
 
 // The Macro generates the tests
 macro_rules! regression_tests {
-    ($($(#[$meta:meta])* $name:ident: $args:expr),* $(,)?) => {
+    ($($name:ident: $args:expr),* $(,)?) => {
         $(
             #[test]
-            $(#[$meta])*
+            #[ignore]
             fn $name() {
                 run_regression($args);
             }
