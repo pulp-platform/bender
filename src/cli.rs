@@ -127,6 +127,7 @@ pub fn main() -> Result<()> {
         })
         .collect();
 
+    miette::set_hook(Box::new(|_| Box::new(DiagnosticRenderer))).unwrap();
     let diagnostics = Diagnostics::new(suppressed);
 
     diagnostics.emit(Warnings::Warning1);

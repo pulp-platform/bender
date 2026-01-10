@@ -163,7 +163,8 @@ pub fn println_stage(stage: &str, message: &str) {
 use std::cell::RefCell;
 use std::collections::HashSet;
 
-use miette::Diagnostic;
+use miette::{Diagnostic, ReportHandler};
+use owo_colors::OwoColorize;
 use thiserror::Error;
 
 /// A diagnostics manager that handles warnings (and errors).
@@ -173,6 +174,7 @@ pub struct Diagnostics {
     /// Whether all warnings are suppressed.
     all_suppressed: bool,
     /// A set of already emitted warnings.
+    /// Implemented as a RefCell to allow interior mutability.
     emitted: RefCell<HashSet<Warnings>>,
 }
 
@@ -209,6 +211,46 @@ impl Diagnostics {
         // Print the warning report
         let report = miette::Report::new(warning);
         eprintln!("{:?}", report);
+    }
+}
+
+pub struct DiagnosticRenderer;
+
+impl ReportHandler for DiagnosticRenderer {
+    fn debug(&self, diagnostic: &dyn Diagnostic, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Determine severity and the resulting style
+        let (severity, style) = match diagnostic.severity().unwrap_or_default() {
+            miette::Severity::Error => ("error", owo_colors::Style::new().red().bold()),
+            miette::Severity::Warning => ("warning", owo_colors::Style::new().yellow().bold()),
+            miette::Severity::Advice => unimplemented!(),
+        };
+
+        // Write the severity prefix
+        write!(f, "{}", severity.style(style))?;
+
+        // Writ the code, if any
+        if let Some(code) = diagnostic.code() {
+            write!(f, "{}", format!("[{}]: ", code).style(style))?;
+        }
+
+        // Then, we write the diagnostic message
+        write!(f, "{}", diagnostic)?;
+
+        // Below the message, there might be an additional help message
+        let _branch = " ├─›"; // Branching with arrow
+        let corner = " ╰─›"; // Final corner with arrow
+
+        if let Some(help) = diagnostic.help() {
+            write!(
+                f,
+                "\n{} {} {}",
+                corner.dimmed(),
+                "help:".bold(),
+                help.dimmed()
+            )?;
+        }
+
+        Ok(())
     }
 }
 
