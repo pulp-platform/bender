@@ -242,44 +242,43 @@ impl ReportHandler for DiagnosticRenderer {
             miette::Severity::Advice => unimplemented!(),
         };
 
-        // Write the severity prefix
-        write!(f, "{}", severity.style(style))?;
+        // Write the severity prefix and the diagnostic message
+        write!(f, "{}: {}", severity.style(style), diagnostic)?;
 
-        // Writ the code, if any
-        if let Some(code) = diagnostic.code() {
-            write!(f, "{}", format!("[{}]: ", code).style(style))?;
+        // We collect all footer lines into a vector.
+        let mut annotations: Vec<String> = Vec::new();
+
+        // First, we write the help message(s) if any
+        if let Some(help) = diagnostic.help() {
+            let help_str = help.to_string();
+            for line in help_str.lines() {
+                annotations.push(format!(
+                    "{} {}",
+                    "help:".bold(),
+                    line.replace("\x1b[0m", "\x1b[0m\x1b[2m").dimmed()
+                ));
+            }
         }
 
-        // Then, we write the diagnostic message
-        write!(f, "{}", diagnostic)?;
+        // Finally, we write the code/suppression message, if any
+        if let Some(code) = diagnostic.code() {
+            annotations.push(format!(
+                "{} {}",
+                "suppress:".cyan().bold(), // No variable, no lifetime issue
+                format!("Run `bender --suppress {}` to suppress this warning", code).dimmed()
+            ));
+        }
 
-        // Below the message, there might be an additional help message
-        let branch = " ├─›"; // Branching with arrow
-        let corner = " ╰─›"; // Final corner with arrow
+        // Prepare tree characters
+        let branch = " ├─›";
+        let corner = " ╰─›";
 
-        if let Some(help) = diagnostic.help() {
-            // Convert to string and split by lines
-            let help_str = help.to_string();
-            let lines: Vec<&str> = help_str.lines().collect();
-
-            // Print each line with the appropriate help prefix and branching
-            for (i, line) in lines.iter().enumerate() {
-                // Determine the tree character
-                let is_last = i == lines.len() - 1;
-                let prefix = if is_last { corner } else { branch };
-
-                // Styled messages (e.g. 'pkg.bold()') will reset the style afterwards,
-                // so we need to re-apply dimming after each reset.
-                let line = line.replace("\x1b[0m", "\x1b[0m\x1b[2m");
-
-                write!(
-                    f,
-                    "\n{} {} {}",
-                    prefix.dimmed(),
-                    "help:".bold(),
-                    line.dimmed()
-                )?;
-            }
+        // Iterate over the annotations and print them
+        for (i, note) in annotations.iter().enumerate() {
+            // The last item gets the corner, everyone else gets a branch
+            let is_last = i == annotations.len() - 1;
+            let prefix = if is_last { corner } else { branch };
+            write!(f, "\n{} {}", prefix.dimmed(), note)?;
         }
 
         Ok(())
