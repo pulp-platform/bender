@@ -345,10 +345,10 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
                 }
             }
             _ => {
-                return Err(Error::new(format!(
-                    "Cannot extract top bound from version requirement: {}",
-                    req
-                )));
+                return Err(BenderErrors::VersionBound {
+                    bound: "top".to_string(),
+                    req: req.to_string(),
+                });
             }
         }
     }
@@ -416,10 +416,10 @@ pub fn version_req_bottom_bound(req: &VersionReq) -> Result<Option<Version>> {
                 // No lower bound
             }
             _ => {
-                return Err(Error::new(format!(
-                    "Cannot extract bottom bound from version requirement: {}",
-                    req
-                )));
+                return Err(BenderErrors::VersionBound {
+                    bound: "bottom".to_string(),
+                    req: req.to_string(),
+                });
             }
         }
     }
