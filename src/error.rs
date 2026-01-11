@@ -71,7 +71,6 @@ impl fmt::Display for Severity {
 }
 
 /// A result with our custom `Error` type.
-pub type Result<T> = std::result::Result<T, Error>;
 
 /// An error message with optional underlying cause.
 #[derive(Debug)]

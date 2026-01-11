@@ -43,7 +43,7 @@ pub mod target;
 #[macro_use]
 pub mod util;
 
-fn main() {
+fn main() -> miette::Result<()> {
     match cli::main() {
         Ok(()) => {
             std::process::exit(0);
