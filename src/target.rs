@@ -17,8 +17,6 @@ use indexmap::IndexSet;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
-use crate::error::*;
-
 /// A target specification.
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Default)]
 pub enum TargetSpec {
@@ -69,8 +67,8 @@ impl fmt::Debug for TargetSpec {
 }
 
 impl FromStr for TargetSpec {
-    type Err = Error;
-    fn from_str(s: &str) -> std::result::Result<Self, Error> {
+    type Err = TargetError;
+    fn from_str(s: &str) -> std::result::Result<Self, TargetError> {
         let mut iter = s.chars();
         let next = iter.next();
         let mut lexer = TargetLexer {
@@ -78,12 +76,7 @@ impl FromStr for TargetSpec {
             partial: None,
             next,
         };
-        parse(&mut lexer).map_err(|cause| {
-            Error::chain(
-                format!("Syntax error in target specification `{}`.", s),
-                cause,
-            )
-        })
+        parse(&mut lexer).map_err(|cause| TargetError::SyntaxError(s.to_string(), Box::new(cause)))
     }
 }
 
@@ -234,7 +227,7 @@ where
                 Some(')') => return Some(Ok(TargetToken::RParen)),
                 Some(',') => return Some(Ok(TargetToken::Comma)),
                 Some(c) if c.is_whitespace() => (),
-                Some(c) => return Some(Err(Error::new(format!("Invalid character `{}`.", c)))),
+                Some(c) => return Some(Err(TargetError::InvalidCharacter(c))),
                 None => return None,
             }
         }
@@ -297,23 +290,21 @@ where
     match lexer.next() {
         Some(Ok(ref tkn)) if tkn == &token => Ok(()),
         Some(Err(e)) => Err(e),
-        _ => Err(Error::new(msg)),
+        _ => Err(TargetError::ParseError(msg.to_string())),
     }
 }
 
 fn parse_wrong<R>(wrong: Option<Result<TargetToken>>) -> Result<R> {
     match wrong {
-        Some(Ok(TargetToken::All)) => Err(Error::new("Unexpected `all` keyword.")),
-        Some(Ok(TargetToken::Any)) => Err(Error::new("Unexpected `any` keyword.")),
-        Some(Ok(TargetToken::Not)) => Err(Error::new("Unexpected `not` keyword.")),
-        Some(Ok(TargetToken::Ident(name))) => {
-            Err(Error::new(format!("Unexpected identifier `{}`.", name)))
-        }
-        Some(Ok(TargetToken::LParen)) => Err(Error::new("Unexpected `(`.")),
-        Some(Ok(TargetToken::RParen)) => Err(Error::new("Unexpected `)`.")),
-        Some(Ok(TargetToken::Comma)) => Err(Error::new("Unexpected `,`.")),
+        Some(Ok(TargetToken::All)) => Err(TargetError::UnexpectedKeyword("all".to_string())),
+        Some(Ok(TargetToken::Any)) => Err(TargetError::UnexpectedKeyword("any".to_string())),
+        Some(Ok(TargetToken::Not)) => Err(TargetError::UnexpectedKeyword("not".to_string())),
+        Some(Ok(TargetToken::Ident(name))) => Err(TargetError::UnexpectedIdentifier(name)),
+        Some(Ok(TargetToken::LParen)) => Err(TargetError::Unexpected('(')),
+        Some(Ok(TargetToken::RParen)) => Err(TargetError::Unexpected(')')),
+        Some(Ok(TargetToken::Comma)) => Err(TargetError::Unexpected(',')),
         Some(Err(e)) => Err(e),
-        None => Err(Error::new("Unexpected end of string.")),
+        None => Err(TargetError::UnexpectedEof),
     }
 }
 
@@ -371,4 +362,34 @@ impl IntoIterator for TargetSet {
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
+}
+
+use miette::Diagnostic;
+use thiserror::Error;
+
+type Result<T> = std::result::Result<T, TargetError>;
+
+#[derive(Debug, Error, Diagnostic)]
+#[diagnostic(severity(Error))]
+pub enum TargetError {
+    #[error("Invalid character {0}.")]
+    InvalidCharacter(char),
+
+    #[error("Unexpected {0} keyword.")]
+    UnexpectedKeyword(String),
+
+    #[error("Unexpected identifier {0}.")]
+    UnexpectedIdentifier(String),
+
+    #[error("Unexpected {0}.")]
+    Unexpected(char),
+
+    #[error("Unexpected end of string.")]
+    UnexpectedEof,
+
+    #[error("Syntax error in target specification {0}.")]
+    SyntaxError(String, #[source] Box<TargetError>),
+
+    #[error("{0}")]
+    ParseError(String),
 }

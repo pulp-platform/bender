@@ -160,6 +160,7 @@ use owo_colors::OwoColorize;
 use thiserror::Error;
 
 use crate::config::ConfigError;
+use crate::target::TargetError;
 
 pub type Result<T> = std::result::Result<T, BenderErrors>;
 
@@ -176,4 +177,7 @@ pub enum BenderErrors {
 
     #[error(transparent)]
     ConfigError(#[from] ConfigError),
+
+    #[error(transparent)]
+    TargetError(#[from] TargetError),
 }
