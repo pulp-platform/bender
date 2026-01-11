@@ -16,12 +16,6 @@ macro_rules! errorln {
     ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Error; $($arg)*); }
 }
 
-/// Print a warning.
-#[macro_export]
-macro_rules! warnln {
-    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Warning; $($arg)*) }
-}
-
 /// Print an informational note.
 #[macro_export]
 macro_rules! noteln {
