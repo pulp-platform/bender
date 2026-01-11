@@ -5,12 +5,10 @@
 
 use std;
 use std::fmt;
-#[allow(deprecated)]
-use std::sync::atomic::{AtomicBool, ATOMIC_BOOL_INIT};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-#[allow(deprecated)]
-pub static ENABLE_DEBUG: AtomicBool = ATOMIC_BOOL_INIT;
+pub static ENABLE_DEBUG: AtomicBool = AtomicBool::new(false);
 
 /// Print an error.
 #[macro_export]
