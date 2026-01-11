@@ -204,6 +204,12 @@ impl Diagnostics {
             .get()
             .expect("Diagnostics not initialized!")
     }
+
+    /// Check whether a warning/error code is suppressed.
+    pub fn is_suppressed(code: &str) -> bool {
+        let diag = Diagnostics::get();
+        diag.all_suppressed || diag.suppressed.contains(&code.to_string())
+    }
 }
 
 impl Warnings {
@@ -239,7 +245,7 @@ impl ReportHandler for DiagnosticRenderer {
         let (severity, style) = match diagnostic.severity().unwrap_or_default() {
             miette::Severity::Error => ("error", owo_colors::Style::new().red().bold()),
             miette::Severity::Warning => ("warning", owo_colors::Style::new().yellow().bold()),
-            miette::Severity::Advice => unimplemented!(),
+            miette::Severity::Advice => ("advice", owo_colors::Style::new().cyan().bold()),
         };
 
         // Write the severity prefix and the diagnostic message
@@ -431,4 +437,55 @@ pub enum Warnings {
     #[error("Package {} is shown to include dependency, but manifest does not have this information.", pkg!(pkg))]
     #[diagnostic(code(W17))]
     IncludeDepManifestMismatch { pkg: String },
+
+    #[error("An override is specified for dependency {} to {}.", pkg!(pkg), pkg!(pkg_override))]
+    #[diagnostic(code(W18))]
+    DepOverride { pkg: String, pkg_override: String },
+
+    #[error("Workspace checkout directory set and has uncommitted changes, not updating {} at {}.", pkg!(.0), path!(.1.display()))]
+    #[diagnostic(
+        code(W19),
+        help("Run `bender checkout --force` to overwrite the dependency at your own risk.")
+    )]
+    CheckoutDirDirty(String, PathBuf),
+
+    // TODO(fischeti): Should this be an error instead of a warning?
+    #[error("Ignoring error for {} at {}: {}", pkg!(.0), path!(.1), .2)]
+    #[diagnostic(code(W20))]
+    IgnoringError(String, String, String),
+
+    #[error("No revision found in lock file for git dependency {}.", pkg!(pkg))]
+    #[diagnostic(code(W21))]
+    NoRevisionInLockFile { pkg: String },
+
+    #[error("Dependency {} has source path {} which does not exist.", pkg!(.0), path!(.1.display()))]
+    #[diagnostic(code(W22), help("Please check that the path exists and is correct."))]
+    DepSourcePathMissing(String, PathBuf),
+
+    #[error("Locked revision {} for dependency {} not found in available revisions, allowing update.", pkg!(rev), pkg!(pkg))]
+    #[diagnostic(code(W23))]
+    LockedRevisionNotFound { pkg: String, rev: String },
+
+    #[error("Include directory {} doesn't exist.", path!(.0.display()))]
+    #[diagnostic(
+        code(W24),
+        help("Please check that the include directory exists and is correct.")
+    )]
+    IncludeDirMissing(PathBuf),
+
+    #[error("Skipping dirty dependency {}", pkg!(pkg))]
+    #[diagnostic(help("Use `--no-skip` to still snapshot {}.", pkg!(pkg)))]
+    SkippingDirtyDep { pkg: String },
+
+    #[error("File not added, ignoring: {cause}")]
+    #[diagnostic(code(W30))]
+    IgnoredPath { cause: String },
+
+    #[error("File {} doesn't exist.", path!(path.display()))]
+    #[diagnostic(code(W31))]
+    FileMissing { path: PathBuf },
+
+    #[error("Path {} for dependency {} does not exist.", path!(path.display()), pkg!(pkg))]
+    #[diagnostic(code(W32))]
+    DepPathMissing { pkg: String, path: PathBuf },
 }

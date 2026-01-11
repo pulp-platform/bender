@@ -57,11 +57,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
                             .is_empty()
                             && !args.no_skip
                         {
-                            warnln!(
-                                "Skipping dirty dependency {}\
-                                        \t use `--no-skip` to still snapshot.",
-                                name
-                            );
+                            Warnings::SkippingDirtyDep { pkg: name.clone() }.emit();
                             continue;
                         }
 

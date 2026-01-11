@@ -7,6 +7,7 @@ use std::io::Write;
 
 use clap::Args;
 use indexmap::IndexMap;
+use owo_colors::OwoColorize;
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
@@ -96,12 +97,21 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
         }
     );
 
-    if sess.config.overrides.contains_key(dep) && !sess.suppress_warnings.contains("W18") {
-        warnln!(
-            "[W18] An override is configured for {} to {:?}",
-            dep,
-            sess.config.overrides[dep]
-        )
+    if sess.config.overrides.contains_key(dep) {
+        Warnings::DepOverride {
+            pkg: dep.to_string(),
+            pkg_override: match sess.config.overrides[dep] {
+                Dependency::Version(ref v) => format!("version {}", pkg!(v)),
+                Dependency::Path(ref path) => format!("path {}", path!(path.display())),
+                Dependency::GitRevision(ref url, ref rev) => {
+                    format!("git {} at revision {}", path!(url), pkg!(rev))
+                }
+                Dependency::GitVersion(ref url, ref version) => {
+                    format!("git {} with version {}", path!(url), pkg!(version))
+                }
+            },
+        }
+        .emit();
     }
 
     Ok(())

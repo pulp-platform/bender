@@ -15,7 +15,7 @@ use indexmap::{IndexMap, IndexSet};
 use serde::ser::{Serialize, Serializer};
 
 use crate::config::Validate;
-use crate::error::Error;
+use crate::error::{Diagnostics, Error, Warnings};
 use crate::sess::Session;
 use crate::target::{TargetSet, TargetSpec};
 use semver;
@@ -64,8 +64,8 @@ impl<'ctx> Validate for SourceGroup<'ctx> {
                 .include_dirs
                 .into_iter()
                 .map(|p| {
-                    if !(suppress_warnings.contains("W24") || p.exists() && p.is_dir()) {
-                        warnln!("[W24] Include directory {} doesn't exist.", p.display());
+                    if !p.exists() || !p.is_dir() {
+                        Warnings::IncludeDirMissing(p.to_path_buf()).emit();
                     }
                     Ok(p)
                 })
@@ -480,12 +480,12 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                 let env_path_buf =
                     crate::config::env_path_from_string(path.to_string_lossy().to_string())?;
                 let exists = env_path_buf.exists() && env_path_buf.is_file();
-                if exists || suppress_warnings.contains("E31") {
-                    if !(exists || suppress_warnings.contains("W31")) {
-                        warnln!(
-                            "[W31] File {} doesn't exist.",
-                            env_path_buf.to_string_lossy()
-                        );
+                if exists || Diagnostics::is_suppressed("E31") {
+                    if !exists {
+                        Warnings::FileMissing {
+                            path: env_path_buf.clone(),
+                        }
+                        .emit();
                     }
                     Ok(SourceFile::File(path, ty))
                 } else {

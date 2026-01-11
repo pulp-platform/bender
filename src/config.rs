@@ -538,22 +538,18 @@ impl Validate for PartialManifest {
                 .iter()
                 .filter_map(|path| match env_path_from_string(path.to_string()) {
                     Ok(parsed_path) => {
-                        if !(suppress_warnings.contains("W24")
-                            || pre_output
-                            || parsed_path.exists() && parsed_path.is_dir())
-                        {
-                            warnln!(
-                                "[W24] Include directory {} doesn't exist.",
-                                &parsed_path.display()
-                            );
+                        if !(pre_output || parsed_path.exists() && parsed_path.is_dir()) {
+                            Warnings::IncludeDirMissing(parsed_path.clone()).emit();
                         }
+
                         Some(Ok(parsed_path))
                     }
                     Err(cause) => {
-                        if suppress_warnings.contains("E30") {
-                            if !suppress_warnings.contains("W30") {
-                                warnln!("[W30] File not added, ignoring: {}", cause);
+                        if Diagnostics::is_suppressed("E30") {
+                            Warnings::IgnoredPath {
+                                cause: cause.to_string(),
                             }
+                            .emit();
                             None
                         } else {
                             Some(Err(Error::chain("[E30]", cause)))
@@ -832,10 +828,8 @@ impl Validate for PartialSources {
                     .filter_map(|path| match env_path_from_string(path.to_string()) {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
-                            if suppress_warnings.contains("E30") {
-                                if !suppress_warnings.contains("W30") {
-                                    warnln!("[W30] File not added, ignoring: {}", cause);
-                                }
+                            if Diagnostics::is_suppressed("E30") {
+                                Warnings::IgnoredPath {cause: cause.to_string()}.emit();
                                 None
                             } else {
                                 Some(Err(Error::chain("[E30]", cause)))
@@ -974,10 +968,8 @@ impl Validate for PartialSources {
                                 _ => unreachable!(),
                             },
                             Err(cause) => {
-                                if suppress_warnings.contains("E30") {
-                                    if !suppress_warnings.contains("W30") {
-                                        warnln!("[W30] File not added, ignoring: {}", cause);
-                                    }
+                                if Diagnostics::is_suppressed("E30") {
+                                    Warnings::IgnoredPath {cause: cause.to_string()}.emit();
                                     None
                                 } else {
                                     Some(Err(Error::chain("[E30]", cause)))
@@ -1019,10 +1011,8 @@ impl Validate for PartialSources {
                     .filter_map(|path| match env_path_from_string(path.to_string()) {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
-                            if suppress_warnings.contains("E30") {
-                                if !suppress_warnings.contains("W30") {
-                                    warnln!("[W30] File not added, ignoring: {}", cause);
-                                }
+                            if Diagnostics::is_suppressed("E30") {
+                                Warnings::IgnoredPath {cause: cause.to_string()}.emit();
                                 None
                             } else {
                                 Some(Err(Error::chain("[E30]", cause)))

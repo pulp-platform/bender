@@ -140,15 +140,15 @@ impl<'ctx> Session<'ctx> {
             calling_package
         );
         let src = DependencySource::from(cfg);
-        self.deps.lock().unwrap().add(
-            self.intern_dependency_entry(DependencyEntry {
+        self.deps
+            .lock()
+            .unwrap()
+            .add(self.intern_dependency_entry(DependencyEntry {
                 name: name.into(),
                 source: src,
                 revision: None,
                 version: None,
-            }),
-            &self.suppress_warnings,
-        )
+            }))
     }
 
     /// Load a lock file.
@@ -175,7 +175,6 @@ impl<'ctx> Session<'ctx> {
                         .as_ref()
                         .map(|s| semver::Version::parse(s).unwrap()),
                 }),
-                &self.suppress_warnings,
             );
             graph_names.insert(id, &pkg.dependencies);
             names.insert(name.clone(), id);
@@ -895,25 +894,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     {
                         CheckoutState::ToCheckout
                     } else {
-                        if !self.sess.suppress_warnings.contains("W19") {
-                            warnln!(
-                                "[W19] Workspace checkout directory set and has uncommitted changes, not updating {} at {}.\n\
-                                \tRun `bender checkout --force` to overwrite the dependency at your own risk.",
-                                name,
-                                path.display()
-                            );
-                        }
+                        Warnings::CheckoutDirDirty(name.to_string(), path.to_path_buf()).emit();
                         CheckoutState::Clean
                     }
                 } else {
-                    if !self.sess.suppress_warnings.contains("W19") {
-                        warnln!(
-                            "[W19] Workspace checkout directory set and remote url doesn't match, not updating {} at {}.\n\
-                            \tRun `bender checkout --force` to overwrite the dependency at your own risk.",
-                            name,
-                            path.display()
-                        );
-                    }
+                    Warnings::CheckoutDirDirty(name.to_string(), path.to_path_buf()).emit();
                     CheckoutState::Clean
                 }
             } else {
@@ -1211,17 +1196,15 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Err(e) => Err(e),
                     }
                 } else {
-                    if !(self.sess.suppress_warnings.contains("E32")
-                        && self.sess.suppress_warnings.contains("W32"))
-                    {
+                    if !(Diagnostics::is_suppressed("E32")) {
                         if let DepSrc::Path(ref path) = dep.source {
                             if !path.exists() {
-                                if self.sess.suppress_warnings.contains("E32") {
-                                    warnln!(
-                                        "[W32] Path {:?} for dependency {:?} does not exist.",
-                                        path,
-                                        dep.name
-                                    );
+                                if Diagnostics::is_suppressed("E32") {
+                                    Warnings::DepPathMissing {
+                                        pkg: dep.name.clone(),
+                                        path: path.to_path_buf(),
+                                    }
+                                    .emit();
                                 } else {
                                     return Err(Error::new(format!(
                                         "[E32] Path {:?} for dependency {:?} does not exist.",
@@ -1821,22 +1804,14 @@ impl<'ctx> DependencyTable<'ctx> {
     ///
     /// The reference with which the information can later be retrieved is
     /// returned.
-    pub fn add(
-        &mut self,
-        entry: &'ctx DependencyEntry,
-        suppress_warnings: &IndexSet<String>,
-    ) -> DependencyRef {
+    pub fn add(&mut self, entry: &'ctx DependencyEntry) -> DependencyRef {
         if let Some(&id) = self.ids.get(&entry) {
             debugln!("sess: reusing {:?}", id);
             id
         } else {
             if let DependencySource::Path(path) = &entry.source {
-                if !path.exists() && !suppress_warnings.contains("W22") {
-                    warnln!(
-                        "[W22] Dependency `{}` has source path `{}` which does not exist",
-                        entry.name,
-                        path.display()
-                    );
+                if !path.exists() {
+                    Warnings::DepSourcePathMissing(entry.name.clone(), path.clone()).emit();
                 }
             }
             let id = DependencyRef(self.list.len());
