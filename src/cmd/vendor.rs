@@ -341,7 +341,7 @@ pub fn init(
         if !PathBuf::from(extend_paths(std::slice::from_ref(&path), dep_path, true)?[0].clone())
             .exists()
         {
-            warnln!("[W16] {} not found in upstream, continuing.", path);
+            Warnings::NotInUpstream { path: path }.emit();
         }
     }
 
@@ -371,10 +371,10 @@ pub fn init(
                     )
                 })?;
             } else {
-                warnln!(
-                    "[W16] {} not found in upstream, continuing.",
-                    link_from.to_str().unwrap()
-                );
+                Warnings::NotInUpstream {
+                    path: link_from.to_str().unwrap().to_string(),
+                }
+                .emit();
             }
         }
     };

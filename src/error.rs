@@ -415,4 +415,17 @@ pub enum Warnings {
         from_prefix: PathBuf,
         to_prefix: PathBuf,
     },
+
+    #[error("Dependency string for the included dependencies might be wrong.")]
+    #[diagnostic(code(W16))]
+    DependStringMaybeWrong,
+
+    // TODO(fischeti): Why are there two W16 variants?
+    #[error("{} not found in upstream, continuing.", path!(path))]
+    #[diagnostic(code(W16))]
+    NotInUpstream { path: String },
+
+    #[error("Package {} is shown to include dependency, but manifest does not have this information.", pkg!(pkg))]
+    #[diagnostic(code(W17))]
+    IncludeDepManifestMismatch { pkg: String },
 }
