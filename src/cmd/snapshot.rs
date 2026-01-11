@@ -206,7 +206,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         mod_package.source = LockedSource::Path(
             path_dep_path
                 .strip_prefix(sess.root)
-                .unwrap_or(&path_dep_path)
+                .unwrap_or(path_dep_path)
                 .to_path_buf(),
         );
         locked.packages.insert(path_dep.clone(), mod_package);
@@ -245,7 +245,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             // Determine the checkout path for this package.
             let pkg_path = if snapshotted_deps.contains(&pkg_name.as_str()) {
                 &io.get_depsource_path(
-                    &pkg_name,
+                    pkg_name,
                     &DependencySource::Git(
                         snapshot_list
                             .iter()

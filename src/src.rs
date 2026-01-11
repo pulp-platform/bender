@@ -149,23 +149,22 @@ impl<'ctx> SourceGroup<'ctx> {
         // collect negative targets to be removed
         let neg_targets = all_targets
             .iter()
-            .filter_map(|t| {
-                if t.starts_with('-') {
-                    Some(t[1..].to_string())
-                } else {
-                    None
-                }
-            })
+            .filter_map(|t| t.strip_prefix('-').map(|neg_target| neg_target.to_string()))
             .collect::<IndexSet<_>>();
 
         // remove negative targets from all_targets
-        let all_targets = TargetSet::new(all_targets.iter().filter_map(|t| {
-            if t.starts_with('-') || neg_targets.contains(t) {
-                None
-            } else {
-                Some(t.clone())
-            }
-        }).collect::<IndexSet<_>>());
+        let all_targets = TargetSet::new(
+            all_targets
+                .iter()
+                .filter_map(|t| {
+                    if t.starts_with('-') || neg_targets.contains(t) {
+                        None
+                    } else {
+                        Some(t.clone())
+                    }
+                })
+                .collect::<IndexSet<_>>(),
+        );
 
         if !self.target.matches(&all_targets) {
             return None;
@@ -175,7 +174,7 @@ impl<'ctx> SourceGroup<'ctx> {
             .iter()
             .filter_map(|file| match *file {
                 SourceFile::Group(ref group) => group
-                    .filter_targets(&targets, use_passed)
+                    .filter_targets(targets, use_passed)
                     .map(|g| SourceFile::Group(Box::new(g))),
                 ref other => Some(other.clone()),
             })
@@ -189,7 +188,7 @@ impl<'ctx> SourceGroup<'ctx> {
             .collect::<IndexSet<_>>();
         target_defs.sort();
         let mut defines: IndexMap<String, Option<&str>> = self.defines.clone();
-        if let Some(_) = self.package {
+        if self.package.is_some() {
             defines.extend(target_defs.into_iter().map(|t| (t, None)));
         }
 

@@ -78,9 +78,9 @@ impl<'ctx> DependencyResolver<'ctx> {
         let io = SessionIo::new(self.sess);
 
         // Load the dependencies in the lockfile.
-        if existing.is_some() {
+        if let Some(existing) = existing {
             debugln!("resolve: registering lockfile dependencies");
-            self.register_dependencies_in_lockfile(existing.unwrap(), keep_locked, &rt, &io)?;
+            self.register_dependencies_in_lockfile(existing, keep_locked, &rt, &io)?;
         }
 
         // Store path dependencies already in checkout_dir
