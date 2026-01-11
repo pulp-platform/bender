@@ -150,3 +150,30 @@ macro_rules! stageln {
 pub fn println_stage(stage: &str, message: &str) {
     eprintln!("\x1B[32;1m{:>12}\x1B[0m {}", stage, message);
 }
+
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+
+use miette::{Diagnostic, ReportHandler};
+use owo_colors::OwoColorize;
+use thiserror::Error;
+
+use crate::config::ConfigError;
+
+pub type Result<T> = std::result::Result<T, BenderErrors>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(severity(Error))]
+pub enum BenderErrors {
+    #[error(transparent)]
+    #[diagnostic(code(legacy_error))]
+    Legacy(#[from] Error),
+
+    #[error("Cannot extract {bound} bound from version requirement: {req}")]
+    #[diagnostic(code(E33))]
+    VersionBound { bound: String, req: String },
+
+    #[error(transparent)]
+    ConfigError(#[from] ConfigError),
+}
