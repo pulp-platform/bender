@@ -78,6 +78,13 @@ pub fn new() -> Command {
                 .num_args(0)
                 .action(ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("ignore-passed-targets")
+                .long("ignore-passed-targets")
+                .help("Ignore passed targets")
+                .num_args(0)
+                .action(ArgAction::SetTrue),
+        )
 }
 
 fn get_package_strings<I>(packages: I) -> IndexSet<String>
@@ -115,7 +122,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     }
 
     srcs = srcs
-        .filter_targets(&targets)
+        .filter_targets(&targets, !matches.get_flag("ignore-passed-targets"))
         .unwrap_or_else(|| SourceGroup {
             package: Default::default(),
             independent: true,
@@ -126,6 +133,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             files: Default::default(),
             dependencies: Default::default(),
             version: None,
+            passed_targets: TargetSet::empty(),
         });
 
     // Filter the sources by specified packages.
@@ -158,6 +166,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 files: Default::default(),
                 dependencies: Default::default(),
                 version: None,
+                passed_targets: TargetSet::empty(),
             });
     }
 

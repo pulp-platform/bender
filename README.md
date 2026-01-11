@@ -113,7 +113,7 @@ dependencies:
   common_verification: { git: "git@github.com:pulp-platform/common_verification.git", version: "0.1" }
 
   # Git revision dependency.
-  common_cells: { git: "git@github.com:pulp-platform/common_cells.git", rev: master }
+  common_cells: { git: "git@github.com:pulp-platform/common_cells.git", rev: master, pass_targets: ["CC_CUSTOM_TARGET"] }
 
 # Freeze any dependency updates. Optional. False if omitted.
 # Useful for chip packages. Once the chip is in final tapeout mode, and

@@ -93,26 +93,26 @@ pub struct Package {
 ///
 /// The name of the dependency is given implicitly by the key in the hash map
 /// that this `Dependency` is accessible through.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Dependency {
     /// A dependency that can be found in one of the package repositories.
-    Version(semver::VersionReq),
+    Version(semver::VersionReq, Vec<String>),
     /// A local path dependency. The exact version of the dependency found at
     /// the given path will be used, regardless of any actual versioning
     /// constraints.
-    Path(PathBuf),
+    Path(PathBuf, Vec<String>),
     /// A git dependency specified by a revision.
-    GitRevision(String, String),
+    GitRevision(String, String, Vec<String>),
     /// A git dependency specified by a version requirement. Works similarly to
     /// the `GitRevision`, but extracts all tags of the form `v.*` from the
     /// repository and matches the version against that.
-    GitVersion(String, semver::VersionReq),
+    GitVersion(String, semver::VersionReq, Vec<String>),
 }
 
 impl PrefixPaths for Dependency {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         Ok(match self {
-            Dependency::Path(p) => Dependency::Path(p.prefix_paths(prefix)?),
+            Dependency::Path(p, pass_tgts) => Dependency::Path(p.prefix_paths(prefix)?, pass_tgts),
             v => v,
         })
     }
@@ -125,18 +125,33 @@ impl Serialize for Dependency {
     {
         use serde::ser::SerializeMap;
         match *self {
-            Dependency::Version(ref version) => format!("{}", version).serialize(serializer),
-            Dependency::Path(ref path) => path.serialize(serializer),
-            Dependency::GitRevision(ref url, ref rev) => {
+            Dependency::Version(ref version, ref pass_targets) => {
                 let mut map = serializer.serialize_map(Some(2))?;
-                map.serialize_entry("git", url)?;
-                map.serialize_entry("rev", rev)?;
+                map.serialize_entry("version", &format!("{}", version))?;
+                map.serialize_entry("pass_targets", pass_targets)?;
                 map.end()
             }
-            Dependency::GitVersion(ref url, ref version) => {
+            // format!("{}, {:?}", version, pass_targets).serialize(serializer),
+            Dependency::Path(ref path, ref pass_targets) => {
                 let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("path", path)?;
+                map.serialize_entry("pass_targets", pass_targets)?;
+                map.end()
+            }
+
+            // path.serialize(serializer),
+            Dependency::GitRevision(ref url, ref rev, ref pass_targets) => {
+                let mut map = serializer.serialize_map(Some(3))?;
+                map.serialize_entry("git", url)?;
+                map.serialize_entry("rev", rev)?;
+                map.serialize_entry("pass_targets", pass_targets)?;
+                map.end()
+            }
+            Dependency::GitVersion(ref url, ref version, ref pass_targets) => {
+                let mut map = serializer.serialize_map(Some(3))?;
                 map.serialize_entry("git", url)?;
                 map.serialize_entry("version", &format!("{}", version))?;
+                map.serialize_entry("pass_targets", pass_targets)?;
                 map.end()
             }
         }
@@ -580,6 +595,8 @@ pub struct PartialDependency {
     /// The version requirement of the package. This will be parsed into a
     /// semantic versioning requirement.
     version: Option<String>,
+    /// Targets to pass to the dependency
+    pass_targets: Option<Vec<String>>,
     /// Unknown extra fields
     #[serde(flatten)]
     extra: HashMap<String, Value>,
@@ -593,6 +610,7 @@ impl FromStr for PartialDependency {
             git: None,
             rev: None,
             version: Some(s.into()),
+            pass_targets: None,
             extra: HashMap::new(),
         })
     }
@@ -616,6 +634,12 @@ impl Validate for PartialDependency {
         pre_output: bool,
         suppress_warnings: &IndexSet<String>,
     ) -> Result<Dependency> {
+        let pass_targets = self
+            .pass_targets
+            .unwrap_or_default()
+            .into_iter()
+            .map(|s| s.to_lowercase())
+            .collect();
         let version = match self.version {
             Some(v) => Some(semver::VersionReq::parse(&v).map_err(|cause| {
                 Error::chain(
@@ -656,20 +680,20 @@ impl Validate for PartialDependency {
                     list
                 )))
             } else {
-                Ok(Dependency::Path(env_path_from_string(path)?))
+                Ok(Dependency::Path(env_path_from_string(path)?, pass_targets))
             }
         } else if let Some(git) = self.git {
             if let Some(rev) = self.rev {
-                Ok(Dependency::GitRevision(git, rev))
+                Ok(Dependency::GitRevision(git, rev, pass_targets))
             } else if let Some(version) = version {
-                Ok(Dependency::GitVersion(git, version))
+                Ok(Dependency::GitVersion(git, version, pass_targets))
             } else {
                 Err(Error::new(
                     "A `git` dependency must have either a `rev` or `version` field.",
                 ))
             }
         } else if let Some(version) = version {
-            Ok(Dependency::Version(version))
+            Ok(Dependency::Version(version, pass_targets))
         } else {
             Err(Error::new(
                 "A dependency must specify `version`, `path`, or `git`.",

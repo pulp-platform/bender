@@ -45,7 +45,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
     // Check current config for matches
     if sess.config.overrides.contains_key(dep) {
         match &sess.config.overrides[dep] {
-            config::Dependency::Path(p) => {
+            config::Dependency::Path(p, _) => {
                 Err(Error::new(format!(
                     "Dependency `{}` already has a path override at\n\t{}\n\tPlease check Bender.local or .bender.yml",
                     dep,
@@ -355,7 +355,7 @@ pub fn get_path_subdeps(
     }
     .iter()
     .filter_map(|(k, v)| match v {
-        config::Dependency::Path(p) => {
+        config::Dependency::Path(p, _) => {
             if p.starts_with(&old_path) {
                 Some((
                     k.clone(),

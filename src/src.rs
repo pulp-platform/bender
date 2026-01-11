@@ -41,6 +41,8 @@ pub struct SourceGroup<'ctx> {
     pub dependencies: IndexSet<String>,
     /// Version information of the package
     pub version: Option<semver::Version>,
+    /// Targets passed to this dependency through calling packages
+    pub passed_targets: TargetSet,
 }
 
 impl<'ctx> Validate for SourceGroup<'ctx> {
@@ -109,8 +111,18 @@ impl<'ctx> SourceGroup<'ctx> {
     }
 
     /// Filter the sources, keeping only the ones that apply to a target.
-    pub fn filter_targets(&self, targets: &TargetSet) -> Option<SourceGroup<'ctx>> {
-        if !self.target.matches(targets) {
+    pub fn filter_targets(
+        &self,
+        targets: &TargetSet,
+        use_passed: bool,
+    ) -> Option<SourceGroup<'ctx>> {
+        let chained_targets = TargetSet::new(targets.iter().chain(self.passed_targets.iter()));
+        let all_targets = if use_passed {
+            &chained_targets
+        } else {
+            targets
+        };
+        if !self.target.matches(all_targets) {
             return None;
         }
         let files = self
@@ -118,7 +130,7 @@ impl<'ctx> SourceGroup<'ctx> {
             .iter()
             .filter_map(|file| match *file {
                 SourceFile::Group(ref group) => group
-                    .filter_targets(targets)
+                    .filter_targets(all_targets, use_passed)
                     .map(|g| SourceFile::Group(Box::new(g))),
                 ref other => Some(other.clone()),
             })
@@ -134,6 +146,7 @@ impl<'ctx> SourceGroup<'ctx> {
                 files,
                 dependencies: self.dependencies.clone(),
                 version: self.version.clone(),
+                passed_targets: self.passed_targets.clone(),
             }
             .simplify(),
         )
@@ -165,6 +178,7 @@ impl<'ctx> SourceGroup<'ctx> {
             files,
             dependencies: self.dependencies.clone(),
             version: self.version.clone(),
+            passed_targets: self.passed_targets.clone(),
         }
     }
 
@@ -250,6 +264,7 @@ impl<'ctx> SourceGroup<'ctx> {
                 files,
                 dependencies: self.dependencies.clone(),
                 version: self.version.clone(),
+                passed_targets: self.passed_targets.clone(),
             }
             .simplify(),
         )

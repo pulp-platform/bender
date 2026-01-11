@@ -13,7 +13,7 @@ use tokio::runtime::Runtime;
 use crate::error::*;
 use crate::sess::{DependencySource, Session, SessionIo};
 use crate::src::SourceGroup;
-use crate::target::TargetSpec;
+use crate::target::{TargetSet, TargetSpec};
 
 /// Assemble the `packages` subcommand.
 pub fn new() -> Command {
@@ -83,6 +83,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                             files: Default::default(),
                             dependencies: Default::default(),
                             version: None,
+                            passed_targets: TargetSet::empty(),
                         })
                         .get_avail_targets()
                 ));
@@ -102,6 +103,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     files: Default::default(),
                     dependencies: Default::default(),
                     version: None,
+                    passed_targets: TargetSet::empty(),
                 })
                 .get_avail_targets()
         ));

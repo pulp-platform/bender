@@ -285,6 +285,7 @@ fn parse_wrong<R>(wrong: Option<Result<TargetToken>>) -> Result<R> {
 ///
 /// Target specifications can be matched against a target set. A target set is
 /// basically just a collection of strings.
+#[derive(Clone, Debug, Serialize)]
 pub struct TargetSet(IndexSet<String>);
 
 impl TargetSet {
