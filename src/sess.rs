@@ -77,8 +77,6 @@ pub struct Session<'ctx> {
     pub git_throttle: Arc<Semaphore>,
     /// A toggle to disable remote fetches & clones
     pub local_only: bool,
-    /// A list of warnings to suppress.
-    pub suppress_warnings: IndexSet<String>,
 }
 
 impl<'ctx> Session<'ctx> {
@@ -92,7 +90,6 @@ impl<'ctx> Session<'ctx> {
         local_only: bool,
         force_fetch: bool,
         git_throttle: usize,
-        suppress_warnings: IndexSet<String>,
     ) -> Session<'ctx> {
         Session {
             root,
@@ -118,7 +115,6 @@ impl<'ctx> Session<'ctx> {
             cache: Default::default(),
             git_throttle: Arc::new(Semaphore::new(git_throttle)),
             local_only,
-            suppress_warnings,
         }
     }
 
@@ -1078,9 +1074,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     cause,
                                 )
                             })?;
-                            let mut full = partial
-                                .validate_ignore_sources("", true, &self.sess.suppress_warnings)
-                                .map_err(|cause| {
+                            let mut full =
+                                partial.validate_ignore_sources("", true).map_err(|cause| {
                                     Error::chain(
                                         format!(
                                             "Error in manifest of dependency `{}` at revision \
@@ -1146,7 +1141,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 }
                 let manifest_path = path.join("Bender.yml");
                 if manifest_path.exists() {
-                    match read_manifest(&manifest_path, &self.sess.suppress_warnings) {
+                    match read_manifest(&manifest_path) {
                         Ok(m) => {
                             if dep.name != m.package.name {
                                 Warnings::DepPkgNameNotMatching(
@@ -1182,7 +1177,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             Error::chain(format!("Syntax error in manifest {:?}.", path), cause)
                         })?;
 
-                    match partial.validate_ignore_sources("", true, &self.sess.suppress_warnings) {
+                    match partial.validate_ignore_sources("", true) {
                         Ok(m) => {
                             if dep.name != m.package.name {
                                 Warnings::DepPkgNameNotMatching(
@@ -1247,9 +1242,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     cause,
                                 )
                             })?;
-                        let mut full = partial
-                            .validate_ignore_sources("", true, &self.sess.suppress_warnings)
-                            .map_err(|cause| {
+                        let mut full =
+                            partial.validate_ignore_sources("", true).map_err(|cause| {
                                 Error::chain(
                                     format!(
                                         "Error in manifest of dependency `{}` at revision \
@@ -1334,7 +1328,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .and_then(move |path| {
                 let manifest_path = path.join("Bender.yml");
                 if manifest_path.exists() {
-                    match read_manifest(&manifest_path, &self.sess.suppress_warnings) {
+                    match read_manifest(&manifest_path) {
                         Ok(m) => Ok(Some(self.sess.intern_manifest(m))),
                         Err(e) => Err(e),
                     }

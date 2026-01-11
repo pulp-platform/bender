@@ -283,7 +283,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
     let srcs = srcs
         .flatten()
         .into_iter()
-        .map(|f| f.validate("", false, &sess.suppress_warnings))
+        .map(|f| f.validate("", false))
         .collect::<Result<Vec<_>>>()?;
 
     let mut tera_context = Context::new();

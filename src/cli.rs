@@ -172,7 +172,7 @@ pub fn main() -> Result<()> {
 
     // Parse the manifest file of the package.
     let manifest_path = root_dir.join("Bender.yml");
-    let manifest = read_manifest(&manifest_path, &suppressed_warnings)?;
+    let manifest = read_manifest(&manifest_path)?;
     debugln!("main: {:#?}", manifest);
 
     // Gather and parse the tool configuration.
@@ -196,7 +196,6 @@ pub fn main() -> Result<()> {
         cli.local,
         force_fetch,
         git_throttle,
-        suppressed_warnings,
     );
 
     if let Commands::Clean(args) = cli.command {
@@ -399,7 +398,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
 }
 
 /// Read a package manifest from a file.
-pub fn read_manifest(path: &Path, suppress_warnings: &IndexSet<String>) -> Result<Manifest> {
+pub fn read_manifest(path: &Path) -> Result<Manifest> {
     use crate::config::PartialManifest;
     use std::fs::File;
     debugln!("read_manifest: {:?}", path);
@@ -410,16 +409,12 @@ pub fn read_manifest(path: &Path, suppress_warnings: &IndexSet<String>) -> Resul
     partial
         .prefix_paths(path.parent().unwrap())
         .map_err(|cause| Error::chain(format!("Error in manifest prefixing {:?}.", path), cause))?
-        .validate("", false, suppress_warnings)
+        .validate("", false)
         .map_err(|cause| Error::chain(format!("Error in manifest {:?}.", path), cause))
 }
 
 /// Load a configuration by traversing a directory hierarchy upwards.
-fn load_config(
-    from: &Path,
-    warn_config_loaded: bool,
-    suppress_warnings: &IndexSet<String>,
-) -> Result<Config> {
+fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
     #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
 
@@ -492,7 +487,7 @@ fn load_config(
 
     // Validate the configuration.
     let mut out = out
-        .validate("", false, suppress_warnings)
+        .validate("", false)
         .map_err(|cause| Error::chain("Invalid configuration:", cause))?;
 
     out.overrides = out

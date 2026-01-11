@@ -99,7 +99,7 @@ pub fn run(sess: &Session, args: &SourcesArgs) -> Result<()> {
         srcs = srcs.filter_packages(packages).unwrap_or_default();
     }
 
-    srcs = srcs.validate("", false, &sess.suppress_warnings)?;
+    srcs = srcs.validate("", false)?;
 
     let result = {
         let stdout = std::io::stdout();
