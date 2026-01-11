@@ -307,6 +307,15 @@ macro_rules! field {
     };
 }
 
+// Note(fischeti): The enum variants should preferably use struct style
+// variants for better readability, but this is not possible due to a current
+// issue in `miette` that causes `unused` warnings when the help message does not
+// use all fields of a struct variant. This is new since Rust 1.92.0, and a fix
+// is pending in `miette`. See also:
+// Issue: https://github.com/zkat/miette/issues/458
+// PR: https://github.com/zkat/miette/pull/459
+// The workaround for the moment is to use tuple style variants
+// for variants where the help message does not use all fields.
 #[derive(Error, Diagnostic, Hash, Eq, PartialEq, Debug, Clone)]
 #[diagnostic(severity(Warning))]
 pub enum Warnings {
