@@ -286,6 +286,7 @@ impl ReportHandler for DiagnosticRenderer {
 }
 
 /// Bold a package name in diagnostic messages.
+#[macro_export]
 macro_rules! pkg {
     ($pkg:expr) => {
         $pkg.bold()
@@ -293,6 +294,7 @@ macro_rules! pkg {
 }
 
 /// Underline a path in diagnostic messages.
+#[macro_export]
 macro_rules! path {
     ($pkg:expr) => {
         $pkg.underline()
@@ -300,6 +302,7 @@ macro_rules! path {
 }
 
 /// Italicize a field name in diagnostic messages.
+#[macro_export]
 macro_rules! field {
     ($field:expr) => {
         $field.italic()
