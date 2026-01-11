@@ -159,6 +159,8 @@ use miette::{Diagnostic, ReportHandler};
 use owo_colors::OwoColorize;
 use thiserror::Error;
 
+use crate::config::ConfigError;
+
 pub type Result<T> = std::result::Result<T, BenderErrors>;
 
 #[derive(Error, Diagnostic, Debug)]
@@ -190,4 +192,7 @@ pub enum BenderErrors {
     #[error("Cannot extract {bound} bound from version requirement: {req}")]
     #[diagnostic(code(E33))]
     VersionBound { bound: String, req: String },
+
+    #[error(transparent)]
+    ConfigError(#[from] ConfigError),
 }
