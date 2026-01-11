@@ -347,18 +347,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     for pkg in generate_files.keys() {
         let src_packages = &srcs
             .filter_packages(&vec![pkg.to_string()].into_iter().collect())
-            .unwrap_or(SourceGroup {
-                package: Default::default(),
-                independent: true,
-                target: TargetSpec::Wildcard,
-                include_dirs: Default::default(),
-                export_incdirs: Default::default(),
-                defines: Default::default(),
-                files: Default::default(),
-                dependencies: Default::default(),
-                version: None,
-                passed_targets: TargetSet::empty(),
-            })
+            .unwrap_or_default()
             .flatten();
 
         let fuse_str = get_fuse_file_str(
@@ -549,18 +538,7 @@ fn get_fuse_depend_string(
 ) -> String {
     let src_packages = srcs
         .filter_packages(&vec![pkg.to_string()].into_iter().collect())
-        .unwrap_or(SourceGroup {
-            package: Default::default(),
-            independent: true,
-            target: TargetSpec::Wildcard,
-            include_dirs: Default::default(),
-            export_incdirs: Default::default(),
-            defines: Default::default(),
-            files: Default::default(),
-            dependencies: Default::default(),
-            version: None,
-            passed_targets: TargetSet::empty(),
-        })
+        .unwrap_or_default()
         .flatten();
 
     let src_packages = if pkg == top {

@@ -1062,7 +1062,7 @@ impl Validate for PartialSources {
                     });
                 }
                 Ok(SourceFile::Group(Box::new(Sources {
-                    target: target.unwrap_or(TargetSpec::Wildcard),
+                    target: target.unwrap_or_default(),
                     include_dirs: include_dirs?,
                     defines,
                     files,

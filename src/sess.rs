@@ -34,7 +34,7 @@ use crate::config::{self, Config, Manifest, PartialManifest};
 use crate::error::*;
 use crate::git::Git;
 use crate::src::SourceGroup;
-use crate::target::{TargetSet, TargetSpec};
+use crate::target::TargetSet;
 use crate::util::try_modification_time;
 
 /// A session on the command line.
@@ -1574,16 +1574,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
                 // Create a source group for this rank.
                 SourceGroup {
-                    package: None,
                     independent: true,
-                    target: TargetSpec::Wildcard,
-                    include_dirs: IndexSet::new(),
-                    export_incdirs: IndexMap::new(),
-                    defines: IndexMap::new(),
                     files,
-                    dependencies: IndexSet::new(),
-                    version: None,
-                    passed_targets: TargetSet::empty(),
+                    ..Default::default()
                 }
                 .into()
             })
@@ -1591,16 +1584,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         // Create a source group covering all ranks, i.e. the root source group.
         let sources = SourceGroup {
-            package: None,
-            independent: false,
-            target: TargetSpec::Wildcard,
-            include_dirs: IndexSet::new(),
-            export_incdirs: IndexMap::new(),
-            defines: IndexMap::new(),
             files,
-            dependencies: IndexSet::new(),
-            version: None,
-            passed_targets: TargetSet::empty(),
+            ..Default::default()
         }
         .simplify();
 

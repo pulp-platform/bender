@@ -14,8 +14,7 @@ use tokio::runtime::Runtime;
 use crate::config::Validate;
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
-use crate::src::SourceGroup;
-use crate::target::{TargetSet, TargetSpec};
+use crate::target::TargetSet;
 
 /// Assemble the `sources` subcommand.
 pub fn new() -> Command {
@@ -115,7 +114,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
     let targets = matches
         .get_many::<String>("target")
         .map(TargetSet::new)
-        .unwrap_or_else(TargetSet::empty);
+        .unwrap_or_default();
 
     if matches.get_flag("assume_rtl") {
         srcs = srcs.assign_target("rtl".to_string());
@@ -123,18 +122,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
 
     srcs = srcs
         .filter_targets(&targets, !matches.get_flag("ignore-passed-targets"))
-        .unwrap_or_else(|| SourceGroup {
-            package: Default::default(),
-            independent: true,
-            target: TargetSpec::Wildcard,
-            include_dirs: Default::default(),
-            export_incdirs: Default::default(),
-            defines: Default::default(),
-            files: Default::default(),
-            dependencies: Default::default(),
-            version: None,
-            passed_targets: TargetSet::empty(),
-        });
+        .unwrap_or_default();
 
     // Filter the sources by specified packages.
     let packages = &srcs.get_package_list(
@@ -154,20 +142,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         || matches.contains_id("exclude")
         || matches.get_flag("no_deps")
     {
-        srcs = srcs
-            .filter_packages(packages)
-            .unwrap_or_else(|| SourceGroup {
-                package: Default::default(),
-                independent: true,
-                target: TargetSpec::Wildcard,
-                include_dirs: Default::default(),
-                export_incdirs: Default::default(),
-                defines: Default::default(),
-                files: Default::default(),
-                dependencies: Default::default(),
-                version: None,
-                passed_targets: TargetSet::empty(),
-            });
+        srcs = srcs.filter_packages(packages).unwrap_or_default();
     }
 
     srcs = srcs.validate("", false, &sess.suppress_warnings)?;

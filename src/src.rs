@@ -21,7 +21,7 @@ use crate::target::{TargetSet, TargetSpec};
 use semver;
 
 /// A source file group.
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, Default)]
 pub struct SourceGroup<'ctx> {
     /// The package which this source group represents.
     pub package: Option<&'ctx str>,
