@@ -308,6 +308,7 @@ macro_rules! field {
 }
 
 #[derive(Error, Diagnostic, Hash, Eq, PartialEq, Debug, Clone)]
+#[diagnostic(severity(Warning))]
 pub enum Warnings {
     #[error(
         "Skipping link to package {} at {} since there is something there",
@@ -315,19 +316,17 @@ pub enum Warnings {
         path!(.1.display())
     )]
     #[diagnostic(
-        severity(Warning),
         code(W01),
         help("Check the existing file or directory that is preventing the link.")
     )]
     SkippingPackageLink(String, PathBuf),
 
     #[error("Using config at {} for overrides.", path!(path.display()))]
-    #[diagnostic(severity(Warning), code(W02))]
+    #[diagnostic(code(W02))]
     UsingConfigForOverride { path: PathBuf },
 
     #[error("Ignoring unknown field {} in package {}.", field!(field), pkg!(pkg))]
     #[diagnostic(
-        severity(Warning),
         code(W03),
         help("Check for typos in {} or remove it from the {} manifest.", field!(field), pkg!(pkg))
     )]
@@ -335,19 +334,17 @@ pub enum Warnings {
 
     #[error("Source group in package {} contains no source files.", pkg!(.0))]
     #[diagnostic(
-        severity(Warning),
         code(W04),
         help("Add source files to the source group or remove it from the manifest.")
     )]
     NoFilesInSourceGroup(String),
 
     #[error("No files matched the global pattern {}.", path!(path))]
-    #[diagnostic(severity(Warning), code(W05))]
+    #[diagnostic(code(W05))]
     NoFilesForGlobalPattern { path: String },
 
     #[error("Dependency {} in checkout_dir {} is not a git repository. Setting as path dependency.", pkg!(.0), path!(.1.display()))]
     #[diagnostic(
-        severity(Warning),
         code(W06),
         help("Use `bender clone` to work on git dependencies.\nRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.")
     )]
@@ -357,7 +354,6 @@ pub enum Warnings {
     // TODO(fischeti): This is part of an error, not a warning. Move to Error enum later?
     #[error("SSH key might be missing.")]
     #[diagnostic(
-        severity(Warning),
         code(W07),
         help("Please ensure your public ssh key is added to the git server.")
     )]
@@ -367,7 +363,6 @@ pub enum Warnings {
     // TODO(fischeti): This is part of an error, not a warning. Move to Error enum later?
     #[error("SSH key might be missing.")]
     #[diagnostic(
-        severity(Warning),
         code(W07),
         help("Please ensure the url is correct and you have access to the repository.")
     )]
@@ -376,19 +371,17 @@ pub enum Warnings {
     // TODO(fischeti): This is part of an error, not a warning. Move to Error enum later?
     #[error("Revision {} not found in repository {}.", pkg!(.0), pkg!(.1))]
     #[diagnostic(
-        severity(Warning),
         code(W08),
         help("Check that the revision exists in the remote repository or run `bender update`.")
     )]
     RevisionNotFound(String, String),
 
     #[error("Path dependency {} inside git dependency {} detected. This is currently not fully suppored and your milage may vary.", pkg!(pkg), pkg!(top_pkg))]
-    #[diagnostic(severity(Warning), code(W09))]
+    #[diagnostic(code(W09))]
     PathDepInGitDep { pkg: String, top_pkg: String },
 
     #[error("There may be issues in the path for {}.", pkg!(.0))]
     #[diagnostic(
-        severity(Warning),
         code(W10),
         help("Please check that {} is correct and accessible.", path!(.1.display()))
     )]
@@ -396,30 +389,28 @@ pub enum Warnings {
 
     #[error("Dependency package name {} does not match the package name {} in its manifest.", pkg!(.0), pkg!(.1))]
     #[diagnostic(
-        severity(Warning),
         code(W11),
         help("Check that the dependency name in your root manifest matches the name in the {} manifest.", pkg!(.0))
     )]
     DepPkgNameNotMatching(String, String),
 
     #[error("Manifest for package {} not found at {}.", pkg!(pkg), path!(src))]
-    #[diagnostic(severity(Warning), code(W12))]
+    #[diagnostic(code(W12))]
     ManifestNotFound { pkg: String, src: String },
 
     #[error("Name issue with package {}. `export_include_dirs` cannot be handled.", pkg!(.0))]
     #[diagnostic(
-        severity(Warning),
         code(W13),
         help("Could be related to name missmatch, check `bender update`.")
     )]
     ExportDirNameIssue(String),
 
     #[error("If `--local` is used, no fetching will be performed.")]
-    #[diagnostic(severity(Warning), code(W14))]
+    #[diagnostic(code(W14))]
     LocalNoFetch,
 
     #[error("No patch directory found for package {} when trying to apply patches from {} to {}. Skipping patch generation.", pkg!(vendor_pkg), path!(from_prefix.display()), path!(to_prefix.display()))]
-    #[diagnostic(severity(Warning), code(W15))]
+    #[diagnostic(code(W15))]
     NoPatchDir {
         vendor_pkg: String,
         from_prefix: PathBuf,
