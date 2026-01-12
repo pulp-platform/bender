@@ -12,8 +12,6 @@ use tokio::runtime::Runtime;
 
 use crate::error::*;
 use crate::sess::{DependencySource, Session, SessionIo};
-use crate::src::SourceGroup;
-use crate::target::{TargetSet, TargetSpec};
 
 /// Assemble the `packages` subcommand.
 pub fn new() -> Command {
@@ -73,18 +71,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     "{}:\t{:?}\n",
                     pkg_name,
                     srcs.filter_packages(&IndexSet::from([pkg_name.into()]))
-                        .unwrap_or_else(|| SourceGroup {
-                            package: Default::default(),
-                            independent: true,
-                            target: TargetSpec::Wildcard,
-                            include_dirs: Default::default(),
-                            export_incdirs: Default::default(),
-                            defines: Default::default(),
-                            files: Default::default(),
-                            dependencies: Default::default(),
-                            version: None,
-                            passed_targets: TargetSet::empty(),
-                        })
+                        .unwrap_or_default()
                         .get_avail_targets()
                 ));
             }
@@ -93,18 +80,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             "{}:\t{:?}\n",
             &sess.manifest.package.name,
             srcs.filter_packages(&IndexSet::from([sess.manifest.package.name.clone()]))
-                .unwrap_or_else(|| SourceGroup {
-                    package: Default::default(),
-                    independent: true,
-                    target: TargetSpec::Wildcard,
-                    include_dirs: Default::default(),
-                    export_incdirs: Default::default(),
-                    defines: Default::default(),
-                    files: Default::default(),
-                    dependencies: Default::default(),
-                    version: None,
-                    passed_targets: TargetSet::empty(),
-                })
+                .unwrap_or_default()
                 .get_avail_targets()
         ));
         let mut tw = TabWriter::new(vec![]);
