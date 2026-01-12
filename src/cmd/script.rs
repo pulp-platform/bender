@@ -92,7 +92,7 @@ pub enum CompilationMode {
 }
 
 /// Common arguments for Vivado scripts
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 pub struct OnlyArgs {
     /// Only output commands to define macros
     #[arg(long="only-defines", action = ArgAction::SetTrue)]
@@ -295,30 +295,33 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         .map(|f| f.validate("", false, &sess.suppress_warnings))
         .collect::<Result<Vec<_>>>()?;
 
-    let mut opts: RenderOptions = RenderOptions::default();
+    let mut tera_context = Context::new();
+    let mut only_args = OnlyArgs {
+        defines: false,
+        includes: false,
+        sources: false,
+    };
 
     // Generate the corresponding output.
     let template_content = match &args.format {
         ScriptFormat::Flist { relative_path } => {
-            opts.relative_path = *relative_path;
+            tera_context.insert("relativize_path", relative_path);
             include_str!("../script_fmt/flist.tera")
         }
         ScriptFormat::FlistPlus {
             relative_path,
             only,
         } => {
-            opts.relative_path = *relative_path;
-            opts.only_defines = only.defines;
-            opts.only_includes = only.includes;
-            opts.only_sources = only.sources;
+            tera_context.insert("relativize_path", relative_path);
+            only_args = only.clone();
             include_str!("../script_fmt/flist-plus.tera")
         }
         ScriptFormat::Vsim {
             vlog_args,
             vcom_args,
         } => {
-            opts.vlog_args = vlog_args.clone();
-            opts.vcom_args = vcom_args.clone();
+            tera_context.insert("vlog_args", vlog_args);
+            tera_context.insert("vcom_args", vcom_args);
             include_str!("../script_fmt/vsim_tcl.tera")
         }
         ScriptFormat::Vcs {
@@ -327,19 +330,22 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             vlogan_args,
             vhdlan_args,
         } => {
-            opts.vcom_args = vhdlan_args.clone();
-            opts.vlog_args = vlogan_args.clone();
-            opts.vlogan_bin = Some(vlogan_bin.clone());
-            opts.vhdlan_bin = Some(vhdlan_bin.clone());
+            tera_context.insert("vlogan_args", vlogan_args);
+            tera_context.insert("vhdlan_args", vhdlan_args);
+            tera_context.insert("vlogan_bin", vlogan_bin);
+            tera_context.insert("vhdlan_bin", vhdlan_bin);
             include_str!("../script_fmt/vcs_sh.tera")
         }
-        ScriptFormat::Verilator => include_str!("../script_fmt/verilator_sh.tera"),
+        ScriptFormat::Verilator { vlt_args } => {
+            tera_context.insert("vlt_args", vlt_args);
+            include_str!("../script_fmt/verilator_sh.tera")
+        }
         ScriptFormat::Synopsys {
             verilog_args,
             vhdl_args,
         } => {
-            opts.vcom_args = vhdl_args.clone();
-            opts.vlog_args = verilog_args.clone();
+            tera_context.insert("verilog_args", verilog_args);
+            tera_context.insert("vhdl_args", vhdl_args);
             include_str!("../script_fmt/synopsys_tcl.tera")
         }
         ScriptFormat::Formality {} => include_str!("../script_fmt/formality_tcl.tera"),
@@ -347,20 +353,20 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             vlog_args,
             vcom_args,
         } => {
-            opts.vcom_args = vcom_args.clone();
-            opts.vlog_args = vlog_args.clone();
+            tera_context.insert("vlog_args", vlog_args);
+            tera_context.insert("vcom_args", vcom_args);
             include_str!("../script_fmt/riviera_tcl.tera")
         }
         ScriptFormat::Genus {} => include_str!("../script_fmt/genus_tcl.tera"),
         ScriptFormat::Vivado { no_simset, only } | ScriptFormat::VivadoSim { no_simset, only } => {
-            opts.only_defines = only.defines;
-            opts.only_includes = only.includes;
-            opts.only_sources = only.sources;
-            if *no_simset {
-                opts.vivado_filesets = vec![""];
-            } else {
-                opts.vivado_filesets = vec!["", " -simset"];
-            };
+            only_args = only.clone();
+            tera_context.insert("vivado_filesets", &{
+                if *no_simset {
+                    vec![""]
+                } else {
+                    vec!["", " -simset"]
+                }
+            });
             include_str!("../script_fmt/vivado_tcl.tera")
         }
         ScriptFormat::Precision {} => include_str!("../script_fmt/precision_tcl.tera"),
@@ -368,7 +374,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         ScriptFormat::TemplateJson => &JSON.to_string(),
     };
 
-    emit_template(sess, &template_content, args, opts, targets, srcs)
+    emit_template(sess, tera_context, &template_content, args, only_args, srcs)
 }
 
 /// Subdivide the source files in a group.
@@ -423,41 +429,22 @@ fn add_defines(defines: &mut IndexMap<String, Option<String>>, define_args: &[St
     }));
 }
 
-/// Configuration for the template rendering
-#[derive(Default)]
-struct RenderOptions {
-    // Source filtering options
-    only_defines: bool,
-    only_includes: bool,
-    only_sources: bool,
-
-    // Template variables
-    relative_path: bool,
-    vlog_args: Vec<String>,
-    vcom_args: Vec<String>,
-    vlogan_bin: Option<String>,
-    vhdlan_bin: Option<String>,
-
-    // Pre-calculated fileset list for Vivado
-    vivado_filesets: Vec<&'static str>,
-}
-
 static JSON: &str = "json";
 
 fn emit_template(
     sess: &Session,
+    mut tera_context: Context,
     template: &str,
     args: &ScriptArgs,
+    only: OnlyArgs,
     srcs: Vec<SourceGroup>,
 ) -> Result<()> {
-    let mut tera_obj = Tera::default();
-    let mut tera_context = Context::new();
     tera_context.insert("HEADER_AUTOGEN", HEADER_AUTOGEN);
     tera_context.insert("root", sess.root);
     // tera_context.insert("srcs", &srcs);
     tera_context.insert("abort_on_error", &!args.no_abort_on_error);
 
-    let mut global_defines = target_defines.clone();
+    let mut global_defines = IndexMap::new();
     add_defines(&mut global_defines, &args.define);
     tera_context.insert("global_defines", &global_defines);
 
@@ -480,7 +467,7 @@ fn emit_template(
     }
 
     add_defines(&mut all_defines, &args.define);
-    let all_defines = if (!opts.only_includes && !opts.only_sources) || opts.only_defines {
+    let all_defines = if (!only.includes && !only.sources) || only.defines {
         all_defines.into_iter().collect()
     } else {
         IndexSet::new()
@@ -489,15 +476,14 @@ fn emit_template(
     tera_context.insert("all_defines", &all_defines);
 
     all_incdirs.sort();
-    let all_incdirs: IndexSet<PathBuf> =
-        if (!opts.only_defines && !opts.only_sources) || opts.only_includes {
-            all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
-        } else {
-            IndexSet::new()
-        };
+    let all_incdirs: IndexSet<PathBuf> = if (!only.defines && !only.sources) || only.includes {
+        all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
+    } else {
+        IndexSet::new()
+    };
     tera_context.insert("all_incdirs", &all_incdirs);
 
-    let all_files = if (!opts.only_defines && !opts.only_includes) || opts.only_sources {
+    let all_files = if (!only.defines && !only.includes) || only.sources {
         all_files
     } else {
         IndexSet::new()
@@ -575,19 +561,19 @@ fn emit_template(
             _ => {}
         }
     }
-    let split_srcs = if !opts.only_defines && !opts.only_includes {
+    let split_srcs = if !only.defines && !only.includes {
         split_srcs
     } else {
         vec![]
     };
     tera_context.insert("srcs", &split_srcs);
 
-    let all_verilog: IndexSet<PathBuf> = if !opts.only_defines && !opts.only_includes {
+    let all_verilog: IndexSet<PathBuf> = if !only.defines && !only.includes {
         all_verilog.into_iter().collect()
     } else {
         IndexSet::new()
     };
-    let all_vhdl: IndexSet<PathBuf> = if !opts.only_defines && !opts.only_includes {
+    let all_vhdl: IndexSet<PathBuf> = if !only.defines && !only.includes {
         all_vhdl.into_iter().collect()
     } else {
         IndexSet::new()
@@ -595,16 +581,8 @@ fn emit_template(
     tera_context.insert("all_verilog", &all_verilog);
     tera_context.insert("all_vhdl", &all_vhdl);
 
-    tera_context.insert("vlog_args", &opts.vlog_args);
-    tera_context.insert("vcom_args", &opts.vcom_args);
-    tera_context.insert("relativize_path", &opts.relative_path);
-
-    tera_context.insert("vlogan_bin", &opts.vlogan_bin);
-    tera_context.insert("vhdlan_bin", &opts.vhdlan_bin);
     tera_context.insert("source_annotations", &!args.no_source_annotations);
     tera_context.insert("compilation_mode", &args.compilation_mode);
-
-    tera_context.insert("vivado_filesets", &opts.vivado_filesets);
 
     if template == "json" {
         let _ = writeln!(std::io::stdout(), "{:#}", tera_context.into_json());
@@ -614,7 +592,7 @@ fn emit_template(
     let _ = write!(
         std::io::stdout(),
         "{}",
-        tera_obj
+        Tera::default()
             .render_str(template, &tera_context)
             .map_err(|e| { Error::chain("Failed to render template.", e) })?
     );
