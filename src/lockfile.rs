@@ -12,9 +12,9 @@ pub fn read_lockfile(path: &Path, root_dir: &Path) -> Result<Locked> {
     debugln!("read_lockfile: {:?}", path);
     use std::fs::File;
     let file = File::open(path)
-        .map_err(|cause| Error::chain(format!("Cannot open lockfile {:?}.", path), cause))?;
+        .map_err(|cause| BenderErrors::CannotOpenLockFile(path.display().to_string(), cause))?;
     let locked_loaded: Result<Locked> = serde_yaml_ng::from_reader(file)
-        .map_err(|cause| Error::chain(format!("Syntax error in lockfile {:?}.", path), cause));
+        .map_err(|cause| BenderErrors::SyntaxErrorInLockFile(path.display().to_string(), cause));
     // Make relative paths absolute
     Ok(Locked {
         packages: locked_loaded?
