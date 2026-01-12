@@ -159,9 +159,6 @@ use miette::{Diagnostic, ReportHandler};
 use owo_colors::OwoColorize;
 use thiserror::Error;
 
-use crate::config::ConfigError;
-use crate::target::TargetError;
-
 pub type Result<T> = std::result::Result<T, BenderErrors>;
 
 #[derive(Error, Diagnostic, Debug)]
@@ -195,10 +192,9 @@ pub enum BenderErrors {
     VersionBound { bound: String, req: String },
 
     #[error(transparent)]
-    ConfigError(#[from] ConfigError),
+    TargetError(#[from] crate::target::TargetError),
 
     #[error(transparent)]
-    TargetError(#[from] TargetError),
     GitError(#[from] crate::git::GitErrors),
 
     #[error("Cannot open lock file {0}")]
@@ -207,4 +203,7 @@ pub enum BenderErrors {
     #[error("Syntax error in lock file {0}")]
     SyntaxErrorInLockFile(String, #[source] serde_yaml_ng::Error),
 
+    #[error("Cannot extract {bound} bound from version requirement: {req}")]
+    #[diagnostic(code(E33))]
+    VersionBound { bound: String, req: String },
 }
