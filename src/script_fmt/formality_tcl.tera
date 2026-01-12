@@ -1,7 +1,8 @@
 # {{HEADER_AUTOGEN}}
 set ROOT "{{ root }}"
 set search_path_initial $search_path
-{% if compilation_mode == 'separate' %}{% for group in srcs %}
+{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if source_annotations %}
+# {{ group.metadata }}{% endif %}
 set search_path $search_path_initial
 {% for incdir in group.incdirs %}lappend search_path "$ROOT{{ incdir | replace(from=root, to='') }}"
 {% endfor %}

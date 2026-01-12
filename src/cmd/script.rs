@@ -157,6 +157,13 @@ pub fn new() -> Command {
                 ])
         )
         .arg(
+            Arg::new("no-source-annotations")
+                .long("no-source-annotations")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
+                .help("remove source annotations from the generated script")
+        )
+        .arg(
             Arg::new("package")
                 .short('p')
                 .long("package")
@@ -511,7 +518,7 @@ fn emit_template(
 
     let mut all_defines = IndexMap::new();
     let mut all_incdirs = vec![];
-    let mut all_files = vec![];
+    let mut all_files = IndexSet::new();
     let mut all_verilog = vec![];
     let mut all_vhdl = vec![];
     for src in &srcs {
@@ -521,7 +528,10 @@ fn emit_template(
                 .map(|(k, &v)| (k.to_string(), v.map(String::from))),
         );
         all_incdirs.append(&mut src.clone().get_incdirs());
-        all_files.append(&mut src.files.clone());
+        all_files.extend(src.files.iter().filter_map(|file| match file {
+            SourceFile::File(p, _) => Some(p.to_string_lossy().to_string()),
+            SourceFile::Group(_) => None,
+        }));
     }
     all_defines.extend(target_defines.clone());
     all_defines.extend(srcs.iter().flat_map(|src| {
@@ -549,20 +559,15 @@ fn emit_template(
         IndexSet::new()
     };
     tera_context.insert("all_incdirs", &all_incdirs);
-    let all_files: IndexSet<PathBuf> = if (!matches.get_flag("only-defines")
-        && !matches.get_flag("only-includes"))
+
+    let all_files = if (!matches.get_flag("only-defines") && !matches.get_flag("only-includes"))
         || matches.get_flag("only-sources")
     {
         all_files
-            .into_iter()
-            .filter_map(|file| match file {
-                SourceFile::File(p, _) => Some(p.to_path_buf()),
-                _ => None,
-            })
-            .collect()
     } else {
         IndexSet::new()
     };
+
     tera_context.insert("all_files", &all_files);
 
     let mut split_srcs = vec![];
@@ -576,13 +581,18 @@ fn emit_template(
                     _ => match p.extension().and_then(std::ffi::OsStr::to_str) {
                         Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
                         Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
-                        _ => None,
+                        _ => Some(SourceType::Unknown),
                     },
                 },
                 _ => None,
             },
             |src, ty, files| {
                 split_srcs.push(TplSrcStruct {
+                    metadata: {
+                        let package = src.package.unwrap_or("None");
+                        let target = src.target.reduce().to_string();
+                        format!("Package({package}) Target({target})")
+                    },
                     defines: {
                         let mut local_defines = IndexMap::new();
                         local_defines.extend(
@@ -619,6 +629,7 @@ fn emit_template(
                     file_type: match ty {
                         SourceType::Verilog => "verilog".to_string(),
                         SourceType::Vhdl => "vhdl".to_string(),
+                        SourceType::Unknown => "".to_string(),
                     },
                 });
             },
@@ -674,6 +685,10 @@ fn emit_template(
     tera_context.insert("vhdlan_bin", &matches.get_one::<String>("vhdlan-bin"));
     tera_context.insert("relativize_path", &matches.get_flag("relative-path"));
     tera_context.insert(
+        "source_annotations",
+        &!matches.get_flag("no-source-annotations"),
+    );
+    tera_context.insert(
         "compilation_mode",
         &matches.get_one::<String>("compilation_mode"),
     );
@@ -704,6 +719,7 @@ fn emit_template(
 
 #[derive(Debug, Serialize)]
 struct TplSrcStruct {
+    metadata: String,
     defines: IndexSet<(String, Option<String>)>,
     incdirs: IndexSet<PathBuf>,
     files: IndexSet<PathBuf>,

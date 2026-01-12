@@ -10,7 +10,8 @@ setup_design -defines { \
     {% endif %}+define+{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %}
 
 {% else %} \
-    {% endif %}{% endfor %}{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if abort_on_error %}if {[catch { {% endif %}add_input_file \
+    {% endif %}{% endfor %}{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if source_annotations %}# {{ group.metadata }}
+{% endif %}{% if abort_on_error %}if {[catch { {% endif %}add_input_file \
     {% if group.file_type == 'verilog' %}-format SystemVerilog2012 \
     {% for incdir in group.incdirs %}{% if loop.first %}-search_path { \
         {% endif %}{{ incdir }}{% if loop.last %} \
