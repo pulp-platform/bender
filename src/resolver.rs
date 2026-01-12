@@ -107,8 +107,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                             Warnings::NotAGitDependency(depname.clone(), checkout.clone()).emit();
                             self.checked_out.insert(
                                 depname,
-                                config::Dependency::Path(dir.unwrap().path()),
-                                vec![],
+                                config::Dependency::Path(dir.unwrap().path(), vec![]),
                             );
                         } else if !(SysCommand::new(&self.sess.config.git) // If not in a clean state
                             .arg("status")
@@ -121,8 +120,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                             Warnings::NotAGitDependency(depname.clone(), checkout.clone()).emit();
                             self.checked_out.insert(
                                 depname,
-                                config::Dependency::Path(dir.unwrap().path()),
-                                vec![],
+                                config::Dependency::Path(dir.unwrap().path(), vec![]),
                             );
                         }
                     }

@@ -101,12 +101,12 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
         Warnings::DepOverride {
             pkg: dep.to_string(),
             pkg_override: match sess.config.overrides[dep] {
-                Dependency::Version(ref v) => format!("version {}", pkg!(v)),
-                Dependency::Path(ref path) => format!("path {}", path!(path.display())),
-                Dependency::GitRevision(ref url, ref rev) => {
+                Dependency::Version(ref v, _) => format!("version {}", pkg!(v)),
+                Dependency::Path(ref path, _) => format!("path {}", path!(path.display())),
+                Dependency::GitRevision(ref url, ref rev, _) => {
                     format!("git {} at revision {}", path!(url), pkg!(rev))
                 }
-                Dependency::GitVersion(ref url, ref version) => {
+                Dependency::GitVersion(ref url, ref version, _) => {
                     format!("git {} with version {}", path!(url), pkg!(version))
                 }
             },
@@ -160,9 +160,10 @@ pub fn get_parent_array(
                 let dep_manifest = rt.block_on(io.dependency_manifest(pkg, false, &[]))?;
                 // Filter out dependencies without a manifest
                 if dep_manifest.is_none() {
-                    if !sess.suppress_warnings.contains("W17") {
-                        warnln!("[W17] {} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
+                    Warnings::IncludeDepManifestMismatch {
+                        pkg: pkg_name.to_string(),
                     }
+                    .emit();
                     continue;
                 }
                 let dep_manifest = dep_manifest.unwrap();
@@ -192,9 +193,11 @@ pub fn get_parent_array(
                             ],
                         );
                     }
-                } else if !sess.suppress_warnings.contains("W17") {
-                    // Filter out dependencies with mismatching manifest
-                    warnln!("[W17] {} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
+                } else {
+                    Warnings::IncludeDepManifestMismatch {
+                        pkg: pkg_name.to_string(),
+                    }
+                    .emit();
                 }
             }
         }
