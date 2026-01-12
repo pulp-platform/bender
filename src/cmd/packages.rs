@@ -18,7 +18,7 @@ use crate::sess::{DependencySource, Session, SessionIo};
 #[command(alias = "package")]
 pub struct PackagesArgs {
     /// Print the dependencies for each package
-    #[arg(short, long, action = ArgAction::SetTrue)]
+    #[arg(short, long, action = ArgAction::SetTrue, conflicts_with_all = ["version", "targets"])]
     pub graph: bool,
 
     /// Do not group packages by topological rank
@@ -36,13 +36,7 @@ pub struct PackagesArgs {
 
 /// Execute the `packages` subcommand.
 pub fn run(sess: &Session, args: &PackagesArgs) -> Result<()> {
-    if args.graph && args.version {
-        return Err(Error::new("cannot specify both --graph and --version"));
-    }
     if args.targets {
-        if args.graph {
-            return Err(Error::new("cannot specify both --graph and --targets"));
-        }
         let rt = Runtime::new()?;
         let io = SessionIo::new(sess);
         let srcs = rt.block_on(io.sources(false, &[]))?;
