@@ -33,10 +33,6 @@ pub struct ScriptArgs {
     #[arg(short = 'D', long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
     pub define: Vec<String>,
 
-    /// Specify a `vhdlan` command
-    #[arg(long, default_value = "vhdlan")]
-    pub vhdlan_bin: String,
-
     /// Remove source annotations from the generated script
     #[arg(long, action = ArgAction::SetTrue)]
     pub no_source_annotations: bool,
