@@ -95,15 +95,15 @@ pub enum CompilationMode {
 #[derive(Args, Debug, Clone)]
 pub struct OnlyArgs {
     /// Only output commands to define macros
-    #[arg(long="only-defines", action = ArgAction::SetTrue)]
+    #[arg(long="only-defines", action = ArgAction::SetTrue, group = "only")]
     pub defines: bool,
 
     /// Only output commands to define include directories
-    #[arg(long="only-includes", action = ArgAction::SetTrue)]
+    #[arg(long="only-includes", action = ArgAction::SetTrue, group = "only")]
     pub includes: bool,
 
     /// Only output commands to define source files
-    #[arg(long="only-sources", action = ArgAction::SetTrue)]
+    #[arg(long="only-sources", action = ArgAction::SetTrue, group = "only")]
     pub sources: bool,
 }
 
@@ -445,6 +445,11 @@ fn emit_template(
     tera_context.insert("abort_on_error", &!args.no_abort_on_error);
 
     let mut global_defines = IndexMap::new();
+    let emit_sources = !only.defines && !only.includes;
+    let emit_defines = !only.includes && !only.sources;
+    let emit_incdirs = !only.defines && !only.sources;
+
+    let mut global_defines = target_defines.clone();
     add_defines(&mut global_defines, &args.define);
     tera_context.insert("global_defines", &global_defines);
 
@@ -467,7 +472,7 @@ fn emit_template(
     }
 
     add_defines(&mut all_defines, &args.define);
-    let all_defines = if (!only.includes && !only.sources) || only.defines {
+    let all_defines = if emit_defines {
         all_defines.into_iter().collect()
     } else {
         IndexSet::new()
@@ -476,19 +481,16 @@ fn emit_template(
     tera_context.insert("all_defines", &all_defines);
 
     all_incdirs.sort();
-    let all_incdirs: IndexSet<PathBuf> = if (!only.defines && !only.sources) || only.includes {
+    let all_incdirs: IndexSet<PathBuf> = if emit_incdirs {
         all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
     } else {
         IndexSet::new()
     };
     tera_context.insert("all_incdirs", &all_incdirs);
 
-    let all_files = if (!only.defines && !only.includes) || only.sources {
-        all_files
-    } else {
-        IndexSet::new()
-    };
-    tera_context.insert("all_files", &all_files);
+    if emit_sources {
+        tera_context.insert("all_files", &all_files);
+    }
 
     let mut split_srcs = vec![];
     for src in srcs {
