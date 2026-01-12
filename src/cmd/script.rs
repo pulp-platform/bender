@@ -155,7 +155,11 @@ pub enum ScriptFormat {
         vhdlan_bin: String,
     },
     /// Verilator script
-    Verilator,
+    Verilator {
+        /// Pass arguments to verilator calls
+        #[arg(long, action = ArgAction::Append, alias = "vlog-arg")]
+        vlt_args: Vec<String>,
+    },
     /// Synopsys EDA tool script
     Synopsys {
         /// Pass arguments to verilog compilation calls
@@ -241,7 +245,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             ScriptFormat::FlistPlus { .. } => vec!["flist"],
             ScriptFormat::Vsim { .. } => vec!["vsim", "simulation"],
             ScriptFormat::Vcs { .. } => vec!["vcs", "simulation"],
-            ScriptFormat::Verilator => vec!["verilator", "synthesis"],
+            ScriptFormat::Verilator { .. } => vec!["verilator", "synthesis"],
             ScriptFormat::Synopsys { .. } => vec!["synopsys", "synthesis"],
             ScriptFormat::Formality { .. } => vec!["synopsys", "synthesis", "formality"],
             ScriptFormat::Riviera { .. } => vec!["riviera", "simulation"],
