@@ -34,7 +34,7 @@ pub struct ScriptArgs {
     pub define: Vec<String>,
 
     /// Remove source annotations from the generated script
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue, help_heading = "General Script Options")]
     pub no_source_annotations: bool,
 
     /// Specify package to show sources for
