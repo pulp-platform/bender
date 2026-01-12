@@ -179,7 +179,7 @@ pub enum ScriptFormat {
         vcom_args: Vec<String>,
     },
     /// Cadence Genus script
-    Genus {},
+    Genus,
     /// Xilinx Vivado synthesis script
     Vivado {
         /// Do not change `simset` fileset
@@ -201,7 +201,7 @@ pub enum ScriptFormat {
         only: OnlyArgs,
     },
     /// Mentor Graphics Precision script
-    Precision {},
+    Precision,
     /// Custom template script
     Template {
         /// Path to a file containing the tera template string to be formatted.
