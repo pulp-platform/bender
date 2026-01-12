@@ -41,7 +41,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
 
     // Loop through existing deps to find the ones that are overridden to the working directory
     for (name, dep) in sess.config.overrides.iter() {
-        if let Dependency::Path(override_path) = dep {
+        if let Dependency::Path(override_path, _) = dep {
             if override_path.starts_with(sess.root.join(&args.working_dir)) {
                 if let DependencySource::Path(dep_path) =
                     sess.dependency_source(sess.dependency_with_name(name)?)

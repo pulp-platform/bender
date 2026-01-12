@@ -65,17 +65,6 @@ pub struct ScriptArgs {
     #[arg(long, default_value = "vhdlan")]
     pub vhdlan_bin: String,
 
-    /// Do not abort analysis/compilation on first caught error (only for programs that support early aborting)
-    #[arg(long, action = ArgAction::SetTrue)]
-    pub no_abort_on_error: bool,
-
-    /// Choose compilation mode option: separate/common
-    #[arg(long, default_value = "separate", value_parser = [
-        PossibleValue::new("separate"),
-        PossibleValue::new("common"),
-    ])]
-    pub compilation_mode: String,
-
     /// Remove source annotations from the generated script
     #[arg(long, action = ArgAction::SetTrue)]
     pub no_source_annotations: bool,
@@ -308,7 +297,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
     }
 
     srcs = srcs
-        .filter_targets(&targets, !matches.get_flag("ignore-passed-targets"))
+        .filter_targets(&targets, !args.ignore_passed_targets)
         .unwrap_or_default();
 
     // Filter the sources by specified packages.
@@ -636,10 +625,10 @@ fn emit_template(
 
     tera_context.insert("vlog_args", &opts.vlog_args);
     tera_context.insert("vcom_args", &opts.vcom_args);
+    tera_context.insert("relativize_path", &opts.relative_path);
 
     tera_context.insert("vlogan_bin", &args.vlogan_bin);
     tera_context.insert("vhdlan_bin", &args.vhdlan_bin);
-    tera_context.insert("relativize_path", &args.relative_path);
     tera_context.insert("source_annotations", &!args.no_source_annotations);
     tera_context.insert("compilation_mode", &args.compilation_mode);
 

@@ -35,9 +35,9 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
 
-    let parent_array = get_parent_array(sess, &rt, &io, dep, matches.get_flag("targets"))?;
+    let parent_array = get_parent_array(sess, &rt, &io, dep, args.targets)?;
 
-    if matches.get_flag("targets") {
+    if args.targets {
         let mut res = String::from("");
         for (k, v) in parent_array.iter() {
             res.push_str(&format!("    {}\tpasses: {:?}\n", k, v).to_string());

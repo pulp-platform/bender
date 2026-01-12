@@ -84,7 +84,7 @@ pub fn run(sess: &Session, args: &SourcesArgs) -> Result<()> {
     }
 
     srcs = srcs
-        .filter_targets(&targets, !matches.get_flag("ignore-passed-targets"))
+        .filter_targets(&targets, args.ignore_passed_targets)
         .unwrap_or_default();
 
     // Filter the sources by specified packages.
