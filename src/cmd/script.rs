@@ -33,34 +33,6 @@ pub struct ScriptArgs {
     #[arg(short = 'D', long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
     pub define: Vec<String>,
 
-    /// Pass an argument to vcom calls (vsim/vhdlan/riviera/synopsys only)
-    #[arg(long, action = ArgAction::Append)]
-    pub vcom_arg: Vec<String>,
-
-    /// Pass an argument to vlog calls (vsim/vlogan/riviera/synopsys only)
-    #[arg(long, action = ArgAction::Append)]
-    pub vlog_arg: Vec<String>,
-
-    /// Only output commands to define macros (Vivado/flist only)
-    #[arg(long, action = ArgAction::SetTrue)]
-    pub only_defines: bool,
-
-    /// Only output commands to define include directories (Vivado/flist only)
-    #[arg(long, action = ArgAction::SetTrue)]
-    pub only_includes: bool,
-
-    /// Only output commands to define source files (Vivado/flist only)
-    #[arg(long, action = ArgAction::SetTrue)]
-    pub only_sources: bool,
-
-    /// Do not change `simset` fileset (Vivado only)
-    #[arg(long, action = ArgAction::SetTrue)]
-    pub no_simset: bool,
-
-    /// Specify a `vlogan` command
-    #[arg(long, default_value = "vlogan")]
-    pub vlogan_bin: String,
-
     /// Specify a `vhdlan` command
     #[arg(long, default_value = "vhdlan")]
     pub vhdlan_bin: String,
@@ -525,7 +497,7 @@ fn emit_template(
         };
     tera_context.insert("all_incdirs", &all_incdirs);
 
-    let all_files = if (!args.only_defines && !args.only_includes) || args.only_sources {
+    let all_files = if (!opts.only_defines && !opts.only_includes) || opts.only_sources {
         all_files
     } else {
         IndexSet::new()
@@ -627,18 +599,12 @@ fn emit_template(
     tera_context.insert("vcom_args", &opts.vcom_args);
     tera_context.insert("relativize_path", &opts.relative_path);
 
-    tera_context.insert("vlogan_bin", &args.vlogan_bin);
-    tera_context.insert("vhdlan_bin", &args.vhdlan_bin);
+    tera_context.insert("vlogan_bin", &opts.vlogan_bin);
+    tera_context.insert("vhdlan_bin", &opts.vhdlan_bin);
     tera_context.insert("source_annotations", &!args.no_source_annotations);
-    tera_context.insert("compilation_mode", &args.compilation_mode);
+    tera_context.insert("compilation_mode", &opts.compilation_mode);
 
-    let vivado_filesets = if args.no_simset {
-        vec![""]
-    } else {
-        vec!["", " -simset"]
-    };
-
-    tera_context.insert("vivado_filesets", &vivado_filesets);
+    tera_context.insert("vivado_filesets", &opts.vivado_filesets);
 
     if template == "json" {
         let _ = writeln!(std::io::stdout(), "{:#}", tera_context.into_json());
