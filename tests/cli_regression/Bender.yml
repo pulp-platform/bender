@@ -1,0 +1,17 @@
+package:
+  name: regression_repo
+
+dependencies:
+  common_cells: { git: "https://github.com/pulp-platform/common_cells.git", version: "1.39.0" }
+
+sources:
+  - src1.sv
+  - include_dirs:
+      - .
+    defines:
+      DEFINE: 1
+    target: target
+    files:
+      - src2.sv
+  - src3.vhd
+  - sv: src4.e

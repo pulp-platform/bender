@@ -357,7 +357,6 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
         }
 
         // Abort if we have reached the filesystem root.
-        let tested_path = path.clone();
         if !path.pop() {
             return Err(Error::new(format!(
                 "No manifest (`Bender.yml` file) found. Stopped searching at filesystem root {:?}.",
@@ -373,7 +372,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
             if rdev != limit_rdev {
                 return Err(Error::new(format!(
                     "No manifest (`Bender.yml` file) found. Stopped searching at filesystem boundary {:?}.",
-                    tested_path
+                    path
                 )));
             }
         }
