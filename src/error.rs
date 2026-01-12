@@ -180,10 +180,12 @@ pub enum BenderErrors {
 
     #[error(transparent)]
     TargetError(#[from] TargetError),
+    GitError(#[from] crate::git::GitErrors),
 
     #[error("Cannot open lock file {0}")]
     CannotOpenLockFile(String, #[source] std::io::Error),
 
     #[error("Syntax error in lock file {0}")]
     SyntaxErrorInLockFile(String, #[source] serde_yaml_ng::Error),
+
 }

@@ -7,13 +7,45 @@
 
 use std::ffi::OsStr;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::TryFutureExt;
+use miette::Diagnostic;
+use thiserror::Error;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
 
-use crate::error::*;
+type Result<T> = std::result::Result<T, GitErrors>;
+
+#[derive(Error, Diagnostic, Debug)]
+pub enum GitErrors {
+    #[error("Failed to spawn git command: {0}")]
+    SpawnFailed(#[source] std::io::Error),
+
+    #[error("System limit reached: Too many open files.")]
+    #[diagnostic(help("Try increasing your system ulimit."))]
+    TooManyOpenFiles(#[source] std::io::Error),
+
+    #[error("Git command failed")]
+    #[diagnostic(help("Command: {cmd}\nExit Code: {code:?}\n{stderr}"))]
+    CommandFailed {
+        cmd: String,
+        code: Option<i32>,
+        stderr: String,
+    },
+
+    #[error("Git output contained invalid UTF-8")]
+    InvalidUtf8 {
+        cmd: String,
+        dir: PathBuf,
+        #[source]
+        source: std::string::FromUtf8Error,
+    },
+
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+}
 
 /// A git repository.
 ///
@@ -60,59 +92,41 @@ impl<'ctx> Git<'ctx> {
     ///
     /// If `check` is false, the stdout will be returned regardless of the
     /// command's exit code.
-    #[allow(clippy::format_push_string)]
     pub async fn spawn(self, mut cmd: Command, check: bool) -> Result<String> {
-        // acquire throttle
-        let permit = self.throttle.clone().acquire_owned().await.unwrap();
-        let output = cmd.output().map_err(|cause| {
-            if cause
-                .to_string()
-                .to_lowercase()
-                .contains("too many open files")
-            {
-                eprintln!(
-                    "Please consider increasing your `ulimit -n`, e.g. by running `ulimit -n 4096`"
-                );
-                eprintln!("This is a known issue (#52).");
-                Error::chain("Failed to spawn child process.", cause)
-            } else {
-                Error::chain("Failed to spawn child process.", cause)
-            }
-        });
-        let result = output.and_then(|output| async move {
-            debugln!("git: {:?} in {:?}", cmd, self.path);
-            if output.status.success() || !check {
-                String::from_utf8(output.stdout).map_err(|cause| {
-                    Error::chain(
-                        format!(
-                            "Output of git command ({:?}) in directory {:?} is not valid UTF-8.",
-                            cmd, self.path
-                        ),
-                        cause,
-                    )
-                })
-            } else {
-                let mut msg = format!("Git command ({:?}) in directory {:?}", cmd, self.path);
-                match output.status.code() {
-                    Some(code) => msg.push_str(&format!(" failed with exit code {}", code)),
-                    None => msg.push_str(" failed"),
-                };
-                match String::from_utf8(output.stderr) {
-                    Ok(txt) => {
-                        msg.push_str(":\n\n");
-                        msg.push_str(&txt);
-                    }
-                    Err(err) => msg.push_str(&format!(". Stderr is not valid UTF-8, {}.", err)),
-                };
-                Err(Error::new(msg))
-            }
-        });
-        let result = result.await;
-        // release throttle
-        drop(permit);
-        result
-    }
+        // Acquire throttle
+        // The permit is held until `_permit` goes out of scope at the end of the function
+        let _permit = self.throttle.clone().acquire_owned().await.unwrap();
 
+        debugln!("git: {:?} in {:?}", cmd, self.path);
+
+        // Run the command and await the result immediately
+        let output = cmd.output().await.map_err(|e| {
+            if e.to_string().to_lowercase().contains("too many open files") {
+                GitErrors::TooManyOpenFiles(e)
+            } else {
+                GitErrors::SpawnFailed(e)
+            }
+        })?;
+
+        // Check execution status
+        if output.status.success() || !check {
+            // Success: Parse stdout
+            String::from_utf8(output.stdout).map_err(|e| GitErrors::InvalidUtf8 {
+                cmd: format!("{:?}", cmd),
+                dir: self.path.to_path_buf(),
+                source: e,
+            })
+        } else {
+            // Failure: Collect stderr
+            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+            Err(GitErrors::CommandFailed {
+                cmd: format!("{:?}", cmd),
+                code: output.status.code(),
+                stderr,
+            })
+        }
+    }
     /// Assemble a command and schedule it for execution.
     ///
     /// This is a convenience function that creates a command, passes it to the
