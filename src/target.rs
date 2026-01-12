@@ -193,7 +193,7 @@ where
         loop {
             let next_is_letter = self
                 .next
-                .map(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-')
+                .map(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-' || c == ':')
                 .unwrap_or(false);
 
             // Flush if needed.
@@ -254,7 +254,15 @@ where
             parse_require(lexer, TargetToken::RParen, "Expected `)`.")?;
             TargetSpec::Not(Box::new(spec))
         }
-        Some(Ok(TargetToken::Ident(name))) => TargetSpec::Name(name),
+        Some(Ok(TargetToken::Ident(name))) => {
+            if name.contains(':') {
+                return Err(Error::new("Targets names cannot contain colons (`:`)."));
+            }
+            if name.starts_with('-') {
+                return Err(Error::new("Target names cannot start with a hyphen (`-`)."));
+            }
+            TargetSpec::Name(name)
+        }
         Some(Ok(TargetToken::LParen)) => {
             let spec = parse(lexer)?;
             parse_require(lexer, TargetToken::RParen, "Expected `)`.")?;
