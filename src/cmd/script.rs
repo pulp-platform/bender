@@ -292,8 +292,6 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
 
     let mut opts: RenderOptions = RenderOptions::default();
-    opts.compilation_mode = args.compilation_mode;
-    opts.no_abort_on_error = args.no_abort_on_error;
 
     // Generate the corresponding output.
     let template_content = match &args.format {
@@ -430,13 +428,11 @@ struct RenderOptions {
     only_sources: bool,
 
     // Template variables
-    no_abort_on_error: bool,
     relative_path: bool,
     vlog_args: Vec<String>,
     vcom_args: Vec<String>,
     vlogan_bin: Option<String>,
     vhdlan_bin: Option<String>,
-    compilation_mode: CompilationMode,
 
     // Pre-calculated fileset list for Vivado
     vivado_filesets: Vec<&'static str>,
@@ -455,7 +451,7 @@ fn emit_template(
     tera_context.insert("HEADER_AUTOGEN", HEADER_AUTOGEN);
     tera_context.insert("root", sess.root);
     // tera_context.insert("srcs", &srcs);
-    tera_context.insert("abort_on_error", &!opts.no_abort_on_error);
+    tera_context.insert("abort_on_error", &!args.no_abort_on_error);
 
     let mut global_defines = target_defines.clone();
     add_defines(&mut global_defines, &args.define);
@@ -602,7 +598,7 @@ fn emit_template(
     tera_context.insert("vlogan_bin", &opts.vlogan_bin);
     tera_context.insert("vhdlan_bin", &opts.vhdlan_bin);
     tera_context.insert("source_annotations", &!args.no_source_annotations);
-    tera_context.insert("compilation_mode", &opts.compilation_mode);
+    tera_context.insert("compilation_mode", &args.compilation_mode);
 
     tera_context.insert("vivado_filesets", &opts.vivado_filesets);
 
