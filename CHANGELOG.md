@@ -78,6 +78,9 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Changed
 - Bump dependencies.
 
+### Added
+- Derived fusion-compiler output targer from synopsys.
+
 ## 0.28.1 - 2024-02-22
 ### Added
 - Add `flist-plus` script format for file list with plusargs.
