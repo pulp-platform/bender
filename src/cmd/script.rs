@@ -26,7 +26,7 @@ pub struct ScriptArgs {
     pub target: Vec<String>,
 
     /// Remove any default targets that may be added to the generated script
-    #[arg(long, action = ArgAction::SetTrue, global = true, help_heading = "General Script Options")]
+    #[arg(long, global = true, help_heading = "General Script Options")]
     pub no_default_target: bool,
 
     /// Pass an additional define to all source files
@@ -34,7 +34,7 @@ pub struct ScriptArgs {
     pub define: Vec<String>,
 
     /// Remove source annotations from the generated script
-    #[arg(long, action = ArgAction::SetTrue, help_heading = "General Script Options")]
+    #[arg(long, help_heading = "General Script Options")]
     pub no_source_annotations: bool,
 
     /// Specify package to show sources for
@@ -42,7 +42,7 @@ pub struct ScriptArgs {
     pub package: Vec<String>,
 
     /// Exclude all dependencies, i.e. only top level or specified package(s)
-    #[arg(short, long, action = ArgAction::SetTrue, global = true, help_heading = "General Script Options")]
+    #[arg(short, long, global = true, help_heading = "General Script Options")]
     pub no_deps: bool,
 
     /// Specify package to exclude from sources
@@ -50,11 +50,11 @@ pub struct ScriptArgs {
     pub exclude: Vec<String>,
 
     /// Add the `rtl` target to any fileset without a target specification
-    #[arg(long, action = ArgAction::SetTrue, global = true, help_heading = "General Script Options")]
+    #[arg(long, global = true, help_heading = "General Script Options")]
     pub assume_rtl: bool,
 
     /// Ignore passed targets
-    #[arg(long, action = ArgAction::SetTrue, global = true, help_heading = "General Script Options")]
+    #[arg(long, global = true, help_heading = "General Script Options")]
     pub ignore_passed_targets: bool,
 
     /// Choose compilation mode option
@@ -68,7 +68,7 @@ pub struct ScriptArgs {
     pub compilation_mode: CompilationMode,
 
     /// Do not abort analysis/compilation on first caught error
-    #[arg(long, action = ArgAction::SetTrue, global = true, help_heading = "General Script Options")]
+    #[arg(long, global = true, help_heading = "General Script Options")]
     pub no_abort_on_error: bool,
 
     /// Format of the generated script
@@ -91,15 +91,15 @@ pub enum CompilationMode {
 #[derive(Args, Debug, Clone)]
 pub struct OnlyArgs {
     /// Only output commands to define macros
-    #[arg(long="only-defines", action = ArgAction::SetTrue, group = "only")]
+    #[arg(long = "only-defines", group = "only")]
     pub defines: bool,
 
     /// Only output commands to define include directories
-    #[arg(long="only-includes", action = ArgAction::SetTrue, group = "only")]
+    #[arg(long = "only-includes", group = "only")]
     pub includes: bool,
 
     /// Only output commands to define source files
-    #[arg(long="only-sources", action = ArgAction::SetTrue, group = "only")]
+    #[arg(long = "only-sources", group = "only")]
     pub sources: bool,
 }
 
@@ -109,13 +109,13 @@ pub enum ScriptFormat {
     /// A general file list
     Flist {
         /// Use relative paths
-        #[arg(long, action = ArgAction::SetTrue)]
+        #[arg(long)]
         relative_path: bool,
     },
     /// An extended file list with include dirs and defines
     FlistPlus {
         /// Use relative paths
-        #[arg(long, action = ArgAction::SetTrue)]
+        #[arg(long)]
         relative_path: bool,
 
         /// Common arguments for Vivado scripts
@@ -183,7 +183,7 @@ pub enum ScriptFormat {
     /// Xilinx Vivado synthesis script
     Vivado {
         /// Do not change `simset` fileset
-        #[arg(long, action = ArgAction::SetTrue)]
+        #[arg(long)]
         no_simset: bool,
 
         /// Common arguments for Vivado scripts
@@ -193,7 +193,7 @@ pub enum ScriptFormat {
     /// Xilinx Vivado simulation script
     VivadoSim {
         /// Do not change `simset` fileset
-        #[arg(long, action = ArgAction::SetTrue)]
+        #[arg(long)]
         no_simset: bool,
 
         /// Common arguments for Vivado scripts

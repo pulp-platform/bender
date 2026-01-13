@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
-use clap::{ArgAction, Args, Subcommand};
+use clap::{Args, Subcommand};
 use futures::future::{self};
 use glob::Pattern;
 use tempfile::TempDir;
@@ -67,17 +67,21 @@ pub enum VendorSubcommand {
     Init {
         /// Do not apply patches when initializing dependencies
         // alias is for backward compatibility
-        #[arg(short, long, action = ArgAction::SetTrue, alias="no_patch")]
+        #[arg(short, long, alias = "no_patch")]
         no_patch: bool,
     },
     /// Generate a patch file from staged local changes
     Patch {
         /// Generate a plain diff instead of a format-patch.
-        #[arg(long, action = ArgAction::SetTrue, help = "Generate a plain diff instead of a format-patch.", long_help = "Generate a plain diff instead of a format-patch. Includes all local changes (not only the staged ones).")]
+        #[arg(
+            long,
+            help = "Generate a plain diff instead of a format-patch.",
+            long_help = "Generate a plain diff instead of a format-patch. Includes all local changes (not only the staged ones)."
+        )]
         plain: bool,
 
         /// The message to be associated with the format-patch.
-        #[arg(short, long, action = ArgAction::Append, num_args(1))]
+        #[arg(short, long, num_args(1))]
         message: Option<String>,
     },
 }

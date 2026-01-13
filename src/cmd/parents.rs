@@ -24,7 +24,7 @@ pub struct ParentsArgs {
     pub name: String,
 
     /// Print the passed targets to the dependency
-    #[arg(long, num_args(0))]
+    #[arg(long)]
     pub targets: bool,
 }
 

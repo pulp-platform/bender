@@ -3,7 +3,7 @@
 
 //! The `checkout` subcommand.
 
-use clap::{ArgAction, Args};
+use clap::Args;
 use tokio::runtime::Runtime;
 
 use crate::error::*;
@@ -13,7 +13,7 @@ use crate::sess::{Session, SessionIo};
 #[derive(Args, Debug)]
 pub struct CheckoutArgs {
     /// Force update of dependencies in a custom checkout_dir. Please use carefully to avoid losing work.
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long)]
     pub force: bool,
 }
 

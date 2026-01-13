@@ -28,7 +28,7 @@ use crate::target::TargetSpec;
 #[derive(Args, Debug)]
 pub struct FusesocArgs {
     /// Only create a `.core` file for the top package, based directly on the `Bender.yml.`
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long)]
     pub single: bool,
 
     /// Additional commented info (e.g. License) to add to the top of the YAML file.

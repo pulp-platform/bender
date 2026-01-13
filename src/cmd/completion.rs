@@ -13,7 +13,7 @@ use clap_complete::{generate, Shell};
 #[derive(Args, Debug)]
 pub struct CompletionArgs {
     /// Shell completion script style
-    #[arg(action = clap::ArgAction::Set, value_enum)]
+    #[arg(value_enum)]
     pub shell: Shell,
 }
 

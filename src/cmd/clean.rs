@@ -1,6 +1,6 @@
 //! The `clean` subcommand.
 
-use clap::{ArgAction, Args};
+use clap::Args;
 use std::path::Path;
 
 use std::fs;
@@ -12,7 +12,7 @@ use crate::sess::Session;
 #[derive(Args, Debug)]
 pub struct CleanArgs {
     /// Include Bender.lock in clean
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long)]
     pub all: bool,
 }
 

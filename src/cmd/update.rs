@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 
-use clap::{ArgAction, Args};
+use clap::Args;
 use indexmap::IndexSet;
 use tabwriter::TabWriter;
 
@@ -21,15 +21,15 @@ use crate::sess::Session;
 #[derive(Args, Debug)]
 pub struct UpdateArgs {
     /// forces fetch of git dependencies
-    #[arg(short, long, action = ArgAction::SetTrue)]
+    #[arg(short, long)]
     pub fetch: bool,
 
     /// Disables checkout of dependencies
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long)]
     pub no_checkout: bool,
 
     /// Overwrites modified dependencies in `checkout_dir` if specified
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long)]
     pub ignore_checkout_dir: bool,
 
     /// Dependencies to update
@@ -37,7 +37,7 @@ pub struct UpdateArgs {
     pub dep: Option<Vec<String>>,
 
     /// Update requested dependencies recursively, i.e., including their dependencies
-    #[arg(long, action = ArgAction::SetTrue, requires = "dep")]
+    #[arg(long, requires = "dep")]
     pub recursive: bool,
 }
 

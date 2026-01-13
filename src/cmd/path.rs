@@ -5,7 +5,7 @@
 
 use std::io::Write;
 
-use clap::{ArgAction, Args};
+use clap::Args;
 use futures::future::join_all;
 use tokio::runtime::Runtime;
 
@@ -20,7 +20,7 @@ pub struct PathArgs {
     pub name: Vec<String>,
 
     /// Force check out of dependency.
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long)]
     pub checkout: bool,
 }
 

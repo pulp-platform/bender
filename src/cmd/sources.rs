@@ -24,7 +24,7 @@ pub struct SourcesArgs {
     pub target: Vec<String>,
 
     /// Flatten JSON struct
-    #[arg(short, long, action = ArgAction::SetTrue)]
+    #[arg(short, long)]
     pub flatten: bool,
 
     /// Specify package to show sources for
@@ -32,7 +32,7 @@ pub struct SourcesArgs {
     pub package: Vec<String>,
 
     /// Exclude all dependencies, i.e. only top level or specified package(s)
-    #[arg(short, long, action = ArgAction::SetTrue)]
+    #[arg(short, long)]
     pub no_deps: bool,
 
     /// Specify package to exclude from sources
@@ -40,15 +40,15 @@ pub struct SourcesArgs {
     pub exclude: Vec<String>,
 
     /// Add the `rtl` target to any fileset without a target specification
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long)]
     pub assume_rtl: bool,
 
     /// Exports the raw internal source tree.
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long)]
     pub raw: bool,
 
     /// Ignore passed targets
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long)]
     pub ignore_passed_targets: bool,
 }
 

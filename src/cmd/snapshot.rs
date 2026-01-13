@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::process::Command as SysCommand;
 
-use clap::{ArgAction, Args};
+use clap::Args;
 use indexmap::IndexMap;
 use tokio::runtime::Runtime;
 
@@ -23,15 +23,15 @@ pub struct SnapshotArgs {
     pub working_dir: String,
 
     /// Do not skip dependencies that are dirty
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long)]
     pub no_skip: bool,
 
     /// Checkout the dependencies snapshotted into the lockfile
-    #[arg(long, short, action = ArgAction::SetTrue)]
+    #[arg(short, long)]
     pub checkout: bool,
 
     /// Force update of dependencies in a custom checkout_dir. Please use carefully to avoid losing work.
-    #[arg(long, action = ArgAction::SetTrue, requires = "checkout")]
+    #[arg(long, requires = "checkout")]
     pub force: bool,
 }
 

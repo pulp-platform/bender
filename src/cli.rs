@@ -37,7 +37,12 @@ struct Cli {
     dir: Option<String>,
 
     /// Disables fetching of remotes (e.g. for air-gapped computers)
-    #[arg(long, global = true, action = ArgAction::SetTrue, help_heading = "Global Options", env = "BENDER_LOCAL")]
+    #[arg(
+        long,
+        global = true,
+        help_heading = "Global Options",
+        env = "BENDER_LOCAL"
+    )]
     local: bool,
 
     /// Sets the maximum number of concurrent git operations
@@ -55,7 +60,12 @@ struct Cli {
 
     /// Print additional debug information
     #[cfg(debug_assertions)]
-    #[arg(long, global = true, action = ArgAction::SetTrue, help_heading = "Global Options", env = "BENDER_DEBUG")]
+    #[arg(
+        long,
+        global = true,
+        help_heading = "Global Options",
+        env = "BENDER_DEBUG"
+    )]
     debug: bool,
 
     #[command(subcommand)]

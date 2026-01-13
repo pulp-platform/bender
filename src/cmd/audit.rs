@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 
-use clap::{ArgAction, Args};
+use clap::Args;
 use futures::future::join_all;
 use semver::VersionReq;
 use tabwriter::TabWriter;
@@ -20,15 +20,15 @@ use crate::sess::{DependencyVersions, Session, SessionIo};
 #[derive(Args, Debug)]
 pub struct AuditArgs {
     /// Only show packages that can be updated.
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long)]
     pub only_update: bool,
 
     /// Force fetch of git dependencies.
-    #[arg(short, long, action = ArgAction::SetTrue)]
+    #[arg(short, long)]
     pub fetch: bool,
 
     /// Ignore URL conflicts when auditing.
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long)]
     pub ignore_url_conflict: bool,
 }
 
