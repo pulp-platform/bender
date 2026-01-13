@@ -203,6 +203,10 @@ pub enum BenderErrors {
     #[error("Syntax error in lock file {0}")]
     SyntaxErrorInLockFile(String, #[source] serde_yaml_ng::Error),
 
+    #[error("File {} doesn't exist.", path!(path.display()))]
+    #[diagnostic(code(W31))]
+    FileMissing { path: PathBuf },
+
     #[error("Cannot extract {bound} bound from version requirement: {req}")]
     #[diagnostic(code(E33))]
     VersionBound { bound: String, req: String },
