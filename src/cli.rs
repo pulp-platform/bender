@@ -45,7 +45,7 @@ struct Cli {
     )]
     local: bool,
 
-    /// Sets the maximum number of concurrent git operations
+    /// Sets the maximum number of concurrent git operations [default: 4]
     #[arg(
         long,
         global = true,
@@ -167,7 +167,7 @@ pub fn main() -> Result<()> {
     )?;
     debugln!("main: {:#?}", config);
 
-    // Determinte git throttle. The precedence is: CLI argument, config file, default (4).
+    // Determine git throttle. The precedence is: CLI argument, env variable, config file, default (4).
     let git_throttle = cli.git_throttle.or(config.git_throttle).unwrap_or(4);
 
     // Assemble the session.
