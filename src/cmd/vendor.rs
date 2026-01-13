@@ -61,6 +61,9 @@ pub enum VendorSubcommand {
         err_on_diff: Option<String>,
     },
     /// (Re-)initialize the external dependencies.
+    #[command(
+        long_about = "(Re-)initialize the external dependencies. Copies the upstream files into the target directories and applies existing patches."
+    )]
     Init {
         /// Do not apply patches when initializing dependencies
         // alias is for backward compatibility

@@ -22,11 +22,11 @@ pub struct PackagesArgs {
     pub graph: bool,
 
     /// Do not group packages by topological rank
-    #[arg(short, long, action = ArgAction::SetTrue)]
+    #[arg(short, long, action = ArgAction::SetTrue, long_help = "Do not group packages by topological rank. If the `--graph` option is specified, print multiple lines per package, one for each dependency.")]
     pub flat: bool,
 
     /// Print the version of each package
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue, long_help = "Print the version of each package. Implies --flat. More detailed information is available per dependency using the `parents` subcommand.")]
     pub version: bool,
 
     /// Print the targets available for each package
