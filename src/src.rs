@@ -16,7 +16,7 @@ use serde::ser::{Serialize, Serializer};
 
 use crate::config::Validate;
 use crate::diagnostic::{Diagnostics, Warnings};
-use crate::error::Error;
+use crate::error::{BenderErrors, Diagnostics, Warnings};
 use crate::sess::Session;
 use crate::target::{TargetSet, TargetSpec};
 use semver;
@@ -48,7 +48,7 @@ pub struct SourceGroup<'ctx> {
 
 impl<'ctx> Validate for SourceGroup<'ctx> {
     type Output = SourceGroup<'ctx>;
-    type Error = Error;
+    type Error = BenderErrors;
     fn validate(
         self,
         package_name: &str,
@@ -59,7 +59,7 @@ impl<'ctx> Validate for SourceGroup<'ctx> {
                 .files
                 .into_iter()
                 .map(|f| f.validate(package_name, pre_output))
-                .collect::<Result<Vec<_>, Error>>()?,
+                .collect::<Result<Vec<_>, BenderErrors>>()?,
             include_dirs: self
                 .include_dirs
                 .into_iter()
@@ -69,7 +69,7 @@ impl<'ctx> Validate for SourceGroup<'ctx> {
                     }
                     Ok(p)
                 })
-                .collect::<Result<IndexSet<_>, Error>>()?,
+                .collect::<Result<IndexSet<_>, BenderErrors>>()?,
             ..self
         })
     }
@@ -468,8 +468,12 @@ impl<'ctx> From<&'ctx Path> for SourceFile<'ctx> {
 
 impl<'ctx> Validate for SourceFile<'ctx> {
     type Output = SourceFile<'ctx>;
-    type Error = Error;
-    fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceFile<'ctx>, Error> {
+    type Error = BenderErrors;
+    fn validate(
+        self,
+        package_name: &str,
+        pre_output: bool,
+    ) -> Result<SourceFile<'ctx>, BenderErrors> {
         match self {
             SourceFile::File(path, ty) => {
                 let env_path_buf =
@@ -484,10 +488,9 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                     }
                     Ok(SourceFile::File(path, ty))
                 } else {
-                    Err(Error::new(format!(
-                        "[E31] File {} doesn't exist",
-                        env_path_buf.to_string_lossy()
-                    )))
+                    Err(BenderErrors::FileMissing {
+                        path: env_path_buf.clone(),
+                    })
                 }
             }
             SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(
