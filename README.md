@@ -327,6 +327,10 @@ Additionally, we suggest to use the following targets to identify source code an
 - `rtl` for synthesizable RTL code
 - `gate` for gate-level netlists
 
+Do not use `:` in your custom targets, as this is used to separate targets to apply to individual packages.
+
+Do not start the target name with `-`, as this is used to remove target application.
+
 [Relevant code](https://github.com/pulp-platform/bender/blob/master/src/target.rs)
 
 ### Vendor
@@ -410,7 +414,7 @@ Produces a *sources manifest*, a JSON description of all files needed to build t
 
 The manifest is recursive by default; meaning that dependencies and groups are nested. Use the `-f`/`--flatten` switch to produce a simple flat listing.
 
-To enable specific targets, use the `-t`/`--target` option.
+To enable specific targets, use the `-t`/`--target` option. Adding a package and colon `<PKG>:<TARGET>` before a target will apply the target only to that specific package. Prefixing a target with `-` will remove that specific target, even for predefined targets (e.g., `-t-<TARGET>` or `-t <PKG>:-<TARGET>`).
 
 To get the sources for a subset of packages, exclude specific packages and their dependencies, or exclude all dependencies, the following flags exist:
 

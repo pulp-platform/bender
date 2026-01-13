@@ -34,7 +34,7 @@ pub struct SourceGroup<'ctx> {
     /// The directories exported by dependent package for include files.
     pub export_incdirs: IndexMap<String, IndexSet<&'ctx Path>>,
     /// The preprocessor definitions.
-    pub defines: IndexMap<&'ctx str, Option<&'ctx str>>,
+    pub defines: IndexMap<String, Option<&'ctx str>>,
     /// The files in this group.
     pub files: Vec<SourceFile<'ctx>>,
     /// Package dependencies of this source group
@@ -116,13 +116,57 @@ impl<'ctx> SourceGroup<'ctx> {
         targets: &TargetSet,
         use_passed: bool,
     ) -> Option<SourceGroup<'ctx>> {
-        let chained_targets = TargetSet::new(targets.iter().chain(self.passed_targets.iter()));
+        let local_targets = TargetSet::new(
+            targets
+                .iter()
+                .filter_map(|trgt| {
+                    if !trgt.contains(':') {
+                        Some(trgt.clone())
+                    } else {
+                        match self.package {
+                            None => Some(trgt.clone()),
+                            Some(pkg) => {
+                                let parts: Vec<&str> = trgt.splitn(2, ':').collect();
+                                if pkg == parts[0].to_lowercase().as_str() || parts[0] == "*" {
+                                    Some(parts[1].to_string())
+                                } else {
+                                    None
+                                }
+                            }
+                        }
+                    }
+                })
+                .collect::<IndexSet<_>>(),
+        );
+        let chained_targets =
+            TargetSet::new(local_targets.iter().chain(self.passed_targets.iter()));
         let all_targets = if use_passed {
             &chained_targets
         } else {
-            targets
+            &local_targets
         };
-        if !self.target.matches(all_targets) {
+
+        // collect negative targets to be removed
+        let neg_targets = all_targets
+            .iter()
+            .filter_map(|t| t.strip_prefix('-').map(|neg_target| neg_target.to_string()))
+            .collect::<IndexSet<_>>();
+
+        // remove negative targets from all_targets
+        let all_targets = TargetSet::new(
+            all_targets
+                .iter()
+                .filter_map(|t| {
+                    if t.starts_with('-') || neg_targets.contains(t) {
+                        None
+                    } else {
+                        Some(t.clone())
+                    }
+                })
+                .collect::<IndexSet<_>>(),
+        );
+
+        if !self.target.matches(&all_targets) {
             return None;
         }
         let files = self
@@ -130,11 +174,21 @@ impl<'ctx> SourceGroup<'ctx> {
             .iter()
             .filter_map(|file| match *file {
                 SourceFile::Group(ref group) => group
-                    .filter_targets(all_targets, use_passed)
+                    .filter_targets(targets, use_passed)
                     .map(|g| SourceFile::Group(Box::new(g))),
                 ref other => Some(other.clone()),
             })
             .collect();
+        let mut target_defs = all_targets
+            .into_iter()
+            .map(|t| "TARGET_".to_owned() + &t.to_uppercase())
+            .collect::<IndexSet<_>>();
+        target_defs.sort();
+        let mut defines: IndexMap<String, Option<&str>> = self.defines.clone();
+        if self.package.is_some() {
+            defines.extend(target_defs.into_iter().map(|t| (t, None)));
+        }
+
         Some(
             SourceGroup {
                 package: self.package,
@@ -142,7 +196,7 @@ impl<'ctx> SourceGroup<'ctx> {
                 target: self.target.clone(),
                 include_dirs: self.include_dirs.clone(),
                 export_incdirs: self.export_incdirs.clone(),
-                defines: self.defines.clone(),
+                defines: defines.clone(),
                 files,
                 dependencies: self.dependencies.clone(),
                 version: self.version.clone(),
@@ -335,7 +389,7 @@ impl<'ctx> SourceGroup<'ctx> {
                     grp.defines = self
                         .defines
                         .iter()
-                        .map(|(k, v)| (*k, *v))
+                        .map(|(k, v)| (k.clone(), *v))
                         .chain(grp.defines.into_iter())
                         .collect();
                     grp.flatten_into(into);
