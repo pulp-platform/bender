@@ -181,10 +181,7 @@ impl<'ctx> SourceGroup<'ctx> {
             .collect();
         let mut target_defs = all_targets
             .into_iter()
-            .filter_map(|t| match t.contains(':') {
-                true => None,
-                false => Some("TARGET_".to_owned() + &t.to_uppercase()),
-            })
+            .map(|t| "TARGET_".to_owned() + &t.to_uppercase())
             .collect::<IndexSet<_>>();
         target_defs.sort();
         let mut defines: IndexMap<String, Option<&str>> = self.defines.clone();
