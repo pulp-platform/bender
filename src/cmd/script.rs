@@ -558,19 +558,15 @@ fn emit_template(
             _ => {}
         }
     }
-    let split_srcs = if !only.defines && !only.includes {
-        split_srcs
-    } else {
-        vec![]
-    };
+    let split_srcs = if emit_sources { split_srcs } else { vec![] };
     tera_context.insert("srcs", &split_srcs);
 
-    let all_verilog: IndexSet<PathBuf> = if !only.defines && !only.includes {
+    let all_verilog = if emit_sources {
         all_verilog.into_iter().collect()
     } else {
         IndexSet::new()
     };
-    let all_vhdl: IndexSet<PathBuf> = if !only.defines && !only.includes {
+    let all_vhdl = if emit_sources {
         all_vhdl.into_iter().collect()
     } else {
         IndexSet::new()
