@@ -19,11 +19,10 @@ use crate::sess::{DependencyRef, DependencySource, Session, SessionIo};
 #[derive(Args, Debug)]
 pub struct CloneArgs {
     /// Package name to clone to a working directory
-    #[arg(num_args(1))]
     pub name: String,
 
     /// Relative directory to clone PKG into
-    #[arg(short, long, default_value = "working_dir", num_args(1))]
+    #[arg(short, long, default_value = "working_dir")]
     pub path: String,
 }
 

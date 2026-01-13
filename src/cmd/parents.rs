@@ -20,7 +20,6 @@ use crate::sess::{Session, SessionIo};
 #[command(alias = "parent")]
 pub struct ParentsArgs {
     /// Package name to get the parents for
-    #[arg(num_args(1))]
     pub name: String,
 
     /// Print the passed targets to the dependency

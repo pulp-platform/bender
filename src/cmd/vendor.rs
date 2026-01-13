@@ -81,7 +81,7 @@ pub enum VendorSubcommand {
         plain: bool,
 
         /// The message to be associated with the format-patch.
-        #[arg(short, long, num_args(1))]
+        #[arg(short, long)]
         message: Option<String>,
     },
 }
