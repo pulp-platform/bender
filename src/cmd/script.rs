@@ -445,7 +445,6 @@ fn emit_template(
     let emit_defines = !only.includes && !only.sources;
     let emit_incdirs = !only.defines && !only.sources;
 
-    let mut global_defines = target_defines.clone();
     add_defines(&mut global_defines, &args.define);
     tera_context.insert("global_defines", &global_defines);
 

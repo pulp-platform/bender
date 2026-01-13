@@ -7,7 +7,7 @@ use std;
 use std::io::Write;
 
 use clap::{ArgAction, Args};
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexSet;
 use serde_json;
 use tokio::runtime::Runtime;
 
