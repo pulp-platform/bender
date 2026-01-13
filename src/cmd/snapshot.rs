@@ -27,7 +27,7 @@ pub struct SnapshotArgs {
     pub no_skip: bool,
 
     /// Checkout the dependencies snapshotted into the lockfile
-    #[arg(long, short = 'c', action = ArgAction::SetTrue)]
+    #[arg(long, short, action = ArgAction::SetTrue)]
     pub checkout: bool,
 
     /// Force update of dependencies in a custom checkout_dir. Please use carefully to avoid losing work.
