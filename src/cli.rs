@@ -128,7 +128,7 @@ pub fn main() -> Result<()> {
     }
 
     let force_fetch = match cli.command {
-        Commands::Update(ref args) => cmd::update::setup(args, &suppressed_warnings)?,
+        Commands::Update(ref args) => cmd::update::setup(args, cli.local, &suppressed_warnings)?,
         _ => false,
     };
 
