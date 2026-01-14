@@ -11,10 +11,10 @@ set search_path $search_path_initial
 {% if abort_on_error %}if {0 == [{% endif %}{#                                                                      Catch errors immediately
 #}analyze -format {% if group.file_type == 'verilog' %}sv{% elif group.file_type == 'vhdl' %}vhdl{% endif %} \{#    Analyze command for SystemVerilog or VHDL #}
 {% if group.file_type == 'verilog' %}{#                                                                             Additional command arguments
-#}{% for tmp_arg in vlog_args %}{{ tmp_arg }} \
+#}{% for tmp_arg in verilog_args %}{{ tmp_arg }} \
 {% endfor %}{#
 #}{% else %}{#
-#}{% for tmp_arg in vcom_args %}{{ tmp_arg }} \
+#}{% for tmp_arg in vhdl_args %}{{ tmp_arg }} \
 {% endfor %}{#
 #}{% endif %}{#
 #}{% for define in group.defines %}{#                                                                               Add group's defines
@@ -36,7 +36,7 @@ set search_path $search_path_initial
 {% endfor %}
 {% if abort_on_error %}if {0 == [{% endif %}{#                                                                      Catch errors immediately
 #}analyze -format sv \{#                                                                                            Analyze command for SystemVerilog #}
-{% for tmp_arg in vlog_args %}{{ tmp_arg }} \
+{% for tmp_arg in verilog_args %}{{ tmp_arg }} \
 {% endfor %}{#                                                                                                      Additional command arguments
     #}{% for define in all_defines %}{#                                                                             Add all defines
 }
@@ -52,7 +52,7 @@ set search_path $search_path_initial
 {% for file in all_vhdl %}{% if loop.first %}{#                                                                     Loop over all VHDL files
 #}{% if abort_on_error %}if {0 == [{% endif %}{#                                                                    Catch errors immediately
 #}analyze -format vhdl \{#                                                                                          Analyze command for VHDL #}
-{% for tmp_arg in vcom_args %}{{ tmp_arg }} \
+{% for tmp_arg in vhdl_args %}{{ tmp_arg }} \
 {% endfor %}{#                                                                                                      Additional command arguments
 #}    [list \
     {% endif %}{{ '    ' }}"{{ file | replace(from=root, to='$ROOT') }}" \{#                                        Add all VHDL files #}

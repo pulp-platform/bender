@@ -500,9 +500,9 @@ If the `--single` argument is *not* provided, bender will walk through all the d
 
 The `--license` argument will allow you to add multiple comment lines at the top of the generated `.core` files, e.g. a License header string.
 
-The `--fuse_vendor` argument will assign a vendor string to all generated `.core` dependencies for the VLNV name.
+The `--fuse-vendor` argument will assign a vendor string to all generated `.core` dependencies for the VLNV name.
 
-The `--fuse_version` argument will assign a version to the top package being handled for the VLNV name.
+The `--fuse-version` argument will assign a version to the top package being handled for the VLNV name.
 
 ### `vendor` --- Copy files from dependencies that do not support bender
 
@@ -515,7 +515,7 @@ This is in part based on [lowRISC's `vendor.py` script](https://github.com/lowRI
 
 This command will (re-)initialize the dependencies listed in the `vendor_package` section of the `Bender.yml` file, fetching the files from the remote repositories, applying the necessary patch files, and writing them to the respective `target_dir`.
 
-If the `-n/--no_patch` argument is passed, the dependency is initialized without applying any patches.
+If the `-n/--no-patch` argument is passed, the dependency is initialized without applying any patches.
 
 #### `vendor diff` --- Print a diff of local, unpatched changes
 

@@ -4,7 +4,6 @@
 //! Main command line tool implementation.
 
 use std;
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 
@@ -14,131 +13,148 @@ use std::fs::{canonicalize, metadata};
 #[cfg(windows)]
 use dunce::canonicalize;
 
-use clap::parser::{ValueSource, ValuesRef};
-use clap::{value_parser, Arg, ArgAction, Command};
+use clap::builder::styling::{AnsiColor, Effects, Styles};
+use clap::{value_parser, ArgAction, CommandFactory, Parser, Subcommand};
 use indexmap::IndexSet;
 use serde_yaml_ng;
 use tokio::runtime::Runtime;
 
 use crate::cmd;
+use crate::cmd::fusesoc::FusesocArgs;
 use crate::config::{Config, Manifest, Merge, PartialConfig, PrefixPaths, Validate};
 use crate::error::*;
 use crate::lockfile::*;
 use crate::sess::{Session, SessionArenas, SessionIo};
 
+#[derive(Parser, Debug)]
+#[command(name = "bender")]
+#[command(author, version, about, long_about = None)]
+#[command(after_help = "Type 'bender <SUBCOMMAND> --help' for more information...")]
+#[command(styles = cli_styles())]
+struct Cli {
+    /// Sets a custom root working directory
+    #[arg(short, long, global = true, help_heading = "Global Options", env = "BENDER_DIR", value_parser = value_parser!(String))]
+    dir: Option<String>,
+
+    /// Disables fetching of remotes (e.g. for air-gapped computers)
+    #[arg(
+        long,
+        global = true,
+        help_heading = "Global Options",
+        env = "BENDER_LOCAL"
+    )]
+    local: bool,
+
+    /// Sets the maximum number of concurrent git operations [default: 4]
+    #[arg(
+        long,
+        global = true,
+        help_heading = "Global Options",
+        env = "BENDER_GIT_THROTTLE"
+    )]
+    git_throttle: Option<usize>,
+
+    /// Suppresses specific warnings. Use `all` to suppress all warnings.
+    #[arg(long, global = true, action = ArgAction::Append, help_heading = "Global Options", env = "BENDER_SUPPRESS_WARNINGS")]
+    suppress: Vec<String>,
+
+    /// Print additional debug information
+    #[cfg(debug_assertions)]
+    #[arg(
+        long,
+        global = true,
+        help_heading = "Global Options",
+        env = "BENDER_DEBUG"
+    )]
+    debug: bool,
+
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    Update(cmd::update::UpdateArgs),
+    Path(cmd::path::PathArgs),
+    Parents(cmd::parents::ParentsArgs),
+    Clone(cmd::clone::CloneArgs),
+    Clean(cmd::clean::CleanArgs),
+    Packages(cmd::packages::PackagesArgs),
+    Sources(cmd::sources::SourcesArgs),
+    Completion(cmd::completion::CompletionArgs),
+    /// Emit the configuration
+    Config,
+    Script(cmd::script::ScriptArgs),
+    Checkout(cmd::checkout::CheckoutArgs),
+    Vendor(cmd::vendor::VendorArgs),
+    Fusesoc(cmd::fusesoc::FusesocArgs),
+    /// Initialize a Bender package
+    Init,
+    Snapshot(cmd::snapshot::SnapshotArgs),
+    Audit(cmd::audit::AuditArgs),
+    #[command(external_subcommand)]
+    Plugin(Vec<String>),
+}
+
+// Define a custom style for the CLI
+fn cli_styles() -> Styles {
+    Styles::styled()
+        .header(AnsiColor::Green.on_default() | Effects::BOLD)
+        .usage(AnsiColor::Green.on_default() | Effects::BOLD)
+        .literal(AnsiColor::Cyan.on_default() | Effects::BOLD)
+        .placeholder(AnsiColor::Cyan.on_default())
+        .error(AnsiColor::Red.on_default() | Effects::BOLD)
+        .valid(AnsiColor::Cyan.on_default() | Effects::BOLD)
+        .invalid(AnsiColor::Yellow.on_default() | Effects::BOLD)
+}
+
 /// Inner main function which can return an error.
 pub fn main() -> Result<()> {
-    let app = Command::new(env!("CARGO_PKG_NAME"))
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .allow_external_subcommands(true)
-        .version(env!("CARGO_PKG_VERSION"))
-        .author(env!("CARGO_PKG_AUTHORS"))
-        .about("A dependency management tool for hardware projects.")
-        .after_help(
-            "Type 'bender <SUBCOMMAND> --help' for more information about a bender subcommand.",
-        )
-        .arg(
-            Arg::new("dir")
-                .short('d')
-                .long("dir")
-                .num_args(1)
-                .global(true)
-                .help("Sets a custom root working directory"),
-        )
-        .arg(
-            Arg::new("local")
-                .long("local")
-                .global(true)
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Disables fetching of remotes (e.g. for air-gapped computers)"),
-        )
-        .arg(
-            Arg::new("git-throttle")
-                .long("git-throttle")
-                .global(true)
-                .num_args(1)
-                .default_value("4")
-                .value_parser(value_parser!(usize))
-                .help("Sets the maximum number of concurrent git operations"),
-        )
-        .arg(
-            Arg::new("suppress")
-                .long("suppress")
-                .global(true)
-                .num_args(1)
-                .action(ArgAction::Append)
-                .help("Suppresses specific warnings. Use `all` to suppress all warnings.")
-                .value_parser(value_parser!(String)),
-        )
-        .subcommand(cmd::update::new())
-        .subcommand(cmd::path::new())
-        .subcommand(cmd::parents::new())
-        .subcommand(cmd::clone::new())
-        .subcommand(cmd::clean::new())
-        .subcommand(cmd::packages::new())
-        .subcommand(cmd::sources::new())
-        .subcommand(cmd::completion::new())
-        .subcommand(cmd::config::new())
-        .subcommand(cmd::script::new())
-        .subcommand(cmd::checkout::new())
-        .subcommand(cmd::vendor::new())
-        .subcommand(cmd::fusesoc::new())
-        .subcommand(cmd::init::new())
-        .subcommand(cmd::snapshot::new())
-        .subcommand(cmd::audit::new());
+    // Parse command line arguments.
+    let cli = Cli::parse();
 
-    // Add the `--debug` option in debug builds.
-    let app = if cfg!(debug_assertions) {
-        app.arg(
-            Arg::new("debug")
-                .long("debug")
-                .global(true)
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Print additional debug information"),
-        )
-    } else {
-        app
-    };
-
-    // Parse the arguments.
-    let matches = app.clone().get_matches();
-
-    let mut suppressed_warnings: IndexSet<String> = matches
-        .get_many::<String>("suppress")
-        .unwrap_or_default()
-        .map(|s| s.to_owned())
+    let mut suppressed_warnings: IndexSet<String> =
+        cli.suppress.into_iter().map(|s| s.to_owned()).collect();
+    // split suppress strings on commas and spaces
+    suppressed_warnings = suppressed_warnings
+        .into_iter()
+        .flat_map(|s| {
+            s.split(&[',', ' '][..])
+                .map(|t| t.to_string())
+                .collect::<Vec<_>>()
+        })
         .collect();
 
     if suppressed_warnings.contains("all") || suppressed_warnings.contains("Wall") {
         suppressed_warnings.extend((1..24).map(|i| format!("W{:02}", i)));
     }
 
-    // Enable debug outputs if needed.
-    if matches.contains_id("debug") && matches.get_flag("debug") {
+    #[cfg(debug_assertions)]
+    if cli.debug {
         ENABLE_DEBUG.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
-    if let Some(("init", matches)) = matches.subcommand() {
-        return cmd::init::run(matches);
+    // Handle commands that do not require a session.
+    match &cli.command {
+        Commands::Completion(args) => {
+            let mut cmd = Cli::command();
+            return cmd::completion::run(args, &mut cmd);
+        }
+        Commands::Init => {
+            return cmd::init::run();
+        }
+        _ => {}
     }
 
-    if let Some(("completion", matches)) = matches.subcommand() {
-        let mut app = app;
-        return cmd::completion::run(matches, &mut app);
-    }
-
-    let mut force_fetch = false;
-    if let Some(("update", intern_matches)) = matches.subcommand() {
-        force_fetch = cmd::update::setup(intern_matches, &suppressed_warnings)?;
-    }
+    let force_fetch = match cli.command {
+        Commands::Update(ref args) => cmd::update::setup(args, cli.local, &suppressed_warnings)?,
+        _ => false,
+    };
 
     // Determine the root working directory, which has either been provided via
     // the -d/--dir switch, or by searching upwards in the file system
     // hierarchy.
-    let root_dir: PathBuf = match matches.get_one::<String>("dir") {
+    let root_dir: PathBuf = match &cli.dir {
         Some(d) => canonicalize(d).map_err(|cause| {
             Error::chain(format!("Failed to canonicalize path {:?}.", d), cause)
         })?,
@@ -155,18 +171,13 @@ pub fn main() -> Result<()> {
     // Gather and parse the tool configuration.
     let config = load_config(
         &root_dir,
-        matches!(matches.subcommand(), Some(("update", _))) && !suppressed_warnings.contains("W02"),
+        matches!(cli.command, Commands::Update(_)) && !suppressed_warnings.contains("W02"),
         &suppressed_warnings,
     )?;
     debugln!("main: {:#?}", config);
 
-    let git_throttle = if matches.value_source("git-throttle") == Some(ValueSource::CommandLine) {
-        *matches.get_one::<usize>("git-throttle").unwrap()
-    } else {
-        config
-            .git_throttle
-            .unwrap_or(*matches.get_one::<usize>("git-throttle").unwrap())
-    };
+    // Determine git throttle. The precedence is: CLI argument, env variable, config file, default (4).
+    let git_throttle = cli.git_throttle.or(config.git_throttle).unwrap_or(4);
 
     // Assemble the session.
     let sess_arenas = SessionArenas::new();
@@ -175,14 +186,14 @@ pub fn main() -> Result<()> {
         &manifest,
         &config,
         &sess_arenas,
-        matches.get_flag("local"),
+        cli.local,
         force_fetch,
         git_throttle,
         suppressed_warnings,
     );
 
-    if let Some(("clean", intern_matches)) = matches.subcommand() {
-        return cmd::clean::run(&sess, intern_matches, &root_dir);
+    if let Commands::Clean(args) = cli.command {
+        return cmd::clean::run(&sess, args.all, &root_dir);
     }
 
     // Read the existing lockfile.
@@ -194,26 +205,21 @@ pub fn main() -> Result<()> {
     };
 
     // Resolve the dependencies if the lockfile does not exist or is outdated.
-    let (locked, update_list) = match matches.subcommand() {
-        Some((command, matches)) => {
-            #[allow(clippy::unnecessary_unwrap)]
-            // execute pre-dependency-fetch commands
-            if command == "fusesoc" && matches.get_flag("single") {
-                return cmd::fusesoc::run_single(&sess, matches);
-            } else if command == "update" {
-                cmd::update::run(matches, &sess, locked_existing.as_ref())?
-            } else if locked_existing.is_none() {
-                cmd::update::run_plain(false, &sess, locked_existing.as_ref(), IndexSet::new())?
-            } else {
-                debugln!("main: lockfile {:?} up-to-date", lock_path);
-                (locked_existing.unwrap(), Vec::new())
-            }
+    let (locked_list, update_list) = match &cli.command {
+        Commands::Fusesoc(args @ FusesocArgs { single: true, .. }) => {
+            return cmd::fusesoc::run_single(&sess, args);
         }
-        None => {
-            return Err(Error::new("Please specify a command.".to_string()));
+        Commands::Update(args) => cmd::update::run(args, &sess, locked_existing.as_ref())?,
+        _ if locked_existing.is_none() => {
+            cmd::update::run_plain(false, &sess, locked_existing.as_ref(), IndexSet::new())?
+        }
+        _ => {
+            debugln!("main: lockfile {:?} up-to-date", lock_path);
+            (locked_existing.unwrap(), Vec::new())
         }
     };
-    sess.load_locked(&locked)?;
+
+    sess.load_locked(&locked_list)?;
 
     // Ensure the locally linked packages are up-to-date.
     {
@@ -225,7 +231,7 @@ pub fn main() -> Result<()> {
             let pkg_path = io.get_package_path(sess.dependency_with_name(pkg_name)?);
 
             // Checkout if we are running update or package path does not exist yet
-            if matches.subcommand_name() == Some("update") || !pkg_path.clone().exists() {
+            if matches!(cli.command, Commands::Update(_)) || !pkg_path.clone().exists() {
                 let rt = Runtime::new()?;
                 rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?, false, &[]))?;
             }
@@ -299,22 +305,30 @@ pub fn main() -> Result<()> {
     }
 
     // Dispatch the different subcommands.
-    match matches.subcommand() {
-        Some(("path", matches)) => cmd::path::run(&sess, matches),
-        Some(("parents", matches)) => cmd::parents::run(&sess, matches),
-        Some(("clone", matches)) => cmd::clone::run(&sess, &root_dir, matches),
-        Some(("packages", matches)) => cmd::packages::run(&sess, matches),
-        Some(("sources", matches)) => cmd::sources::run(&sess, matches),
-        Some(("config", matches)) => cmd::config::run(&sess, matches),
-        Some(("script", matches)) => cmd::script::run(&sess, matches),
-        Some(("checkout", matches)) => cmd::checkout::run(&sess, matches),
-        Some(("update", matches)) => cmd::update::run_final(&sess, matches, &update_list),
-        Some(("vendor", matches)) => cmd::vendor::run(&sess, matches),
-        Some(("fusesoc", matches)) => cmd::fusesoc::run(&sess, matches),
-        Some(("snapshot", matches)) => cmd::snapshot::run(&sess, matches),
-        Some(("audit", matches)) => cmd::audit::run(&sess, matches),
-        Some((plugin, matches)) => execute_plugin(&sess, plugin, matches.get_many::<OsString>("")),
-        _ => Ok(()),
+
+    match cli.command {
+        Commands::Path(args) => cmd::path::run(&sess, &args),
+        Commands::Parents(args) => cmd::parents::run(&sess, &args),
+        Commands::Clone(args) => cmd::clone::run(&sess, &root_dir, &args),
+        Commands::Packages(args) => cmd::packages::run(&sess, &args),
+        Commands::Sources(args) => cmd::sources::run(&sess, &args),
+        Commands::Config => cmd::config::run(&sess),
+        Commands::Script(args) => cmd::script::run(&sess, &args),
+        Commands::Checkout(args) => cmd::checkout::run(&sess, &args),
+        Commands::Update(args) => cmd::update::run_final(&sess, &args, &update_list),
+        Commands::Vendor(args) => cmd::vendor::run(&sess, &args),
+        Commands::Fusesoc(args) => cmd::fusesoc::run(&sess, &args),
+        Commands::Snapshot(args) => cmd::snapshot::run(&sess, &args),
+        Commands::Audit(args) => cmd::audit::run(&sess, &args),
+        Commands::Plugin(args) => {
+            let (plugin_name, plugin_args) = args
+                .split_first()
+                .ok_or_else(|| Error::new("No command specified.".to_string()))?;
+            execute_plugin(&sess, plugin_name, plugin_args)
+        }
+        Commands::Completion(_) | Commands::Init | Commands::Clean(_) => {
+            unreachable!()
+        }
     }
 }
 
@@ -507,11 +521,7 @@ fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<Par
 }
 
 /// Execute a plugin.
-fn execute_plugin(
-    sess: &Session,
-    plugin: &str,
-    matches: Option<ValuesRef<OsString>>,
-) -> Result<()> {
+fn execute_plugin(sess: &Session, plugin: &str, args: &[String]) -> Result<()> {
     debugln!("main: execute plugin `{}`", plugin);
 
     // Obtain a list of declared plugins.
@@ -541,9 +551,8 @@ fn execute_plugin(
     );
     cmd.env("BENDER_MANIFEST_DIR", sess.root);
     cmd.current_dir(sess.root);
-    if let Some(args) = matches {
-        cmd.args(args);
-    }
+    cmd.args(args);
+
     debugln!("main: executing plugin {:#?}", cmd);
     let stat = cmd.status().map_err(|cause| {
         Error::chain(

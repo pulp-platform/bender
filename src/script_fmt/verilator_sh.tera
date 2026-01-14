@@ -1,5 +1,5 @@
 {% for group in srcs %}{% if group.file_type == 'verilog' %}
-{% for tmp_arg in vlog_args %}{{ tmp_arg }}
+{% for tmp_arg in vlt_args %}{{ tmp_arg }}
 {% endfor %}{% for define in group.defines %}+define+{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}
 {% endfor %}{% for incdir in group.incdirs %}+incdir+{{ incdir }}
 {% endfor %}{% for file in group.files %}{{ file }}

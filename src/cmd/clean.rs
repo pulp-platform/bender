@@ -1,6 +1,6 @@
 //! The `clean` subcommand.
 
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::Args;
 use std::path::Path;
 
 use std::fs;
@@ -8,21 +8,16 @@ use std::fs;
 use crate::error::*;
 use crate::sess::Session;
 
-/// Assemble the `clean` subcommand.
-pub fn new() -> Command {
-    Command::new("clean")
-        .about("Clean all bender related dependencies")
-        .arg(
-            Arg::new("all")
-                .long("all")
-                .num_args(0)
-                .action(ArgAction::SetTrue)
-                .help("Include Bender.lock in clean"),
-        )
+/// Clean all bender related dependencies
+#[derive(Args, Debug)]
+pub struct CleanArgs {
+    /// Include Bender.lock in clean
+    #[arg(long)]
+    pub all: bool,
 }
 
 /// Execute the `clean` subcommand.
-pub fn run(sess: &Session, matches: &ArgMatches, path: &Path) -> Result<()> {
+pub fn run(sess: &Session, all: bool, path: &Path) -> Result<()> {
     eprintln!("Cleaning all dependencies");
 
     // Clean the checkout directory
@@ -51,7 +46,7 @@ pub fn run(sess: &Session, matches: &ArgMatches, path: &Path) -> Result<()> {
 
     // Clean the Bender.lock file
     let bender_lock = path.join("Bender.lock");
-    if bender_lock.exists() && bender_lock.is_file() && matches.get_flag("all") {
+    if bender_lock.exists() && bender_lock.is_file() && all {
         fs::remove_file(&bender_lock).map_err(|e| {
             eprintln!("Failed to remove Bender.lock file: {:?}", e);
             e

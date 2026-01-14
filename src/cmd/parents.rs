@@ -5,7 +5,7 @@
 
 use std::io::Write;
 
-use clap::{Arg, ArgMatches, Command};
+use clap::Args;
 use indexmap::IndexMap;
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
@@ -15,35 +15,28 @@ use crate::error::*;
 use crate::sess::{DependencyConstraint, DependencySource};
 use crate::sess::{Session, SessionIo};
 
-/// Assemble the `parents` subcommand.
-pub fn new() -> Command {
-    Command::new("parents")
-        .about("List packages calling this dependency")
-        .alias("parent")
-        .arg(
-            Arg::new("name")
-                .required(true)
-                .num_args(1)
-                .help("Package names to get the parents for"),
-        )
-        .arg(
-            Arg::new("targets")
-                .long("targets")
-                .num_args(0)
-                .help("Print the passed targets to the dependency"),
-        )
+/// List packages calling this dependency
+#[derive(Args, Debug)]
+#[command(alias = "parent")]
+pub struct ParentsArgs {
+    /// Package name to get the parents for
+    pub name: String,
+
+    /// Print the passed targets to the dependency
+    #[arg(long)]
+    pub targets: bool,
 }
 
 /// Execute the `parents` subcommand.
-pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
-    let dep = &matches.get_one::<String>("name").unwrap().to_lowercase();
+pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
+    let dep = &args.name.to_lowercase();
     let mydep = sess.dependency_with_name(dep)?;
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
 
-    let parent_array = get_parent_array(sess, &rt, &io, dep, matches.get_flag("targets"))?;
+    let parent_array = get_parent_array(sess, &rt, &io, dep, args.targets)?;
 
-    if matches.get_flag("targets") {
+    if args.targets {
         let mut res = String::from("");
         for (k, v) in parent_array.iter() {
             res.push_str(&format!("    {}\tpasses: {:?}\n", k, v).to_string());

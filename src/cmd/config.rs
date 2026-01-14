@@ -6,19 +6,13 @@
 use std;
 use std::io::Write;
 
-use clap::{ArgMatches, Command};
 use serde_json;
 
 use crate::error::*;
 use crate::sess::Session;
 
-/// Assemble the `config` subcommand.
-pub fn new() -> Command {
-    Command::new("config").about("Emit the configuration")
-}
-
 /// Execute the `config` subcommand.
-pub fn run(sess: &Session, _matches: &ArgMatches) -> Result<()> {
+pub fn run(sess: &Session) -> Result<()> {
     let result = {
         let stdout = std::io::stdout();
         let handle = stdout.lock();

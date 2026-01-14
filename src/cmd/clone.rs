@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 
-use clap::{Arg, ArgMatches, Command};
+use clap::Args;
 use indexmap::IndexMap;
 use tokio::runtime::Runtime;
 
@@ -15,34 +15,24 @@ use crate::config::{Locked, LockedSource};
 use crate::error::*;
 use crate::sess::{DependencyRef, DependencySource, Session, SessionIo};
 
-/// Assemble the `clone` subcommand.
-pub fn new() -> Command {
-    Command::new("clone")
-        .about("Clone dependency to a working directory")
-        .arg(
-            Arg::new("name")
-                .required(true)
-                .num_args(1)
-                .help("Package name to clone to a working directory"),
-        )
-        .arg(
-            Arg::new("path")
-                .short('p')
-                .long("path")
-                .help("Relative directory to clone PKG into (default: working_dir)")
-                .num_args(1)
-                .default_value("working_dir"),
-        )
+/// Clone dependency to a working directory
+#[derive(Args, Debug)]
+pub struct CloneArgs {
+    /// Package name to clone to a working directory
+    pub name: String,
+
+    /// Relative directory to clone PKG into
+    #[arg(short, long, default_value = "working_dir")]
+    pub path: String,
 }
 
 /// Execute the `clone` subcommand.
-pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
-    let dep = &matches.get_one::<String>("name").unwrap().to_lowercase();
+pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
+    let dep = &args.name.to_lowercase();
     let depref = sess.dependency_with_name(dep)?;
 
-    let path_mod = matches.get_one::<String>("path").unwrap(); // TODO make this option for config in the Bender.yml file?
-
-    // Check current config for matches
+    let path_mod = &args.path; // TODO make this option for config in the Bender.yml file?
+                               // Check current config for matches
     if sess.config.overrides.contains_key(dep) {
         match &sess.config.overrides[dep] {
             config::Dependency::Path(p, _) => {
@@ -88,8 +78,7 @@ pub fn run(sess: &Session, path: &Path, matches: &ArgMatches) -> Result<()> {
         eprintln!("{} already has a directory in {}.", dep, path_mod);
         eprintln!("Please manually ensure the correct checkout.");
     } else {
-        let id =
-            sess.dependency_with_name(&matches.get_one::<String>("name").unwrap().to_lowercase())?;
+        let id = sess.dependency_with_name(&args.name.to_lowercase())?;
         debugln!("main: obtain checkout {:?}", id);
         let checkout = rt.block_on(io.checkout(id, false, &[]))?;
         debugln!("main: checkout {:#?}", checkout);

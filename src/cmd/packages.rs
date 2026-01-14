@@ -5,7 +5,7 @@
 
 use std::io::Write;
 
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::Args;
 use indexmap::IndexSet;
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
@@ -13,53 +13,39 @@ use tokio::runtime::Runtime;
 use crate::error::*;
 use crate::sess::{DependencySource, Session, SessionIo};
 
-/// Assemble the `packages` subcommand.
-pub fn new() -> Command {
-    Command::new("packages")
-        .about("Information about the dependency graph")
-        .arg(Arg::new("graph")
-            .short('g')
-            .long("graph")
-            .num_args(0)
-            .action(ArgAction::SetTrue)
-            .help("Print the dependencies for each package")
-        )
-        .arg(Arg::new("flat")
-            .short('f')
-            .long("flat")
-            .num_args(0)
-            .action(ArgAction::SetTrue)
-            .help("Do not group packages by topological rank")
-            .long_help("Do not group packages by topological rank. If the `--graph` option is specified, print multiple lines per package, one for each dependency.")
-        )
-        .arg(Arg::new("version")
-            .long("version")
-            .num_args(0)
-            .action(ArgAction::SetTrue)
-            .help("Print the version of each package")
-            .long_help("Print the version of each package. Implies --flat. More detailed information is available per dependency using the `parents` subcommand.")
-        )
-        .arg(Arg::new("targets")
-            .long("targets")
-            .num_args(0)
-            .action(ArgAction::SetTrue)
-            .help("Print the targets available for each package")
-        )
+/// Information about the dependency graph
+#[derive(Args, Debug)]
+#[command(alias = "package")]
+pub struct PackagesArgs {
+    /// Print the dependencies for each package
+    #[arg(short, long, conflicts_with_all = ["version", "targets"])]
+    pub graph: bool,
+
+    /// Do not group packages by topological rank
+    #[arg(
+        short,
+        long,
+        long_help = "Do not group packages by topological rank. If the `--graph` option is specified, print multiple lines per package, one for each dependency."
+    )]
+    pub flat: bool,
+
+    /// Print the version of each package
+    #[arg(
+        long,
+        long_help = "Print the version of each package. Implies --flat. More detailed information is available per dependency using the `parents` subcommand.",
+        conflicts_with_all = ["targets"],
+        alias = "versions",
+    )]
+    pub version: bool,
+
+    /// Print the targets available for each package
+    #[arg(long, alias = "target")]
+    pub targets: bool,
 }
 
 /// Execute the `packages` subcommand.
-pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
-    let graph = matches.get_flag("graph");
-    let flat = matches.get_flag("flat");
-    let version = matches.get_flag("version");
-    if graph && version {
-        return Err(Error::new("cannot specify both --graph and --version"));
-    }
-    let targets = matches.get_flag("targets");
-    if targets {
-        if graph {
-            return Err(Error::new("cannot specify both --graph and --targets"));
-        }
+pub fn run(sess: &Session, args: &PackagesArgs) -> Result<()> {
+    if args.targets {
         let rt = Runtime::new()?;
         let io = SessionIo::new(sess);
         let srcs = rt.block_on(io.sources(false, &[]))?;
@@ -91,12 +77,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
             "{}",
             String::from_utf8(tw.into_inner().unwrap()).unwrap()
         );
-    } else if graph {
+    } else if args.graph {
         let mut graph_str = String::from("");
         for (&pkg, deps) in sess.graph().iter() {
             let pkg_name = sess.dependency_name(pkg);
             let dep_names = deps.iter().map(|&id| sess.dependency_name(id));
-            if flat {
+            if args.flat {
                 // Print one line per dependency.
                 for dep_name in dep_names {
                     graph_str.push_str(&format!("{}\t{}\n", pkg_name, dep_name));
@@ -127,7 +113,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         for pkgs in sess.packages().iter() {
             let pkg_names = pkgs.iter().map(|&id| sess.dependency_name(id));
             let pkg_sources = pkgs.iter().map(|&id| sess.dependency(id));
-            if version {
+            if args.version {
                 for pkg_source in pkg_sources {
                     version_str.push_str(&format!(
                         "{}:\t{}\tat {}\t{}\n",
@@ -145,7 +131,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                         }
                     ));
                 }
-            } else if flat {
+            } else if args.flat {
                 // Print one line per package.
                 for pkg_name in pkg_names {
                     let _ = writeln!(std::io::stdout(), "{}", pkg_name);
@@ -162,7 +148,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 let _ = writeln!(std::io::stdout(),);
             }
         }
-        if version {
+        if args.version {
             let mut tw = TabWriter::new(vec![]);
             write!(&mut tw, "{}", version_str).unwrap();
             tw.flush().unwrap();

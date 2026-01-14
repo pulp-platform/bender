@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::{Args, Subcommand};
 use futures::future::{self};
 use glob::Pattern;
 use tempfile::TempDir;
@@ -35,56 +35,59 @@ pub struct PatchLink {
     pub exclude: Vec<PathBuf>,
 }
 
-/// Assemble the `vendor` subcommand.
-pub fn new() -> Command {
-    Command::new("vendor")
-        .subcommand_required(true).arg_required_else_help(true)
-        .about("Copy source code from upstream external repositories into this repository")
-        .long_about("Copy source code from upstream external repositories into this repository. Functions similar to the lowrisc vendor.py script.")
-        .after_help("Type 'bender vendor <SUBCOMMAND> --help' for more information about a vendor subcommand.")
-        .subcommand(Command::new("diff")
-            .about("Display a diff of the local tree and the upstream tree with patches applied.")
-            .arg(
-                Arg::new("err_on_diff")
-                    .long("err_on_diff")
-                    .short('e')
-                    .num_args(0..=1)
-                    .help("Return error code 1 when a diff is encountered. (Optional) override the error message by providing a value."),
-            )
-        )
-        .subcommand(Command::new("init")
-            .about("(Re-)initialize the external dependencies.")
-            .long_about("(Re-)initialize the external dependencies. Copies the upstream files into the target directories and applies existing patches.")
-            .arg(
-                Arg::new("no_patch")
-                    .short('n')
-                    .action(ArgAction::SetTrue)
-                    .long("no_patch")
-                    .help("Do not apply patches when initializing dependencies"),
-            )
-        )
-        .subcommand(Command::new("patch")
-            .about("Generate a patch file from staged local changes")
-            .arg(
-                Arg::new("plain")
-                .action(ArgAction::SetTrue)
-                .long("plain")
-                .help("Generate a plain diff instead of a format-patch.")
-                .long_help("Generate a plain diff instead of a format-patch. Includes all local changes (not only the staged ones)."),
-            )
-            .arg(
-                Arg::new("message")
-                .long("message")
-                .short('m')
-                .num_args(1)
-                .action(ArgAction::Append)
-                .help("The message to be associated with the format-patch."),
-            )
-        )
+/// Copy source code from upstream external repositories into this repository
+#[derive(Args, Debug)]
+#[command(
+    about = "Copy source code from upstream external repositories into this repository",
+    long_about = "Copy source code from upstream external repositories into this repository. Functions similar to the lowrisc vendor.py script.",
+    after_help = "Type 'bender vendor <SUBCOMMAND> --help' for more information about a vendor subcommand.",
+    subcommand_required = true,
+    arg_required_else_help = true
+)]
+pub struct VendorArgs {
+    /// Subcommand for vendor
+    #[command(subcommand)]
+    pub vendor_subcommand: VendorSubcommand,
+}
+
+/// Copy source code from upstream external repositories into this repository
+#[derive(Subcommand, Debug)]
+pub enum VendorSubcommand {
+    /// Display a diff of the local tree and the upstream tree with patches applied.
+    Diff {
+        /// Return error code 1 when a diff is encountered. (Optional) override the error message by providing a value.
+        // alias is for backward compatibility
+        #[arg(long, num_args(0..=1), alias="err_on_diff")]
+        err_on_diff: Option<String>,
+    },
+    /// (Re-)initialize the external dependencies.
+    #[command(
+        long_about = "(Re-)initialize the external dependencies. Copies the upstream files into the target directories and applies existing patches."
+    )]
+    Init {
+        /// Do not apply patches when initializing dependencies
+        // alias is for backward compatibility
+        #[arg(short, long, alias = "no_patch")]
+        no_patch: bool,
+    },
+    /// Generate a patch file from staged local changes
+    Patch {
+        /// Generate a plain diff instead of a format-patch.
+        #[arg(
+            long,
+            help = "Generate a plain diff instead of a format-patch.",
+            long_help = "Generate a plain diff instead of a format-patch. Includes all local changes (not only the staged ones)."
+        )]
+        plain: bool,
+
+        /// The message to be associated with the format-patch.
+        #[arg(short, long)]
+        message: Option<String>,
+    },
 }
 
 /// Execute the `vendor` subcommand.
-pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
+pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
     let rt = Runtime::new()?;
 
     for vendor_package in &sess.manifest.vendor_package {
@@ -182,8 +185,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
         }
         let git = Git::new(tmp_path, &sess.config.git, sess.git_throttle.clone());
 
-        match matches.subcommand() {
-            Some(("diff", matches)) => {
+        match &args.vendor_subcommand {
+            VendorSubcommand::Diff { err_on_diff } => {
                 // Apply patches
                 sorted_links
                     .clone()
@@ -203,8 +206,8 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     if !get_diff.is_empty() {
                         let _ = write!(std::io::stdout(), "{}", get_diff);
                         // If desired, return an error (e.g. for CI)
-                        if matches.contains_id("err_on_diff") {
-                            let err_msg : Option<&String> = matches.get_one("err_on_diff");
+                        if err_on_diff.is_some() {
+                            let err_msg : Option<&String> = err_on_diff.as_ref();
                             let err_msg = match err_msg {
                                 Some(err_msg) => err_msg.to_string(),
                                 _ => "Found differences, please patch (e.g. using bender vendor patch).".to_string()
@@ -216,7 +219,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 })
             }
 
-            Some(("init", matches)) => {
+            VendorSubcommand::Init { no_patch } => {
                 sorted_links.into_iter().rev().try_for_each(|patch_link| {
                     stageln!("Copying", "{} files from upstream", vendor_package.name);
                     // Remove existing directories before importing them again
@@ -242,12 +245,12 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                         vendor_package,
                         patch_link,
                         dep_path.clone(),
-                        matches,
+                        *no_patch,
                     )
                 })
             }
 
-            Some(("patch", matches)) => {
+            VendorSubcommand::Patch { plain, message } => {
                 // Apply patches
                 let mut num_patches = 0;
                 sorted_links
@@ -269,7 +272,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                 sorted_links.into_iter().try_for_each( |patch_link| {
                     match patch_link.patch_dir.clone() {
                         Some(patch_dir) => {
-                            if matches.get_flag("plain") {
+                            if *plain {
                                 let get_diff = diff(&rt,
                                                     git.clone(),
                                                     vendor_package,
@@ -278,7 +281,7 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                                             .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
                                 gen_plain_patch(get_diff, patch_dir, false)
                             } else {
-                                gen_format_patch(&rt, sess, git.clone(), patch_link, vendor_package.target_dir.clone(), matches.get_one("message"))
+                                gen_format_patch(&rt, sess, git.clone(), patch_link, vendor_package.target_dir.clone(), message.as_ref())
                             }
                         },
                         None => {
@@ -288,7 +291,6 @@ pub fn run(sess: &Session, matches: &ArgMatches) -> Result<()> {
                     }
                 })
             }
-            _ => Ok(()),
         }?;
     }
 
@@ -302,7 +304,7 @@ pub fn init(
     vendor_package: &config::VendorPackage,
     patch_link: PatchLink,
     dep_path: impl AsRef<Path>,
-    matches: &ArgMatches,
+    no_patch: bool,
 ) -> Result<()> {
     // import necessary files from upstream, apply patches
     let dep_path = dep_path.as_ref();
@@ -320,7 +322,7 @@ pub fn init(
         )
     })?;
 
-    if !matches.get_flag("no_patch") {
+    if no_patch {
         apply_patches(
             rt,
             git.clone(),
