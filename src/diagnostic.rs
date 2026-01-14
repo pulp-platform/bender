@@ -180,12 +180,18 @@ pub enum Warnings {
     #[diagnostic(code(W05))]
     NoFilesForGlobalPattern { path: String },
 
+    // TODO(fischeti): Why are there two W06 variants?
     #[error("Dependency {} in checkout_dir {} is not a git repository. Setting as path dependency.", fmt_pkg!(.0), fmt_path!(.1.display()))]
     #[diagnostic(
         code(W06),
         help("Use `bender clone` to work on git dependencies.\nRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.")
     )]
     NotAGitDependency(String, PathBuf),
+
+    // TODO(fischeti): Why are there two W06 variants?
+    #[error("Dependency {} in checkout_dir {} is not in a clean state. Setting as path dependency.", fmt_pkg!(.0), fmt_path!(.1.display()))]
+    #[diagnostic(code(W06), help("Use `bender clone` to work on git dependencies.\nRun `bender update --ignore-checkout-dir` to overwrite this at your own risk."))]
+    DirtyGitDependency(String, PathBuf),
 
     // TODO(fischeti): Why are there two W07 variants?
     // TODO(fischeti): This is part of an error, not a warning. Move to Error enum later?
