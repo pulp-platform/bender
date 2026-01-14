@@ -273,15 +273,24 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                     match patch_link.patch_dir.clone() {
                         Some(patch_dir) => {
                             if *plain {
-                                let get_diff = diff(&rt,
-                                                    git.clone(),
-                                                    vendor_package,
-                                                    patch_link,
-                                                    dep_path.clone())
-                                            .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
+                                let get_diff = diff(
+                                    &rt,
+                                    git.clone(),
+                                    vendor_package,
+                                    patch_link,
+                                    dep_path.clone(),
+                                )
+                                .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
                                 gen_plain_patch(get_diff, patch_dir, false)
                             } else {
-                                gen_format_patch(&rt, sess, git.clone(), patch_link, vendor_package.target_dir.clone(), message.as_ref())
+                                gen_format_patch(
+                                    &rt,
+                                    sess,
+                                    git.clone(),
+                                    patch_link,
+                                    vendor_package.target_dir.clone(),
+                                    message.as_ref(),
+                                )
                             }
                         }
                         None => {
@@ -341,7 +350,7 @@ pub fn init(
         if !PathBuf::from(extend_paths(std::slice::from_ref(&path), dep_path, true)?[0].clone())
             .exists()
         {
-            Warnings::NotInUpstream { path: path }.emit();
+            Warnings::NotInUpstream { path }.emit();
         }
     }
 

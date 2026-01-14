@@ -181,7 +181,7 @@ impl Diagnostics {
         miette::set_hook(Box::new(|_| Box::new(DiagnosticRenderer))).unwrap();
         let diag = Diagnostics {
             all_suppressed: suppressed.contains("all") || suppressed.contains("Wall"),
-            suppressed: suppressed,
+            suppressed,
             emitted: Mutex::new(HashSet::new()),
         };
 
@@ -200,7 +200,7 @@ impl Diagnostics {
     /// Check whether a warning/error code is suppressed.
     pub fn is_suppressed(code: &str) -> bool {
         let diag = Diagnostics::get();
-        diag.all_suppressed || diag.suppressed.contains(&code.to_string())
+        diag.all_suppressed || diag.suppressed.contains(code)
     }
 }
 

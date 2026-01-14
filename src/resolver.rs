@@ -102,27 +102,21 @@ impl<'ctx> DependencyResolver<'ctx> {
                     // Only act if the avoiding flag is not set and any of the following match
                     //  - the dependency is not a git repo
                     //  - the dependency is not in a clean state (i.e., was modified)
-                    if !ignore_checkout {
-                        if !is_git_repo {
-                            Warnings::NotAGitDependency(depname.clone(), checkout.clone()).emit();
-                            self.checked_out.insert(
-                                depname,
-                                config::Dependency::Path(dir.unwrap().path(), vec![]),
-                            );
-                        } else if !(SysCommand::new(&self.sess.config.git) // If not in a clean state
-                            .arg("status")
-                            .arg("--porcelain")
-                            .current_dir(dir.as_ref().unwrap().path())
-                            .output()?
-                            .stdout
-                            .is_empty())
-                        {
-                            Warnings::NotAGitDependency(depname.clone(), checkout.clone()).emit();
-                            self.checked_out.insert(
-                                depname,
-                                config::Dependency::Path(dir.unwrap().path(), vec![]),
-                            );
-                        }
+                    if !ignore_checkout
+                        && (!is_git_repo
+                            || !(SysCommand::new(&self.sess.config.git) // If not in a clean state
+                                .arg("status")
+                                .arg("--porcelain")
+                                .current_dir(dir.as_ref().unwrap().path())
+                                .output()?
+                                .stdout
+                                .is_empty()))
+                    {
+                        Warnings::NotAGitDependency(depname.clone(), checkout.clone()).emit();
+                        self.checked_out.insert(
+                            depname,
+                            config::Dependency::Path(dir.unwrap().path(), vec![]),
+                        );
                     }
                 }
             }
