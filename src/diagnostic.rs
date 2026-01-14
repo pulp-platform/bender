@@ -10,6 +10,8 @@ use miette::{Diagnostic, ReportHandler};
 use owo_colors::OwoColorize;
 use thiserror::Error;
 
+use crate::{fmt_field, fmt_path, fmt_pkg};
+
 static GLOBAL_DIAGNOSTICS: OnceLock<Diagnostics> = OnceLock::new();
 
 /// A diagnostics manager that handles warnings (and errors).
@@ -147,8 +149,8 @@ impl ReportHandler for DiagnosticRenderer {
 pub enum Warnings {
     #[error(
         "Skipping link to package {} at {} since there is something there",
-        pkg!(.0),
-        path!(.1.display())
+        fmt_pkg!(.0),
+        fmt_path!(.1.display())
     )]
     #[diagnostic(
         code(W01),
@@ -156,29 +158,29 @@ pub enum Warnings {
     )]
     SkippingPackageLink(String, PathBuf),
 
-    #[error("Using config at {} for overrides.", path!(path.display()))]
+    #[error("Using config at {} for overrides.", fmt_path!(path.display()))]
     #[diagnostic(code(W02))]
     UsingConfigForOverride { path: PathBuf },
 
-    #[error("Ignoring unknown field {} in package {}.", field!(field), pkg!(pkg))]
+    #[error("Ignoring unknown field {} in package {}.", fmt_field!(field), fmt_pkg!(pkg))]
     #[diagnostic(
         code(W03),
-        help("Check for typos in {} or remove it from the {} manifest.", field!(field), pkg!(pkg))
+        help("Check for typos in {} or remove it from the {} manifest.", fmt_field!(field), fmt_pkg!(pkg))
     )]
     IgnoreUnknownField { field: String, pkg: String },
 
-    #[error("Source group in package {} contains no source files.", pkg!(.0))]
+    #[error("Source group in package {} contains no source files.", fmt_pkg!(.0))]
     #[diagnostic(
         code(W04),
         help("Add source files to the source group or remove it from the manifest.")
     )]
     NoFilesInSourceGroup(String),
 
-    #[error("No files matched the global pattern {}.", path!(path))]
+    #[error("No files matched the global pattern {}.", fmt_path!(path))]
     #[diagnostic(code(W05))]
     NoFilesForGlobalPattern { path: String },
 
-    #[error("Dependency {} in checkout_dir {} is not a git repository. Setting as path dependency.", pkg!(.0), path!(.1.display()))]
+    #[error("Dependency {} in checkout_dir {} is not a git repository. Setting as path dependency.", fmt_pkg!(.0), fmt_path!(.1.display()))]
     #[diagnostic(
         code(W06),
         help("Use `bender clone` to work on git dependencies.\nRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.")
@@ -204,36 +206,36 @@ pub enum Warnings {
     UrlMaybeIncorrect,
 
     // TODO(fischeti): This is part of an error, not a warning. Move to Error enum later?
-    #[error("Revision {} not found in repository {}.", pkg!(.0), pkg!(.1))]
+    #[error("Revision {} not found in repository {}.", fmt_pkg!(.0), fmt_pkg!(.1))]
     #[diagnostic(
         code(W08),
         help("Check that the revision exists in the remote repository or run `bender update`.")
     )]
     RevisionNotFound(String, String),
 
-    #[error("Path dependency {} inside git dependency {} detected. This is currently not fully suppored and your milage may vary.", pkg!(pkg), pkg!(top_pkg))]
+    #[error("Path dependency {} inside git dependency {} detected. This is currently not fully suppored and your milage may vary.", fmt_pkg!(pkg), fmt_pkg!(top_pkg))]
     #[diagnostic(code(W09))]
     PathDepInGitDep { pkg: String, top_pkg: String },
 
-    #[error("There may be issues in the path for {}.", pkg!(.0))]
+    #[error("There may be issues in the path for {}.", fmt_pkg!(.0))]
     #[diagnostic(
         code(W10),
-        help("Please check that {} is correct and accessible.", path!(.1.display()))
+        help("Please check that {} is correct and accessible.", fmt_path!(.1.display()))
     )]
     MaybePathIssues(String, PathBuf),
 
-    #[error("Dependency package name {} does not match the package name {} in its manifest.", pkg!(.0), pkg!(.1))]
+    #[error("Dependency package name {} does not match the package name {} in its manifest.", fmt_pkg!(.0), fmt_pkg!(.1))]
     #[diagnostic(
         code(W11),
-        help("Check that the dependency name in your root manifest matches the name in the {} manifest.", pkg!(.0))
+        help("Check that the dependency name in your root manifest matches the name in the {} manifest.", fmt_pkg!(.0))
     )]
     DepPkgNameNotMatching(String, String),
 
-    #[error("Manifest for package {} not found at {}.", pkg!(pkg), path!(src))]
+    #[error("Manifest for package {} not found at {}.", fmt_pkg!(pkg), fmt_path!(src))]
     #[diagnostic(code(W12))]
     ManifestNotFound { pkg: String, src: String },
 
-    #[error("Name issue with package {}. `export_include_dirs` cannot be handled.", pkg!(.0))]
+    #[error("Name issue with package {}. `export_include_dirs` cannot be handled.", fmt_pkg!(.0))]
     #[diagnostic(
         code(W13),
         help("Could be related to name missmatch, check `bender update`.")
@@ -244,7 +246,7 @@ pub enum Warnings {
     #[diagnostic(code(W14))]
     LocalNoFetch,
 
-    #[error("No patch directory found for package {} when trying to apply patches from {} to {}. Skipping patch generation.", pkg!(vendor_pkg), path!(from_prefix.display()), path!(to_prefix.display()))]
+    #[error("No patch directory found for package {} when trying to apply patches from {} to {}. Skipping patch generation.", fmt_pkg!(vendor_pkg), fmt_path!(from_prefix.display()), fmt_path!(to_prefix.display()))]
     #[diagnostic(code(W15))]
     NoPatchDir {
         vendor_pkg: String,
@@ -257,19 +259,19 @@ pub enum Warnings {
     DependStringMaybeWrong,
 
     // TODO(fischeti): Why are there two W16 variants?
-    #[error("{} not found in upstream, continuing.", path!(path))]
+    #[error("{} not found in upstream, continuing.", fmt_path!(path))]
     #[diagnostic(code(W16))]
     NotInUpstream { path: String },
 
-    #[error("Package {} is shown to include dependency, but manifest does not have this information.", pkg!(pkg))]
+    #[error("Package {} is shown to include dependency, but manifest does not have this information.", fmt_pkg!(pkg))]
     #[diagnostic(code(W17))]
     IncludeDepManifestMismatch { pkg: String },
 
-    #[error("An override is specified for dependency {} to {}.", pkg!(pkg), pkg!(pkg_override))]
+    #[error("An override is specified for dependency {} to {}.", fmt_pkg!(pkg), fmt_pkg!(pkg_override))]
     #[diagnostic(code(W18))]
     DepOverride { pkg: String, pkg_override: String },
 
-    #[error("Workspace checkout directory set and has uncommitted changes, not updating {} at {}.", pkg!(.0), path!(.1.display()))]
+    #[error("Workspace checkout directory set and has uncommitted changes, not updating {} at {}.", fmt_pkg!(.0), fmt_path!(.1.display()))]
     #[diagnostic(
         code(W19),
         help("Run `bender checkout --force` to overwrite the dependency at your own risk.")
@@ -277,42 +279,42 @@ pub enum Warnings {
     CheckoutDirDirty(String, PathBuf),
 
     // TODO(fischeti): Should this be an error instead of a warning?
-    #[error("Ignoring error for {} at {}: {}", pkg!(.0), path!(.1), .2)]
+    #[error("Ignoring error for {} at {}: {}", fmt_pkg!(.0), fmt_path!(.1), .2)]
     #[diagnostic(code(W20))]
     IgnoringError(String, String, String),
 
-    #[error("No revision found in lock file for git dependency {}.", pkg!(pkg))]
+    #[error("No revision found in lock file for git dependency {}.", fmt_pkg!(pkg))]
     #[diagnostic(code(W21))]
     NoRevisionInLockFile { pkg: String },
 
-    #[error("Dependency {} has source path {} which does not exist.", pkg!(.0), path!(.1.display()))]
+    #[error("Dependency {} has source path {} which does not exist.", fmt_pkg!(.0), fmt_path!(.1.display()))]
     #[diagnostic(code(W22), help("Please check that the path exists and is correct."))]
     DepSourcePathMissing(String, PathBuf),
 
-    #[error("Locked revision {} for dependency {} not found in available revisions, allowing update.", pkg!(rev), pkg!(pkg))]
+    #[error("Locked revision {} for dependency {} not found in available revisions, allowing update.", fmt_pkg!(rev), fmt_pkg!(pkg))]
     #[diagnostic(code(W23))]
     LockedRevisionNotFound { pkg: String, rev: String },
 
-    #[error("Include directory {} doesn't exist.", path!(.0.display()))]
+    #[error("Include directory {} doesn't exist.", fmt_path!(.0.display()))]
     #[diagnostic(
         code(W24),
         help("Please check that the include directory exists and is correct.")
     )]
     IncludeDirMissing(PathBuf),
 
-    #[error("Skipping dirty dependency {}", pkg!(pkg))]
-    #[diagnostic(help("Use `--no-skip` to still snapshot {}.", pkg!(pkg)))]
+    #[error("Skipping dirty dependency {}", fmt_pkg!(pkg))]
+    #[diagnostic(help("Use `--no-skip` to still snapshot {}.", fmt_pkg!(pkg)))]
     SkippingDirtyDep { pkg: String },
 
     #[error("File not added, ignoring: {cause}")]
     #[diagnostic(code(W30))]
     IgnoredPath { cause: String },
 
-    #[error("File {} doesn't exist.", path!(path.display()))]
+    #[error("File {} doesn't exist.", fmt_path!(path.display()))]
     #[diagnostic(code(W31))]
     FileMissing { path: PathBuf },
 
-    #[error("Path {} for dependency {} does not exist.", path!(path.display()), pkg!(pkg))]
+    #[error("Path {} for dependency {} does not exist.", fmt_path!(path.display()), fmt_pkg!(pkg))]
     #[diagnostic(code(W32))]
     DepPathMissing { pkg: String, path: PathBuf },
 }

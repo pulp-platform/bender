@@ -151,27 +151,3 @@ macro_rules! stageln {
 pub fn println_stage(stage: &str, message: &str) {
     eprintln!("\x1B[32;1m{:>12}\x1B[0m {}", stage, message);
 }
-
-/// Bold a package name in diagnostic messages.
-#[macro_export]
-macro_rules! pkg {
-    ($pkg:expr) => {
-        $pkg.bold()
-    };
-}
-
-/// Underline a path in diagnostic messages.
-#[macro_export]
-macro_rules! path {
-    ($pkg:expr) => {
-        $pkg.underline()
-    };
-}
-
-/// Italicize a field name in diagnostic messages.
-#[macro_export]
-macro_rules! field {
-    ($field:expr) => {
-        $field.italic()
-    };
-}

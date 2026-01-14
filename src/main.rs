@@ -40,6 +40,7 @@ pub mod resolver;
 pub mod sess;
 pub mod src;
 pub mod target;
+#[macro_use]
 pub mod util;
 
 fn main() {
