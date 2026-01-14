@@ -115,6 +115,15 @@ pub fn main() -> Result<()> {
 
     let mut suppressed_warnings: IndexSet<String> =
         cli.suppress.into_iter().map(|s| s.to_owned()).collect();
+    // split suppress strings on commas and spaces
+    suppressed_warnings = suppressed_warnings
+        .into_iter()
+        .flat_map(|s| {
+            s.split(&[',', ' '][..])
+                .map(|t| t.to_string())
+                .collect::<Vec<_>>()
+        })
+        .collect();
 
     if suppressed_warnings.contains("all") || suppressed_warnings.contains("Wall") {
         suppressed_warnings.extend((1..24).map(|i| format!("W{:02}", i)));
