@@ -431,7 +431,7 @@ pub fn version_req_bottom_bound(req: &VersionReq) -> Result<Option<Version>> {
     }
 }
 
-/// Bold a package name in diagnostic messages.
+/// Format for `package` names in diagnostic messages.
 #[macro_export]
 macro_rules! fmt_pkg {
     ($pkg:expr) => {
@@ -439,7 +439,7 @@ macro_rules! fmt_pkg {
     };
 }
 
-/// Underline a path in diagnostic messages.
+/// Format for `path` and `url` fields in diagnostic messages.
 #[macro_export]
 macro_rules! fmt_path {
     ($pkg:expr) => {
@@ -447,7 +447,7 @@ macro_rules! fmt_path {
     };
 }
 
-/// Italicize a field name in diagnostic messages.
+/// Format for `field` names in diagnostic messages.
 #[macro_export]
 macro_rules! fmt_field {
     ($field:expr) => {
@@ -455,7 +455,7 @@ macro_rules! fmt_field {
     };
 }
 
-/// Bold a version in diagnostic messages.
+/// Format for `version` and `revision` fields in diagnostic messages.
 #[macro_export]
 macro_rules! fmt_version {
     ($ver:expr) => {

@@ -15,7 +15,7 @@ use crate::config::Dependency;
 use crate::error::*;
 use crate::sess::{DependencyConstraint, DependencySource};
 use crate::sess::{Session, SessionIo};
-use crate::{fmt_path, fmt_pkg};
+use crate::{fmt_path, fmt_pkg, fmt_version};
 
 /// List packages calling this dependency
 #[derive(Args, Debug)]
@@ -102,10 +102,10 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
         Warnings::DepOverride {
             pkg: dep.to_string(),
             pkg_override: match sess.config.overrides[dep] {
-                Dependency::Version(ref v, _) => format!("version {}", fmt_pkg!(v)),
+                Dependency::Version(ref v, _) => format!("version {}", fmt_version!(v)),
                 Dependency::Path(ref path, _) => format!("path {}", fmt_path!(path.display())),
                 Dependency::GitRevision(ref url, ref rev, _) => {
-                    format!("git {} at revision {}", fmt_path!(url), fmt_pkg!(rev))
+                    format!("git {} at revision {}", fmt_path!(url), fmt_version!(rev))
                 }
                 Dependency::GitVersion(ref url, ref version, _) => {
                     format!("git {} with version {}", fmt_path!(url), fmt_pkg!(version))

@@ -10,7 +10,7 @@ use miette::{Diagnostic, ReportHandler};
 use owo_colors::OwoColorize;
 use thiserror::Error;
 
-use crate::{fmt_field, fmt_path, fmt_pkg};
+use crate::{fmt_field, fmt_path, fmt_pkg, fmt_version};
 
 static GLOBAL_DIAGNOSTICS: OnceLock<Diagnostics> = OnceLock::new();
 
@@ -211,7 +211,7 @@ pub enum Warnings {
     UrlMaybeIncorrect,
 
     // TODO(fischeti): This is part of an error, not a warning. Move to Error enum later?
-    #[error("Revision {} not found in repository {}.", fmt_pkg!(.0), fmt_pkg!(.1))]
+    #[error("Revision {} not found in repository {}.", fmt_version!(.0), fmt_pkg!(.1))]
     #[diagnostic(
         code(W08),
         help("Check that the revision exists in the remote repository or run `bender update`.")
@@ -296,7 +296,7 @@ pub enum Warnings {
     #[diagnostic(code(W22), help("Please check that the path exists and is correct."))]
     DepSourcePathMissing(String, PathBuf),
 
-    #[error("Locked revision {} for dependency {} not found in available revisions, allowing update.", fmt_pkg!(rev), fmt_pkg!(pkg))]
+    #[error("Locked revision {} for dependency {} not found in available revisions, allowing update.", fmt_version!(rev), fmt_pkg!(pkg))]
     #[diagnostic(code(W23))]
     LockedRevisionNotFound { pkg: String, rev: String },
 
