@@ -192,8 +192,7 @@ pub enum Warnings {
     #[diagnostic(code(W06), help("Use `bender clone` to work on git dependencies.\nRun `bender update --ignore-checkout-dir` to overwrite this at your own risk."))]
     DirtyGitDependency(String, PathBuf),
 
-    // TODO(fischeti): Why are there two W07 variants?
-    // TODO(fischeti): This is part of an error, not a warning. Move to Error enum later?
+    // TODO(fischeti): This is part of an error, not a warning. Should be converted to an Error.
     #[error("SSH key might be missing.")]
     #[diagnostic(
         code(W07),
@@ -201,8 +200,7 @@ pub enum Warnings {
     )]
     SshKeyMaybeMissing,
 
-    // TODO(fischeti): Why are there two W07 variants?
-    // TODO(fischeti): This is part of an error, not a warning. Move to Error enum later?
+    // TODO(fischeti): This is part of an error, not a warning. Should be converted to an Error.
     #[error("SSH key might be missing.")]
     #[diagnostic(
         code(W07),
@@ -210,7 +208,7 @@ pub enum Warnings {
     )]
     UrlMaybeIncorrect,
 
-    // TODO(fischeti): This is part of an error, not a warning. Move to Error enum later?
+    // TODO(fischeti): This is part of an error, not a warning. Should be converted to an Error.
     #[error("Revision {} not found in repository {}.", fmt_version!(.0), fmt_pkg!(.1))]
     #[diagnostic(
         code(W08),
