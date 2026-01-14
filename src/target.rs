@@ -249,10 +249,10 @@ where
         }
         Some(Ok(TargetToken::Ident(name))) => {
             if name.contains(':') {
-                return Err(Error::new("Targets names cannot contain colons (`:`)."));
+                return Err(TargetError::TargetNameContainsColon);
             }
             if name.starts_with('-') {
-                return Err(Error::new("Target names cannot start with a hyphen (`-`)."));
+                return Err(TargetError::TargetNameStartsWithHyphen);
             }
             TargetSpec::Name(name)
         }
@@ -392,4 +392,10 @@ pub enum TargetError {
 
     #[error("{0}")]
     ParseError(String),
+
+    #[error("Targets names cannot contain colons (`:`).")]
+    TargetNameContainsColon,
+
+    #[error("Target names cannot start with a hyphen (`-`).")]
+    TargetNameStartsWithHyphen,
 }
