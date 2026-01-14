@@ -243,12 +243,12 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             ScriptFormat::Vcs { .. } => vec!["vcs", "simulation"],
             ScriptFormat::Verilator { .. } => vec!["verilator", "synthesis"],
             ScriptFormat::Synopsys { .. } => vec!["synopsys", "synthesis"],
-            ScriptFormat::Formality { .. } => vec!["synopsys", "synthesis", "formality"],
+            ScriptFormat::Formality => vec!["synopsys", "synthesis", "formality"],
             ScriptFormat::Riviera { .. } => vec!["riviera", "simulation"],
-            ScriptFormat::Genus { .. } => vec!["genus", "synthesis"],
+            ScriptFormat::Genus => vec!["genus", "synthesis"],
             ScriptFormat::Vivado { .. } => concat(vivado_targets, &["synthesis"]),
             ScriptFormat::VivadoSim { .. } => concat(vivado_targets, &["simulation"]),
-            ScriptFormat::Precision { .. } => vec!["precision", "fpga", "synthesis"],
+            ScriptFormat::Precision => vec!["precision", "fpga", "synthesis"],
             ScriptFormat::Template { .. } => vec![],
             ScriptFormat::TemplateJson => vec![],
         }
@@ -257,12 +257,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
     };
 
     // Filter the sources by target.
-    let targets = TargetSet::new(
-        args.target
-            .iter()
-            .map(|s| s.as_str())
-            .chain(format_targets.into_iter()),
-    );
+    let targets = TargetSet::new(args.target.iter().map(|s| s.as_str()).chain(format_targets));
 
     if args.assume_rtl {
         srcs = srcs.assign_target("rtl".to_string());
@@ -344,7 +339,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             tera_context.insert("vhdl_args", vhdl_args);
             include_str!("../script_fmt/synopsys_tcl.tera")
         }
-        ScriptFormat::Formality {} => include_str!("../script_fmt/formality_tcl.tera"),
+        ScriptFormat::Formality => include_str!("../script_fmt/formality_tcl.tera"),
         ScriptFormat::Riviera {
             vlog_args,
             vcom_args,
@@ -353,7 +348,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             tera_context.insert("vcom_args", vcom_args);
             include_str!("../script_fmt/riviera_tcl.tera")
         }
-        ScriptFormat::Genus {} => include_str!("../script_fmt/genus_tcl.tera"),
+        ScriptFormat::Genus => include_str!("../script_fmt/genus_tcl.tera"),
         ScriptFormat::Vivado { no_simset, only } | ScriptFormat::VivadoSim { no_simset, only } => {
             only_args = only.clone();
             tera_context.insert("vivado_filesets", &{
@@ -365,12 +360,12 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             });
             include_str!("../script_fmt/vivado_tcl.tera")
         }
-        ScriptFormat::Precision {} => include_str!("../script_fmt/precision_tcl.tera"),
+        ScriptFormat::Precision => include_str!("../script_fmt/precision_tcl.tera"),
         ScriptFormat::Template { template } => &std::fs::read_to_string(template)?,
-        ScriptFormat::TemplateJson => &JSON.to_string(),
+        ScriptFormat::TemplateJson => JSON,
     };
 
-    emit_template(sess, tera_context, &template_content, args, only_args, srcs)
+    emit_template(sess, tera_context, template_content, args, only_args, srcs)
 }
 
 /// Subdivide the source files in a group.
