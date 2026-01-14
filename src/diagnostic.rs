@@ -92,8 +92,16 @@ impl ReportHandler for DiagnosticRenderer {
             miette::Severity::Advice => ("advice", owo_colors::Style::new().cyan().bold()),
         };
 
-        // Write the severity prefix and the diagnostic message
-        write!(f, "{}: {}", severity.style(style), diagnostic)?;
+        // Write the severity prefix
+        write!(f, "{}", severity.style(style))?;
+
+        // Write the code, if any
+        if let Some(code) = diagnostic.code() {
+            write!(f, "{}", format!("[{}]", code).style(style))?;
+        }
+
+        // Write the main diagnostic message
+        write!(f, ": {}", diagnostic)?;
 
         // We collect all footer lines into a vector.
         let mut annotations: Vec<String> = Vec::new();
@@ -108,15 +116,6 @@ impl ReportHandler for DiagnosticRenderer {
                     line.replace("\x1b[0m", "\x1b[0m\x1b[2m").dimmed()
                 ));
             }
-        }
-
-        // Finally, we write the code/suppression message, if any
-        if let Some(code) = diagnostic.code() {
-            annotations.push(format!(
-                "{} {}",
-                "suppress:".cyan().bold(), // No variable, no lifetime issue
-                format!("Run `bender --suppress {}` to suppress this warning", code).dimmed()
-            ));
         }
 
         // Prepare tree characters
