@@ -32,12 +32,14 @@ pub struct PackagesArgs {
     /// Print the version of each package
     #[arg(
         long,
-        long_help = "Print the version of each package. Implies --flat. More detailed information is available per dependency using the `parents` subcommand."
+        long_help = "Print the version of each package. Implies --flat. More detailed information is available per dependency using the `parents` subcommand.",
+        conflicts_with_all = ["targets"],
+        alias = "versions",
     )]
     pub version: bool,
 
     /// Print the targets available for each package
-    #[arg(long)]
+    #[arg(long, alias = "target")]
     pub targets: bool,
 }
 
