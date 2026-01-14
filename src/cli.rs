@@ -18,6 +18,7 @@ use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{value_parser, ArgAction, CommandFactory, Parser, Subcommand};
 use indexmap::IndexSet;
 use serde_yaml_ng;
+use thiserror::Error;
 use tokio::runtime::Runtime;
 
 use crate::cmd;
@@ -346,7 +347,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
 
     // Canonicalize the path. This will resolve any intermediate links.
     let mut path = canonicalize(from)
-        .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", from), cause))?;
+        .map_err(|cause| CliError::CanonicalizeError(from.to_path_buf(), cause))?;
     debugln!("find_package_root: canonicalized to {:?}", path);
 
     // Look up the device at the current path. This information will then be
@@ -367,10 +368,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
 
         // Abort if we have reached the filesystem root.
         if !path.pop() {
-            return Err(Error::new(format!(
-                "No manifest (`Bender.yml` file) found. Stopped searching at filesystem root {:?}.",
-                path
-            )));
+            return Err(CliError::NoManifestAtRoot(path));
         }
 
         // Abort if we have crossed the filesystem boundary.
@@ -379,17 +377,12 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
             let rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
             debugln!("find_package_root: rdev = {:?}", rdev);
             if rdev != limit_rdev {
-                return Err(Error::new(format!(
-                    "No manifest (`Bender.yml` file) found. Stopped searching at filesystem boundary {:?}.",
-                    path
-                )));
+                return Err(CliError::NoManifestAtBoundary(path));
             }
         }
     }
 
-    Err(Error::new(
-        "No manifest (`Bender.yml` file) found. Reached maximum number of search steps.",
-    ))
+    Err(CliError::NoManifestMaxSteps)
 }
 
 /// Read a package manifest from a file.
@@ -398,14 +391,14 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
     use std::fs::File;
     debugln!("read_manifest: {:?}", path);
     let file = File::open(path)
-        .map_err(|cause| Error::chain(format!("Cannot open manifest {:?}.", path), cause))?;
+        .map_err(|cause| CliError::CannotOpenManifest(path.to_path_buf(), cause))?;
     let partial: PartialManifest = serde_yaml_ng::from_reader(file)
-        .map_err(|cause| Error::chain(format!("Syntax error in manifest {:?}.", path), cause))?;
+        .map_err(|cause| CliError::ManifestSyntaxError(path.to_path_buf(), cause))?;
     partial
         .prefix_paths(path.parent().unwrap())
-        .map_err(|cause| Error::chain(format!("Error in manifest prefixing {:?}.", path), cause))?
+        .map_err(|cause| CliError::ManifestPrefixError(path.to_path_buf(), cause))?
         .validate("", false)
-        .map_err(|cause| Error::chain(format!("Error in manifest {:?}.", path), cause))
+        .map_err(|cause| CliError::ManifestError(path.to_path_buf(), cause))
 }
 
 /// Load a configuration by traversing a directory hierarchy upwards.
@@ -417,7 +410,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
 
     // Canonicalize the path. This will resolve any intermediate links.
     let mut path = canonicalize(from)
-        .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", from), cause))?;
+        .map_err(|cause| CliError::CanonicalizeError(from.to_path_buf(), cause))?;
     debugln!("load_config: canonicalized to {:?}", path);
 
     // Look up the device at the current path. This information will then be
@@ -483,7 +476,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
     // Validate the configuration.
     let mut out = out
         .validate("", false)
-        .map_err(|cause| Error::chain("Invalid configuration:", cause))?;
+        .map_err(|cause| CliError::ConfigError(cause))?;
 
     out.overrides = out
         .overrides
@@ -501,10 +494,10 @@ fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<Par
     if !path.exists() {
         return Ok(None);
     }
-    let file = File::open(path)
-        .map_err(|cause| Error::chain(format!("Cannot open config {:?}.", path), cause))?;
+    let file =
+        File::open(path).map_err(|cause| CliError::ConfigOpenError(path.to_path_buf(), cause))?;
     let partial: PartialConfig = serde_yaml_ng::from_reader(file)
-        .map_err(|cause| Error::chain(format!("Syntax error in config {:?}.", path), cause))?;
+        .map_err(|cause| CliError::ConfigSyntaxError(path.to_path_buf(), cause))?;
     if warn_config_loaded {
         Warnings::UsingConfigForOverride {
             path: path.to_path_buf(),
@@ -526,7 +519,7 @@ fn execute_plugin(sess: &Session, plugin: &str, args: &[String]) -> Result<()> {
     // Lookup the requested plugin and complain if it does not exist.
     let plugin = match plugins.get(plugin) {
         Some(p) => p,
-        None => return Err(Error::new(format!("Unknown command `{}`.", plugin))),
+        None => return Err(CliError::UnknownCommand(plugin.to_string())),
     };
     debugln!("main: found plugin {:#?}", plugin);
 
@@ -535,29 +528,78 @@ fn execute_plugin(sess: &Session, plugin: &str, args: &[String]) -> Result<()> {
     let mut cmd = SysCommand::new(&plugin.path);
     cmd.env(
         "BENDER",
-        std::env::current_exe()
-            .map_err(|cause| Error::chain("Failed to determine current executable.", cause))?,
+        std::env::current_exe().map_err(|cause| CliError::CurrentExeError(cause))?,
     );
     cmd.env(
         "BENDER_CALL_DIR",
-        std::env::current_dir()
-            .map_err(|cause| Error::chain("Failed to determine current directory.", cause))?,
+        std::env::current_dir().map_err(|cause| CliError::CurrentDirError(cause))?,
     );
     cmd.env("BENDER_MANIFEST_DIR", sess.root);
     cmd.current_dir(sess.root);
     cmd.args(args);
 
     debugln!("main: executing plugin {:#?}", cmd);
-    let stat = cmd.status().map_err(|cause| {
-        Error::chain(
-            format!(
-                "Unable to spawn process for plugin `{}`. Command was {:#?}.",
-                plugin.name, cmd
-            ),
-            cause,
-        )
-    })?;
+    let stat = cmd
+        .status()
+        .map_err(|cause| CliError::PluginSpawnError(plugin.name.clone(), cmd, cause))?;
 
     // Don't bother to do anything after the plugin was run.
     std::process::exit(stat.code().unwrap_or(1));
+}
+
+type Result<T> = std::result::Result<T, CliError>;
+
+#[derive(Debug, Error)]
+
+pub enum CliError {
+    #[error("No manifest (`Bender.yml` file) found. Stopped searching at filesystem root {}.", .0.display())]
+    NoManifestAtRoot(PathBuf),
+
+    #[error("No manifest (`Bender.yml` file) found. Stopped searching at filesystem boundary {}.", .0.display())]
+    NoManifestAtBoundary(PathBuf),
+
+    #[error("No manifest (`Bender.yml` file) found. Reached maximum number of search steps.")]
+    NoManifestMaxSteps,
+
+    #[error("Cannot open manifest {}.", .0.display())]
+    CannotOpenManifest(PathBuf, #[source] std::io::Error),
+
+    #[error("Syntax error in manifest {}.", .0.display())]
+    ManifestSyntaxError(PathBuf, #[source] serde_yaml_ng::Error),
+
+    #[error("Error in manifest prefixing {}.", .0.display())]
+    ManifestPrefixError(PathBuf, #[source] crate::config::ConfigError),
+
+    #[error("Error in manifest {}.", .0.display())]
+    ManifestError(PathBuf, #[source] crate::config::ConfigError),
+
+    #[error("Failed to canonicalize path {:?}.", .0)]
+    CanonicalizeError(PathBuf, #[source] std::io::Error),
+
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+
+    #[error("Invalid configuration")]
+    ConfigError(#[from] crate::config::ConfigError),
+
+    #[error("Cannot open config {}.", .0.display())]
+    ConfigOpenError(PathBuf, #[source] std::io::Error),
+
+    #[error("Syntax error in config {}.", .0.display())]
+    ConfigSyntaxError(PathBuf, #[source] serde_yaml_ng::Error),
+
+    #[error("Unknown command `{}`.", .0)]
+    UnknownCommand(String),
+
+    #[error("Failed to determine current executable.")]
+    CurrentExeError(#[source] std::io::Error),
+
+    #[error("Failed to determine current directory.")]
+    CurrentDirError(#[source] std::io::Error),
+
+    #[error("Unable to spawn process for plugin `{}`. Command was {:#?}.", .0, .1)]
+    PluginSpawnError(String, std::process::Command, #[source] std::io::Error),
+
+    #[error(transparent)]
+    SessionError(#[from] crate::sess::SessionError),
 }
