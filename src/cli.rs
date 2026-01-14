@@ -23,6 +23,7 @@ use tokio::runtime::Runtime;
 use crate::cmd;
 use crate::cmd::fusesoc::FusesocArgs;
 use crate::config::{Config, Manifest, Merge, PartialConfig, PrefixPaths, Validate};
+use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::lockfile::*;
 use crate::sess::{Session, SessionArenas, SessionIo};

@@ -12,6 +12,7 @@ use tabwriter::TabWriter;
 
 use crate::cmd;
 use crate::config::{Locked, LockedPackage};
+use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::lockfile::*;
 use crate::resolver::DependencyResolver;

@@ -12,6 +12,7 @@ use tokio::runtime::Runtime;
 
 use crate::cmd::clone::{get_path_subdeps, symlink_dir};
 use crate::config::{Dependency, Locked, LockedSource};
+use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{DependencySource, Session, SessionIo};
 

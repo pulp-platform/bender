@@ -5,6 +5,7 @@
 
 use std::io::Write;
 
+use crate::diagnostic::Warnings;
 use clap::Args;
 use indexmap::IndexMap;
 use owo_colors::OwoColorize;

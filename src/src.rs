@@ -15,7 +15,8 @@ use indexmap::{IndexMap, IndexSet};
 use serde::ser::{Serialize, Serializer};
 
 use crate::config::Validate;
-use crate::error::{Diagnostics, Error, Warnings};
+use crate::diagnostic::{Diagnostics, Warnings};
+use crate::error::Error;
 use crate::sess::Session;
 use crate::target::{TargetSet, TargetSpec};
 use semver;

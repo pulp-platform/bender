@@ -32,6 +32,7 @@ pub mod error;
 pub mod cli;
 pub mod cmd;
 pub mod config;
+pub mod diagnostic;
 pub mod git;
 pub mod lockfile;
 pub mod resolver;

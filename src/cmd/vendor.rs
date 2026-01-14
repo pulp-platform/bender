@@ -17,6 +17,7 @@ use tokio::runtime::Runtime;
 
 use crate::config;
 use crate::config::PrefixPaths;
+use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::futures::TryFutureExt;
 use crate::git::Git;

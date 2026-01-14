@@ -12,6 +12,7 @@ use tokio::runtime::Runtime;
 
 use crate::config;
 use crate::config::{Locked, LockedSource};
+use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{DependencyRef, DependencySource, Session, SessionIo};
 

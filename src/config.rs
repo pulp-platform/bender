@@ -26,6 +26,7 @@ use serde_yaml_ng::Value;
 #[cfg(unix)]
 use subst;
 
+use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::target::TargetSpec;
 use crate::util::*;
