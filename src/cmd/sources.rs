@@ -87,13 +87,20 @@ pub fn run(sess: &Session, args: &SourcesArgs) -> Result<()> {
 
     // Filter the sources by specified packages.
     let packages = &srcs.get_package_list(
-        sess,
+        sess.manifest.package.name.to_string(),
         &get_package_strings(&args.package),
         &get_package_strings(&args.exclude),
         args.no_deps,
     );
 
-    let (all_targets, packages) = get_passed_targets(sess, &rt, &io, &targets, packages)?;
+    let (all_targets, packages) = get_passed_targets(
+        sess,
+        &rt,
+        &io,
+        &targets,
+        packages,
+        &get_package_strings(&args.package),
+    )?;
 
     let targets = if args.ignore_passed_targets {
         targets
@@ -128,9 +135,10 @@ pub fn get_passed_targets(
     io: &SessionIo,
     global_targets: &TargetSet,
     used_packages: &IndexSet<String>,
+    required_packages: &IndexSet<String>,
 ) -> Result<(TargetSet, IndexSet<String>)> {
     let mut global_targets = global_targets.clone();
-    let mut required_packages = IndexSet::<String>::new();
+    let mut required_packages = required_packages.clone();
     if used_packages.contains(&sess.manifest.package.name) {
         required_packages.insert(sess.manifest.package.name.clone());
         sess.manifest
@@ -164,7 +172,7 @@ pub fn get_passed_targets(
             .collect::<Result<Vec<_>>>()?;
         manifests.into_iter().flatten().for_each(|manifest| {
             let pkg_name = &manifest.package.name;
-            if used_packages.contains(pkg_name) {
+            if used_packages.contains(pkg_name) && required_packages.contains(pkg_name) {
                 manifest
                     .dependencies
                     .iter()

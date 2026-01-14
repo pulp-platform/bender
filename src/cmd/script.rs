@@ -266,13 +266,20 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
 
     // Filter the sources by specified packages.
     let packages = &srcs.get_package_list(
-        sess,
+        sess.manifest.package.name.to_string(),
         &get_package_strings(&args.package),
         &get_package_strings(&args.exclude),
         args.no_deps,
     );
 
-    let (all_targets, packages) = get_passed_targets(sess, &rt, &io, &targets, packages)?;
+    let (all_targets, packages) = get_passed_targets(
+        sess,
+        &rt,
+        &io,
+        &targets,
+        packages,
+        &get_package_strings(&args.package),
+    )?;
 
     let targets = if args.ignore_passed_targets {
         targets

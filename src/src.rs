@@ -17,7 +17,6 @@ use serde::ser::{Serialize, Serializer};
 use crate::config::Validate;
 use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::Error;
-use crate::sess::Session;
 use crate::target::{TargetSet, TargetSpec};
 use semver;
 
@@ -210,7 +209,7 @@ impl<'ctx> SourceGroup<'ctx> {
     /// Get list of packages based on constraints.
     pub fn get_package_list(
         &self,
-        sess: &Session,
+        top_package: String,
         packages: &IndexSet<String>,
         excludes: &IndexSet<String>,
         no_deps: bool,
@@ -220,7 +219,7 @@ impl<'ctx> SourceGroup<'ctx> {
         if !packages.is_empty() {
             result.extend(packages.clone());
         } else {
-            result.insert(sess.manifest.package.name.to_string());
+            result.insert(top_package);
         }
 
         result = &result - excludes;
