@@ -895,7 +895,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         CheckoutState::Clean
                     }
                 } else {
-                    Warnings::CheckoutDirDirty(name.to_string(), path.to_path_buf()).emit();
+                    Warnings::CheckoutDirUrlMismatch(name.to_string(), path.to_path_buf()).emit();
                     CheckoutState::Clean
                 }
             } else {

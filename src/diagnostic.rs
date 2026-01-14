@@ -283,6 +283,13 @@ pub enum Warnings {
     )]
     CheckoutDirDirty(String, PathBuf),
 
+    #[error("Workspace checkout directory set and remote url doesn't match, not updating {} at {}.", fmt_pkg!(.0), fmt_path!(.1.display()))]
+    #[diagnostic(
+        code(W19),
+        help("Run `bender checkout --force` to overwrite the dependency at your own risk.")
+    )]
+    CheckoutDirUrlMismatch(String, PathBuf),
+
     // TODO(fischeti): Should this be an error instead of a warning?
     #[error("Ignoring error for {} at {}: {}", fmt_pkg!(.0), fmt_path!(.1), .2)]
     #[diagnostic(code(W20))]
