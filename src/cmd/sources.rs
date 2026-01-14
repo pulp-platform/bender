@@ -93,7 +93,7 @@ pub fn run(sess: &Session, args: &SourcesArgs) -> Result<()> {
         args.no_deps,
     );
 
-    let (all_targets, packages) = get_passed_targets(
+    let (all_targets, used_packages) = get_passed_targets(
         sess,
         &rt,
         &io,
@@ -106,6 +106,12 @@ pub fn run(sess: &Session, args: &SourcesArgs) -> Result<()> {
         targets
     } else {
         all_targets
+    };
+
+    let packages = if args.ignore_passed_targets {
+        packages.clone()
+    } else {
+        used_packages
     };
 
     srcs = srcs.filter_targets(&targets).unwrap_or_default();

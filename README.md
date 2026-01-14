@@ -113,7 +113,7 @@ dependencies:
   common_verification: { git: "git@github.com:pulp-platform/common_verification.git", version: "0.1" }
 
   # Git revision dependency.
-  common_cells: { target: test, git: "git@github.com:pulp-platform/common_cells.git", rev: master, pass_targets: ["CC_CUSTOM_TARGET"] }
+  common_cells: { target: test, git: "git@github.com:pulp-platform/common_cells.git", rev: master, pass_targets: ["CC_CUSTOM_TARGET", {target: "any(*, test)", pass: "cc_test"}] }
 
 # Freeze any dependency updates. Optional. False if omitted.
 # Useful for chip packages. Once the chip is in final tapeout mode, and
@@ -238,6 +238,14 @@ All git tags of the form `vX.Y.Z` are considered a version of the package.
 > Note: Git tags without the `v` prefix will not be detected by bender. eg: use `v1.2.3`, and **NOT** `1.2.3`
 
 [Relevant dependency resolution code](https://github.com/pulp-platform/bender/blob/master/src/resolver.rs)
+
+#### Target handling
+
+Specified dependencies can be filtered, similar to the sources below. For consistency, this filtering does **NOT** apply during an update, i.e., all dependencies will be accounted for in the Bender.lock file. The target filtering only applies for sources and script outputs. This can be used e.g., to include specific IP only for testing.
+
+#### Passing targets
+
+For sources and script generation, targets can be passed from a package to its dependency directly in the `Bender.yml` file. This allows for enabling and disabling of specific features. Furthermore, these passed targets can be again filtered with a target specification applied to the specific target. This can be used e.g., to enable specific features of dependencies.
 
 
 ### Sources
