@@ -98,17 +98,17 @@ pub struct Package {
 #[derive(Clone, Debug)]
 pub enum Dependency {
     /// A dependency that can be found in one of the package repositories.
-    Version(TargetSpec, semver::VersionReq, Vec<String>),
+    Version(TargetSpec, semver::VersionReq, Vec<PassedTarget>),
     /// A local path dependency. The exact version of the dependency found at
     /// the given path will be used, regardless of any actual versioning
     /// constraints.
-    Path(TargetSpec, PathBuf, Vec<String>),
+    Path(TargetSpec, PathBuf, Vec<PassedTarget>),
     /// A git dependency specified by a revision.
-    GitRevision(TargetSpec, String, String, Vec<String>),
+    GitRevision(TargetSpec, String, String, Vec<PassedTarget>),
     /// A git dependency specified by a version requirement. Works similarly to
     /// the `GitRevision`, but extracts all tags of the form `v.*` from the
     /// repository and matches the version against that.
-    GitVersion(TargetSpec, String, semver::VersionReq, Vec<String>),
+    GitVersion(TargetSpec, String, semver::VersionReq, Vec<PassedTarget>),
 }
 
 impl PrefixPaths for Dependency {
@@ -580,7 +580,7 @@ pub struct PartialDependency {
     /// semantic versioning requirement.
     version: Option<String>,
     /// Targets to pass to the dependency
-    pass_targets: Option<Vec<String>>,
+    pass_targets: Option<Vec<StringOrStruct<PartialPassedTarget>>>,
     /// Unknown extra fields
     #[serde(flatten)]
     extra: HashMap<String, Value>,
@@ -619,8 +619,8 @@ impl Validate for PartialDependency {
             .pass_targets
             .unwrap_or_default()
             .into_iter()
-            .map(|s| s.to_lowercase())
-            .collect();
+            .map(|s| s.validate(package_name, pre_output, suppress_warnings))
+            .collect::<Result<Vec<_>>>()?;
         let version = match self.version {
             Some(v) => Some(semver::VersionReq::parse(&v).map_err(|cause| {
                 Error::chain(
@@ -1632,6 +1632,59 @@ pub struct FromToLink {
     pub to: PathBuf,
     /// directory
     pub patch_dir: Option<PathBuf>,
+}
+
+/// A passed target
+#[derive(Clone, Default, Serialize, Debug, Hash, PartialEq, Eq)]
+pub struct PassedTarget {
+    /// Target name
+    pub target: TargetSpec,
+    /// Target value
+    pub pass: String,
+}
+
+/// A partial passed target
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PartialPassedTarget {
+    /// Filtering target specification
+    pub target: Option<TargetSpec>,
+    /// Target to pass
+    pub pass: Option<String>,
+}
+
+impl Validate for PartialPassedTarget {
+    type Output = PassedTarget;
+    type Error = Error;
+    fn validate(
+        self,
+        _package_name: &str,
+        _pre_output: bool,
+        _suppress_warnings: &IndexSet<String>,
+    ) -> Result<PassedTarget> {
+        Ok(PassedTarget {
+            target: self.target.unwrap_or_default(),
+            pass: match self.pass {
+                Some(p) => p.to_lowercase(),
+                None => return Err(Error::new("passed target missing pass value")),
+            },
+        })
+    }
+}
+
+impl FromStr for PartialPassedTarget {
+    type Err = Void;
+    fn from_str(s: &str) -> std::result::Result<Self, Void> {
+        Ok(PartialPassedTarget {
+            target: None,
+            pass: Some(s.to_string()),
+        })
+    }
+}
+
+impl fmt::Display for PassedTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "target: `{}`: `{}`", self.target, self.pass)
+    }
 }
 
 /// A lock file.

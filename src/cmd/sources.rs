@@ -4,17 +4,19 @@
 //! The `sources` subcommand.
 
 use std;
+use std::collections::BTreeSet;
 use std::io::Write;
 
 use clap::{ArgAction, Args};
+use futures::future::join_all;
 use indexmap::IndexSet;
 use serde_json;
 use tokio::runtime::Runtime;
 
-use crate::config::Validate;
+use crate::config::{Dependency, Validate};
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
-use crate::target::TargetSet;
+use crate::target::{TargetSet, TargetSpec};
 
 /// Emit the source file manifest for the package
 #[derive(Args, Debug)]
@@ -83,10 +85,6 @@ pub fn run(sess: &Session, args: &SourcesArgs) -> Result<()> {
         srcs = srcs.assign_target("rtl".to_string());
     }
 
-    srcs = srcs
-        .filter_targets(&targets, args.ignore_passed_targets)
-        .unwrap_or_default();
-
     // Filter the sources by specified packages.
     let packages = &srcs.get_package_list(
         sess,
@@ -94,6 +92,14 @@ pub fn run(sess: &Session, args: &SourcesArgs) -> Result<()> {
         &get_package_strings(&args.exclude),
         args.no_deps,
     );
+
+    let targets = if args.ignore_passed_targets {
+        targets
+    } else {
+        get_passed_targets(sess, &rt, &io, targets, packages)?
+    };
+
+    srcs = srcs.filter_targets(&targets).unwrap_or_default();
 
     if !args.package.is_empty() || !args.exclude.is_empty() || args.no_deps {
         srcs = srcs.filter_packages(packages).unwrap_or_default();
@@ -113,4 +119,75 @@ pub fn run(sess: &Session, args: &SourcesArgs) -> Result<()> {
     };
     let _ = writeln!(std::io::stdout(),);
     result.map_err(|cause| Error::chain("Failed to serialize source file manifest.", cause))
+}
+
+/// Get the targets passed to dependencies from calling packages.
+pub fn get_passed_targets(
+    sess: &Session,
+    rt: &Runtime,
+    io: &SessionIo,
+    global_targets: TargetSet,
+    used_packages: &IndexSet<String>,
+) -> Result<TargetSet> {
+    let mut global_targets = global_targets;
+    if used_packages.contains(&sess.manifest.package.name) {
+        sess.manifest
+            .dependencies
+            .iter()
+            .for_each(|(name, dep)| match dep {
+                Dependency::Version(filter, _, tgts)
+                | Dependency::Path(filter, _, tgts)
+                | Dependency::GitRevision(filter, _, _, tgts)
+                | Dependency::GitVersion(filter, _, _, tgts) => {
+                    for t in tgts {
+                        if TargetSpec::All(BTreeSet::from([filter.clone(), t.target.clone()]))
+                            .matches(&global_targets.reduce_for_dependency(name))
+                        {
+                            global_targets.insert(format!("{}:{}", name, t.pass));
+                        }
+                    }
+                }
+            })
+    };
+    for pkgs in sess.packages().iter().rev() {
+        let manifests = rt
+            .block_on(join_all(
+                pkgs.iter()
+                    .map(|pkg| io.dependency_manifest(*pkg, false, &[])),
+            ))
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+        manifests.into_iter().flatten().for_each(|manifest| {
+            let pkg_name = &manifest.package.name;
+            if used_packages.contains(pkg_name) {
+                manifest
+                    .dependencies
+                    .iter()
+                    .for_each(|(name, dep)| match dep {
+                        Dependency::Version(filter, _, tgts)
+                        | Dependency::Path(filter, _, tgts)
+                        | Dependency::GitRevision(filter, _, _, tgts)
+                        | Dependency::GitVersion(filter, _, _, tgts) => {
+                            for t in tgts {
+                                if TargetSpec::All(BTreeSet::from([
+                                    filter.clone(),
+                                    t.target.clone(),
+                                ]))
+                                .matches(&global_targets.reduce_for_dependency(pkg_name))
+                                {
+                                    global_targets.insert(format!("{}:{}", name, t.pass));
+                                }
+                            }
+                        }
+                    })
+            };
+        });
+    }
+
+    eprintln!(
+        "Global targets including passed targets: {:?}",
+        global_targets
+    );
+
+    Ok(global_targets)
 }

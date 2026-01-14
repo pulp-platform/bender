@@ -12,6 +12,7 @@ use serde::Serialize;
 use tera::{Context, Tera};
 use tokio::runtime::Runtime;
 
+use crate::cmd::sources::get_passed_targets;
 use crate::config::Validate;
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
@@ -263,10 +264,6 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         srcs = srcs.assign_target("rtl".to_string());
     }
 
-    srcs = srcs
-        .filter_targets(&targets, !args.ignore_passed_targets)
-        .unwrap_or_default();
-
     // Filter the sources by specified packages.
     let packages = &srcs.get_package_list(
         sess,
@@ -274,6 +271,14 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         &get_package_strings(&args.exclude),
         args.no_deps,
     );
+
+    let targets = if args.ignore_passed_targets {
+        targets
+    } else {
+        get_passed_targets(sess, &rt, &io, targets, packages)?
+    };
+
+    srcs = srcs.filter_targets(&targets).unwrap_or_default();
 
     if !args.package.is_empty() || !args.exclude.is_empty() || args.no_deps {
         srcs = srcs.filter_packages(packages).unwrap_or_default();

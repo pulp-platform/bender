@@ -31,12 +31,12 @@ use tokio::sync::Semaphore;
 use typed_arena::Arena;
 
 use crate::cli::read_manifest;
-use crate::config::{self, Config, Manifest, PartialManifest};
+use crate::config::{self, Config, Manifest, PartialManifest, PassedTarget};
 use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::git::Git;
 use crate::src::SourceGroup;
-use crate::target::{TargetSet, TargetSpec};
+use crate::target::TargetSpec;
 use crate::util::try_modification_time;
 
 /// A session on the command line.
@@ -386,8 +386,6 @@ impl<'ctx> Session<'ctx> {
         dependencies: IndexSet<String>,
         dependency_export_includes: IndexMap<String, IndexSet<&'ctx Path>>,
         version: Option<Version>,
-        passed_targets: &IndexMap<String, TargetSet>,
-        filter_targets: &IndexMap<String, TargetSpec>,
     ) -> SourceGroup<'ctx> {
         let include_dirs: IndexSet<&Path> =
             IndexSet::from_iter(sources.include_dirs.iter().map(|d| self.intern_path(d)));
@@ -419,26 +417,14 @@ impl<'ctx> Session<'ctx> {
                         dependencies.clone(),
                         dependency_export_includes.clone(),
                         version.clone(),
-                        passed_targets,
-                        filter_targets,
                     )
                     .into(),
             })
             .collect();
 
-        let binding = TargetSet::empty();
-        let local_passed_targets = match package {
-            Some(name) => passed_targets.get(name).unwrap_or(&binding),
-            None => &binding,
-        };
 
         let mut targets = BTreeSet::new();
         targets.insert(sources.target.clone());
-        if let Some(name) = package {
-            if let Some(trgts) = filter_targets.get(name) {
-                targets.insert(trgts.clone());
-            }
-        }
         let target = TargetSpec::All(targets);
 
         SourceGroup {
@@ -451,7 +437,6 @@ impl<'ctx> Session<'ctx> {
             files,
             dependencies,
             version,
-            passed_targets: local_passed_targets.clone(),
         }
     }
 
@@ -1435,155 +1420,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             all_export_include_dirs
         );
 
-        let passed_targets: Vec<IndexMap<String, IndexSet<String>>> = ranks
-            .clone()
-            .into_iter()
-            .chain(once(vec![Some(self.sess.manifest)]))
-            .map(|manifests| {
-                let vec_of_indexmaps = manifests
-                    .clone()
-                    .into_iter()
-                    .flatten()
-                    .map(|m| {
-                        m.dependencies
-                            .clone()
-                            .into_iter()
-                            .map(|(d, c)| {
-                                let tmp_tgts = match c {
-                                    config::Dependency::Path(_, _, ref pass_tgts) => pass_tgts,
-                                    config::Dependency::Version(_, _, ref pass_tgts) => pass_tgts,
-                                    config::Dependency::GitRevision(_, _, _, ref pass_tgts) => {
-                                        pass_tgts
-                                    }
-                                    config::Dependency::GitVersion(_, _, _, ref pass_tgts) => {
-                                        pass_tgts
-                                    }
-                                };
-                                (d.clone(), tmp_tgts.clone())
-                            })
-                            .collect::<IndexMap<String, Vec<String>>>()
-                    })
-                    .collect::<Vec<IndexMap<String, Vec<String>>>>();
-                let mut passed_target_indexmap = IndexMap::<String, IndexSet<String>>::new();
-                for element in vec_of_indexmaps {
-                    for (k, v) in element {
-                        let existing: IndexSet<String> = passed_target_indexmap
-                            .get(&k)
-                            .unwrap_or(&IndexSet::new())
-                            .clone();
-                        passed_target_indexmap.insert(
-                            k,
-                            IndexSet::from_iter(
-                                [existing.into_iter().collect::<Vec<_>>(), v]
-                                    .concat()
-                                    .into_iter(),
-                            ),
-                        );
-                    }
-                }
-                passed_target_indexmap
-            })
-            .collect();
-
-        let mut passed_target_indexmap = IndexMap::<String, IndexSet<String>>::new();
-        for element in passed_targets {
-            for (k, v) in element {
-                let existing: IndexSet<String> = passed_target_indexmap
-                    .get(&k)
-                    .unwrap_or(&IndexSet::new())
-                    .clone();
-                passed_target_indexmap.insert(
-                    k,
-                    IndexSet::from_iter(
-                        [
-                            existing.into_iter().collect::<Vec<_>>(),
-                            v.into_iter().collect::<Vec<_>>(),
-                        ]
-                        .concat()
-                        .into_iter(),
-                    ),
-                );
-            }
-        }
-
-        let passed_target_indexmap: IndexMap<String, TargetSet> = passed_target_indexmap
-            .into_iter()
-            .map(|(k, v)| (k, TargetSet::new(v.into_iter())))
-            .collect();
-
-        let filter_targets: Vec<IndexMap<String, TargetSpec>> = ranks
-            .clone()
-            .into_iter()
-            .chain(once(vec![Some(self.sess.manifest)]))
-            .map(|manifests| {
-                let vec_of_indexmaps = manifests
-                    .clone()
-                    .into_iter()
-                    .flatten()
-                    .map(|m| {
-                        m.dependencies
-                            .clone()
-                            .into_iter()
-                            .map(|(d, c)| {
-                                let tmp_tgts = match c {
-                                    config::Dependency::Path(ref filter_target, _, _) => {
-                                        filter_target
-                                    }
-                                    config::Dependency::Version(ref filter_target, _, _) => {
-                                        filter_target
-                                    }
-                                    config::Dependency::GitRevision(ref filter_target, _, _, _) => {
-                                        filter_target
-                                    }
-                                    config::Dependency::GitVersion(ref filter_target, _, _, _) => {
-                                        filter_target
-                                    }
-                                };
-                                (d.clone(), tmp_tgts.clone())
-                            })
-                            .collect::<IndexMap<String, TargetSpec>>()
-                    })
-                    .collect::<Vec<IndexMap<String, TargetSpec>>>();
-                let mut filter_target_indexmap = IndexMap::<String, TargetSpec>::new();
-                for element in vec_of_indexmaps {
-                    for (k, t) in element {
-                        let mut existing: TargetSpec = filter_target_indexmap
-                            .get(&k)
-                            .unwrap_or(&TargetSpec::Any(BTreeSet::new()))
-                            .clone();
-                        if let TargetSpec::Any(ref mut set) = existing {
-                            set.insert(t);
-                        } else {
-                            unreachable!()
-                        }
-                        filter_target_indexmap.insert(k, existing);
-                    }
-                }
-                filter_target_indexmap
-            })
-            .collect();
-
-        let mut filter_target_indexmap = IndexMap::<String, TargetSpec>::new();
-        for element in filter_targets {
-            for (k, t) in element {
-                let mut existing: TargetSpec = filter_target_indexmap
-                    .get(&k)
-                    .unwrap_or(&TargetSpec::Any(BTreeSet::new()))
-                    .clone();
-                if let TargetSpec::Any(ref mut set) = existing {
-                    if let TargetSpec::Any(t_set) = t {
-                        for tg in t_set {
-                            set.insert(tg);
-                        }
-                    } else {
-                        set.insert(t);
-                    }
-                } else {
-                    unreachable!()
-                }
-                filter_target_indexmap.insert(k, existing);
-            }
-        }
 
         let files = ranks
             .into_iter()
@@ -1624,8 +1460,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                         Ok(dep_id) => self.sess.dependency(dep_id).version.clone(),
                                         Err(_) => None,
                                     },
-                                    &passed_target_indexmap,
-                                    &filter_target_indexmap,
                                 )
                                 .into()
                         })

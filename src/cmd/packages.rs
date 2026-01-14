@@ -112,8 +112,8 @@ pub fn run(sess: &Session, args: &PackagesArgs) -> Result<()> {
         let mut version_str = String::from("");
         for pkgs in sess.packages().iter() {
             let pkg_names = pkgs.iter().map(|&id| sess.dependency_name(id));
-            let pkg_sources = pkgs.iter().map(|&id| sess.dependency(id));
             if args.version {
+                let pkg_sources = pkgs.iter().map(|&id| sess.dependency(id));
                 for pkg_source in pkg_sources {
                     version_str.push_str(&format!(
                         "{}:\t{}\tat {}\t{}\n",

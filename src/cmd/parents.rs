@@ -142,7 +142,7 @@ pub fn get_parent_array(
                     | Dependency::Path(targetspec, _, tgts)
                     | Dependency::GitRevision(targetspec, _, _, tgts)
                     | Dependency::GitVersion(targetspec, _, _, tgts) => {
-                        let mut tgts = tgts.clone();
+                        let mut tgts = tgts.iter().map(|t| t.to_string()).collect::<Vec<_>>();
                         tgts.insert(0, targetspec.to_string());
                         tgts
                     }
@@ -187,7 +187,8 @@ pub fn get_parent_array(
                                 | Dependency::Path(targetspec, _, tgts)
                                 | Dependency::GitRevision(targetspec, _, _, tgts)
                                 | Dependency::GitVersion(targetspec, _, _, tgts) => {
-                                    let mut tgts = tgts.clone();
+                                    let mut tgts =
+                                        tgts.iter().map(|t| t.to_string()).collect::<Vec<_>>();
                                     tgts.insert(0, targetspec.to_string());
                                     tgts
                                 }
