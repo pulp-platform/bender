@@ -16,7 +16,7 @@ use serde::ser::{Serialize, Serializer};
 
 use crate::config::Validate;
 use crate::diagnostic::{Diagnostics, Warnings};
-use crate::error::{BenderErrors, Diagnostics, Warnings};
+use crate::error::BenderErrors;
 use crate::sess::Session;
 use crate::target::{TargetSet, TargetSpec};
 use semver;

@@ -151,13 +151,12 @@ pub fn println_stage(stage: &str, message: &str) {
     eprintln!("\x1B[32;1m{:>12}\x1B[0m {}", stage, message);
 }
 
-use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
 
-use miette::{Diagnostic, ReportHandler};
-use owo_colors::OwoColorize;
+use miette::Diagnostic;
 use thiserror::Error;
+
+use crate::fmt_path;
 
 pub type Result<T> = std::result::Result<T, BenderErrors>;
 
@@ -183,27 +182,7 @@ pub enum BenderErrors {
     #[error("Syntax error in lock file {0}")]
     SyntaxErrorInLockFile(String, #[source] serde_yaml_ng::Error),
 
-    #[error("File {} doesn't exist.", path!(path.display()))]
-    #[diagnostic(code(W31))]
-    FileMissing { path: PathBuf },
-
-    #[error("Cannot extract {bound} bound from version requirement: {req}")]
-    #[diagnostic(code(E33))]
-    VersionBound { bound: String, req: String },
-
-    #[error(transparent)]
-    TargetError(#[from] crate::target::TargetError),
-
-    #[error(transparent)]
-    GitError(#[from] crate::git::GitErrors),
-
-    #[error("Cannot open lock file {0}")]
-    CannotOpenLockFile(String, #[source] std::io::Error),
-
-    #[error("Syntax error in lock file {0}")]
-    SyntaxErrorInLockFile(String, #[source] serde_yaml_ng::Error),
-
-    #[error("File {} doesn't exist.", path!(path.display()))]
+    #[error("File {} doesn't exist.", fmt_path!(path.display()))]
     #[diagnostic(code(W31))]
     FileMissing { path: PathBuf },
 
