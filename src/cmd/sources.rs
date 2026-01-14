@@ -93,17 +93,17 @@ pub fn run(sess: &Session, args: &SourcesArgs) -> Result<()> {
         args.no_deps,
     );
 
+    let (all_targets, packages) = get_passed_targets(sess, &rt, &io, &targets, packages)?;
+
     let targets = if args.ignore_passed_targets {
         targets
     } else {
-        get_passed_targets(sess, &rt, &io, targets, packages)?
+        all_targets
     };
 
     srcs = srcs.filter_targets(&targets).unwrap_or_default();
 
-    if !args.package.is_empty() || !args.exclude.is_empty() || args.no_deps {
-        srcs = srcs.filter_packages(packages).unwrap_or_default();
-    }
+    srcs = srcs.filter_packages(&packages).unwrap_or_default();
 
     srcs = srcs.validate("", false)?;
 
@@ -126,11 +126,13 @@ pub fn get_passed_targets(
     sess: &Session,
     rt: &Runtime,
     io: &SessionIo,
-    global_targets: TargetSet,
+    global_targets: &TargetSet,
     used_packages: &IndexSet<String>,
-) -> Result<TargetSet> {
-    let mut global_targets = global_targets;
+) -> Result<(TargetSet, IndexSet<String>)> {
+    let mut global_targets = global_targets.clone();
+    let mut required_packages = IndexSet::<String>::new();
     if used_packages.contains(&sess.manifest.package.name) {
+        required_packages.insert(sess.manifest.package.name.clone());
         sess.manifest
             .dependencies
             .iter()
@@ -145,6 +147,9 @@ pub fn get_passed_targets(
                         {
                             global_targets.insert(format!("{}:{}", name, t.pass));
                         }
+                    }
+                    if filter.matches(&global_targets.reduce_for_dependency(name)) {
+                        required_packages.insert(name.clone());
                     }
                 }
             })
@@ -178,16 +183,20 @@ pub fn get_passed_targets(
                                     global_targets.insert(format!("{}:{}", name, t.pass));
                                 }
                             }
+                            if filter.matches(&global_targets.reduce_for_dependency(pkg_name)) {
+                                required_packages.insert(name.clone());
+                            }
                         }
                     })
             };
         });
     }
 
-    eprintln!(
-        "Global targets including passed targets: {:?}",
-        global_targets
-    );
-
-    Ok(global_targets)
+    Ok((
+        global_targets,
+        required_packages
+            .intersection(used_packages)
+            .cloned()
+            .collect(),
+    ))
 }

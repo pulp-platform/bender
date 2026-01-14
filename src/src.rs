@@ -109,10 +109,7 @@ impl<'ctx> SourceGroup<'ctx> {
     }
 
     /// Filter the sources, keeping only the ones that apply to a target.
-    pub fn filter_targets(
-        &self,
-        targets: &TargetSet,
-    ) -> Option<SourceGroup<'ctx>> {
+    pub fn filter_targets(&self, targets: &TargetSet) -> Option<SourceGroup<'ctx>> {
         let all_targets = match self.package {
             Some(pkg) => targets.reduce_for_dependency(pkg),
             None => targets.clone(),

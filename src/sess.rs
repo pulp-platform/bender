@@ -422,7 +422,6 @@ impl<'ctx> Session<'ctx> {
             })
             .collect();
 
-
         let mut targets = BTreeSet::new();
         targets.insert(sources.target.clone());
         let target = TargetSpec::All(targets);
@@ -1419,7 +1418,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             "export_include_dirs for each package: {:?}",
             all_export_include_dirs
         );
-
 
         let files = ranks
             .into_iter()

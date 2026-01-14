@@ -272,17 +272,17 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         args.no_deps,
     );
 
+    let (all_targets, packages) = get_passed_targets(sess, &rt, &io, &targets, packages)?;
+
     let targets = if args.ignore_passed_targets {
         targets
     } else {
-        get_passed_targets(sess, &rt, &io, targets, packages)?
+        all_targets
     };
 
     srcs = srcs.filter_targets(&targets).unwrap_or_default();
 
-    if !args.package.is_empty() || !args.exclude.is_empty() || args.no_deps {
-        srcs = srcs.filter_packages(packages).unwrap_or_default();
-    }
+    srcs = srcs.filter_packages(&packages).unwrap_or_default();
 
     // Flatten and validate the sources.
     let srcs = srcs
