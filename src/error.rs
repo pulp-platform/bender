@@ -176,6 +176,9 @@ pub enum BenderErrors {
     #[error(transparent)]
     GitError(#[from] crate::git::GitErrors),
 
+    #[error(transparent)]
+    SessError(#[from] crate::sess::SessionError),
+
     #[error("Cannot open lock file {0}")]
     CannotOpenLockFile(String, #[source] std::io::Error),
 
