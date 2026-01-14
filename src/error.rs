@@ -6,7 +6,6 @@
 use std;
 use std::fmt;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 use std::sync::{Arc, RwLock};
 
 use console::style;

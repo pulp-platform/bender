@@ -28,7 +28,7 @@ pub fn run_plain(sess: &Session, force: bool, update_list: &[String]) -> Result<
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
     let start_time = std::time::Instant::now();
-    let _srcs = rt.block_on(io.sources(forcibly, update_list))?;
+    let _srcs = rt.block_on(io.sources(force, update_list))?;
     let num_dependencies = io.sess.packages().iter().flatten().count();
     infoln!(
         "{} {} dependencies {}",
