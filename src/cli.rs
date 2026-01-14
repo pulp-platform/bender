@@ -5,7 +5,6 @@
 
 use std;
 use std::collections::HashSet;
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 
@@ -115,8 +114,9 @@ pub fn main() -> Result<()> {
     // Parse command line arguments.
     let cli = Cli::parse();
 
-    let mut suppressed_warnings: IndexSet<String> =
+    let mut suppressed_warnings: HashSet<String> =
         cli.suppress.into_iter().map(|s| s.to_owned()).collect();
+
     // split suppress strings on commas and spaces
     suppressed_warnings = suppressed_warnings
         .into_iter()
@@ -127,14 +127,9 @@ pub fn main() -> Result<()> {
         })
         .collect();
 
-    Diagnostics::init(suppressed);
+    let warn_config_loaded = !suppressed_warnings.contains("W02");
 
-
-    let suppressed_warnings: IndexSet<String> = matches
-        .get_many::<String>("suppress")
-        .unwrap_or_default()
-        .map(|s| s.to_owned())
-        .collect();
+    Diagnostics::init(suppressed_warnings);
 
     #[cfg(debug_assertions)]
     if cli.debug {
@@ -154,7 +149,7 @@ pub fn main() -> Result<()> {
     }
 
     let force_fetch = match cli.command {
-        Commands::Update(ref args) => cmd::update::setup(args, cli.local, &suppressed_warnings)?,
+        Commands::Update(ref args) => cmd::update::setup(args, cli.local)?,
         _ => false,
     };
 
@@ -178,8 +173,7 @@ pub fn main() -> Result<()> {
     // Gather and parse the tool configuration.
     let config = load_config(
         &root_dir,
-        matches!(cli.command, Commands::Update(_)) && !suppressed_warnings.contains("W02"),
-        &suppressed_warnings,
+        matches!(cli.command, Commands::Update(_)) && warn_config_loaded,
     )?;
     debugln!("main: {:#?}", config);
 
