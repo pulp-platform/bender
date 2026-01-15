@@ -8,7 +8,7 @@ use std::sync::{Mutex, OnceLock};
 
 use indicatif::MultiProgress;
 use miette::{Diagnostic, ReportHandler};
-use owo_colors::OwoColorize;
+use owo_colors::{OwoColorize, Style};
 use thiserror::Error;
 
 use crate::{fmt_field, fmt_path, fmt_pkg, fmt_version};
@@ -111,9 +111,9 @@ impl ReportHandler for DiagnosticRenderer {
     fn debug(&self, diagnostic: &dyn Diagnostic, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Determine severity and the resulting style
         let (severity, style) = match diagnostic.severity().unwrap_or_default() {
-            miette::Severity::Error => ("error", owo_colors::Style::new().red().bold()),
-            miette::Severity::Warning => ("warning", owo_colors::Style::new().yellow().bold()),
-            miette::Severity::Advice => ("advice", owo_colors::Style::new().cyan().bold()),
+            miette::Severity::Error => ("error", Style::new().red().bold()),
+            miette::Severity::Warning => ("warning", Style::new().yellow().bold()),
+            miette::Severity::Advice => ("advice", Style::new().cyan().bold()),
         };
 
         // Write the severity prefix

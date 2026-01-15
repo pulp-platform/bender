@@ -111,7 +111,6 @@ dependencies = [
  "blake2",
  "clap",
  "clap_complete",
- "console",
  "dirs",
  "dunce",
  "futures",

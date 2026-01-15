@@ -8,7 +8,7 @@ use std::fmt;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use console::style;
+use owo_colors::{OwoColorize, Style};
 
 pub static ENABLE_DEBUG: AtomicBool = AtomicBool::new(false);
 
@@ -62,61 +62,19 @@ macro_rules! diagnostic {
 pub enum Severity {
     Debug,
     Info,
-    Warning,
     Error,
     Stage(&'static str),
 }
 
-/// Style a message in green bold.
-#[macro_export]
-macro_rules! green_bold {
-    ($arg:expr) => {
-        console::style($arg).green().bold()
-    };
-}
-
-/// Style a message in cyan bold.
-#[macro_export]
-macro_rules! cyan_bold {
-    ($arg:expr) => {
-        console::style($arg).cyan().bold()
-    };
-}
-
-/// Style a message in green bold.
-#[macro_export]
-macro_rules! red_bold {
-    ($arg:expr) => {
-        console::style($arg).red().bold()
-    };
-}
-
-/// Style a message in dimmed text.
-#[macro_export]
-macro_rules! dim {
-    ($arg:expr) => {
-        console::style($arg).dim()
-    };
-}
-
-/// Style a message in bold text.
-#[macro_export]
-macro_rules! bold {
-    ($arg:expr) => {
-        console::style($arg).bold()
-    };
-}
-
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let styled_str = match *self {
-            Severity::Error => style("Error:").red().bold(),
-            Severity::Warning => style("Warning:").yellow().bold(),
-            Severity::Info => style("Info:").white().bold(),
-            Severity::Debug => style("Debug:").blue().bold(),
-            Severity::Stage(name) => style(name).green().bold(),
+        let (severity, style) = match *self {
+            Severity::Error => ("Error:", Style::new().red().bold()),
+            Severity::Info => ("Info:", Style::new().white().bold()),
+            Severity::Debug => ("Debug:", Style::new().blue().bold()),
+            Severity::Stage(name) => (name, Style::new().green().bold()),
         };
-        write!(f, "  {}", styled_str)
+        write!(f, "  {}", severity.style(style))
     }
 }
 

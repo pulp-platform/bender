@@ -4,12 +4,15 @@
 use crate::util::fmt_duration;
 
 use indexmap::IndexMap;
+use owo_colors::OwoColorize;
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use regex::Regex;
 use tokio::io::{AsyncReadExt, BufReader};
+
+use crate::{fmt_completed, fmt_pkg, fmt_stage};
 
 static RE_GIT: OnceLock<Regex> = OnceLock::new();
 
@@ -141,7 +144,7 @@ impl ProgressHandler {
             GitProgressOps::Checkout => "Checking out",
             GitProgressOps::Submodule => "Updating Submodules",
         };
-        let prefix = format!("{} {}", cyan_bold!(prefix), bold!(&self.name));
+        let prefix = format!("{} {}", fmt_stage!(prefix), fmt_pkg!(&self.name));
         pb.set_prefix(prefix);
 
         // Configure the spinners to automatically tick every 100ms
@@ -190,7 +193,7 @@ impl ProgressHandler {
                     // to have a "T" connector (├─) instead of an "L"
                     let prev_bar = match state.sub_bars.last() {
                         Some((last_name, last_pb)) => {
-                            let prev_prefix = format!("{} {}", dim!("├─"), last_name);
+                            let prev_prefix = format!("{} {}", "├─".dimmed(), last_name);
                             last_pb.set_prefix(prev_prefix);
                             last_pb // Insert the new one after this one
                         }
@@ -202,9 +205,9 @@ impl ProgressHandler {
                         .multiprogress
                         .insert_after(prev_bar, ProgressBar::new(100).with_style(style));
                     // Set the prefix and initial message
-                    let sub_prefix = format!("{} {}", dim!("╰─"), &name);
+                    let sub_prefix = format!("{} {}", "╰─".dimmed(), &name);
                     sub_pb.set_prefix(sub_prefix);
-                    sub_pb.set_message(format!("{}", dim!("Waiting...")));
+                    sub_pb.set_message(format!("{}", "Waiting...".dimmed()));
 
                     // Store the sub-bar in the state for later updates
                     state.sub_bars.insert(name, sub_pb);
@@ -227,7 +230,7 @@ impl ProgressHandler {
                     // Set the new bar to active
                     if let Some(bar) = state.sub_bars.get(&name) {
                         // Switch style to the active progress bar style
-                        bar.set_message(format!("{}", dim!("Cloning...")));
+                        bar.set_message(format!("{}", "Cloning...".dimmed()));
                     }
                     state.active_sub = Some(name);
                 }
@@ -245,27 +248,26 @@ impl ProgressHandler {
             }
             // Update the progress percentage for receiving objects
             GitProgress::Receiving { percent, .. } => {
-                target_pb.set_message(format!("{}", dim!("Receiving objects")));
+                target_pb.set_message(format!("{}", "Receiving objects".dimmed()));
                 target_pb.set_position(percent as u64);
             }
             // Update the progress percentage for resolving deltas
             GitProgress::Resolving { percent, .. } => {
-                target_pb.set_message(format!("{}", dim!("Resolving deltas")));
+                target_pb.set_message(format!("{}", "Resolving deltas".dimmed()));
                 target_pb.set_position(percent as u64);
             }
             // Update the progress percentage for checking out files
             GitProgress::Checkout { percent, .. } => {
-                target_pb.set_message(format!("{}", dim!("Checking out")));
+                target_pb.set_message(format!("{}", "Checking out".dimmed()));
                 target_pb.set_position(percent as u64);
             }
             // Handle errors by finishing and clearing the target bar, then logging the error
             GitProgress::Error(err_msg) => {
                 target_pb.finish_and_clear();
-                // TODO(fischeti): Consider enumerating error
                 errorln!(
                     "{} {}: {}",
                     "Error during git operation of",
-                    bold!(&self.name),
+                    fmt_pkg!(&self.name),
                     err_msg
                 );
             }
@@ -293,9 +295,9 @@ impl ProgressHandler {
         self.multiprogress
             .println(format!(
                 "  {} {} {}",
-                green_bold!(op_str),
-                bold!(&self.name),
-                dim!(fmt_duration(state.start_time.elapsed()))
+                fmt_completed!(op_str),
+                fmt_pkg!(&self.name),
+                fmt_duration(state.start_time.elapsed()).dimmed()
             ))
             .unwrap();
     }

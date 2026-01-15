@@ -4,6 +4,7 @@
 //! The `checkout` subcommand.
 
 use clap::Args;
+use owo_colors::OwoColorize;
 use tokio::runtime::Runtime;
 
 use crate::error::*;
@@ -32,9 +33,9 @@ pub fn run_plain(sess: &Session, force: bool, update_list: &[String]) -> Result<
     let num_dependencies = io.sess.packages().iter().flatten().count();
     infoln!(
         "{} {} dependencies {}",
-        dim!("Checked out"),
+        "Checked out".dimmed(),
         num_dependencies,
-        dim!(fmt_duration(start_time.elapsed()))
+        fmt_duration(start_time.elapsed()).dimmed()
     );
 
     Ok(())

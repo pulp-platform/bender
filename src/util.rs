@@ -471,3 +471,19 @@ macro_rules! fmt_version {
         $crate::util::OwoColorize::bold(&$ver)
     };
 }
+
+/// Format for an ongoing progress stage in diagnostic messages.
+#[macro_export]
+macro_rules! fmt_stage {
+    ($stage:expr) => {
+        $crate::util::OwoColorize::cyan(&$stage).bold()
+    };
+}
+
+/// Format a completed progress stage in diagnostic messages.
+#[macro_export]
+macro_rules! fmt_completed {
+    ($stage:expr) => {
+        $crate::util::OwoColorize::green(&$stage).bold()
+    };
+}
