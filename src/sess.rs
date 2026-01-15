@@ -82,7 +82,7 @@ pub struct Session<'ctx> {
     /// A toggle to disable remote fetches & clones
     pub local_only: bool,
     /// The global progress bar manager.
-    pub progress: MultiProgress,
+    pub multiprogress: MultiProgress,
 }
 
 impl<'ctx> Session<'ctx> {
@@ -97,12 +97,11 @@ impl<'ctx> Session<'ctx> {
         force_fetch: bool,
         git_throttle: usize,
     ) -> Session<'ctx> {
-        // Initialize the global multi-progress bar
-        // to handle warning and error messages correctly.
-        let mpb = MultiProgress::new();
-        if let Ok(mut global_mpb) = GLOBAL_MULTI_PROGRESS.write() {
-            *global_mpb = Some(mpb.clone());
-        }
+        // Create the global multi-progress bar manager.
+        let multiprogress = MultiProgress::new();
+
+        // Register it with the global diagnostics system
+        Diagnostics::set_multiprogress(Some(multiprogress.clone()));
 
         Session {
             root,
@@ -128,7 +127,7 @@ impl<'ctx> Session<'ctx> {
             cache: Default::default(),
             git_throttle: Arc::new(Semaphore::new(git_throttle)),
             local_only,
-            progress: MultiProgress::new(),
+            multiprogress,
         }
     }
 
@@ -563,7 +562,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             // The progress bar object for cloning. We only use it for the
             // last fetch operation, which is the only network operation here.
             let pb = Some(ProgressHandler::new(
-                self.sess.progress.clone(),
+                self.sess.multiprogress.clone(),
                 GitProgressOps::Clone,
                 name,
             ));
@@ -604,7 +603,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             self.sess.stats.num_database_fetch.increment();
             // The progress bar object for fetching.
             let pb = Some(ProgressHandler::new(
-                self.sess.progress.clone(),
+                self.sess.multiprogress.clone(),
                 GitProgressOps::Fetch,
                 name,
             ));
@@ -962,7 +961,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         cause
                     );
                     let pb = Some(ProgressHandler::new(
-                        self.sess.progress.clone(),
+                        self.sess.multiprogress.clone(),
                         GitProgressOps::Checkout,
                         name,
                     ));
@@ -997,7 +996,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }?;
             if clear == CheckoutState::ToClone {
                 let pb = Some(ProgressHandler::new(
-                    self.sess.progress.clone(),
+                    self.sess.multiprogress.clone(),
                     GitProgressOps::Checkout,
                     name,
                 ));
@@ -1035,7 +1034,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     )
                     .await?;
                 let pb = Some(ProgressHandler::new(
-                    self.sess.progress.clone(),
+                    self.sess.multiprogress.clone(),
                     GitProgressOps::Checkout,
                     name,
                 ));
@@ -1085,7 +1084,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             if path.join(".gitmodules").exists() {
                 let pb = Some(ProgressHandler::new(
-                    self.sess.progress.clone(),
+                    self.sess.multiprogress.clone(),
                     GitProgressOps::Submodule,
                     name,
                 ));

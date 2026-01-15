@@ -103,7 +103,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                 let git = Git::new(tmp_path, &sess.config.git, sess.git_throttle.clone());
                 rt.block_on(async {
                     let pb = ProgressHandler::new(
-                        sess.progress.clone(),
+                        sess.multiprogress.clone(),
                         GitProgressOps::Clone,
                         vendor_package.name.as_str(),
                     );
@@ -122,7 +122,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                         _ => Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout")),
                     }?;
                     let pb = ProgressHandler::new(
-                        sess.progress.clone(),
+                        sess.multiprogress.clone(),
                         GitProgressOps::Checkout,
                         vendor_package.name.as_str(),
                     );

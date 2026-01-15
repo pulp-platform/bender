@@ -6,6 +6,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
+use indicatif::MultiProgress;
 use miette::{Diagnostic, ReportHandler};
 use owo_colors::OwoColorize;
 use thiserror::Error;
@@ -24,6 +25,8 @@ pub struct Diagnostics {
     /// A set of already emitted warnings.
     /// Requires synchronization as warnings may be emitted from multiple threads.
     emitted: Mutex<HashSet<Warnings>>,
+    /// The active multi-progress bar (if any).
+    multiprogress: Mutex<Option<MultiProgress>>,
 }
 
 impl Diagnostics {
@@ -35,11 +38,18 @@ impl Diagnostics {
             all_suppressed: suppressed.contains("all") || suppressed.contains("Wall"),
             suppressed,
             emitted: Mutex::new(HashSet::new()),
+            multiprogress: Mutex::new(None),
         };
 
         GLOBAL_DIAGNOSTICS
             .set(diag)
             .expect("Diagnostics already initialized!");
+    }
+
+    pub fn set_multiprogress(multiprogress: Option<MultiProgress>) {
+        let diag = Diagnostics::get();
+        let mut guard = diag.multiprogress.lock().unwrap();
+        *guard = multiprogress;
     }
 
     /// Get the global diagnostics manager.
@@ -76,8 +86,22 @@ impl Warnings {
         emitted.insert(self.clone());
         drop(emitted);
 
-        // Print the warning report (consumes self i.e. the warning)
-        eprintln!("{:?}", miette::Report::new(self));
+        // Prepare the report
+        let report = miette::Report::new(self.clone());
+
+        // Print cleanly (using suspend if a bar exists)
+        let mp_guard = diag.multiprogress.lock().unwrap();
+
+        if let Some(mp) = &*mp_guard {
+            // If we have progress bars, hide them momentarily
+            mp.suspend(|| {
+                eprintln!("{:?}", report);
+            });
+        } else {
+            eprintln!("No multiprogress bar available.");
+            // Otherwise just print
+            eprintln!("{:?}", report);
+        }
     }
 }
 
@@ -385,6 +409,7 @@ mod tests {
             suppressed: HashSet::new(),
             all_suppressed: true,
             emitted: Mutex::new(HashSet::new()),
+            multiprogress: Mutex::new(None),
         };
 
         // Manual check of the logic inside emit()

@@ -41,7 +41,7 @@ pub struct ProgressState {
 /// Captures (static) information neeed to handle progress updates for a git operation.
 pub struct ProgressHandler {
     /// Reference to the multi-progress bar, which can manage multiple progress bars.
-    mpb: MultiProgress,
+    multiprogress: MultiProgress,
     /// The type of git operation being performed.
     git_op: GitProgressOps,
     /// The name of the repository being processed.
@@ -110,9 +110,9 @@ pub async fn monitor_stderr(
 
 impl ProgressHandler {
     /// Create a new progress handler for a git operation.
-    pub fn new(mpb: MultiProgress, git_op: GitProgressOps, name: &str) -> Self {
+    pub fn new(multiprogress: MultiProgress, git_op: GitProgressOps, name: &str) -> Self {
         Self {
-            mpb,
+            multiprogress,
             git_op,
             name: name.to_string(),
         }
@@ -130,7 +130,9 @@ impl ProgressHandler {
         .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]);
 
         // Create and attach the progress bar to the multi-progress bar.
-        let pb = self.mpb.add(ProgressBar::new(100).with_style(style));
+        let pb = self
+            .multiprogress
+            .add(ProgressBar::new(100).with_style(style));
 
         // Set the prefix based on the git operation
         let prefix = match self.git_op {
@@ -197,7 +199,7 @@ impl ProgressHandler {
 
                     // Create the new sub-bar and insert it in the multi-progress *after* the previous sub-bar
                     let sub_pb = self
-                        .mpb
+                        .multiprogress
                         .insert_after(prev_bar, ProgressBar::new(100).with_style(style));
                     // Set the prefix and initial message
                     let sub_prefix = format!("{} {}", dim!("╰─"), &name);
@@ -288,7 +290,7 @@ impl ProgressHandler {
         };
 
         // Print a completion message on top of active progress bars
-        self.mpb
+        self.multiprogress
             .println(format!(
                 "  {} {} {}",
                 green_bold!(op_str),
