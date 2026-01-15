@@ -75,37 +75,30 @@ pub async fn monitor_stderr(
 
     // We loop over the stream reading byte by byte
     // and process lines as they are completed.
-    loop {
-        match reader.read_u8().await {
-            Ok(byte) => {
-                raw_log.push(byte);
+    while let Ok(byte) = reader.read_u8().await {
+        raw_log.push(byte);
 
-                // Git output lines end with either \n or \r
-                // Every time we encounter one, we process the line.
-                // Note: \r is used for progress updates, meaning the line
-                // is overwritten in place.
-                if byte == b'\r' || byte == b'\n' {
-                    if !buffer.is_empty() {
-                        if let Ok(line) = std::str::from_utf8(&buffer) {
-                            // Update UI if we have a handler
-                            if let Some(h) = &handler {
-                                h.update_pb(line, &mut state.as_mut().unwrap());
-                            }
-                        }
-                        // Clear the buffer for the next line
-                        buffer.clear();
-                    }
-                } else {
-                    buffer.push(byte);
-                }
-            }
-            // We break the loop on EOF or error
-            Err(_) => break,
+        // We push bytes into the buffer until we hit a delimiter
+        if byte != b'\r' && byte != b'\n' {
+            buffer.push(byte);
+            continue;
         }
+
+        // Process the line, if we can parse it and have a handler
+        if let (Ok(line), Some(h)) = (std::str::from_utf8(&buffer), &handler) {
+            // Parse the line and update the progress bar accordingly
+            let progress = parse_git_line(line);
+            h.update_pb(progress, state.as_mut().unwrap());
+        }
+
+        // Always clear buffer after a delimiter
+        buffer.clear();
     }
 
     // Finalize the progress bar if we have a handler
-    handler.map(|h| h.finish(&mut state.unwrap()));
+    if let Some(handler) = handler {
+        handler.finish(&mut state.unwrap());
+    }
 
     // Return the full raw log as a string
     String::from_utf8_lossy(&raw_log).to_string()
@@ -159,10 +152,7 @@ impl ProgressHandler {
     }
 
     /// Update the progress bar(s) based on a parsed git progress line.
-    pub fn update_pb(&self, line: &str, state: &mut ProgressState) {
-        // Parse the line to determine the type of progress update
-        let progress = parse_git_line(line);
-
+    fn update_pb(&self, progress: GitProgress, state: &mut ProgressState) {
         // Target the active submodule if one exists, otherwise the main bar
         let target_pb = if let Some(name) = &state.active_sub {
             state.sub_bars.get(name).unwrap_or(&state.pb)
@@ -365,7 +355,7 @@ pub fn parse_git_line(line: &str) -> GitProgress {
 fn path_to_name(path: &str) -> String {
     path.trim_end_matches('/')
         .split('/')
-        .last()
+        .next_back()
         .unwrap_or(path)
         .to_string()
 }
