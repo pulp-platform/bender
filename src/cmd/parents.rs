@@ -15,7 +15,7 @@ use crate::config::Dependency;
 use crate::error::*;
 use crate::sess::{DependencyConstraint, DependencySource};
 use crate::sess::{Session, SessionIo};
-use crate::{fmt_path, fmt_pkg, fmt_version};
+use crate::{fmt_path, fmt_version};
 
 /// List packages calling this dependency
 #[derive(Args, Debug)]
@@ -108,7 +108,11 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
                     format!("git {} at revision {}", fmt_path!(url), fmt_version!(rev))
                 }
                 Dependency::GitVersion(ref url, ref version, _) => {
-                    format!("git {} with version {}", fmt_path!(url), fmt_pkg!(version))
+                    format!(
+                        "git {} with version {}",
+                        fmt_path!(url),
+                        fmt_version!(version)
+                    )
                 }
             },
         }

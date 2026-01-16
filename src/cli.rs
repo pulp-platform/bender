@@ -130,6 +130,7 @@ pub fn main() -> Result<()> {
 
     let warn_config_loaded = !suppressed_warnings.contains("W02");
 
+    // Initialize warning and error handling with the suppression arguments.
     Diagnostics::init(suppressed_warnings);
 
     #[cfg(debug_assertions)]

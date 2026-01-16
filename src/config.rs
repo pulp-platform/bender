@@ -1205,7 +1205,7 @@ impl GlobFile for PartialSourceFile {
                         })
                         .collect::<Result<Vec<PartialSourceFile>>>()?;
                     if out.is_empty() {
-                        Warnings::NoFilesForGlobalPattern { path: path.clone() }.emit();
+                        Warnings::NoFilesForGlobPattern { path: path.clone() }.emit();
                     }
                     Ok(out)
                 } else {

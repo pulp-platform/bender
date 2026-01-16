@@ -175,9 +175,9 @@ pub enum Warnings {
     )]
     NoFilesInSourceGroup(String),
 
-    #[error("No files matched the global pattern {}.", fmt_path!(path))]
+    #[error("No files matched the glob pattern {}.", fmt_path!(path))]
     #[diagnostic(code(W05))]
-    NoFilesForGlobalPattern { path: String },
+    NoFilesForGlobPattern { path: String },
 
     // TODO(fischeti): Why are there two W06 variants?
     #[error("Dependency {} in checkout_dir {} is not a git repository. Setting as path dependency.", fmt_pkg!(.0), fmt_path!(.1.display()))]
@@ -216,7 +216,7 @@ pub enum Warnings {
     )]
     RevisionNotFound(String, String),
 
-    #[error("Path dependency {} inside git dependency {} detected. This is currently not fully suppored and your milage may vary.", fmt_pkg!(pkg), fmt_pkg!(top_pkg))]
+    #[error("Path dependency {} inside git dependency {} detected. This is currently not fully supported. Your mileage may vary.", fmt_pkg!(pkg), fmt_pkg!(top_pkg))]
     #[diagnostic(code(W09))]
     PathDepInGitDep { pkg: String, top_pkg: String },
 
@@ -227,10 +227,11 @@ pub enum Warnings {
     )]
     MaybePathIssues(String, PathBuf),
 
-    #[error("Dependency package name {} does not match the package name {} in its manifest.", fmt_pkg!(.0), fmt_pkg!(.1))]
+    // TODO (michaero): This should probably be a suppressible error instead of a warning.
+    #[error("Dependency package name {} does not match the package name {} in its manifest. This can cause unwanted behavior.", fmt_pkg!(.0), fmt_pkg!(.1))]
     #[diagnostic(
         code(W11),
-        help("Check that the dependency name in your root manifest matches the name in the {} manifest.", fmt_pkg!(.0))
+        help("Check that the dependency name in your calling manifest matches the name in the {} manifest.", fmt_pkg!(.0))
     )]
     DepPkgNameNotMatching(String, String),
 
@@ -241,7 +242,7 @@ pub enum Warnings {
     #[error("Name issue with package {}. `export_include_dirs` cannot be handled.", fmt_pkg!(.0))]
     #[diagnostic(
         code(W13),
-        help("Could be related to name missmatch, check `bender update`.")
+        help("Could be related to name mismatch between calling manifest and package manifest, check `bender update`.")
     )]
     ExportDirNameIssue(String),
 
