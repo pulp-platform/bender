@@ -573,10 +573,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 })
                 .await
                 .map_err(move |cause| {
-                    if url3.contains("git@") {
-                        Warnings::SshKeyMaybeMissing.emit();
+                    Warnings::GitInitFailed {
+                        is_ssh: url3.contains("git@"),
                     }
-                    Warnings::UrlMaybeIncorrect.emit();
+                    .emit();
                     Error::chain(
                         format!("Failed to initialize git database in {:?}.", db_dir),
                         cause,
@@ -604,10 +604,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 })
                 .await
                 .map_err(move |cause| {
-                    if url3.contains("git@") {
-                        Warnings::SshKeyMaybeMissing.emit();
+                    Warnings::GitInitFailed {
+                        is_ssh: url3.contains("git@"),
                     }
-                    Warnings::UrlMaybeIncorrect.emit();
+                    .emit();
                     Error::chain(
                         format!("Failed to update git database in {:?}.", db_dir),
                         cause,

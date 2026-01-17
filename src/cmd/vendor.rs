@@ -104,10 +104,9 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                     stageln!("Cloning", "{} ({})", vendor_package.name, url);
                     git.clone().spawn_with(|c| c.arg("clone").arg(url).arg("."))
                     .map_err(move |cause| {
-                        if url.contains("git@") {
-                            Warnings::SshKeyMaybeMissing.emit();
-                        }
-                        Warnings::UrlMaybeIncorrect.emit();
+                        Warnings::GitInitFailed {
+                            is_ssh: url.contains("git@"),
+                        }.emit();
                         Error::chain(
                             format!("Failed to initialize git database in {:?}.", tmp_path),
                             cause,

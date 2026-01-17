@@ -179,36 +179,28 @@ pub enum Warnings {
     #[diagnostic(code(W05))]
     NoFilesForGlobPattern { path: String },
 
-    // TODO(fischeti): Why are there two W06 variants?
     #[error("Dependency {} in checkout_dir {} is not a git repository. Setting as path dependency.", fmt_pkg!(.0), fmt_path!(.1.display()))]
-    #[diagnostic(
-        code(W06),
-        help("Use `bender clone` to work on git dependencies.\nRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.")
-    )]
+    #[diagnostic(code(W06), help("Use `bender clone` to work on git dependencies.\nRun `bender update --ignore-checkout-dir` to overwrite this at your own risk."))]
     NotAGitDependency(String, PathBuf),
 
-    // TODO(fischeti): Why are there two W06 variants?
     #[error("Dependency {} in checkout_dir {} is not in a clean state. Setting as path dependency.", fmt_pkg!(.0), fmt_path!(.1.display()))]
     #[diagnostic(code(W06), help("Use `bender clone` to work on git dependencies.\nRun `bender update --ignore-checkout-dir` to overwrite this at your own risk."))]
     DirtyGitDependency(String, PathBuf),
 
-    // TODO(fischeti): This is part of an error, not a warning. Should be converted to an Error.
-    #[error("SSH key might be missing.")]
+    // TODO(fischeti): This is part of an error, not a warning. Could be converted to an Error in the future.
+    #[error("Failed to initialize git database.")]
     #[diagnostic(
         code(W07),
-        help("Please ensure your public ssh key is added to the git server.")
+        help("Please ensure the url is correct and you have access to the repository. {}",
+        if *is_ssh {
+            "\nEnsure your SSH keys are set up correctly."
+        } else {
+            ""
+        })
     )]
-    SshKeyMaybeMissing,
+    GitInitFailed { is_ssh: bool },
 
-    // TODO(fischeti): This is part of an error, not a warning. Should be converted to an Error.
-    #[error("SSH key might be missing.")]
-    #[diagnostic(
-        code(W07),
-        help("Please ensure the url is correct and you have access to the repository.")
-    )]
-    UrlMaybeIncorrect,
-
-    // TODO(fischeti): This is part of an error, not a warning. Should be converted to an Error.
+    // TODO(fischeti): This is part of an error, not a warning. Could be converted to an Error in the future.
     #[error("Revision {} not found in repository {}.", fmt_version!(.0), fmt_pkg!(.1))]
     #[diagnostic(
         code(W08),
@@ -289,7 +281,6 @@ pub enum Warnings {
     )]
     CheckoutDirUrlMismatch(String, PathBuf),
 
-    // TODO(fischeti): Should this be an error instead of a warning?
     #[error("Ignoring error for {} at {}: {}", fmt_pkg!(.0), fmt_path!(.1), .2)]
     #[diagnostic(code(W20))]
     IgnoringError(String, String, String),

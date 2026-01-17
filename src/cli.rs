@@ -128,8 +128,6 @@ pub fn main() -> Result<()> {
         })
         .collect();
 
-    let warn_config_loaded = !suppressed_warnings.contains("W02");
-
     // Initialize warning and error handling with the suppression arguments.
     Diagnostics::init(suppressed_warnings);
 
@@ -173,10 +171,7 @@ pub fn main() -> Result<()> {
     debugln!("main: {:#?}", manifest);
 
     // Gather and parse the tool configuration.
-    let config = load_config(
-        &root_dir,
-        matches!(cli.command, Commands::Update(_)) && warn_config_loaded,
-    )?;
+    let config = load_config(&root_dir, matches!(cli.command, Commands::Update(_)))?;
     debugln!("main: {:#?}", config);
 
     // Determine git throttle. The precedence is: CLI argument, env variable, config file, default (4).
