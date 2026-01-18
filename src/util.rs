@@ -14,14 +14,13 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::SystemTime;
 
+use miette::{bail, Result};
 use semver::{Version, VersionReq};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
 /// Re-export owo_colors for use in macros.
 pub use owo_colors::{OwoColorize, Stream, Style};
-
-use crate::error::*;
 
 /// A type that cannot be materialized.
 #[derive(Debug)]
@@ -345,10 +344,7 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
                 }
             }
             _ => {
-                return Err(Error::new(format!(
-                    "Cannot extract top bound from version requirement: {}",
-                    req
-                )));
+                bail!("Cannot extract top bound from version requirement: {}", req);
             }
         }
     }
@@ -416,10 +412,10 @@ pub fn version_req_bottom_bound(req: &VersionReq) -> Result<Option<Version>> {
                 // No lower bound
             }
             _ => {
-                return Err(Error::new(format!(
+                bail!(
                     "Cannot extract bottom bound from version requirement: {}",
                     req
-                )));
+                );
             }
         }
     }

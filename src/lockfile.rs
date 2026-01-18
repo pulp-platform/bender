@@ -4,17 +4,20 @@
 use std;
 use std::path::Path;
 
+use miette::{IntoDiagnostic, Result, WrapErr};
+
 use crate::config::{Locked, LockedPackage, LockedSource, PrefixPaths};
-use crate::error::*;
 
 /// Read a lock file.
 pub fn read_lockfile(path: &Path, root_dir: &Path) -> Result<Locked> {
     debugln!("read_lockfile: {:?}", path);
     use std::fs::File;
     let file = File::open(path)
-        .map_err(|cause| Error::chain(format!("Cannot open lockfile {:?}.", path), cause))?;
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Cannot open lockfile {:?}.", path))?;
     let locked_loaded: Result<Locked> = serde_yaml_ng::from_reader(file)
-        .map_err(|cause| Error::chain(format!("Syntax error in lockfile {:?}.", path), cause));
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Syntax error in lockfile {:?}.", path));
     // Make relative paths absolute
     Ok(Locked {
         packages: locked_loaded?
@@ -73,8 +76,10 @@ pub fn write_lockfile(locked: &Locked, path: &Path, root_dir: &Path) -> Result<(
 
     use std::fs::File;
     let file = File::create(path)
-        .map_err(|cause| Error::chain(format!("Cannot create lockfile {:?}.", path), cause))?;
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Cannot create lockfile {:?}.", path))?;
     serde_yaml_ng::to_writer(file, &adapted_locked)
-        .map_err(|cause| Error::chain(format!("Cannot write lockfile {:?}.", path), cause))?;
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Cannot write lockfile {:?}.", path))?;
     Ok(())
 }

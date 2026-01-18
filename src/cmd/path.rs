@@ -7,9 +7,9 @@ use std::io::Write;
 
 use clap::Args;
 use futures::future::join_all;
+use miette::{IntoDiagnostic, Result};
 use tokio::runtime::Runtime;
 
-use crate::error::*;
 use crate::sess::{Session, SessionIo};
 
 /// Get the path to a dependency
@@ -43,7 +43,7 @@ pub fn run(sess: &Session, args: &PathArgs) -> Result<()> {
     // Check out if requested or not done yet
     if args.checkout || !paths.iter().all(|p| p.exists()) {
         debugln!("main: obtain checkouts {:?}", ids);
-        let rt = Runtime::new()?;
+        let rt = Runtime::new().into_diagnostic()?;
         let checkouts = rt
             .block_on(join_all(
                 ids.iter()

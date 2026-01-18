@@ -8,11 +8,11 @@ use std::io::Write;
 use crate::diagnostic::Warnings;
 use clap::Args;
 use indexmap::IndexMap;
+use miette::{IntoDiagnostic, Result};
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
 use crate::config::Dependency;
-use crate::error::*;
 use crate::sess::{DependencyConstraint, DependencySource};
 use crate::sess::{Session, SessionIo};
 use crate::{fmt_path, fmt_version};
@@ -33,7 +33,7 @@ pub struct ParentsArgs {
 pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
     let dep = &args.name.to_lowercase();
     let mydep = sess.dependency_with_name(dep)?;
-    let rt = Runtime::new()?;
+    let rt = Runtime::new().into_diagnostic()?;
     let io = SessionIo::new(sess);
 
     let parent_array = get_parent_array(sess, &rt, &io, dep, args.targets)?;

@@ -8,12 +8,12 @@ use std::io::Write;
 
 use clap::Args;
 use indexmap::IndexSet;
+use miette::{bail, Result};
 use tabwriter::TabWriter;
 
 use crate::cmd;
 use crate::config::{Locked, LockedPackage};
 use crate::diagnostic::Warnings;
-use crate::error::*;
 use crate::lockfile::*;
 use crate::resolver::DependencyResolver;
 use crate::sess::Session;
@@ -73,10 +73,7 @@ pub fn run<'ctx>(
 
     for dep in requested.iter() {
         if !keep_locked.contains(&dep) {
-            return Err(Error::new(format!(
-                "Dependency {} is not present, cannot update {}.",
-                dep, dep
-            )));
+            bail!("Dependency {} is not present, cannot update {}.", dep, dep);
         }
     }
 
@@ -108,11 +105,11 @@ pub fn run_plain<'ctx>(
     keep_locked: IndexSet<&'ctx String>,
 ) -> Result<(Locked, Vec<String>)> {
     if sess.manifest.frozen {
-        return Err(Error::new(format!(
+        bail!(
             "Refusing to update dependencies because the package is frozen.
             Remove the `frozen: true` from {:?} to proceed; there be dragons.",
             sess.root.join("Bender.yml")
-        )));
+        );
     }
     debugln!(
         "main: lockfile {:?} outdated",

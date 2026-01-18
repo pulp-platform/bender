@@ -8,12 +8,12 @@ use std::io::Write;
 
 use clap::Args;
 use futures::future::join_all;
+use miette::{IntoDiagnostic, Result};
 use semver::VersionReq;
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
 use crate::cmd::parents::get_parent_array;
-use crate::error::*;
 use crate::sess::{DependencyVersions, Session, SessionIo};
 
 /// Get information about version conflicts and possible updates.
@@ -34,7 +34,7 @@ pub struct AuditArgs {
 
 /// Execute the `audit` subcommand.
 pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
-    let rt = Runtime::new()?;
+    let rt = Runtime::new().into_diagnostic()?;
     let io = SessionIo::new(sess);
 
     let binding = sess.packages().clone();

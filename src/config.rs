@@ -19,6 +19,7 @@ use std::str::FromStr;
 
 use glob::glob;
 use indexmap::IndexMap;
+use miette::{bail, Error, IntoDiagnostic, Result, WrapErr};
 use semver;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -27,7 +28,6 @@ use serde_yaml_ng::Value;
 use subst;
 
 use crate::diagnostic::{Diagnostics, Warnings};
-use crate::error::*;
 use crate::target::TargetSpec;
 use crate::util::*;
 
@@ -511,7 +511,7 @@ impl Validate for PartialManifest {
                 }
                 p
             }
-            None => return Err(Error::new("Missing package information.")),
+            None => bail!("Missing package information."),
         };
         let deps = match self.dependencies {
             Some(d) => d
@@ -520,16 +520,16 @@ impl Validate for PartialManifest {
                 .collect::<IndexMap<_, _>>()
                 .validate(&pkg.name, pre_output)
                 .map_err(|(key, cause)| {
-                    Error::chain(
-                        format!("In dependency `{}` of package `{}`:", key, pkg.name),
-                        cause,
-                    )
+                    cause.wrap_err(format!(
+                        "In dependency `{}` of package `{}`:",
+                        key, pkg.name
+                    ))
                 })?,
             None => IndexMap::new(),
         };
         let srcs = match self.sources {
             Some(s) => Some(s.validate(&pkg.name, pre_output).map_err(|cause| {
-                Error::chain(format!("In source list of package `{}`:", pkg.name), cause)
+                cause.wrap_err(format!("In source list of package `{}`:", pkg.name))
             })?),
             None => None,
         };
@@ -545,13 +545,13 @@ impl Validate for PartialManifest {
         let workspace = match self.workspace {
             Some(w) => w
                 .validate(&pkg.name, pre_output)
-                .map_err(|cause| Error::chain("In workspace configuration:", cause))?,
+                .map_err(|cause| cause.wrap_err("In workspace configuration:"))?,
             None => Workspace::default(),
         };
         let vendor_package = match self.vendor_package {
             Some(vend) => vend
                 .validate(&pkg.name, pre_output)
-                .map_err(|cause| Error::chain("Unable to parse vendor_package", cause))?,
+                .map_err(|cause| cause.wrap_err("Unable to parse vendor_package"))?,
             None => Vec::new(),
         };
         if !pre_output {
@@ -597,7 +597,8 @@ impl Validate for PartialManifest {
                             .emit();
                             None
                         } else {
-                            Some(Err(Error::chain("[E30]", cause)))
+                            // TODO(fischeti): Improve the error message?
+                            Some(Err(cause.wrap_err("[E30]")))
                         }
                     }
                 })
@@ -678,18 +679,17 @@ impl Validate for PartialDependency {
             .map(|s| s.validate(package_name, pre_output))
             .collect::<Result<Vec<_>>>()?;
         let version = match self.version {
-            Some(v) => Some(semver::VersionReq::parse(&v).map_err(|cause| {
-                Error::chain(
-                    format!("\"{}\" is not a valid semantic version requirement.", v),
-                    cause,
-                )
-            })?),
+            Some(v) => Some(
+                semver::VersionReq::parse(&v)
+                    .into_diagnostic()
+                    .wrap_err_with(|| {
+                        format!("\"{}\" is not a valid semantic version requirement.", v)
+                    })?,
+            ),
             None => None,
         };
         if self.rev.is_some() && version.is_some() {
-            return Err(Error::new(
-                "A dependency cannot specify `version` and `rev` at the same time.",
-            ));
+            bail!("A dependency cannot specify `version` and `rev` at the same time.");
         }
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
@@ -710,10 +710,7 @@ impl Validate for PartialDependency {
                 ",",
                 "or",
             ) {
-                Err(Error::new(format!(
-                    "A `path` dependency cannot have a {} field.",
-                    list
-                )))
+                bail!("A `path` dependency cannot have a {} field.", list);
             } else {
                 Ok(Dependency::Path {
                     target,
@@ -737,9 +734,7 @@ impl Validate for PartialDependency {
                     pass_targets,
                 })
             } else {
-                Err(Error::new(
-                    "A `git` dependency must have either a `rev` or `version` field.",
-                ))
+                bail!("A `git` dependency must have either a `rev` or `version` field.");
             }
         } else if let Some(version) = version {
             Ok(Dependency::Version {
@@ -748,9 +743,7 @@ impl Validate for PartialDependency {
                 pass_targets,
             })
         } else {
-            Err(Error::new(
-                "A dependency must specify `version`, `path`, or `git`.",
-            ))
+            bail!("A dependency must specify `version`, `path`, or `git`.");
         }
     }
 }
@@ -886,10 +879,14 @@ impl Validate for PartialSources {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
                             if Diagnostics::is_suppressed("E30") {
-                                Warnings::IgnoredPath {cause: cause.to_string()}.emit();
+                                Warnings::IgnoredPath {
+                                    cause: cause.to_string(),
+                                }
+                                .emit();
                                 None
                             } else {
-                                Some(Err(Error::chain("[E30]", cause)))
+                                // TODO(fischeti): Improve the error message?
+                                Some(Err(cause.wrap_err("[E30]")))
                             }
                         }
                     })
@@ -898,21 +895,15 @@ impl Validate for PartialSources {
                 let external_flist_list: Result<Vec<(PathBuf, Vec<String>)>> = external_flists?
                     .into_iter()
                     .map(|filename| {
-                        let file = File::open(&filename).map_err(|cause| {
-                            Error::chain(
-                                format!("Unable to open external flist file {:?}", filename),
-                                cause,
-                            )
+                        let file = File::open(&filename).into_diagnostic().wrap_err_with(|| {
+                            format!("Unable to open external flist file {:?}", filename)
                         })?;
                         let reader = BufReader::new(file);
                         let lines: Vec<String> = reader
                             .lines()
                             .map(|line| {
-                                line.map_err(|cause| {
-                                    Error::chain(
-                                        format!("Error reading external flist file {:?}", filename),
-                                        cause,
-                                    )
+                                line.into_diagnostic().wrap_err_with(|| {
+                                    format!("Error reading external flist file {:?}", filename)
                                 })
                             })
                             .collect::<Result<Vec<String>>>()?;
@@ -987,18 +978,20 @@ impl Validate for PartialSources {
                                     })
                                     .collect(),
                             ),
-                            files: Some(flist
-                                .into_iter()
-                                .filter_map(|file| {
-                                    if file.starts_with("+") {
-                                        None
-                                    } else {
-                                        // prefix path
-                                        Some(PartialSourceFile::File(file))
-                                    }
-                                })
-                                .map(|file| file.prefix_paths(&flist_dir))
-                                .collect::<Result<Vec<_>>>()?),
+                            files: Some(
+                                flist
+                                    .into_iter()
+                                    .filter_map(|file| {
+                                        if file.starts_with("+") {
+                                            None
+                                        } else {
+                                            // prefix path
+                                            Some(PartialSourceFile::File(file))
+                                        }
+                                    })
+                                    .map(|file| file.prefix_paths(&flist_dir))
+                                    .collect::<Result<Vec<_>>>()?,
+                            ),
                             sv: None,
                             v: None,
                             vhd: None,
@@ -1009,33 +1002,46 @@ impl Validate for PartialSources {
                     .collect();
 
                 let post_env_files: Vec<PartialSourceFile> = if let Some(fls) = files {
-                    fls
-                    .into_iter()
-                    .chain(external_flist_groups?.into_iter())
-                    .filter_map(|file| match file {
-                        PartialSourceFile::File(ref filename)
-                        | PartialSourceFile::SvFile(ref filename)
-                        | PartialSourceFile::VerilogFile(ref filename)
-                        | PartialSourceFile::VhdlFile(ref filename) => match env_string_from_string(filename.to_string()) {
-                            Ok(p) => match file {
-                                PartialSourceFile::File(_) => Some(Ok(PartialSourceFile::File(p))),
-                                PartialSourceFile::SvFile(_) => Some(Ok(PartialSourceFile::SvFile(p))),
-                                PartialSourceFile::VerilogFile(_) => Some(Ok(PartialSourceFile::VerilogFile(p))),
-                                PartialSourceFile::VhdlFile(_) => Some(Ok(PartialSourceFile::VhdlFile(p))),
-                                _ => unreachable!(),
-                            },
-                            Err(cause) => {
-                                if Diagnostics::is_suppressed("E30") {
-                                    Warnings::IgnoredPath {cause: cause.to_string()}.emit();
-                                    None
-                                } else {
-                                    Some(Err(Error::chain("[E30]", cause)))
+                    fls.into_iter()
+                        .chain(external_flist_groups?.into_iter())
+                        .filter_map(|file| match file {
+                            PartialSourceFile::File(ref filename)
+                            | PartialSourceFile::SvFile(ref filename)
+                            | PartialSourceFile::VerilogFile(ref filename)
+                            | PartialSourceFile::VhdlFile(ref filename) => {
+                                match env_string_from_string(filename.to_string()) {
+                                    Ok(p) => match file {
+                                        PartialSourceFile::File(_) => {
+                                            Some(Ok(PartialSourceFile::File(p)))
+                                        }
+                                        PartialSourceFile::SvFile(_) => {
+                                            Some(Ok(PartialSourceFile::SvFile(p)))
+                                        }
+                                        PartialSourceFile::VerilogFile(_) => {
+                                            Some(Ok(PartialSourceFile::VerilogFile(p)))
+                                        }
+                                        PartialSourceFile::VhdlFile(_) => {
+                                            Some(Ok(PartialSourceFile::VhdlFile(p)))
+                                        }
+                                        _ => unreachable!(),
+                                    },
+                                    Err(cause) => {
+                                        if Diagnostics::is_suppressed("E30") {
+                                            Warnings::IgnoredPath {
+                                                cause: cause.to_string(),
+                                            }
+                                            .emit();
+                                            None
+                                        } else {
+                                            // TODO(fischeti): Improve the error message?
+                                            Some(Err(cause.wrap_err("[E30]")))
+                                        }
+                                    }
                                 }
                             }
-                        },
-                        other => Some(Ok(other)),
-                    })
-                    .collect::<Result<Vec<_>>>()?
+                            other => Some(Ok(other)),
+                        })
+                        .collect::<Result<Vec<_>>>()?
                 } else {
                     Vec::new()
                 };
@@ -1069,10 +1075,14 @@ impl Validate for PartialSources {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
                             if Diagnostics::is_suppressed("E30") {
-                                Warnings::IgnoredPath {cause: cause.to_string()}.emit();
+                                Warnings::IgnoredPath {
+                                    cause: cause.to_string(),
+                                }
+                                .emit();
                                 None
                             } else {
-                                Some(Err(Error::chain("[E30]", cause)))
+                                // TODO(fischeti): Improve the error message?
+                                Some(Err(cause.wrap_err("[E30]")))
                             }
                         }
                     })
@@ -1115,12 +1125,10 @@ impl Validate for PartialSources {
                 external_flists: None,
                 extra: _,
             } => {
-                Err(Error::new("Only a single source with a single type is supported."))
-            },
+                bail!("Only a single source with a single type is supported.");
+            }
             _ => {
-                Err(Error::new(
-                    "Do not mix `sv`, `v`, or `vhd` with `files`, `target`, `include_dirs`, and `defines`.",
-                ))
+                bail!("Do not mix `sv`, `v`, or `vhd` with `files`, `target`, `include_dirs`, and `defines`.");
             }
         }
     }
@@ -1263,15 +1271,14 @@ impl GlobFile for PartialSourceFile {
             | PartialSourceFile::VhdlFile(ref path) => {
                 // Check if glob patterns used
                 if path.contains("*") || path.contains("?") {
-                    let glob_matches = glob(path).map_err(|cause| {
-                        Error::chain(format!("Invalid glob pattern for {:?}", path), cause)
-                    })?;
+                    let glob_matches = glob(path)
+                        .into_diagnostic()
+                        .wrap_err_with(|| format!("Invalid glob pattern for {:?}", path))?;
                     let out = glob_matches
                         .map(|glob_match| {
                             let file_str = glob_match
-                                .map_err(|cause| {
-                                    Error::chain(format!("Glob match failed for {:?}", path), cause)
-                                })?
+                                .into_diagnostic()
+                                .wrap_err_with(|| format!("Glob match failed for {:?}", path))?
                                 .to_str()
                                 .unwrap()
                                 .to_string();
@@ -1529,24 +1536,22 @@ impl Validate for PartialConfig {
         Ok(Config {
             database: match self.database {
                 Some(db) => env_path_from_string(db)?,
-                None => return Err(Error::new("Database directory not configured")),
+                None => bail!("Database directory not configured"),
             },
             git: match self.git {
                 Some(git) => git,
-                None => return Err(Error::new("Git command or path to binary not configured")),
+                None => bail!("Git command or path to binary not configured"),
             },
             overrides: match self.overrides {
                 Some(d) => d
                     .validate(package_name, pre_output)
-                    .map_err(|(key, cause)| {
-                        Error::chain(format!("In override `{}`:", key), cause)
-                    })?,
+                    .map_err(|(key, cause)| cause.wrap_err(format!("In override `{}`:", key)))?,
                 None => IndexMap::new(),
             },
             plugins: match self.plugins {
                 Some(d) => d
                     .validate(package_name, pre_output)
-                    .map_err(|(key, cause)| Error::chain(format!("In plugin `{}`:", key), cause))?,
+                    .map_err(|(key, cause)| cause.wrap_err(format!("In plugin `{}`:", key)))?,
                 None => IndexMap::new(),
             },
             git_throttle: self.git_throttle,
@@ -1672,19 +1677,17 @@ impl Validate for PartialVendorPackage {
         Ok(VendorPackage {
             name: match self.name {
                 Some(name) => name,
-                None => return Err(Error::new("external import name missing")),
+                None => bail!("external import name missing"),
             },
             target_dir: match self.target_dir {
                 Some(target_dir) => env_path_from_string(target_dir)?,
-                None => return Err(Error::new("external import target dir missing")),
+                None => bail!("external import target dir missing"),
             },
             upstream: match self.upstream {
                 Some(upstream) => upstream
                     .validate(package_name, pre_output)
-                    .map_err(|cause| {
-                        Error::chain("Unable to parse external import upstream", cause)
-                    })?,
-                None => return Err(Error::new("external import upstream missing")),
+                    .map_err(|cause| cause.wrap_err("Unable to parse external import upstream"))?,
+                None => bail!("external import upstream missing"),
             },
             mapping: self.mapping.unwrap_or_default(),
             patch_dir: match self.patch_dir {
@@ -1741,7 +1744,7 @@ impl Validate for PartialPassedTarget {
             target: self.target.unwrap_or_default(),
             pass: match self.pass {
                 Some(p) => p.to_lowercase(),
-                None => return Err(Error::new("passed target missing pass value")),
+                None => bail!("passed target missing pass value"),
             },
         })
     }
@@ -1802,12 +1805,9 @@ pub enum LockedSource {
 
 #[cfg(unix)]
 fn env_string_from_string(path_str: String) -> Result<String> {
-    subst::substitute(&path_str, &subst::Env).map_err(|cause| {
-        Error::chain(
-            format!("Unable to substitute with env: {}", path_str),
-            cause,
-        )
-    })
+    subst::substitute(&path_str, &subst::Env)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Unable to substitute with env: {}", path_str))
 }
 
 #[cfg(windows)]

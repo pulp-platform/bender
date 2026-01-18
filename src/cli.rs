@@ -17,6 +17,7 @@ use dunce::canonicalize;
 use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{value_parser, ArgAction, CommandFactory, Parser, Subcommand};
 use indexmap::IndexSet;
+use miette::{bail, ensure, miette, IntoDiagnostic, Result, WrapErr};
 use serde_yaml_ng;
 use tokio::runtime::Runtime;
 
@@ -24,7 +25,7 @@ use crate::cmd;
 use crate::cmd::fusesoc::FusesocArgs;
 use crate::config::{Config, Manifest, Merge, PartialConfig, PrefixPaths, Validate};
 use crate::diagnostic::{Diagnostics, Warnings};
-use crate::error::*;
+use crate::error::ENABLE_DEBUG;
 use crate::lockfile::*;
 use crate::sess::{Session, SessionArenas, SessionIo};
 use crate::{fmt_path, fmt_pkg};
@@ -158,11 +159,11 @@ pub fn main() -> Result<()> {
     // the -d/--dir switch, or by searching upwards in the file system
     // hierarchy.
     let root_dir: PathBuf = match &cli.dir {
-        Some(d) => canonicalize(d).map_err(|cause| {
-            Error::chain(format!("Failed to canonicalize path {:?}.", d), cause)
-        })?,
+        Some(d) => canonicalize(d)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("Failed to canonicalize path {:?}.", d))?,
         None => find_package_root(Path::new("."))
-            .map_err(|cause| Error::chain("Cannot find root directory of package.", cause))?,
+            .wrap_err_with(|| "Cannot find root directory of package.")?,
     };
     debugln!("main: root dir {:?}", root_dir);
 
@@ -230,7 +231,7 @@ pub fn main() -> Result<()> {
 
             // Checkout if we are running update or package path does not exist yet
             if matches!(cli.command, Commands::Update(_)) || !pkg_path.clone().exists() {
-                let rt = Runtime::new()?;
+                let rt = Runtime::new().into_diagnostic()?;
                 rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?, false, &[]))?;
             }
 
@@ -243,23 +244,18 @@ pub fn main() -> Result<()> {
             // Check if there is something at the destination path that needs to be
             // removed.
             if path.exists() {
-                let meta = path.symlink_metadata().map_err(|cause| {
-                    Error::chain(
-                        format!("Failed to read metadata of path {:?}.", path),
-                        cause,
-                    )
-                })?;
+                let meta = path
+                    .symlink_metadata()
+                    .into_diagnostic()
+                    .wrap_err_with(|| format!("Failed to read metadata of path {:?}.", path))?;
                 if !meta.file_type().is_symlink() {
                     Warnings::SkippingPackageLink(pkg_name.clone(), path.clone()).emit();
                     continue;
                 }
                 if path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
                     debugln!("main: removing existing link {:?}", path);
-                    remove_symlink_dir(path).map_err(|cause| {
-                        Error::chain(
-                            format!("Failed to remove symlink at path {:?}.", path),
-                            cause,
-                        )
+                    remove_symlink_dir(path).wrap_err_with(|| {
+                        format!("Failed to remove symlink at path {:?}.", path)
                     })?;
                 }
             }
@@ -267,9 +263,9 @@ pub fn main() -> Result<()> {
             // Create the symlink if there is nothing at the destination.
             if !path.exists() {
                 if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent).map_err(|cause| {
-                        Error::chain(format!("Failed to create directory {:?}.", parent), cause)
-                    })?;
+                    std::fs::create_dir_all(parent)
+                        .into_diagnostic()
+                        .wrap_err_with(|| format!("Failed to create directory {:?}.", parent))?;
                 }
                 let previous_dir = match path.parent() {
                     Some(parent) => {
@@ -279,13 +275,10 @@ pub fn main() -> Result<()> {
                     }
                     None => None,
                 };
-                symlink_dir(&pkg_path, path).map_err(|cause| {
-                    Error::chain(
-                        format!(
-                            "Failed to create symlink to {:?} at path {:?}.",
-                            pkg_path, path
-                        ),
-                        cause,
+                symlink_dir(&pkg_path, path).wrap_err_with(|| {
+                    format!(
+                        "Failed to create symlink to {:?} at path {:?}.",
+                        pkg_path, path
                     )
                 })?;
                 if let Some(d) = previous_dir {
@@ -320,7 +313,7 @@ pub fn main() -> Result<()> {
         Commands::Plugin(args) => {
             let (plugin_name, plugin_args) = args
                 .split_first()
-                .ok_or_else(|| Error::new("No command specified.".to_string()))?;
+                .ok_or_else(|| miette!("No plugin name provided."))?;
             execute_plugin(&sess, plugin_name, plugin_args)
         }
         Commands::Completion(_) | Commands::Init | Commands::Clean(_) => {
@@ -331,22 +324,22 @@ pub fn main() -> Result<()> {
 
 #[cfg(unix)]
 pub fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
-    Ok(std::os::unix::fs::symlink(p, q)?)
+    std::os::unix::fs::symlink(p, q).into_diagnostic()
 }
 
 #[cfg(windows)]
 pub fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
-    Ok(std::os::windows::fs::symlink_dir(p, q)?)
+    std::os::windows::fs::symlink_dir(p, q).into_diagnostic()
 }
 
 #[cfg(unix)]
 pub fn remove_symlink_dir(path: &Path) -> Result<()> {
-    Ok(std::fs::remove_file(path)?)
+    std::fs::remove_file(path).into_diagnostic()
 }
 
 #[cfg(windows)]
 pub fn remove_symlink_dir(path: &Path) -> Result<()> {
-    Ok(std::fs::remove_dir(path)?)
+    std::fs::remove_dir(path).into_diagnostic()
 }
 
 /// Find the root directory of a package.
@@ -358,7 +351,8 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
 
     // Canonicalize the path. This will resolve any intermediate links.
     let mut path = canonicalize(from)
-        .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", from), cause))?;
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Failed to canonicalize path {:?}.", from))?;
     debugln!("find_package_root: canonicalized to {:?}", path);
 
     // Look up the device at the current path. This information will then be
@@ -378,30 +372,25 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
         }
 
         // Abort if we have reached the filesystem root.
-        if !path.pop() {
-            return Err(Error::new(format!(
-                "No manifest (`Bender.yml` file) found. Stopped searching at filesystem root {:?}.",
-                path
-            )));
-        }
+        ensure!(
+            path.pop(),
+            "No manifest (`Bender.yml` file) found. Stopped searching at filesystem root {:?}.",
+            path
+        );
 
         // Abort if we have crossed the filesystem boundary.
         #[cfg(unix)]
         {
             let rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
             debugln!("find_package_root: rdev = {:?}", rdev);
-            if rdev != limit_rdev {
-                return Err(Error::new(format!(
-                    "No manifest (`Bender.yml` file) found. Stopped searching at filesystem boundary {:?}.",
-                    path
-                )));
-            }
+            ensure!(
+                rdev == limit_rdev,
+                "No manifest (`Bender.yml` file) found. Stopped searching at filesystem boundary {:?}.",
+                path
+            );
         }
     }
-
-    Err(Error::new(
-        "No manifest (`Bender.yml` file) found. Reached maximum number of search steps.",
-    ))
+    bail!("No manifest (`Bender.yml` file) found. Reached maximum number of search steps.");
 }
 
 /// Read a package manifest from a file.
@@ -410,14 +399,16 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
     use std::fs::File;
     debugln!("read_manifest: {:?}", path);
     let file = File::open(path)
-        .map_err(|cause| Error::chain(format!("Cannot open manifest {:?}.", path), cause))?;
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Cannot open manifest {:?}.", path))?;
     let partial: PartialManifest = serde_yaml_ng::from_reader(file)
-        .map_err(|cause| Error::chain(format!("Syntax error in manifest {:?}.", path), cause))?;
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Syntax error in manifest {:?}.", path))?;
     partial
         .prefix_paths(path.parent().unwrap())
-        .map_err(|cause| Error::chain(format!("Error in manifest prefixing {:?}.", path), cause))?
+        .wrap_err_with(|| format!("Error in manifest prefixing {:?}.", path))?
         .validate("", false)
-        .map_err(|cause| Error::chain(format!("Error in manifest {:?}.", path), cause))
+        .wrap_err_with(|| format!("Error in manifest {:?}.", path))
 }
 
 /// Load a configuration by traversing a directory hierarchy upwards.
@@ -429,7 +420,8 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
 
     // Canonicalize the path. This will resolve any intermediate links.
     let mut path = canonicalize(from)
-        .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", from), cause))?;
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Failed to canonicalize path {:?}.", from))?;
     debugln!("load_config: canonicalized to {:?}", path);
 
     // Look up the device at the current path. This information will then be
@@ -496,7 +488,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
     // Validate the configuration.
     let mut out = out
         .validate("", false)
-        .map_err(|cause| Error::chain("Invalid configuration:", cause))?;
+        .wrap_err_with(|| "Invalid configuration.")?;
 
     out.overrides = out
         .overrides
@@ -515,9 +507,11 @@ fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<Par
         return Ok(None);
     }
     let file = File::open(path)
-        .map_err(|cause| Error::chain(format!("Cannot open config {:?}.", path), cause))?;
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Cannot open config {:?}.", path))?;
     let partial: PartialConfig = serde_yaml_ng::from_reader(file)
-        .map_err(|cause| Error::chain(format!("Syntax error in config {:?}.", path), cause))?;
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Syntax error in config {:?}.", path))?;
     if warn_config_loaded {
         Warnings::UsingConfigForOverride {
             path: path.to_path_buf(),
@@ -532,14 +526,18 @@ fn execute_plugin(sess: &Session, plugin: &str, args: &[String]) -> Result<()> {
     debugln!("main: execute plugin `{}`", plugin);
 
     // Obtain a list of declared plugins.
-    let runtime = Runtime::new()?;
+    let runtime = Runtime::new()
+        .into_diagnostic()
+        .context("Failed to create Tokio runtime.")?;
     let io = SessionIo::new(sess);
-    let plugins = runtime.block_on(io.plugins(false))?;
+    let plugins = runtime
+        .block_on(io.plugins(false))
+        .context("Failed to load plugin list.")?;
 
     // Lookup the requested plugin and complain if it does not exist.
     let plugin = match plugins.get(plugin) {
         Some(p) => p,
-        None => return Err(Error::new(format!("Unknown command `{}`.", plugin))),
+        None => bail!("Unknown command `{}`.", plugin),
     };
     debugln!("main: found plugin {:#?}", plugin);
 
@@ -549,25 +547,24 @@ fn execute_plugin(sess: &Session, plugin: &str, args: &[String]) -> Result<()> {
     cmd.env(
         "BENDER",
         std::env::current_exe()
-            .map_err(|cause| Error::chain("Failed to determine current executable.", cause))?,
+            .into_diagnostic()
+            .wrap_err("Failed to determine current executable.")?,
     );
     cmd.env(
         "BENDER_CALL_DIR",
         std::env::current_dir()
-            .map_err(|cause| Error::chain("Failed to determine current directory.", cause))?,
+            .into_diagnostic()
+            .wrap_err("Failed to determine current directory.")?,
     );
     cmd.env("BENDER_MANIFEST_DIR", sess.root);
     cmd.current_dir(sess.root);
     cmd.args(args);
 
     debugln!("main: executing plugin {:#?}", cmd);
-    let stat = cmd.status().map_err(|cause| {
-        Error::chain(
-            format!(
-                "Unable to spawn process for plugin `{}`. Command was {:#?}.",
-                plugin.name, cmd
-            ),
-            cause,
+    let stat = cmd.status().into_diagnostic().wrap_err_with(|| {
+        format!(
+            "Unable to spawn process for plugin `{}`. Command was {:#?}.",
+            plugin.name, cmd
         )
     })?;
 

@@ -12,11 +12,11 @@ use std::iter::FromIterator;
 use std::path::Path;
 
 use indexmap::{IndexMap, IndexSet};
+use miette::{bail, Error, Result};
 use serde::ser::{Serialize, Serializer};
 
 use crate::config::Validate;
 use crate::diagnostic::{Diagnostics, Warnings};
-use crate::error::Error;
 use crate::target::{TargetSet, TargetSpec};
 use semver;
 
@@ -46,11 +46,7 @@ pub struct SourceGroup<'ctx> {
 impl<'ctx> Validate for SourceGroup<'ctx> {
     type Output = SourceGroup<'ctx>;
     type Error = Error;
-    fn validate(
-        self,
-        package_name: &str,
-        pre_output: bool,
-    ) -> crate::error::Result<SourceGroup<'ctx>> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceGroup<'ctx>> {
         Ok(SourceGroup {
             files: self
                 .files
@@ -429,10 +425,10 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                     }
                     Ok(SourceFile::File(path, ty))
                 } else {
-                    Err(Error::new(format!(
+                    bail!(
                         "[E31] File {} doesn't exist",
                         env_path_buf.to_string_lossy()
-                    )))
+                    );
                 }
             }
             SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(

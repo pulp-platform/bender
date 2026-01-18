@@ -5,9 +5,9 @@
 
 use std::io;
 
-use crate::error::*;
 use clap::{Args, Command};
 use clap_complete::{generate, Shell};
+use miette::Result;
 
 /// Emit shell completion script
 #[derive(Args, Debug)]

@@ -8,7 +8,7 @@ use std::sync::{Mutex, OnceLock};
 
 use indicatif::MultiProgress;
 use miette::{Diagnostic, ReportHandler};
-use owo_colors::Style;
+use owo_colors::{OwoColorize, Style};
 use thiserror::Error;
 
 use crate::{fmt_dim, fmt_field, fmt_path, fmt_pkg, fmt_version, fmt_with_style};

@@ -11,13 +11,13 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
 use glob::Pattern;
+use miette::{bail, ensure, Error, IntoDiagnostic, Result, WrapErr};
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
 
 use crate::config;
 use crate::config::PrefixPaths;
 use crate::diagnostic::Warnings;
-use crate::error::*;
 use crate::futures::TryFutureExt;
 use crate::git::Git;
 use crate::progress::{GitProgressOps, ProgressHandler};
@@ -90,12 +90,12 @@ pub enum VendorSubcommand {
 
 /// Execute the `vendor` subcommand.
 pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
-    let rt = Runtime::new()?;
+    let rt = Runtime::new().into_diagnostic()?;
 
     for vendor_package in &sess.manifest.vendor_package {
         // Clone upstream into a temporary directory (or make use of .bender/db?)
         let dep_src = DependencySource::from(&vendor_package.upstream);
-        let tmp_dir = TempDir::new()?;
+        let tmp_dir = TempDir::new().into_diagnostic()?;
         let tmp_path = tmp_dir.path();
         let dep_path = match dep_src {
             DependencySource::Path(path) => path,
@@ -107,28 +107,44 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                         GitProgressOps::Clone,
                         vendor_package.name.as_str(),
                     );
-                    git.clone().spawn_with(|c| c.arg("clone").arg(url).arg("."), Some(pb))
-                    .map_err(move |cause| {
-                        Warnings::GitInitFailed {
-                            is_ssh: url.contains("git@"),
-                        }.emit();
-                        Error::chain(
-                            format!("Failed to initialize git database in {:?}.", tmp_path),
-                            cause,
-                        )
-                    }).await?;
+                    git.clone()
+                        .spawn_with(|c| c.arg("clone").arg(url).arg("."), Some(pb))
+                        .await
+                        .wrap_err_with(|| {
+                            // Warnings::GitInitFailed {
+                            //     is_ssh: url.contains("git@"),
+                            // }
+                            // .emit();
+                            format!("Failed to initialize git database in {:?}.", tmp_path)
+                        })?;
                     let rev_hash = match vendor_package.upstream {
-                        config::Dependency::GitRevision { ref rev, .. } => Ok(rev),
-                        _ => Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout")),
+                        config::Dependency::GitRevision { ref rev, .. } => {
+                            Ok::<&std::string::String, miette::Error>(rev)
+                        }
+                        _ => Err(Error::UpstreamNotHash)?,
                     }?;
                     let pb = ProgressHandler::new(
                         sess.multiprogress.clone(),
                         GitProgressOps::Checkout,
                         vendor_package.name.as_str(),
                     );
-                    git.clone().spawn_with(|c| c.arg("checkout").arg(rev_hash), Some(pb)).await?;
-                    if *rev_hash != git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{}^{{commit}}", rev_hash)), None).await?.trim_end_matches('\n') {
-                        Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout"))
+                    git.clone()
+                        .spawn_with(|c| c.arg("checkout").arg(rev_hash), Some(pb))
+                        .await?;
+                    if *rev_hash
+                        != git
+                            .spawn_with(
+                                |c| {
+                                    c.arg("rev-parse")
+                                        .arg("--verify")
+                                        .arg(format!("{}^{{commit}}", rev_hash))
+                                },
+                                None,
+                            )
+                            .await?
+                            .trim_end_matches('\n')
+                    {
+                        Err(Error::UpstreamNotHash)?
                     } else {
                         Ok(())
                     }
@@ -211,8 +227,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
 
                 // Print diff for each link
                 sorted_links.into_iter().try_for_each(|patch_link| {
-                    let get_diff = diff(&rt, git.clone(), vendor_package, patch_link, dep_path.clone())
-                        .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
+                    let get_diff = diff(&rt, git.clone(), vendor_package, patch_link, dep_path.clone()).wrap_err("Failed to get diff.")?;
                     if !get_diff.is_empty() {
                         let _ = write!(std::io::stdout(), "{}", get_diff);
                         // If desired, return an error (e.g. for CI)
@@ -222,7 +237,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                                 Some(err_msg) => err_msg.to_string(),
                                 _ => "Found differences, please patch (e.g. using bender vendor patch).".to_string()
                             };
-                            return Err(Error::new(err_msg))
+                            bail!(err_msg);
                         }
                     }
                     Ok(())
@@ -242,9 +257,8 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                         } else {
                             std::fs::remove_file(target_path.clone())
                         }
-                        .map_err(|cause| {
-                            Error::chain(format!("Failed to remove {:?}.", target_path), cause)
-                        })?;
+                        .into_diagnostic()
+                        .wrap_err_with(|| format!("Failed to remove {:?}.", target_path))?;
                     }
 
                     // init
@@ -277,7 +291,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                         apply_patches(&rt, git.clone(), vendor_package.name.clone(), patch_link)
                             .map(|num| num_patches += num)
                     })
-                    .map_err(|cause| Error::chain("Failed to apply patch.", cause))?;
+                    .wrap_err("Failed to apply patches.")?;
 
                 // Commit applied patches to clean working tree
                 if num_patches > 0 {
@@ -297,7 +311,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                                     patch_link,
                                     dep_path.clone(),
                                 )
-                                .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
+                                .wrap_err("Failed to get diff.")?;
                                 gen_plain_patch(get_diff, patch_dir, false)
                             } else {
                                 gen_format_patch(
@@ -346,12 +360,14 @@ pub fn init(
         .clone()
         .prefix_paths(&vendor_package.target_dir)?;
     let link_from = patch_link.from_prefix.clone().prefix_paths(dep_path)?;
-    std::fs::create_dir_all(link_to.parent().unwrap()).map_err(|cause| {
-        Error::chain(
-            format!("Failed to create directory {:?}", link_to.parent()),
-            cause,
-        )
-    })?;
+    std::fs::create_dir_all(link_to.parent().unwrap())
+        .into_diagnostic()
+        .wrap_err_with(|| {
+            format!(
+                "Failed to create directory {:?}.",
+                link_to.parent().unwrap()
+            )
+        })?;
 
     if no_patch {
         apply_patches(
@@ -386,16 +402,15 @@ pub fn init(
         )?,
         false => {
             if link_from.exists() {
-                std::fs::copy(&link_from, &link_to).map_err(|cause| {
-                    Error::chain(
+                std::fs::copy(&link_from, &link_to)
+                    .into_diagnostic()
+                    .wrap_err_with(|| {
                         format!(
                             "Failed to copy {} to {}.",
                             link_from.to_str().unwrap(),
                             link_to.to_str().unwrap(),
-                        ),
-                        cause,
-                    )
-                })?;
+                        )
+                    })?;
             } else {
                 Warnings::NotInUpstream {
                     path: link_from.to_str().unwrap().to_string(),
@@ -421,11 +436,12 @@ pub fn apply_patches(
     };
 
     // Create directory in case it does not already exist
-    std::fs::create_dir_all(patch_dir).map_err(|cause| {
-        Error::chain(format!("Failed to create directory {patch_dir:?}"), cause)
-    })?;
+    std::fs::create_dir_all(patch_dir)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Failed to create directory {:?}", patch_dir.clone()))?;
 
-    let mut patches = std::fs::read_dir(patch_dir)?
+    let mut patches = std::fs::read_dir(patch_dir)
+        .into_diagnostic()?
         .map(move |f| f.unwrap().path())
         .filter(|f| f.extension().is_some())
         .filter(|f| f.extension().unwrap() == "patch")
@@ -466,8 +482,8 @@ pub fn apply_patches(
                     None,
                 )
                 .await
-                .map_err(|cause| {
-                    Error::chain(format!("Failed to apply patch {patch:?}."), cause)
+                .wrap_err_with(|| {
+                    format!("Failed to apply patch {:?}.", patch.file_name().unwrap())
                 })?;
 
             stageln!(
@@ -477,7 +493,7 @@ pub fn apply_patches(
                 fmt_path!(patch.display())
             );
         }
-        Ok::<(), Error>(())
+        Ok::<(), miette::Error>(())
     })?;
     Ok(patches.len())
 }
@@ -499,12 +515,11 @@ pub fn diff(
         .to_prefix
         .clone()
         .prefix_paths(vendor_package.target_dir.as_ref())?;
-    if !&link_to.exists() {
-        return Err(Error::new(format!(
-            "Could not find {}. Did you run bender vendor init?",
-            link_to.to_str().unwrap()
-        )));
-    }
+    ensure!(
+        link_to.exists(),
+        "Could not find {}. Did you run bender vendor init?",
+        link_to.to_str().unwrap()
+    );
     // Copy src to dst recursively.
     match &link_to.is_dir() {
         true => copy_recursively(
@@ -523,16 +538,15 @@ pub fn diff(
                 .collect(),
         )?,
         false => {
-            std::fs::copy(&link_to, &link_from).map_err(|cause| {
-                Error::chain(
+            std::fs::copy(&link_to, &link_from)
+                .into_diagnostic()
+                .wrap_err_with(|| {
                     format!(
                         "Failed to copy {} to {}.",
                         link_to.to_str().unwrap(),
                         link_from.to_str().unwrap(),
-                    ),
-                    cause,
-                )
-            })?;
+                    )
+                })?;
         }
     };
     // Get diff
@@ -558,14 +572,12 @@ pub fn gen_plain_patch(diff: String, patch_dir: impl AsRef<Path>, no_patch: bool
     if !diff.is_empty() {
         // if let Some(patch) = patch_dir {
         // Create directory in case it does not already exist
-        std::fs::create_dir_all(patch_dir.as_ref()).map_err(|cause| {
-            Error::chain(
-                format!("Failed to create directory {:?}", patch_dir.as_ref()),
-                cause,
-            )
-        })?;
+        std::fs::create_dir_all(patch_dir.as_ref())
+            .into_diagnostic()
+            .wrap_err_with(|| format!("Failed to create directory {:?}", patch_dir.as_ref()))?;
 
-        let mut patches = std::fs::read_dir(patch_dir.as_ref())?
+        let mut patches = std::fs::read_dir(patch_dir.as_ref())
+            .into_diagnostic()?
             .map(move |f| f.unwrap().path())
             .filter(|f| f.extension().unwrap() == "patch")
             .collect::<Vec<_>>();
@@ -574,7 +586,7 @@ pub fn gen_plain_patch(diff: String, patch_dir: impl AsRef<Path>, no_patch: bool
         let new_patch = if no_patch || patches.is_empty() {
             // Remove all old patches
             for patch_file in patches {
-                std::fs::remove_file(patch_file)?;
+                std::fs::remove_file(patch_file).into_diagnostic()?;
             }
             "0001-bender-vendor.patch".to_string()
         } else {
@@ -588,10 +600,10 @@ pub fn gen_plain_patch(diff: String, patch_dir: impl AsRef<Path>, no_patch: bool
                 .iter()
                 .all(|s| s.chars().all(char::is_numeric))
             {
-                Err(Error::new(format!(
+                bail!(
                     "Please ensure all patches start with four numbers for proper ordering in {}",
                     patch_dir.as_ref().to_str().unwrap()
-                )))?;
+                );
             }
             let max_number = leading_numbers
                 .iter()
@@ -602,7 +614,7 @@ pub fn gen_plain_patch(diff: String, patch_dir: impl AsRef<Path>, no_patch: bool
         };
 
         // write patch
-        std::fs::write(patch_dir.as_ref().join(new_patch), diff)?;
+        std::fs::write(patch_dir.as_ref().join(new_patch), diff).into_diagnostic()?;
         // }
     }
 
@@ -623,12 +635,11 @@ pub fn gen_format_patch(
         .to_prefix
         .clone()
         .prefix_paths(target_dir.as_ref())?;
-    if !&to_path.exists() {
-        return Err(Error::new(format!(
-            "Could not find {}. Did you run bender vendor init?",
-            to_path.to_str().unwrap()
-        )));
-    }
+    ensure!(
+        to_path.exists(),
+        "Could not find {}. Did you run bender vendor init?",
+        to_path.to_str().unwrap()
+    );
     let git_parent = Git::new(
         if to_path.is_dir() {
             &to_path
@@ -684,14 +695,14 @@ pub fn gen_format_patch(
     // Get staged changes in dependency
     let get_diff_cached = rt
         .block_on(async { git_parent.spawn_with(|c| c.args(&diff_args), None).await })
-        .map_err(|cause| Error::chain("Failed to generate diff", cause))?;
+        .wrap_err("Failed to generate diff.")?;
 
     if !get_diff_cached.is_empty() {
         // Write diff into new temp dir. TODO: pipe directly to "git apply"
-        let tmp_format_dir = TempDir::new()?;
+        let tmp_format_dir = TempDir::new().into_diagnostic()?;
         let tmp_format_path = tmp_format_dir.keep();
         let diff_cached_path = tmp_format_path.join("staged.diff");
-        std::fs::write(diff_cached_path.clone(), get_diff_cached)?;
+        std::fs::write(diff_cached_path.clone(), get_diff_cached).into_diagnostic()?;
 
         // Apply diff and stage changes in ghost repo
         rt.block_on(async {
@@ -704,20 +715,18 @@ pub fn gen_format_patch(
             }, None)
             .and_then(|_| git.clone().spawn_with(|c| c.arg("add").arg("--all"), None))
             .await
-        }).map_err(|cause| Error::chain("Could not apply staged changes on top of patched upstream repository. Did you commit all previously patched modifications?", cause))?;
+        }).wrap_err("Could not apply staged changes on top of patched upstream repository. Did you commit all previously patched modifications?")?;
 
         // Commit all staged changes in ghost repo
         rt.block_on(git.clone().commit(message))?;
 
         // Create directory in case it does not already exist
-        std::fs::create_dir_all(patch_dir.clone()).map_err(|cause| {
-            Error::chain(
-                format!("Failed to create directory {:?}", patch_dir.clone()),
-                cause,
-            )
-        })?;
+        std::fs::create_dir_all(patch_dir.clone())
+            .into_diagnostic()
+            .wrap_err_with(|| format!("Failed to create directory {:?}", patch_dir.clone()))?;
 
-        let mut patches = std::fs::read_dir(patch_dir.clone())?
+        let mut patches = std::fs::read_dir(patch_dir.clone())
+            .into_diagnostic()?
             .map(move |f| f.unwrap().path())
             .filter(|f| f.extension().is_some())
             .filter(|f| f.extension().unwrap() == "patch")
@@ -737,10 +746,10 @@ pub fn gen_format_patch(
                 .iter()
                 .all(|s| s.chars().all(char::is_numeric))
             {
-                Err(Error::new(format!(
+                bail!(
                     "Please ensure all patches start with four numbers for proper ordering in {}",
                     patch_dir.to_str().unwrap()
-                )))?;
+                );
             }
             leading_numbers
                 .iter()
@@ -779,14 +788,11 @@ pub fn copy_recursively(
     includes: &Vec<String>,
     ignore: &Vec<String>,
 ) -> Result<()> {
-    std::fs::create_dir_all(&destination).map_err(|cause| {
-        Error::chain(
-            format!("Failed to create directory {:?}", &destination),
-            cause,
-        )
-    })?;
-    for entry in std::fs::read_dir(source)? {
-        let entry = entry?;
+    std::fs::create_dir_all(&destination)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Failed to create directory {:?}", &destination))?;
+    for entry in std::fs::read_dir(source).into_diagnostic()? {
+        let entry = entry.into_diagnostic()?;
 
         if !includes.iter().any(|include| {
             PathBuf::from(include).ancestors().any(|include_path| {
@@ -802,18 +808,19 @@ pub fn copy_recursively(
             continue;
         }
 
-        let filetype = entry.file_type()?;
-        let canonical_path_filetype =
-            std::fs::metadata(std::fs::canonicalize(entry.path()).map_err(|cause| {
-                Error::chain(
+        let filetype = entry.file_type().into_diagnostic()?;
+        let canonical_path_filetype = std::fs::metadata(
+            std::fs::canonicalize(entry.path())
+                .into_diagnostic()
+                .wrap_err_with(|| {
                     format!(
                         "Failed to canonicalize {:?}.",
                         entry.path().to_str().unwrap()
-                    ),
-                    cause,
-                )
-            })?)?
-            .file_type();
+                    )
+                })?,
+        )
+        .into_diagnostic()?
+        .file_type();
         if filetype.is_dir() {
             copy_recursively(
                 entry.path(),
@@ -825,22 +832,19 @@ pub fn copy_recursively(
             let orig = std::fs::read_link(entry.path());
             symlink_dir(orig.unwrap(), destination.as_ref().join(entry.file_name()))?;
         } else {
-            std::fs::copy(entry.path(), destination.as_ref().join(entry.file_name())).map_err(
-                |cause| {
-                    Error::chain(
-                        format!(
-                            "Failed to copy {} to {}.",
-                            entry.path().to_str().unwrap(),
-                            destination
-                                .as_ref()
-                                .join(entry.file_name())
-                                .to_str()
-                                .unwrap()
-                        ),
-                        cause,
+            std::fs::copy(entry.path(), destination.as_ref().join(entry.file_name()))
+                .into_diagnostic()
+                .wrap_err_with(|| {
+                    format!(
+                        "Failed to copy {} to {}.",
+                        entry.path().to_str().unwrap(),
+                        destination
+                            .as_ref()
+                            .join(entry.file_name())
+                            .to_str()
+                            .unwrap()
                     )
-                },
-            )?;
+                })?;
         }
     }
     Ok(())
@@ -867,10 +871,10 @@ pub fn extend_paths(
 
 #[cfg(unix)]
 fn symlink_dir(p: PathBuf, q: PathBuf) -> Result<()> {
-    Ok(std::os::unix::fs::symlink(p, q)?)
+    std::os::unix::fs::symlink(p, q).into_diagnostic()
 }
 
 #[cfg(windows)]
 fn symlink_dir(p: PathBuf, q: PathBuf) -> Result<()> {
-    Ok(std::os::windows::fs::symlink_dir(p, q)?)
+    std::os::windows::fs::symlink_dir(p, q).into_diagnostic()
 }
