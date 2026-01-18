@@ -49,7 +49,7 @@ fn main() {
             std::process::exit(0);
         }
         Err(e) => {
-            errorln!("{}", e);
+            eprintln!("{:?}", e);
             std::process::exit(1);
         }
     }

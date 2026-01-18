@@ -133,7 +133,20 @@ impl ReportHandler for DiagnosticRenderer {
         // We collect all footer lines into a vector.
         let mut annotations: Vec<String> = Vec::new();
 
-        // First, we write the help message(s) if any
+        // Wwrite out the chain of causes (only for Errors)
+        let mut current = diagnostic.source();
+        while let Some(cause) = current {
+            // We split lines in case a single error message has newlines
+            annotations.push(format!(
+                "{} {}",
+                "cause:".bold().red(),
+                cause.to_string().dimmed()
+            ));
+            // Move to the next error in the chain
+            current = cause.source();
+        }
+
+        // We write the help message(s) if any
         if let Some(help) = diagnostic.help() {
             let help_str = help.to_string();
             for line in help_str.lines() {
