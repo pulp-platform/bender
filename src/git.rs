@@ -18,6 +18,7 @@ use walkdir::WalkDir;
 
 use crate::progress::{monitor_stderr, ProgressHandler};
 
+use crate::debugln;
 use crate::error::*;
 
 /// A git repository.

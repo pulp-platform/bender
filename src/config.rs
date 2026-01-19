@@ -20,8 +20,7 @@ use std::str::FromStr;
 use glob::glob;
 use indexmap::IndexMap;
 use semver;
-use serde::de::{Deserialize, Deserializer};
-use serde::ser::{Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_yaml_ng::Value;
 #[cfg(unix)]
 use subst;

@@ -4,6 +4,7 @@
 //! A collection of subcommands.
 //!
 //! This module implements the subcommands of the command line tool.
+//!
 
 #![deny(missing_docs)]
 

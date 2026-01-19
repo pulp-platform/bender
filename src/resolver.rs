@@ -22,6 +22,7 @@ use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
 use crate::config::{self, Locked, LockedPackage, LockedSource, Manifest};
+use crate::debugln;
 use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{
@@ -60,12 +61,6 @@ impl<'ctx> DependencyResolver<'ctx> {
             locked: IndexMap::new(),
             src_ref_map: IndexMap::new(),
         }
-    }
-
-    fn any_open(&self) -> bool {
-        self.table
-            .values()
-            .any(|dep| matches!(dep.state, State::Open))
     }
 
     /// Resolve dependencies.
@@ -266,15 +261,9 @@ impl<'ctx> DependencyResolver<'ctx> {
             .table
             .entry(name)
             .or_insert_with(|| Dependency::new(name));
-        entry.sources.insert(
-            dep,
-            DependencyReference {
-                id: dep,
-                versions,
-                pick: None,
-                options: None,
-            },
-        );
+        entry
+            .sources
+            .insert(dep, DependencyReference { id: dep, versions });
         entry.state = State::Locked(dep, locked_index);
     }
 
@@ -890,11 +879,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     .sorted()
                     .filter_map(
                         |&(ref v, h)| {
-                            if con.matches(v) {
-                                Some((v, h))
-                            } else {
-                                None
-                            }
+                            if con.matches(v) { Some((v, h)) } else { None }
                         },
                     )
                     .collect();
@@ -1013,11 +998,11 @@ impl<'ctx> DependencyResolver<'ctx> {
                     );
                     State::Picked(
                         *src_map.first().unwrap().0,
-                        src_map.first().unwrap().1 .0,
+                        src_map.first().unwrap().1.0,
                         src_map.into_iter().map(|(k, (_, ids))| (k, ids)).collect(),
                     )
                 }
-                State::Picked(dref, id, ref map) => {
+                State::Picked(dref, id, map) => {
                     if !dep.sources[dref].is_path() && !map[dref].contains(id) {
                         debugln!(
                             "resolve: picked version for `{}`[{}] no longer valid, resetting",
@@ -1169,21 +1154,12 @@ struct DependencyReference<'ctx> {
     id: DependencyRef,
     /// The available versions of the dependency.
     versions: DependencyVersions<'ctx>,
-    /// The currently picked version.
-    pick: Option<usize>,
-    /// The available version options. These are indices into `versions`.
-    options: Option<IndexSet<usize>>,
 }
 
 impl<'ctx> DependencyReference<'ctx> {
     /// Create a new dependency source.
     fn new(id: DependencyRef, versions: DependencyVersions<'ctx>) -> DependencyReference<'ctx> {
-        DependencyReference {
-            id,
-            versions,
-            pick: None,
-            options: None,
-        }
+        DependencyReference { id, versions }
     }
 
     /// Check whether this is a path dependency.

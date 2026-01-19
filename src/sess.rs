@@ -24,8 +24,8 @@ use std::fs::canonicalize;
 use dunce::canonicalize;
 
 use async_recursion::async_recursion;
-use futures::future::join_all;
 use futures::TryFutureExt;
+use futures::future::join_all;
 use indexmap::{IndexMap, IndexSet};
 use indicatif::MultiProgress;
 use semver::Version;
@@ -41,6 +41,7 @@ use crate::progress::{GitProgressOps, ProgressHandler};
 use crate::src::SourceGroup;
 use crate::target::TargetSpec;
 use crate::util::try_modification_time;
+use crate::debugln;
 
 /// A session on the command line.
 ///
@@ -542,7 +543,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 return Err(Error::chain(
                     format!("Failed to create git database directory {:?}.", db_dir),
                     cause,
-                ))
+                ));
             }
         };
         let git = Git::new(
@@ -756,8 +757,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             let mut hasher = Blake2b512::new();
             match dep_source {
                 DependencySource::Registry => unimplemented!(),
-                DependencySource::Git(ref url) => hasher.update(url.as_bytes()),
-                DependencySource::Path(ref path) => {
+                DependencySource::Git(url) => hasher.update(url.as_bytes()),
+                DependencySource::Path(path) => {
                     // Determine and canonicalize the dependency path, and
                     // immediately return it.
                     let path = self.sess.root.join(path);

@@ -15,7 +15,7 @@ use std::fs::{canonicalize, metadata};
 use dunce::canonicalize;
 
 use clap::builder::styling::{AnsiColor, Effects, Styles};
-use clap::{value_parser, ArgAction, CommandFactory, Parser, Subcommand};
+use clap::{ArgAction, CommandFactory, Parser, Subcommand, value_parser};
 use indexmap::IndexSet;
 use serde_yaml_ng;
 use tokio::runtime::Runtime;
@@ -27,7 +27,7 @@ use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::lockfile::*;
 use crate::sess::{Session, SessionArenas, SessionIo};
-use crate::{fmt_path, fmt_pkg};
+use crate::{debugln, fmt_path, fmt_pkg, stageln};
 
 #[derive(Parser, Debug)]
 #[command(name = "bender")]

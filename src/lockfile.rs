@@ -5,6 +5,7 @@ use std;
 use std::path::Path;
 
 use crate::config::{Locked, LockedPackage, LockedSource, PrefixPaths};
+use crate::debugln;
 use crate::error::*;
 
 /// Read a lock file.

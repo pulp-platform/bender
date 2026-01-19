@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use clap::{ArgAction, Args};
 use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 use walkdir::{DirEntry, WalkDir};
 
@@ -543,8 +544,8 @@ fn get_fuse_depend_string(
 fn get_fileset_name(spec: &TargetSpec, top: bool) -> String {
     let tmp_str = match spec {
         TargetSpec::Wildcard => "".to_string(),
-        TargetSpec::Name(ref name) => name.to_string(),
-        TargetSpec::Any(ref specs) => {
+        TargetSpec::Name(name) => name.to_string(),
+        TargetSpec::Any(specs) => {
             let mut spec_str = "".to_string();
             for spec in specs.iter() {
                 let mystr = get_fileset_name(spec, false);
@@ -555,7 +556,7 @@ fn get_fileset_name(spec: &TargetSpec, top: bool) -> String {
             }
             spec_str.to_string()
         }
-        TargetSpec::All(ref specs) => {
+        TargetSpec::All(specs) => {
             let mut spec_str = "".to_string();
             for spec in specs.iter() {
                 let mystr = get_fileset_name(spec, false);
@@ -566,7 +567,7 @@ fn get_fileset_name(spec: &TargetSpec, top: bool) -> String {
             }
             spec_str.to_string()
         }
-        TargetSpec::Not(ref spec) => format!("not{}", get_fileset_name(spec, false)),
+        TargetSpec::Not(spec) => format!("not{}", get_fileset_name(spec, false)),
     };
     if top && tmp_str == *"" {
         "files_rtl".to_string()
