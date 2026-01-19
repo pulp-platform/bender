@@ -323,23 +323,23 @@ pub fn main() -> Result<()> {
     }
 }
 
-#[cfg(target_family = "unix")]
-fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
+#[cfg(unix)]
+pub fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
     Ok(std::os::unix::fs::symlink(p, q)?)
 }
 
-#[cfg(target_os = "windows")]
-fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
+#[cfg(windows)]
+pub fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
     Ok(std::os::windows::fs::symlink_dir(p, q)?)
 }
 
-#[cfg(target_family = "unix")]
-fn remove_symlink_dir(path: &Path) -> Result<()> {
+#[cfg(unix)]
+pub fn remove_symlink_dir(path: &Path) -> Result<()> {
     Ok(std::fs::remove_file(path)?)
 }
 
-#[cfg(target_os = "windows")]
-fn remove_symlink_dir(path: &Path) -> Result<()> {
+#[cfg(windows)]
+pub fn remove_symlink_dir(path: &Path) -> Result<()> {
     Ok(std::fs::remove_dir(path)?)
 }
 

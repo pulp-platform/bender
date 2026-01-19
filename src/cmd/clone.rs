@@ -10,6 +10,7 @@ use clap::Args;
 use indexmap::IndexMap;
 use tokio::runtime::Runtime;
 
+use crate::cli::{remove_symlink_dir, symlink_dir};
 use crate::config;
 use crate::config::{Locked, LockedSource};
 use crate::diagnostic::Warnings;
@@ -312,30 +313,6 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
     }
 
     Ok(())
-}
-
-/// Create a directory symlink.
-#[cfg(unix)]
-pub fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
-    Ok(std::os::unix::fs::symlink(p, q)?)
-}
-
-/// Create a directory symlink.
-#[cfg(windows)]
-pub fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
-    Ok(std::os::windows::fs::symlink_dir(p, q)?)
-}
-
-/// Remove a directory symlink.
-#[cfg(unix)]
-pub fn remove_symlink_dir(path: &Path) -> Result<()> {
-    Ok(std::fs::remove_file(path)?)
-}
-
-/// Remove a directory symlink.
-#[cfg(windows)]
-pub fn remove_symlink_dir(path: &Path) -> Result<()> {
-    Ok(std::fs::remove_dir(path)?)
 }
 
 /// A helper function to recursively get all path subdependencies of a dependency.
