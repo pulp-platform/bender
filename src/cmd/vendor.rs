@@ -23,6 +23,7 @@ use crate::futures::TryFutureExt;
 use crate::git::Git;
 use crate::progress::{GitProgressOps, ProgressHandler};
 use crate::sess::{DependencySource, Session};
+use crate::{fmt_path, fmt_pkg};
 
 /// A patch linkage
 #[derive(Clone)]
@@ -231,7 +232,6 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
 
             VendorSubcommand::Init { no_patch } => {
                 sorted_links.into_iter().rev().try_for_each(|patch_link| {
-                    stageln!("Copying", "{} files from upstream", vendor_package.name);
                     // Remove existing directories before importing them again
                     let target_path = patch_link
                         .clone()
@@ -249,14 +249,22 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                     }
 
                     // init
-                    init(
+                    let result = init(
                         &rt,
                         git.clone(),
                         vendor_package,
                         patch_link,
                         dep_path.clone(),
                         *no_patch,
-                    )
+                    );
+
+                    stageln!(
+                        "Copied",
+                        "{} files from upstream",
+                        fmt_pkg!(vendor_package.name)
+                    );
+
+                    result
                 })
             }
 
@@ -426,53 +434,52 @@ pub fn apply_patches(
 
         for patch in patches.clone() {
             rt.block_on(async {
-                future::lazy(|_| {
-                    stageln!(
-                        "Patching",
-                        "{} with {}",
-                        package_name,
-                        patch.file_name().unwrap().to_str().unwrap()
-                    );
-                    Ok(())
-                })
-                .and_then(|_| {
-                    git.clone().spawn_with(
-                        |c| {
-                            let is_file = patch_link
-                                .from_prefix
-                                .clone()
-                                .prefix_paths(git.path)
-                                .unwrap()
-                                .is_file();
+                future::lazy(|_| Ok(()))
+                    .and_then(|_| {
+                        git.clone().spawn_with(
+                            |c| {
+                                let is_file = patch_link
+                                    .from_prefix
+                                    .clone()
+                                    .prefix_paths(git.path)
+                                    .unwrap()
+                                    .is_file();
 
-                            let current_patch_target = if is_file {
-                                patch_link.from_prefix.parent().unwrap().to_str().unwrap()
-                            } else {
-                                patch_link.from_prefix.as_path().to_str().unwrap()
-                            };
+                                let current_patch_target = if is_file {
+                                    patch_link.from_prefix.parent().unwrap().to_str().unwrap()
+                                } else {
+                                    patch_link.from_prefix.as_path().to_str().unwrap()
+                                };
 
-                            c.arg("apply")
-                                .arg("--directory")
-                                .arg(current_patch_target)
-                                .arg("-p1")
-                                .arg(&patch);
+                                c.arg("apply")
+                                    .arg("--directory")
+                                    .arg(current_patch_target)
+                                    .arg("-p1")
+                                    .arg(&patch);
 
-                            // limit to specific file for file links
-                            if is_file {
-                                let file_path = patch_link.from_prefix.to_str().unwrap();
-                                c.arg("--include").arg(file_path);
-                            }
-
-                            c
-                        },
-                        None,
-                    )
-                })
-                .await
-                .map_err(move |cause| {
-                    Error::chain(format!("Failed to apply patch {:?}.", patch), cause)
-                })
-                .map(|_| git.clone())
+                                // limit to specific file for file links
+                                if is_file {
+                                    let file_path = patch_link.from_prefix.to_str().unwrap();
+                                    c.arg("--include").arg(file_path);
+                                }
+                                c
+                            },
+                            None,
+                        )
+                    })
+                    .await
+                    .map_err(|cause| {
+                        Error::chain(format!("Failed to apply patch {:?}.", patch.clone()), cause)
+                    })
+                    .map(|_| {
+                        stageln!(
+                            "Patched",
+                            "{} with {}",
+                            fmt_pkg!(package_name),
+                            fmt_path!(patch.display())
+                        );
+                    })
+                    .map(|_| git.clone())
             })?;
         }
         Ok(patches.len())
