@@ -14,7 +14,7 @@ use crate::cli::symlink_dir;
 use crate::cmd::clone::get_path_subdeps;
 use crate::config::{Dependency, Locked, LockedSource};
 use crate::diagnostic::Warnings;
-use crate::error::*;
+use crate::error::{Error, Result};
 use crate::sess::{DependencySource, Session, SessionIo};
 use crate::{debugln, stageln};
 
@@ -33,7 +33,7 @@ pub struct SnapshotArgs {
     #[arg(short, long)]
     pub checkout: bool,
 
-    /// Force update of dependencies in a custom checkout_dir. Please use carefully to avoid losing work.
+    /// Force update of dependencies in a custom `checkout_dir`. Please use carefully to avoid losing work.
     #[arg(long, requires = "checkout")]
     pub force: bool,
 }
@@ -43,7 +43,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
     let mut snapshot_list = Vec::new();
 
     // Loop through existing deps to find the ones that are overridden to the working directory
-    for (name, dep) in sess.config.overrides.iter() {
+    for (name, dep) in &sess.config.overrides {
         if let Dependency::Path {
             path: override_path,
             ..
@@ -93,7 +93,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
                             Err(_) => Err(Error::new("Failed to get git hash.".to_string()))?,
                         };
 
-                        eprintln!("Snapshotting {} at {} from {}", name, hash, url);
+                        eprintln!("Snapshotting {name} at {hash} from {url}");
 
                         snapshot_list.push((name.clone(), url, hash));
                     }
@@ -107,8 +107,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
     if local_path.exists() && !snapshot_list.is_empty() {
         let local_file_str = match std::fs::read_to_string(&local_path) {
             Err(why) => Err(Error::new(format!(
-                "Reading Bender.local failed with msg:\n\t{}",
-                why
+                "Reading Bender.local failed with msg:\n\t{why}"
             )))?,
             Ok(local_file_str) => local_file_str,
         };
@@ -127,8 +126,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
                 if i.contains("overrides:") {
                     for (name, url, hash) in &snapshot_list {
                         let dep_str = format!(
-                            "  {}: {{ git: \"{}\", rev: \"{}\" }} # Temporary override by Bender using `bender snapshot` command\n",
-                            name, url, hash
+                            "  {name}: {{ git: \"{url}\", rev: \"{hash}\" }} # Temporary override by Bender using `bender snapshot` command\n"
                         );
                         new_str.push_str(&dep_str);
                     }
@@ -140,9 +138,8 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
             }
             if let Err(why) = std::fs::write(local_path, new_str) {
                 Err(Error::new(format!(
-                    "Writing new Bender.local failed with msg:\n\t{}",
-                    why
-                )))?
+                    "Writing new Bender.local failed with msg:\n\t{why}"
+                )))?;
             }
             eprintln!("Bender.local updated with snapshots.");
         }
@@ -177,10 +174,10 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
 
     for (name, url, hash) in &snapshot_list {
         let mut mod_package = locked.packages.get_mut(name).unwrap().clone();
-        mod_package.revision = Some(hash.to_string());
+        mod_package.revision = Some(hash.clone());
         mod_package.version = None;
-        mod_package.source = LockedSource::Git(url.to_string());
-        locked.packages.insert(name.to_string(), mod_package);
+        mod_package.source = LockedSource::Git(url.clone());
+        locked.packages.insert(name.clone(), mod_package);
     }
 
     for (path_dep, path_dep_path) in &path_subdeps {
@@ -253,19 +250,19 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
             if link_path.exists() {
                 let meta = link_path.symlink_metadata().map_err(|cause| {
                     Error::chain(
-                        format!("Failed to read metadata of path {:?}.", link_path),
+                        format!("Failed to read metadata of path {link_path:?}."),
                         cause,
                     )
                 })?;
                 if !meta.file_type().is_symlink() {
-                    Warnings::SkippingPackageLink(pkg_name.clone(), link_path.to_path_buf()).emit();
+                    Warnings::SkippingPackageLink(pkg_name.clone(), link_path.clone()).emit();
                     continue;
                 }
                 if link_path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
                     debugln!("main: removing existing link {:?}", link_path);
                     std::fs::remove_file(link_path).map_err(|cause| {
                         Error::chain(
-                            format!("Failed to remove symlink at path {:?}.", link_path),
+                            format!("Failed to remove symlink at path {link_path:?}."),
                             cause,
                         )
                     })?;
@@ -277,7 +274,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
                 stageln!("Linking", "{} ({:?})", pkg_name, link_path);
                 if let Some(parent) = link_path.parent() {
                     std::fs::create_dir_all(parent).map_err(|cause| {
-                        Error::chain(format!("Failed to create directory {:?}.", parent), cause)
+                        Error::chain(format!("Failed to create directory {parent:?}."), cause)
                     })?;
                 }
                 let previous_dir = match link_path.parent() {
@@ -290,10 +287,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
                 };
                 symlink_dir(&pkg_path, link_path).map_err(|cause| {
                     Error::chain(
-                        format!(
-                            "Failed to create symlink to {:?} at path {:?}.",
-                            pkg_path, link_path
-                        ),
+                        format!("Failed to create symlink to {pkg_path:?} at path {link_path:?}."),
                         cause,
                     )
                 })?;
@@ -301,7 +295,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
                     std::env::set_current_dir(d).unwrap();
                 }
             }
-            eprintln!("{} symlink updated", pkg_name);
+            eprintln!("{pkg_name} symlink updated");
         }
     }
 

@@ -14,8 +14,8 @@ use crate::cmd;
 use crate::config::{Locked, LockedPackage};
 use crate::debugln;
 use crate::diagnostic::Warnings;
-use crate::error::*;
-use crate::lockfile::*;
+use crate::error::{Error, Result};
+use crate::lockfile::write_lockfile;
 use crate::resolver::DependencyResolver;
 use crate::sess::Session;
 
@@ -63,19 +63,17 @@ pub fn run<'ctx>(
         None => IndexSet::new(),
     };
 
-    let mut requested = match args.dep.as_ref() {
-        Some(deps) => deps.iter().cloned().collect(),
-        None => {
-            keep_locked = IndexSet::new();
-            IndexSet::new()
-        }
+    let mut requested = if let Some(deps) = args.dep.as_ref() {
+        deps.iter().cloned().collect()
+    } else {
+        keep_locked = IndexSet::new();
+        IndexSet::new()
     };
 
-    for dep in requested.iter() {
+    for dep in &requested {
         if !keep_locked.contains(&dep) {
             return Err(Error::new(format!(
-                "Dependency {} is not present, cannot update {}.",
-                dep, dep
+                "Dependency {dep} is not present, cannot update {dep}."
             )));
         }
     }
@@ -86,8 +84,8 @@ pub fn run<'ctx>(
             let mut nochange = true;
             while nochange {
                 nochange = false;
-                for dep in requested.clone().iter() {
-                    for needed_dep in existing_locked.packages[dep].dependencies.iter() {
+                for dep in &requested.clone() {
+                    for needed_dep in &existing_locked.packages[dep].dependencies {
                         nochange |= requested.insert(needed_dep.clone());
                     }
                 }
@@ -127,13 +125,13 @@ pub fn run_plain<'ctx>(
         .filter_map(|(name, dep)| {
             if let Some(existing) = existing {
                 if let Some(existing_dep) = existing.packages.get(name) {
-                    if existing_dep.revision != dep.revision {
+                    if existing_dep.revision == dep.revision {
+                        None
+                    } else {
                         Some((
                             name.clone(),
                             (Some(existing_dep.clone()), Some(dep.clone())),
                         ))
-                    } else {
-                        None
                     }
                 } else {
                     Some((name.clone(), (None, Some(dep.clone()))))
@@ -149,10 +147,10 @@ pub fn run_plain<'ctx>(
                 .packages
                 .iter()
                 .filter_map(|(name, dep)| {
-                    if !locked_new.packages.contains_key(name) {
-                        Some((name.clone(), (Some(dep.clone()), None)))
-                    } else {
+                    if locked_new.packages.contains_key(name) {
                         None
+                    } else {
+                        Some((name.clone(), (Some(dep.clone()), None)))
                     }
                 })
                 .collect()
@@ -161,7 +159,7 @@ pub fn run_plain<'ctx>(
         };
     let update_map: BTreeMap<String, (Option<LockedPackage>, Option<LockedPackage>)> =
         update_map.into_iter().chain(removed_map).collect();
-    let mut update_str = String::from("");
+    let mut update_str = String::new();
     for (name, (existing_dep, new_dep)) in update_map.clone() {
         update_str.push_str(&format!("\x1B[32;1m{:>12}\x1B[0m {}:\t", "Updating", name));
         if let Some(existing_dep) = existing_dep {
@@ -182,7 +180,7 @@ pub fn run_plain<'ctx>(
         update_str.push('\n');
     }
     let mut tw = TabWriter::new(vec![]);
-    write!(&mut tw, "{}", update_str).unwrap();
+    write!(&mut tw, "{update_str}").unwrap();
     tw.flush().unwrap();
     eprintln!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
     write_lockfile(&locked_new, &sess.root.join("Bender.lock"), sess.root)?;

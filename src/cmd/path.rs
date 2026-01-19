@@ -10,7 +10,7 @@ use futures::future::join_all;
 use tokio::runtime::Runtime;
 
 use crate::debugln;
-use crate::error::*;
+use crate::error::Result;
 use crate::sess::{Session, SessionIo};
 
 /// Get the path to a dependency
@@ -59,7 +59,7 @@ pub fn run(sess: &Session, args: &PathArgs) -> Result<()> {
     // Print paths
     for c in paths {
         if let Some(s) = c.to_str() {
-            let _ = writeln!(std::io::stdout(), "{}", s);
+            let _ = writeln!(std::io::stdout(), "{s}");
         }
     }
 

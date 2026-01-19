@@ -4,6 +4,7 @@
 //! The `parents` subcommand.
 
 use std::io::Write;
+use std::string::ToString;
 
 use crate::diagnostic::Warnings;
 use clap::Args;
@@ -12,7 +13,7 @@ use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
 use crate::config::Dependency;
-use crate::error::*;
+use crate::error::Result;
 use crate::sess::{DependencyConstraint, DependencySource};
 use crate::sess::{Session, SessionIo};
 use crate::{fmt_path, fmt_version};
@@ -39,43 +40,43 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
     let parent_array = get_parent_array(sess, &rt, &io, dep, args.targets)?;
 
     if args.targets {
-        let mut res = String::from("");
-        for (k, v) in parent_array.iter() {
+        let mut res = String::new();
+        for (k, v) in &parent_array {
             res.push_str(
                 &format!("    {}\tfilters: {}\tpasses: {:?}\n", k, &v[0], &v[1..]).to_string(),
             );
         }
         let mut tw = TabWriter::new(vec![]);
-        write!(&mut tw, "{}", res).unwrap();
+        write!(&mut tw, "{res}").unwrap();
         tw.flush().unwrap();
         print!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
         return Ok(());
     }
 
     if parent_array.is_empty() {
-        let _ = writeln!(std::io::stdout(), "No parents found for {}.", dep);
+        let _ = writeln!(std::io::stdout(), "No parents found for {dep}.");
     } else {
         let _ = writeln!(std::io::stdout(), "Parents found:");
         let source = &parent_array.values().next().unwrap()[1];
         let mut constant_source = true;
-        for (_, v) in parent_array.iter() {
+        for (_, v) in &parent_array {
             if &v[1] != source {
                 constant_source = false;
                 break;
             }
         }
-        let mut res = String::from("");
+        let mut res = String::new();
         if constant_source {
-            for (k, v) in parent_array.iter() {
+            for (k, v) in &parent_array {
                 res.push_str(&format!("    {}\trequires: {}\n", k, v[0]).to_string());
             }
         } else {
-            for (k, v) in parent_array.iter() {
+            for (k, v) in &parent_array {
                 res.push_str(&format!("    {}\trequires: {}\tat {}\n", k, v[0], v[1]).to_string());
             }
         }
         let mut tw = TabWriter::new(vec![]);
-        write!(&mut tw, "{}", res).unwrap();
+        write!(&mut tw, "{res}").unwrap();
         tw.flush().unwrap();
         let _ = write!(
             std::io::stdout(),
@@ -90,19 +91,19 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
         sess.dependency(mydep).name,
         match sess.dependency(mydep).version.clone() {
             Some(ver) => ver.to_string(),
-            None => "".to_string(),
+            None => String::new(),
         },
         sess.dependency(mydep).source,
         match sess.dependency(mydep).source {
             DependencySource::Path { .. } => " as path".to_string(),
             DependencySource::Git(_) => format!(" with hash {}", sess.dependency(mydep).version()),
-            _ => "".to_string(),
+            _ => String::new(),
         }
     );
 
     if sess.config.overrides.contains_key(dep) {
         Warnings::DepOverride {
-            pkg: dep.to_string(),
+            pkg: dep.clone(),
             pkg_override: match sess.config.overrides[dep] {
                 Dependency::Version { ref version, .. } => {
                     format!("version {}", fmt_version!(version))
@@ -166,7 +167,7 @@ pub fn get_parent_array(
                         pass_targets: tgts,
                         ..
                     } => {
-                        let mut tgts = tgts.iter().map(|t| t.to_string()).collect::<Vec<_>>();
+                        let mut tgts = tgts.iter().map(ToString::to_string).collect::<Vec<_>>();
                         tgts.insert(0, targetspec.to_string());
                         tgts
                     }
@@ -228,7 +229,7 @@ pub fn get_parent_array(
                                     ..
                                 } => {
                                     let mut tgts =
-                                        tgts.iter().map(|t| t.to_string()).collect::<Vec<_>>();
+                                        tgts.iter().map(ToString::to_string).collect::<Vec<_>>();
                                     tgts.insert(0, targetspec.to_string());
                                     tgts
                                 }

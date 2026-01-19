@@ -10,7 +10,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Command as SysCommand;
 
-use crate::error::*;
+use crate::error::{Error, Result};
 
 /// Execute the `init` subcommand.
 pub fn run() -> Result<()> {
@@ -59,9 +59,9 @@ pub fn run() -> Result<()> {
 # https://github.com/pulp-platform/bender#manifest-format-benderyml
 
 package:
-  name: {}
+  name: {cwd}
   authors:
-    - \"{} <{}>\"
+    - \"{name} <{email}>\"
 
 dependencies:
 
@@ -69,8 +69,7 @@ sources:
   # Source files grouped in levels. Files in level 0 have no dependencies on files in this
   # package. Files in level 1 only depend on files in level 0, files in level 2 on files in
   # levels 1 and 0, etc. Files within a level are ordered alphabetically.
-  # Level 0",
-        cwd, name, email
+  # Level 0"
     )?;
 
     Ok(())

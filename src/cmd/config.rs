@@ -8,7 +8,7 @@ use std::io::Write;
 
 use serde_json;
 
-use crate::error::*;
+use crate::error::{Error, Result};
 use crate::sess::Session;
 
 /// Execute the `config` subcommand.

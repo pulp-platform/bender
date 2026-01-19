@@ -10,7 +10,7 @@ use indexmap::IndexSet;
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
-use crate::error::*;
+use crate::error::Result;
 use crate::sess::{DependencySource, Session, SessionIo};
 
 /// Information about the dependency graph
@@ -49,7 +49,7 @@ pub fn run(sess: &Session, args: &PackagesArgs) -> Result<()> {
         let rt = Runtime::new()?;
         let io = SessionIo::new(sess);
         let srcs = rt.block_on(io.sources(false, &[]))?;
-        let mut target_str = String::from("");
+        let mut target_str = String::new();
         for pkgs in sess.packages().iter() {
             let pkg_names = pkgs.iter().map(|&id| sess.dependency_name(id));
             for pkg_name in pkg_names {
@@ -70,7 +70,7 @@ pub fn run(sess: &Session, args: &PackagesArgs) -> Result<()> {
                 .get_avail_targets()
         ));
         let mut tw = TabWriter::new(vec![]);
-        write!(&mut tw, "{}", target_str).unwrap();
+        write!(&mut tw, "{target_str}").unwrap();
         tw.flush().unwrap();
         let _ = write!(
             std::io::stdout(),
@@ -78,21 +78,21 @@ pub fn run(sess: &Session, args: &PackagesArgs) -> Result<()> {
             String::from_utf8(tw.into_inner().unwrap()).unwrap()
         );
     } else if args.graph {
-        let mut graph_str = String::from("");
+        let mut graph_str = String::new();
         for (&pkg, deps) in sess.graph().iter() {
             let pkg_name = sess.dependency_name(pkg);
             let dep_names = deps.iter().map(|&id| sess.dependency_name(id));
             if args.flat {
                 // Print one line per dependency.
                 for dep_name in dep_names {
-                    graph_str.push_str(&format!("{}\t{}\n", pkg_name, dep_name));
+                    graph_str.push_str(&format!("{pkg_name}\t{dep_name}\n"));
                 }
             } else {
                 // Print all dependencies on one line.
-                graph_str.push_str(&format!("{}\t", pkg_name));
+                graph_str.push_str(&format!("{pkg_name}\t"));
                 for (i, dep_name) in dep_names.enumerate() {
                     if i > 0 {
-                        graph_str.push_str(&format!(" {}", dep_name));
+                        graph_str.push_str(&format!(" {dep_name}"));
                     } else {
                         graph_str.push_str(dep_name);
                     }
@@ -101,7 +101,7 @@ pub fn run(sess: &Session, args: &PackagesArgs) -> Result<()> {
             }
         }
         let mut tw = TabWriter::new(vec![]);
-        write!(&mut tw, "{}", graph_str).unwrap();
+        write!(&mut tw, "{graph_str}").unwrap();
         tw.flush().unwrap();
         let _ = write!(
             std::io::stdout(),
@@ -109,7 +109,7 @@ pub fn run(sess: &Session, args: &PackagesArgs) -> Result<()> {
             String::from_utf8(tw.into_inner().unwrap()).unwrap()
         );
     } else {
-        let mut version_str = String::from("");
+        let mut version_str = String::new();
         for pkgs in sess.packages().iter() {
             let pkg_names = pkgs.iter().map(|&id| sess.dependency_name(id));
             if args.version {
@@ -119,30 +119,30 @@ pub fn run(sess: &Session, args: &PackagesArgs) -> Result<()> {
                         "{}:\t{}\tat {}\t{}\n",
                         pkg_source.name,
                         match pkg_source.version {
-                            Some(ref v) => format!("v{}", v),
-                            None => "".to_string(),
+                            Some(ref v) => format!("v{v}"),
+                            None => String::new(),
                         },
                         pkg_source.source,
                         match pkg_source.source {
                             DependencySource::Path { .. } => " as path".to_string(),
                             DependencySource::Git(_) =>
                                 format!(" with hash {}", pkg_source.version()),
-                            _ => "".to_string(),
+                            _ => String::new(),
                         }
                     ));
                 }
             } else if args.flat {
                 // Print one line per package.
                 for pkg_name in pkg_names {
-                    let _ = writeln!(std::io::stdout(), "{}", pkg_name);
+                    let _ = writeln!(std::io::stdout(), "{pkg_name}");
                 }
             } else {
                 // Print all packages per rank on one line.
                 for (i, pkg_name) in pkg_names.enumerate() {
                     if i > 0 {
-                        let _ = write!(std::io::stdout(), " {}", pkg_name);
+                        let _ = write!(std::io::stdout(), " {pkg_name}");
                     } else {
-                        let _ = write!(std::io::stdout(), "{}", pkg_name);
+                        let _ = write!(std::io::stdout(), "{pkg_name}");
                     }
                 }
                 let _ = writeln!(std::io::stdout(),);
@@ -150,7 +150,7 @@ pub fn run(sess: &Session, args: &PackagesArgs) -> Result<()> {
         }
         if args.version {
             let mut tw = TabWriter::new(vec![]);
-            write!(&mut tw, "{}", version_str).unwrap();
+            write!(&mut tw, "{version_str}").unwrap();
             tw.flush().unwrap();
             let _ = write!(
                 std::io::stdout(),

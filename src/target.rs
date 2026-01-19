@@ -16,7 +16,7 @@ use std::str::FromStr;
 use indexmap::IndexSet;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::error::*;
+use crate::error::{Error, Result};
 
 /// A target specification.
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Default, Hash)]
@@ -27,21 +27,21 @@ pub enum TargetSpec {
     /// A target that must be present.
     Name(String),
     /// All targets must be present. This is an AND operation.
-    All(BTreeSet<TargetSpec>),
+    All(BTreeSet<Self>),
     /// At least one target must be present. This is an OR operation.
-    Any(BTreeSet<TargetSpec>),
+    Any(BTreeSet<Self>),
     /// Negates a specification. This is a NOT operation.
-    Not(Box<TargetSpec>),
+    Not(Box<Self>),
 }
 
 impl fmt::Display for TargetSpec {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            TargetSpec::Wildcard => write!(f, "*"),
-            TargetSpec::Name(ref name) => write!(f, "{}", name),
-            TargetSpec::All(ref specs) => write!(f, "all({})", SpecsWriter(specs.iter())),
-            TargetSpec::Any(ref specs) => write!(f, "any({})", SpecsWriter(specs.iter())),
-            TargetSpec::Not(ref spec) => write!(f, "not({})", spec),
+            Self::Wildcard => write!(f, "*"),
+            Self::Name(ref name) => write!(f, "{name}"),
+            Self::All(ref specs) => write!(f, "all({})", SpecsWriter(specs.iter())),
+            Self::Any(ref specs) => write!(f, "any({})", SpecsWriter(specs.iter())),
+            Self::Not(ref spec) => write!(f, "not({spec})"),
         }
     }
 }
@@ -55,7 +55,7 @@ where
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use std::iter::{once, repeat};
         for (sep, val) in once("").chain(repeat(", ")).zip(self.0.clone()) {
-            write!(f, "{}{}", sep, val)?;
+            write!(f, "{sep}{val}")?;
         }
         Ok(())
     }
@@ -79,7 +79,7 @@ impl FromStr for TargetSpec {
         };
         parse(&mut lexer).map_err(|cause| {
             Error::chain(
-                format!("Syntax error in target specification `{}`.", s),
+                format!("Syntax error in target specification `{s}`."),
                 cause,
             )
         })
@@ -91,54 +91,57 @@ impl Serialize for TargetSpec {
     where
         S: Serializer,
     {
-        format!("{}", self).serialize(serializer)
+        format!("{self}").serialize(serializer)
     }
 }
 
 impl<'de> Deserialize<'de> for TargetSpec {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<TargetSpec, D::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         use serde::de;
         let s = String::deserialize(deserializer)?;
-        TargetSpec::from_str(&s).map_err(de::Error::custom)
+        Self::from_str(&s).map_err(de::Error::custom)
     }
 }
 
 impl TargetSpec {
     /// Checks whether this specification matches a set of targets.
+    #[must_use]
     pub fn matches(&self, targets: &TargetSet) -> bool {
         match *self {
-            TargetSpec::Wildcard => true,
-            TargetSpec::Name(ref name) => targets.0.contains(name),
-            TargetSpec::All(ref specs) => specs.iter().all(|s| s.matches(targets)),
-            TargetSpec::Any(ref specs) => specs.iter().any(|s| s.matches(targets)),
-            TargetSpec::Not(ref spec) => !spec.matches(targets),
+            Self::Wildcard => true,
+            Self::Name(ref name) => targets.0.contains(name),
+            Self::All(ref specs) => specs.iter().all(|s| s.matches(targets)),
+            Self::Any(ref specs) => specs.iter().any(|s| s.matches(targets)),
+            Self::Not(ref spec) => !spec.matches(targets),
         }
     }
 
     /// Check whether this specification is just a wildcard.
-    pub fn is_wildcard(&self) -> bool {
-        matches!(*self, TargetSpec::Wildcard)
+    #[must_use]
+    pub const fn is_wildcard(&self) -> bool {
+        matches!(*self, Self::Wildcard)
     }
 
     /// Reduce this target specification to its simplest form.
+    #[must_use]
     pub fn reduce(&self) -> Self {
         match self {
-            TargetSpec::Wildcard => Self::Wildcard,
-            TargetSpec::Name(n) => Self::Name(n.clone()),
-            TargetSpec::All(set) | TargetSpec::Any(set) => {
+            Self::Wildcard => Self::Wildcard,
+            Self::Name(n) => Self::Name(n.clone()),
+            Self::All(set) | Self::Any(set) => {
                 let set = set
                     .iter()
-                    .map(|s| s.reduce())
+                    .map(Self::reduce)
                     .filter(|s| !matches!(s, Self::Wildcard))
                     .collect::<BTreeSet<_>>();
                 match set.len() {
                     0 => Self::Wildcard,
                     1 => set.iter().next().unwrap().clone(),
                     _ => {
-                        if matches!(self, TargetSpec::All(_)) {
+                        if matches!(self, Self::All(_)) {
                             Self::All(set)
                         } else {
                             Self::Any(set)
@@ -146,19 +149,19 @@ impl TargetSpec {
                     }
                 }
             }
-            TargetSpec::Not(t) => Self::Not(Box::new(t.reduce())),
+            Self::Not(t) => Self::Not(Box::new(t.reduce())),
         }
     }
 
     /// Get list of available targets.
     pub fn get_avail(&self) -> IndexSet<String> {
         match *self {
-            TargetSpec::Wildcard => IndexSet::new(),
-            TargetSpec::Name(ref name) => IndexSet::from([name.clone()]),
-            TargetSpec::All(ref specs) | TargetSpec::Any(ref specs) => {
-                specs.iter().flat_map(TargetSpec::get_avail).collect()
+            Self::Wildcard => IndexSet::new(),
+            Self::Name(ref name) => IndexSet::from([name.clone()]),
+            Self::All(ref specs) | Self::Any(ref specs) => {
+                specs.iter().flat_map(Self::get_avail).collect()
             }
-            TargetSpec::Not(ref spec) => spec.get_avail(),
+            Self::Not(ref spec) => spec.get_avail(),
         }
     }
 }
@@ -190,10 +193,9 @@ where
     type Item = Result<TargetToken>;
     fn next(&mut self) -> Option<Result<TargetToken>> {
         loop {
-            let next_is_letter = self
-                .next
-                .map(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-' || c == ':')
-                .unwrap_or(false);
+            let next_is_letter = self.next.is_some_and(|c| {
+                c.is_alphanumeric() || c == '.' || c == '_' || c == '-' || c == ':'
+            });
 
             // Flush if needed.
             if !next_is_letter {
@@ -206,9 +208,8 @@ where
                         return Some(Ok(TargetToken::Any));
                     } else if partial == "not" {
                         return Some(Ok(TargetToken::Not));
-                    } else {
-                        return Some(Ok(TargetToken::Ident(partial)));
                     }
+                    return Some(Ok(TargetToken::Ident(partial)));
                 }
             }
 
@@ -233,7 +234,7 @@ where
                 Some(')') => return Some(Ok(TargetToken::RParen)),
                 Some(',') => return Some(Ok(TargetToken::Comma)),
                 Some(c) if c.is_whitespace() => (),
-                Some(c) => return Some(Err(Error::new(format!("Invalid character `{}`.", c)))),
+                Some(c) => return Some(Err(Error::new(format!("Invalid character `{c}`.")))),
                 None => return None,
             }
         }
@@ -306,7 +307,7 @@ fn parse_wrong<R>(wrong: Option<Result<TargetToken>>) -> Result<R> {
         Some(Ok(TargetToken::Any)) => Err(Error::new("Unexpected `any` keyword.")),
         Some(Ok(TargetToken::Not)) => Err(Error::new("Unexpected `not` keyword.")),
         Some(Ok(TargetToken::Ident(name))) => {
-            Err(Error::new(format!("Unexpected identifier `{}`.", name)))
+            Err(Error::new(format!("Unexpected identifier `{name}`.")))
         }
         Some(Ok(TargetToken::LParen)) => Err(Error::new("Unexpected `(`.")),
         Some(Ok(TargetToken::RParen)) => Err(Error::new("Unexpected `)`.")),
@@ -325,15 +326,16 @@ pub struct TargetSet(IndexSet<String>);
 
 impl TargetSet {
     /// Create an empty target set.
-    pub fn empty() -> TargetSet {
-        TargetSet(Default::default())
+    #[must_use]
+    pub fn empty() -> Self {
+        Self(Default::default())
     }
 
     /// Create a target set.
     ///
     /// `targets` can be anything that may be turned into an iterator over
     /// something that can be turned into a `&str`.
-    pub fn new<I>(targets: I) -> TargetSet
+    pub fn new<I>(targets: I) -> Self
     where
         I: IntoIterator,
         I::Item: AsRef<str>,
@@ -342,10 +344,11 @@ impl TargetSet {
             .into_iter()
             .map(|t| t.as_ref().to_lowercase())
             .collect();
-        TargetSet(targets)
+        Self(targets)
     }
 
     /// Returns true if the set of targets is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -361,44 +364,36 @@ impl TargetSet {
     }
 
     /// Reduce target set for a dependency.
-    pub fn reduce_for_dependency(&self, dep_name: &str) -> TargetSet {
+    #[must_use]
+    pub fn reduce_for_dependency(&self, dep_name: &str) -> Self {
         // collect targets relevant to the dependency
-        let local_targets = TargetSet::new(
-            self.iter()
-                .filter_map(|trgt| {
-                    if !trgt.contains(':') {
-                        Some(trgt.clone())
-                    } else {
-                        let parts: Vec<&str> = trgt.splitn(2, ':').collect();
-                        if dep_name == parts[0].to_lowercase().as_str() || parts[0] == "*" {
-                            Some(parts[1].to_string())
-                        } else {
-                            None
-                        }
-                    }
-                })
-                .collect::<IndexSet<_>>(),
-        );
+        let local_targets = Self::new(self.iter().filter_map(|trgt| {
+            if trgt.contains(':') {
+                let parts: Vec<&str> = trgt.splitn(2, ':').collect();
+                if dep_name == parts[0].to_lowercase().as_str() || parts[0] == "*" {
+                    Some(parts[1].to_string())
+                } else {
+                    None
+                }
+            } else {
+                Some(trgt.clone())
+            }
+        }));
 
         // collect negative targets to be removed
         let neg_targets = local_targets
             .iter()
-            .filter_map(|t| t.strip_prefix('-').map(|neg_target| neg_target.to_string()))
+            .filter_map(|t| t.strip_prefix('-').map(std::string::ToString::to_string))
             .collect::<IndexSet<_>>();
 
         // remove negative targets from all_targets
-        TargetSet::new(
-            local_targets
-                .iter()
-                .filter_map(|t| {
-                    if t.starts_with('-') || neg_targets.contains(t) {
-                        None
-                    } else {
-                        Some(t.clone())
-                    }
-                })
-                .collect::<IndexSet<_>>(),
-        )
+        Self::new(local_targets.iter().filter_map(|t| {
+            if t.starts_with('-') || neg_targets.contains(t) {
+                None
+            } else {
+                Some(t.clone())
+            }
+        }))
     }
 }
 

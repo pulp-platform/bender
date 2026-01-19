@@ -62,12 +62,12 @@ pub enum Severity {
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let (color, prefix) = match *self {
-            Severity::Error => ("\x1B[31;1m", "error"),
-            Severity::Warning => ("\x1B[33;1m", "warning"),
-            Severity::Note => ("\x1B[;1m", "note"),
-            Severity::Debug => ("\x1B[34;1m", "debug"),
+            Self::Error => ("\x1B[31;1m", "error"),
+            Self::Warning => ("\x1B[33;1m", "warning"),
+            Self::Note => ("\x1B[;1m", "note"),
+            Self::Debug => ("\x1B[34;1m", "debug"),
         };
-        write!(f, "{}{}:\x1B[m", color, prefix)
+        write!(f, "{color}{prefix}:\x1B[m")
     }
 }
 
@@ -85,20 +85,20 @@ pub struct Error {
 
 impl Error {
     /// Create a new error without cause.
-    pub fn new<S: Into<String>>(msg: S) -> Error {
-        Error {
+    pub fn new<S: Into<String>>(msg: S) -> Self {
+        Self {
             msg: msg.into(),
             cause: None,
         }
     }
 
     /// Create a new error with cause.
-    pub fn chain<S, E>(msg: S, cause: E) -> Error
+    pub fn chain<S, E>(msg: S, cause: E) -> Self
     where
         S: Into<String>,
         E: std::error::Error + Send + Sync + 'static,
     {
-        Error {
+        Self {
             msg: msg.into(),
             cause: Some(Arc::new(cause)),
         }
@@ -122,21 +122,21 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.msg)?;
         if let Some(ref c) = self.cause {
-            write!(f, " {}", c)?
+            write!(f, " {c}")?;
         }
         Ok(())
     }
 }
 
 impl From<Error> for String {
-    fn from(err: Error) -> String {
-        format!("{}", err)
+    fn from(err: Error) -> Self {
+        format!("{err}")
     }
 }
 
 impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Error {
-        Error::chain("Cannot startup runtime.".to_string(), err)
+    fn from(err: std::io::Error) -> Self {
+        Self::chain("Cannot startup runtime.".to_string(), err)
     }
 }
 
@@ -150,5 +150,5 @@ macro_rules! stageln {
 
 /// Print stage progress.
 pub fn println_stage(stage: &str, message: &str) {
-    eprintln!("\x1B[32;1m{:>12}\x1B[0m {}", stage, message);
+    eprintln!("\x1B[32;1m{stage:>12}\x1B[0m {message}");
 }

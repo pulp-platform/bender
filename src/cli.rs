@@ -24,8 +24,8 @@ use crate::cmd;
 use crate::cmd::fusesoc::FusesocArgs;
 use crate::config::{Config, Manifest, Merge, PartialConfig, PrefixPaths, Validate};
 use crate::diagnostic::{Diagnostics, Warnings};
-use crate::error::*;
-use crate::lockfile::*;
+use crate::error::{ENABLE_DEBUG, Error, Result};
+use crate::lockfile::read_lockfile;
 use crate::sess::{Session, SessionArenas, SessionIo};
 use crate::{debugln, stageln};
 
@@ -116,15 +116,14 @@ pub fn main() -> Result<()> {
     // Parse command line arguments.
     let cli = Cli::parse();
 
-    let mut suppressed_warnings: HashSet<String> =
-        cli.suppress.into_iter().map(|s| s.to_owned()).collect();
+    let mut suppressed_warnings: HashSet<String> = cli.suppress.into_iter().collect();
 
     // split suppress strings on commas and spaces
     suppressed_warnings = suppressed_warnings
         .into_iter()
         .flat_map(|s| {
             s.split(&[',', ' '][..])
-                .map(|t| t.to_string())
+                .map(std::string::ToString::to_string)
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -158,9 +157,8 @@ pub fn main() -> Result<()> {
     // the -d/--dir switch, or by searching upwards in the file system
     // hierarchy.
     let root_dir: PathBuf = match &cli.dir {
-        Some(d) => canonicalize(d).map_err(|cause| {
-            Error::chain(format!("Failed to canonicalize path {:?}.", d), cause)
-        })?,
+        Some(d) => canonicalize(d)
+            .map_err(|cause| Error::chain(format!("Failed to canonicalize path {d:?}."), cause))?,
         None => find_package_root(Path::new("."))
             .map_err(|cause| Error::chain("Cannot find root directory of package.", cause))?,
     };
@@ -244,10 +242,7 @@ pub fn main() -> Result<()> {
             // removed.
             if path.exists() {
                 let meta = path.symlink_metadata().map_err(|cause| {
-                    Error::chain(
-                        format!("Failed to read metadata of path {:?}.", path),
-                        cause,
-                    )
+                    Error::chain(format!("Failed to read metadata of path {path:?}."), cause)
                 })?;
                 if !meta.file_type().is_symlink() {
                     Warnings::SkippingPackageLink(pkg_name.clone(), path.clone()).emit();
@@ -256,10 +251,7 @@ pub fn main() -> Result<()> {
                 if path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
                     debugln!("main: removing existing link {:?}", path);
                     remove_symlink_dir(path).map_err(|cause| {
-                        Error::chain(
-                            format!("Failed to remove symlink at path {:?}.", path),
-                            cause,
-                        )
+                        Error::chain(format!("Failed to remove symlink at path {path:?}."), cause)
                     })?;
                 }
             }
@@ -269,7 +261,7 @@ pub fn main() -> Result<()> {
                 stageln!("Linking", "{} ({:?})", pkg_name, path);
                 if let Some(parent) = path.parent() {
                     std::fs::create_dir_all(parent).map_err(|cause| {
-                        Error::chain(format!("Failed to create directory {:?}.", parent), cause)
+                        Error::chain(format!("Failed to create directory {parent:?}."), cause)
                     })?;
                 }
                 let previous_dir = match path.parent() {
@@ -282,10 +274,7 @@ pub fn main() -> Result<()> {
                 };
                 symlink_dir(&pkg_path, path).map_err(|cause| {
                     Error::chain(
-                        format!(
-                            "Failed to create symlink to {:?} at path {:?}.",
-                            pkg_path, path
-                        ),
+                        format!("Failed to create symlink to {pkg_path:?} at path {path:?}."),
                         cause,
                     )
                 })?;
@@ -353,7 +342,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
 
     // Canonicalize the path. This will resolve any intermediate links.
     let mut path = canonicalize(from)
-        .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", from), cause))?;
+        .map_err(|cause| Error::chain(format!("Failed to canonicalize path {from:?}."), cause))?;
     debugln!("find_package_root: canonicalized to {:?}", path);
 
     // Look up the device at the current path. This information will then be
@@ -375,8 +364,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
         // Abort if we have reached the filesystem root.
         if !path.pop() {
             return Err(Error::new(format!(
-                "No manifest (`Bender.yml` file) found. Stopped searching at filesystem root {:?}.",
-                path
+                "No manifest (`Bender.yml` file) found. Stopped searching at filesystem root {path:?}."
             )));
         }
 
@@ -387,8 +375,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
             debugln!("find_package_root: rdev = {:?}", rdev);
             if rdev != limit_rdev {
                 return Err(Error::new(format!(
-                    "No manifest (`Bender.yml` file) found. Stopped searching at filesystem boundary {:?}.",
-                    path
+                    "No manifest (`Bender.yml` file) found. Stopped searching at filesystem boundary {path:?}."
                 )));
             }
         }
@@ -405,14 +392,14 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
     use std::fs::File;
     debugln!("read_manifest: {:?}", path);
     let file = File::open(path)
-        .map_err(|cause| Error::chain(format!("Cannot open manifest {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Cannot open manifest {path:?}."), cause))?;
     let partial: PartialManifest = serde_yaml_ng::from_reader(file)
-        .map_err(|cause| Error::chain(format!("Syntax error in manifest {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Syntax error in manifest {path:?}."), cause))?;
     partial
         .prefix_paths(path.parent().unwrap())
-        .map_err(|cause| Error::chain(format!("Error in manifest prefixing {:?}.", path), cause))?
+        .map_err(|cause| Error::chain(format!("Error in manifest prefixing {path:?}."), cause))?
         .validate("", false)
-        .map_err(|cause| Error::chain(format!("Error in manifest {:?}.", path), cause))
+        .map_err(|cause| Error::chain(format!("Error in manifest {path:?}."), cause))
 }
 
 /// Load a configuration by traversing a directory hierarchy upwards.
@@ -424,7 +411,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
 
     // Canonicalize the path. This will resolve any intermediate links.
     let mut path = canonicalize(from)
-        .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", from), cause))?;
+        .map_err(|cause| Error::chain(format!("Failed to canonicalize path {from:?}."), cause))?;
     debugln!("load_config: canonicalized to {:?}", path);
 
     // Look up the device at the current path. This information will then be
@@ -509,9 +496,9 @@ fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<Par
         return Ok(None);
     }
     let file = File::open(path)
-        .map_err(|cause| Error::chain(format!("Cannot open config {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Cannot open config {path:?}."), cause))?;
     let partial: PartialConfig = serde_yaml_ng::from_reader(file)
-        .map_err(|cause| Error::chain(format!("Syntax error in config {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Syntax error in config {path:?}."), cause))?;
     if warn_config_loaded {
         Warnings::UsingConfigForOverride {
             path: path.to_path_buf(),
@@ -533,7 +520,7 @@ fn execute_plugin(sess: &Session, plugin: &str, args: &[String]) -> Result<()> {
     // Lookup the requested plugin and complain if it does not exist.
     let plugin = match plugins.get(plugin) {
         Some(p) => p,
-        None => return Err(Error::new(format!("Unknown command `{}`.", plugin))),
+        None => return Err(Error::new(format!("Unknown command `{plugin}`."))),
     };
     debugln!("main: found plugin {:#?}", plugin);
 

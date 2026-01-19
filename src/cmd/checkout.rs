@@ -6,13 +6,13 @@
 use clap::Args;
 use tokio::runtime::Runtime;
 
-use crate::error::*;
+use crate::error::Result;
 use crate::sess::{Session, SessionIo};
 
 /// Checkout all dependencies referenced in the Lock file
 #[derive(Args, Debug)]
 pub struct CheckoutArgs {
-    /// Force update of dependencies in a custom checkout_dir. Please use carefully to avoid losing work.
+    /// Force update of dependencies in a custom `checkout_dir`. Please use carefully to avoid losing work.
     #[arg(long)]
     pub force: bool,
 }

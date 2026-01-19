@@ -14,7 +14,7 @@ use crate::cli::{remove_symlink_dir, symlink_dir};
 use crate::config;
 use crate::config::{Locked, LockedSource};
 use crate::diagnostic::Warnings;
-use crate::error::*;
+use crate::error::{Error, Result};
 use crate::sess::{DependencyRef, DependencySource, Session, SessionIo};
 use crate::{debugln, stageln};
 
@@ -56,8 +56,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
         DependencySource::Git { .. } | DependencySource::Registry => {}
         DependencySource::Path { .. } => {
             Err(Error::new(format!(
-                "Dependency `{}` is a path dependency. `clone` is only implemented for git dependencies.",
-                dep
+                "Dependency `{dep}` is a path dependency. `clone` is only implemented for git dependencies."
             )))?;
         }
     }
@@ -71,14 +70,14 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
             .unwrap()
             .success()
     {
-        Err(Error::new(format!("Creating dir {} failed", path_mod,)))?;
+        Err(Error::new(format!("Creating dir {path_mod} failed",)))?;
     }
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
 
     // Copy dependency to dir for proper workflow
     if path.join(path_mod).join(dep).exists() {
-        eprintln!("{} already has a directory in {}.", dep, path_mod);
+        eprintln!("{dep} already has a directory in {path_mod}.");
         eprintln!("Please manually ensure the correct checkout.");
     } else {
         let id = sess.dependency_with_name(&args.name.to_lowercase())?;
@@ -95,7 +94,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
                 .arg(path.join(path_mod).join(dep).to_str().unwrap())
                 .status();
             if !command.unwrap().success() {
-                Err(Error::new(format!("Copying {} failed", dep,)))?;
+                Err(Error::new(format!("Copying {dep} failed",)))?;
             }
         }
 
@@ -130,19 +129,17 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
             Err(Error::new("git adding remote failed".to_string()))?;
         }
 
-        if !sess.local_only {
-            if !SysCommand::new(&sess.config.git)
-                .arg("fetch")
-                .arg("--all")
-                .current_dir(path.join(path_mod).join(dep))
-                .status()
-                .unwrap()
-                .success()
-            {
-                Err(Error::new("git fetch failed".to_string()))?;
-            }
-        } else {
+        if sess.local_only {
             Warnings::LocalNoFetch.emit();
+        } else if !SysCommand::new(&sess.config.git)
+            .arg("fetch")
+            .arg("--all")
+            .current_dir(path.join(path_mod).join(dep))
+            .status()
+            .unwrap()
+            .success()
+        {
+            Err(Error::new("git fetch failed".to_string()))?;
         }
 
         eprintln!(
@@ -155,14 +152,12 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
     // Rewrite Bender.local file to keep changes
     let local_path = path.join("Bender.local");
     let dep_str = format!(
-        "  {}: {{ path: \"{}/{0}\" }} # Temporary override by Bender using `bender clone` command\n",
-        dep, path_mod
+        "  {dep}: {{ path: \"{path_mod}/{dep}\" }} # Temporary override by Bender using `bender clone` command\n"
     );
     if local_path.exists() {
         let local_file_str = match std::fs::read_to_string(&local_path) {
             Err(why) => Err(Error::new(format!(
-                "Reading Bender.local failed with msg:\n\t{}",
-                why
+                "Reading Bender.local failed with msg:\n\t{why}"
             )))?,
             Ok(local_file_str) => local_file_str,
         };
@@ -190,25 +185,23 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
         }
         if let Err(why) = std::fs::write(local_path, new_str) {
             Err(Error::new(format!(
-                "Writing new Bender.local failed with msg:\n\t{}",
-                why
-            )))?
+                "Writing new Bender.local failed with msg:\n\t{why}"
+            )))?;
         }
-    } else if let Err(why) = std::fs::write(local_path, format!("overrides:\n{}", dep_str)) {
+    } else if let Err(why) = std::fs::write(local_path, format!("overrides:\n{dep_str}")) {
         Err(Error::new(format!(
-            "Writing new Bender.local failed with msg:\n\t{}",
-            why
-        )))?
-    };
+            "Writing new Bender.local failed with msg:\n\t{why}"
+        )))?;
+    }
 
-    eprintln!("{} dependency added to Bender.local", dep);
+    eprintln!("{dep} dependency added to Bender.local");
 
     // Update Bender.lock to enforce usage
     use std::fs::File;
     let file = File::open(path.join("Bender.lock"))
-        .map_err(|cause| Error::chain(format!("Cannot open lockfile {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Cannot open lockfile {path:?}."), cause))?;
     let mut locked: Locked = serde_yaml_ng::from_reader(&file)
-        .map_err(|cause| Error::chain(format!("Syntax error in lockfile {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Syntax error in lockfile {path:?}."), cause))?;
 
     let path_deps = get_path_subdeps(&io, &rt, &path.join(path_mod).join(dep), depref)?;
 
@@ -222,7 +215,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
             .unwrap_or(&path.join(path_mod).join(dep))
             .to_path_buf(),
     );
-    locked.packages.insert(dep.to_string(), mod_package);
+    locked.packages.insert(dep.clone(), mod_package);
     for path_dep in path_deps {
         let mut mod_package = locked.packages[&path_dep.0].clone();
         mod_package.revision = None;
@@ -238,9 +231,9 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
     }
 
     let file = File::create(path.join("Bender.lock"))
-        .map_err(|cause| Error::chain(format!("Cannot create lockfile {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Cannot create lockfile {path:?}."), cause))?;
     serde_yaml_ng::to_writer(&file, &locked)
-        .map_err(|cause| Error::chain(format!("Cannot write lockfile {:?}.", path), cause))?;
+        .map_err(|cause| Error::chain(format!("Cannot write lockfile {path:?}."), cause))?;
 
     eprintln!("Lockfile updated");
 
@@ -261,19 +254,19 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
             if link_path.exists() {
                 let meta = link_path.symlink_metadata().map_err(|cause| {
                     Error::chain(
-                        format!("Failed to read metadata of path {:?}.", link_path),
+                        format!("Failed to read metadata of path {link_path:?}."),
                         cause,
                     )
                 })?;
                 if !meta.file_type().is_symlink() {
-                    Warnings::SkippingPackageLink(pkg_name.clone(), link_path.to_path_buf()).emit();
+                    Warnings::SkippingPackageLink(pkg_name.clone(), link_path.clone()).emit();
                     continue;
                 }
                 if link_path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
                     debugln!("main: removing existing link {:?}", link_path);
                     remove_symlink_dir(link_path).map_err(|cause| {
                         Error::chain(
-                            format!("Failed to remove symlink at path {:?}.", link_path),
+                            format!("Failed to remove symlink at path {link_path:?}."),
                             cause,
                         )
                     })?;
@@ -285,7 +278,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
                 stageln!("Linking", "{} ({:?})", pkg_name, link_path);
                 if let Some(parent) = link_path.parent() {
                     std::fs::create_dir_all(parent).map_err(|cause| {
-                        Error::chain(format!("Failed to create directory {:?}.", parent), cause)
+                        Error::chain(format!("Failed to create directory {parent:?}."), cause)
                     })?;
                 }
                 let previous_dir = match link_path.parent() {
@@ -298,10 +291,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
                 };
                 symlink_dir(&pkg_path, link_path).map_err(|cause| {
                     Error::chain(
-                        format!(
-                            "Failed to create symlink to {:?} at path {:?}.",
-                            pkg_path, link_path
-                        ),
+                        format!("Failed to create symlink to {pkg_path:?} at path {link_path:?}."),
                         cause,
                     )
                 })?;
@@ -309,7 +299,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
                     std::env::set_current_dir(d).unwrap();
                 }
             }
-            eprintln!("{} symlink updated", dep);
+            eprintln!("{dep} symlink updated");
         }
     }
 
@@ -333,10 +323,7 @@ pub fn get_path_subdeps(
     .filter_map(|(k, v)| match v {
         config::Dependency::Path { path: p, .. } => {
             if p.starts_with(&old_path) {
-                Some((
-                    k.clone(),
-                    path.join(p.strip_prefix(&old_path).unwrap()).to_path_buf(),
-                ))
+                Some((k.clone(), path.join(p.strip_prefix(&old_path).unwrap())))
             } else {
                 None
             }
@@ -352,7 +339,7 @@ pub fn get_path_subdeps(
         get_path_subdeps(io, rt, path, io.sess.dependency_with_name(name)?)?
             .into_iter()
             .for_each(|(k, v)| {
-                path_deps.insert(k.clone(), v.clone());
+                path_deps.insert(k, v);
             });
     }
     Ok(path_deps)

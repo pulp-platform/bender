@@ -20,13 +20,13 @@ use tokio::runtime::Runtime;
 use walkdir::{DirEntry, WalkDir};
 
 use crate::diagnostic::Warnings;
-use crate::error::*;
+use crate::error::{Error, Result};
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup};
 use crate::target::TargetSet;
 use crate::target::TargetSpec;
 
-/// Creates a FuseSoC `.core` file for all dependencies where none is present
+/// Creates a `FuseSoC` `.core` file for all dependencies where none is present
 #[derive(Args, Debug)]
 pub struct FusesocArgs {
     /// Only create a `.core` file for the top package, based directly on the `Bender.yml.`
@@ -52,12 +52,13 @@ pub struct FusesocArgs {
 pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
     let bender_generate_flag = "Created by bender from the available manifest file.";
     let vendor_string = args.fuse_vendor.as_deref().unwrap_or("");
-    let version_string = match &args.fuse_version {
-        Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
-            Error::chain(format!("Unable to parse version {}.", version), cause)
-        })?),
-        None => None,
-    };
+    let version_string =
+        match &args.fuse_version {
+            Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
+                Error::chain(format!("Unable to parse version {version}."), cause)
+            })?),
+            None => None,
+        };
     let name = &sess.manifest.package.name;
 
     let srcs = match &sess.manifest.sources {
@@ -73,7 +74,7 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
         None => Err(Error::new("Error in loading sources")),
     }?;
 
-    let core_path = &sess.root.join(format!("{}.core", name));
+    let core_path = &sess.root.join(format!("{name}.core"));
 
     let file_str = match read_to_string(core_path) {
         Ok(file_str) => file_str,
@@ -82,9 +83,8 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
 
     if !file_str.contains(bender_generate_flag) {
         Err(Error::new(format!(
-            "{}.core already exists, please delete to generate.",
-            name
-        )))?
+            "{name}.core already exists, please delete to generate."
+        )))?;
     }
 
     let fuse_depend_string = sess
@@ -93,7 +93,7 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
         .keys()
         .map(|dep| {
             (
-                dep.to_string(),
+                dep.clone(),
                 format!(
                     "{}:{}:{}:{}", // VLNV
                     vendor_string, // Vendor
@@ -104,21 +104,21 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
             )
         })
         .chain([(
-            name.to_string(),
+            name.clone(),
             format!(
                 "{}:{}:{}:{}", // VLNV
                 vendor_string, // Vendor
                 "",            // Library
                 name,          // Name
                 match &version_string {
-                    Some(version) => format!("{}", version),
-                    None => "".to_string(),
+                    Some(version) => format!("{version}"),
+                    None => String::new(),
                 }  // Version
             ),
         )])
         .collect();
 
-    let pkg_manifest_paths = IndexMap::from([(name.to_string(), sess.root.to_path_buf())]);
+    let pkg_manifest_paths = IndexMap::from([(name.clone(), sess.root.to_path_buf())]);
 
     let fuse_str = get_fuse_file_str(
         name,
@@ -144,12 +144,13 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
 pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
     let bender_generate_flag = "Created by bender from the available manifest file.";
     let vendor_string = args.fuse_vendor.as_deref().unwrap_or("");
-    let version_string = match &args.fuse_version {
-        Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
-            Error::chain(format!("Unable to parse version {}.", version), cause)
-        })?),
-        None => None,
-    };
+    let version_string =
+        match &args.fuse_version {
+            Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
+                Error::chain(format!("Unable to parse version {version}."), cause)
+            })?),
+            None => None,
+        };
 
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
@@ -175,14 +176,14 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
         .map(|(pkg, dir)| {
             let paths = fs::read_dir(dir)
                 .map_err(|err| {
-                    Error::chain(format!("Unable to read package directory {:?}", dir), err)
+                    Error::chain(format!("Unable to read package directory {dir:?}"), err)
                 })?
                 .filter(|path| {
                     path.as_ref().unwrap().path().extension() == Some(OsStr::new("core"))
                 })
                 .map(|path| path.unwrap().path())
                 .collect::<Vec<_>>();
-            Ok((pkg.to_string(), paths))
+            Ok((pkg.clone(), paths))
         })
         .collect::<Result<IndexMap<String, _>>>()?;
 
@@ -197,14 +198,12 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
     for pkg in present_core_files.keys() {
         if present_core_files[pkg].is_empty() {
             generate_files.insert(
-                pkg.to_string(),
-                pkg_manifest_paths[pkg]
-                    .clone()
-                    .join(format!("{}.core", pkg)),
+                pkg.clone(),
+                pkg_manifest_paths[pkg].clone().join(format!("{pkg}.core")),
             );
 
             fuse_depend_string.insert(
-                pkg.to_string(),
+                pkg.clone(),
                 get_fuse_depend_string(
                     pkg,
                     &srcs,
@@ -216,7 +215,7 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
         } else {
             let mut index = 0;
             if present_core_files[pkg].len() > 1 {
-                let mut msg = format!("Multiple `.core` files already present for {}.\n", pkg);
+                let mut msg = format!("Multiple `.core` files already present for {pkg}.\n");
                 writeln!(
                     msg,
                     "Please pick a `.core` file to use for this dependency.\n"
@@ -251,7 +250,7 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
                     )
                     .unwrap();
                 }
-                let _ = writeln!(std::io::stdout(), "{}", msg);
+                let _ = writeln!(std::io::stdout(), "{msg}");
                 // Let user resolve conflict if both stderr and stdin go to a TTY.
                 if std::io::stderr().is_terminal() && std::io::stdin().is_terminal() {
                     index = {
@@ -263,12 +262,11 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
                             if buffer.starts_with('\n') {
                                 break Err(Error::new(msg));
                             }
-                            let choice = match buffer.trim().parse::<usize>() {
-                                Ok(u) => u,
-                                Err(_) => {
-                                    eprintln!("Invalid input!");
-                                    continue;
-                                }
+                            let choice = if let Ok(u) = buffer.trim().parse::<usize>() {
+                                u
+                            } else {
+                                eprintln!("Invalid input!");
+                                continue;
                             };
                             if choice > present_core_files[pkg].len() {
                                 eprintln!("Choice out of bounds!");
@@ -290,10 +288,10 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
             })?;
 
             if file_str.contains(bender_generate_flag) {
-                generate_files.insert(pkg.to_string(), present_core_files[pkg][index].clone());
+                generate_files.insert(pkg.clone(), present_core_files[pkg][index].clone());
 
                 fuse_depend_string.insert(
-                    pkg.to_string(),
+                    pkg.clone(),
                     get_fuse_depend_string(
                         pkg,
                         &srcs,
@@ -307,7 +305,7 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
                     file_str,
                     present_core_files[pkg][index].display().to_string(),
                 )?;
-                fuse_depend_string.insert(pkg.to_string(), fuse_core.name.clone());
+                fuse_depend_string.insert(pkg.clone(), fuse_core.name.clone());
             }
         }
     }
@@ -315,7 +313,7 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
     // Generate new `.core` files
     for pkg in generate_files.keys() {
         let src_packages = &srcs
-            .filter_packages(&vec![pkg.to_string()].into_iter().collect())
+            .filter_packages(&vec![pkg.clone()].into_iter().collect())
             .unwrap_or_default()
             .flatten();
 
@@ -345,7 +343,7 @@ fn get_fuse_file_str(
     lic_string: &[String],
 ) -> Result<String> {
     let mut fuse_str = "CAPI=2:\n".to_string();
-    fuse_str.push_str(&format!("# {}\n\n", bender_generate_flag));
+    fuse_str.push_str(&format!("# {bender_generate_flag}\n\n"));
 
     for line in lic_string {
         fuse_str.push_str("# ");
@@ -354,7 +352,7 @@ fn get_fuse_file_str(
     }
 
     let fuse_pkg = FuseSoCCAPI2 {
-        name: fuse_depend_string[&pkg.to_string()].clone(),
+        name: fuse_depend_string[&pkg.clone()].clone(),
         description: None,
         filesets: {
             src_packages
@@ -506,7 +504,7 @@ fn get_fuse_depend_string(
     version_string: Option<semver::Version>,
 ) -> String {
     let src_packages = srcs
-        .filter_packages(&vec![pkg.to_string()].into_iter().collect())
+        .filter_packages(&vec![pkg.clone()].into_iter().collect())
         .unwrap_or_default()
         .flatten();
 
@@ -535,37 +533,37 @@ fn get_fuse_depend_string(
         "",            // Library
         pkg,           // Name
         match &src_packages.clone()[0].version {
-            Some(version) => format!("{}", version),
-            None => "".to_string(),
+            Some(version) => format!("{version}"),
+            None => String::new(),
         }  // Version
     )
 }
 
 fn get_fileset_name(spec: &TargetSpec, top: bool) -> String {
     let tmp_str = match spec {
-        TargetSpec::Wildcard => "".to_string(),
-        TargetSpec::Name(name) => name.to_string(),
+        TargetSpec::Wildcard => String::new(),
+        TargetSpec::Name(name) => name.clone(),
         TargetSpec::Any(specs) => {
-            let mut spec_str = "".to_string();
-            for spec in specs.iter() {
+            let mut spec_str = String::new();
+            for spec in specs {
                 let mystr = get_fileset_name(spec, false);
                 if !spec_str.is_empty() && !mystr.is_empty() {
                     spec_str.push_str("_or_");
                 }
                 spec_str.push_str(&mystr);
             }
-            spec_str.to_string()
+            spec_str.clone()
         }
         TargetSpec::All(specs) => {
-            let mut spec_str = "".to_string();
-            for spec in specs.iter() {
+            let mut spec_str = String::new();
+            for spec in specs {
                 let mystr = get_fileset_name(spec, false);
                 if !spec_str.is_empty() && !mystr.is_empty() {
                     spec_str.push('_');
                 }
                 spec_str.push_str(&mystr);
             }
-            spec_str.to_string()
+            spec_str.clone()
         }
         TargetSpec::Not(spec) => format!("not{}", get_fileset_name(spec, false)),
     };
@@ -583,7 +581,7 @@ fn get_fileset_files(file_pkg: &SourceGroup, root_dir: PathBuf) -> Vec<FuseFileT
         .filter_map(|src_file| match src_file {
             SourceFile::File(intern_file, _) => Some(
                 match intern_file.extension().and_then(std::ffi::OsStr::to_str) {
-                    Some("vhd") | Some("vhdl") => FuseFileType::IndexMap(IndexMap::from([(
+                    Some("vhd" | "vhdl") => FuseFileType::IndexMap(IndexMap::from([(
                         intern_file
                             .strip_prefix(root_dir.clone())
                             .unwrap()
@@ -622,8 +620,7 @@ fn is_not_hidden(entry: &DirEntry) -> bool {
     entry
         .file_name()
         .to_str()
-        .map(|s| entry.depth() == 0 || !s.starts_with('.'))
-        .unwrap_or(false)
+        .is_some_and(|s| entry.depth() == 0 || !s.starts_with('.'))
 }
 
 fn get_include_files(dir: &PathBuf, base_path: PathBuf) -> Vec<FuseFileType> {
@@ -631,7 +628,7 @@ fn get_include_files(dir: &PathBuf, base_path: PathBuf) -> Vec<FuseFileType> {
         .follow_links(true)
         .into_iter()
         .filter_entry(is_not_hidden)
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .filter(|e| {
             e.path().extension() == Some(OsStr::new("svh"))
                 || e.path().extension() == Some(OsStr::new("vh"))

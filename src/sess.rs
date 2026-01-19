@@ -33,7 +33,7 @@ use typed_arena::Arena;
 use crate::cli::read_manifest;
 use crate::config::{self, Config, Manifest, PartialManifest};
 use crate::diagnostic::{Diagnostics, Warnings};
-use crate::error::*;
+use crate::error::{Error, Result};
 use crate::git::Git;
 use crate::src::SourceGroup;
 use crate::target::TargetSpec;
@@ -93,7 +93,7 @@ impl<'ctx> Session<'ctx> {
         local_only: bool,
         force_fetch: bool,
         git_throttle: usize,
-    ) -> Session<'ctx> {
+    ) -> Self {
         Session {
             root,
             manifest,
@@ -190,8 +190,7 @@ impl<'ctx> Session<'ctx> {
                         .map(|name| match names.get(name) {
                             Some(id) => Ok(*id),
                             None => Err(Error::new(format!(
-                                "Failed to match dependency {}, please run `bender update`!",
-                                name
+                                "Failed to match dependency {name}, please run `bender update`!"
                             ))),
                         })
                         .collect::<Result<_>>(),
@@ -214,9 +213,8 @@ impl<'ctx> Session<'ctx> {
             for name in self.manifest.dependencies.keys() {
                 if !(names.contains_key(name)) {
                     return Err(Error::new(format!(
-                        "`Bender.yml` contains dependency `{}` but `Bender.lock` does not.\n\
-                        \tYou may need to run `bender update`.",
-                        name
+                        "`Bender.yml` contains dependency `{name}` but `Bender.lock` does not.\n\
+                        \tYou may need to run `bender update`."
                     )));
                 }
             }
@@ -241,13 +239,12 @@ impl<'ctx> Session<'ctx> {
                 }
                 if cyclic {
                     let mut pend_str = vec![];
-                    for element in pending.iter() {
+                    for element in &pending {
                         pend_str.push(self.dependency_name(*element));
                     }
                     return Err(Error::new(format!(
-                        "a cyclical dependency was discovered, likely relates to one of {:?}.\n\
-                        \tPlease ensure no dependency loops.",
-                        pend_str
+                        "a cyclical dependency was discovered, likely relates to one of {pend_str:?}.\n\
+                        \tPlease ensure no dependency loops."
                     )));
                 }
             }
@@ -305,8 +302,7 @@ impl<'ctx> Session<'ctx> {
         match result {
             Some(id) => Ok(id),
             None => Err(Error::new(format!(
-                "Dependency `{}` does not exist. Did you forget to add it to the manifest?",
-                name
+                "Dependency `{name}` does not exist. Did you forget to add it to the manifest?"
             ))),
         }
     }
@@ -446,7 +442,7 @@ impl<'ctx> Session<'ctx> {
         // 8 bytes (16 hex characters) of the URL's BLAKE2 hash.
         use blake2::{Blake2b512, Digest};
         let hash = &format!("{:016x}", Blake2b512::digest(url.as_bytes()))[..16];
-        let db_name = format!("{}-{}", name, hash);
+        let db_name = format!("{name}-{hash}");
         db_name
     }
 }
@@ -464,7 +460,7 @@ pub struct SessionIo<'sess, 'ctx: 'sess> {
 
 impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     /// Create a new session wrapper.
-    pub fn new(sess: &'sess Session<'ctx>) -> SessionIo<'sess, 'ctx> {
+    pub fn new(sess: &'sess Session<'ctx>) -> Self {
         SessionIo {
             sess,
             git_versions: Mutex::new(IndexMap::new()),
@@ -523,14 +519,14 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .join(db_name);
         let db_dir = self.sess.intern_path(db_dir);
         match std::fs::create_dir_all(db_dir) {
-            Ok(_) => (),
+            Ok(()) => (),
             Err(cause) => {
                 return Err(Error::chain(
-                    format!("Failed to create git database directory {:?}.", db_dir),
+                    format!("Failed to create git database directory {db_dir:?}."),
                     cause,
                 ));
             }
-        };
+        }
         let git = Git::new(
             db_dir,
             &self.sess.config.git,
@@ -561,7 +557,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .await?;
             git.clone()
                 .fetch("origin")
-                .and_then(|_| async {
+                .and_then(|()| async {
                     if let Some(reference) = fetch_ref {
                         git.clone().fetch_ref("origin", reference).await
                     } else {
@@ -575,7 +571,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     }
                     .emit();
                     Error::chain(
-                        format!("Failed to initialize git database in {:?}.", db_dir),
+                        format!("Failed to initialize git database in {db_dir:?}."),
                         cause,
                     )
                 })
@@ -752,7 +748,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             hasher.update(format!("{:?}", self.sess.manifest.package.name).as_bytes());
             &format!("{:016x}", hasher.finalize())[..16]
         };
-        let checkout_name = format!("{}-{}", dep_name, hash);
+        let checkout_name = format!("{dep_name}-{hash}");
 
         // Determine the location of the git checkout. If the workspace has an
         // explicit checkout directory, use that and do not append any hash to
@@ -905,7 +901,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             debugln!("checkout_git: clear checkout {:?}", path);
             std::fs::remove_dir_all(path).map_err(|cause| {
                 Error::chain(
-                    format!("Failed to remove checkout directory {:?}.", path),
+                    format!("Failed to remove checkout directory {path:?}."),
                     cause,
                 )
             })
@@ -920,7 +916,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             // First generate a tag to be cloned in the database. This is
             // necessary since `git clone` does not accept commits, but only
             // branches or tags for shallow clones.
-            let tag_name_0 = format!("bender-tmp-{}", revision).clone();
+            let tag_name_0 = format!("bender-tmp-{revision}").clone();
             let tag_name_1 = tag_name_0.clone();
             let tag_name_2 = tag_name_0.clone();
             let git = self.git_database(name, url, false, Some(revision)).await?;
@@ -958,8 +954,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .emit();
                             Error::chain(
                                 format!(
-                                    "Failed to checkout commit {} for {} given in Bender.lock.\n",
-                                    revision, name
+                                    "Failed to checkout commit {revision} for {name} given in Bender.lock.\n"
                                 ),
                                 cause,
                             )
@@ -1051,7 +1046,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             .truncate(true)
                             .create(true)
                             .open(tmp_path.join(format!("{}_manifest.yml", dep.0)))?;
-                        writeln!(&mut sub_file, "{}", full_sub_data)?;
+                        writeln!(&mut sub_file, "{full_sub_data}")?;
                         sub_file.flush()?;
                     }
 
@@ -1138,7 +1133,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         match (&dep.source, version) {
             (DepSrc::Path(path), DepVer::Path) => {
                 if !path.is_absolute() {
-                    Warnings::MaybePathIssues(dep.name.clone(), path.to_path_buf()).emit();
+                    Warnings::MaybePathIssues(dep.name.clone(), path.clone()).emit();
                 }
                 let manifest_path = path.join("Bender.yml");
                 if manifest_path.exists() {
@@ -1171,11 +1166,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             .join(format!("{}_manifest.yml", dep.name)),
                     )
                     .map_err(|cause| {
-                        Error::chain(format!("Cannot open manifest {:?}.", path), cause)
+                        Error::chain(format!("Cannot open manifest {path:?}."), cause)
                     })?;
                     let partial: PartialManifest =
                         serde_yaml_ng::from_reader(file).map_err(|cause| {
-                            Error::chain(format!("Syntax error in manifest {:?}.", path), cause)
+                            Error::chain(format!("Syntax error in manifest {path:?}."), cause)
                         })?;
 
                     match partial.validate_ignore_sources("", true) {
@@ -1198,7 +1193,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 if Diagnostics::is_suppressed("E32") {
                                     Warnings::DepPathMissing {
                                         pkg: dep.name.clone(),
-                                        path: path.to_path_buf(),
+                                        path: path.clone(),
                                     }
                                     .emit();
                                 } else {
@@ -1289,7 +1284,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     None => "dead".to_string(),
                 };
                 if dep.name != pkg_name {
-                    Warnings::DepPkgNameNotMatching(dep.name.clone(), pkg_name.clone()).emit();
+                    Warnings::DepPkgNameNotMatching(dep.name.clone(), pkg_name).emit();
                 }
                 Ok(manifest)
             }
@@ -1436,14 +1431,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             );
                             if !m.dependencies.is_empty() {
                                 for i in m.dependencies.keys() {
-                                    if !all_export_include_dirs.contains_key(i) {
-                                        Warnings::ExportDirNameIssue(i.clone()).emit();
-                                        export_include_dirs.insert(i.to_string(), IndexSet::new());
+                                    if all_export_include_dirs.contains_key(i) {
+                                        export_include_dirs
+                                            .insert(i.clone(), all_export_include_dirs[i].clone());
                                     } else {
-                                        export_include_dirs.insert(
-                                            i.to_string(),
-                                            all_export_include_dirs[i].clone(),
-                                        );
+                                        Warnings::ExportDirNameIssue(i.clone()).emit();
+                                        export_include_dirs.insert(i.clone(), IndexSet::new());
                                     }
                                 }
                             }
@@ -1554,7 +1547,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
         }
         let root_plugins = &self.sess.manifest.plugins;
-        for (name, plugin) in root_plugins.iter() {
+        for (name, plugin) in root_plugins {
             debugln!("sess: plugin `{}` declared by root package", name);
             let existing = plugins.insert(
                 name.clone(),
@@ -1595,8 +1588,9 @@ pub struct SessionArenas {
 
 impl SessionArenas {
     /// Create a new arena container.
-    pub fn new() -> SessionArenas {
-        SessionArenas {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
             path: Arena::new(),
             string: Arena::new(),
             manifest: Arena::new(),
@@ -1652,6 +1646,7 @@ pub struct DependencyEntry {
 
 impl DependencyEntry {
     /// Obtain the dependency version for this entry.
+    #[must_use]
     pub fn version(&self) -> DependencyVersion<'_> {
         match self.source {
             DependencySource::Registry => unimplemented!(),
@@ -1674,12 +1669,12 @@ pub enum DependencySource {
 }
 
 impl<'a> From<&'a config::Dependency> for DependencySource {
-    fn from(cfg: &'a config::Dependency) -> DependencySource {
+    fn from(cfg: &'a config::Dependency) -> Self {
         match cfg {
-            config::Dependency::Path { path, .. } => DependencySource::Path(path.clone()),
-            config::Dependency::GitRevision { url, .. } => DependencySource::Git(url.clone()),
-            config::Dependency::GitVersion { url, .. } => DependencySource::Git(url.clone()),
-            config::Dependency::Version { .. } => DependencySource::Registry,
+            config::Dependency::Path { path, .. } => Self::Path(path.clone()),
+            config::Dependency::GitRevision { url, .. } => Self::Git(url.clone()),
+            config::Dependency::GitVersion { url, .. } => Self::Git(url.clone()),
+            config::Dependency::Version { .. } => Self::Registry,
         }
     }
 }
@@ -1687,20 +1682,21 @@ impl<'a> From<&'a config::Dependency> for DependencySource {
 impl fmt::Display for DependencySource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            DependencySource::Registry => write!(f, "registry"),
-            DependencySource::Path(ref path) => write!(f, "{:?}", path),
-            DependencySource::Git(ref url) => write!(f, "`{}`", url),
+            Self::Registry => write!(f, "registry"),
+            Self::Path(ref path) => write!(f, "{path:?}"),
+            Self::Git(ref url) => write!(f, "`{url}`"),
         }
     }
 }
 
 impl DependencySource {
     /// returns a string of the source
+    #[must_use]
     pub fn to_str(&self) -> String {
         match *self {
-            DependencySource::Registry => "registry".to_string(),
-            DependencySource::Path(ref path) => format!("{:?}", path),
-            DependencySource::Git(ref url) => url.to_string(),
+            Self::Registry => "registry".to_string(),
+            Self::Path(ref path) => format!("{path:?}"),
+            Self::Git(ref url) => url.clone(),
         }
     }
 }
@@ -1714,7 +1710,7 @@ struct DependencyTable<'ctx> {
 
 impl<'ctx> DependencyTable<'ctx> {
     /// Create a new dependency table.
-    pub fn new() -> DependencyTable<'ctx> {
+    pub fn new() -> Self {
         DependencyTable {
             list: Vec::new(),
             ids: IndexMap::new(),
@@ -1784,18 +1780,19 @@ pub enum DependencyVersion<'ctx> {
     Git(&'ctx str),
 }
 
-impl<'ctx> fmt::Display for DependencyVersion<'ctx> {
+impl fmt::Display for DependencyVersion<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             DependencyVersion::Path => write!(f, "path"),
-            DependencyVersion::Registry(ref v) => write!(f, "{}", v),
-            DependencyVersion::Git(ref r) => write!(f, "{}", r),
+            DependencyVersion::Registry(v) => write!(f, "{}", &v),
+            DependencyVersion::Git(r) => write!(f, "{}", &r),
         }
     }
 }
 
-impl<'ctx> DependencyVersion<'ctx> {
+impl DependencyVersion<'_> {
     /// returns a string of the version
+    #[must_use]
     pub fn to_str(&self) -> String {
         match *self {
             DependencyVersion::Path => "path".to_string(),
@@ -1818,16 +1815,12 @@ pub enum DependencyConstraint {
 }
 
 impl<'a> From<&'a config::Dependency> for DependencyConstraint {
-    fn from(cfg: &'a config::Dependency) -> DependencyConstraint {
+    fn from(cfg: &'a config::Dependency) -> Self {
         match *cfg {
-            config::Dependency::Path { .. } => DependencyConstraint::Path,
+            config::Dependency::Path { .. } => Self::Path,
             config::Dependency::Version { ref version, .. }
-            | config::Dependency::GitVersion { ref version, .. } => {
-                DependencyConstraint::Version(version.clone())
-            }
-            config::Dependency::GitRevision { ref rev, .. } => {
-                DependencyConstraint::Revision(rev.clone())
-            }
+            | config::Dependency::GitVersion { ref version, .. } => Self::Version(version.clone()),
+            config::Dependency::GitRevision { ref rev, .. } => Self::Revision(rev.clone()),
         }
     }
 }
@@ -1835,9 +1828,9 @@ impl<'a> From<&'a config::Dependency> for DependencyConstraint {
 impl fmt::Display for DependencyConstraint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            DependencyConstraint::Path => write!(f, "path"),
-            DependencyConstraint::Version(ref v) => write!(f, "{}", v),
-            DependencyConstraint::Revision(ref r) => write!(f, "{}", r),
+            Self::Path => write!(f, "path"),
+            Self::Version(ref v) => write!(f, "{v}"),
+            Self::Revision(ref r) => write!(f, "{r}"),
         }
     }
 }
@@ -1889,7 +1882,7 @@ pub struct SessionCache<'ctx> {
     checkout: Mutex<IndexMap<DependencyRef, &'ctx Path>>,
 }
 
-impl<'ctx> fmt::Debug for SessionCache<'ctx> {
+impl fmt::Debug for SessionCache<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "SessionCache")
     }

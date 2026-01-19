@@ -14,7 +14,7 @@ use tokio::runtime::Runtime;
 
 use crate::cmd::sources::get_passed_targets;
 use crate::config::Validate;
-use crate::error::*;
+use crate::error::{Error, Result};
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::TargetSet;
@@ -236,7 +236,9 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
     fn concat<T: Clone>(a: &[T], b: &[T]) -> Vec<T> {
         a.iter().chain(b).cloned().collect()
     }
-    let format_targets: Vec<&str> = if !args.no_default_target {
+    let format_targets: Vec<&str> = if args.no_default_target {
+        vec![]
+    } else {
         match args.format {
             ScriptFormat::Flist { .. } => vec!["flist"],
             ScriptFormat::FlistPlus { .. } => vec!["flist"],
@@ -253,12 +255,15 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             ScriptFormat::Template { .. } => vec![],
             ScriptFormat::TemplateJson => vec![],
         }
-    } else {
-        vec![]
     };
 
     // Filter the sources by target.
-    let targets = TargetSet::new(args.target.iter().map(|s| s.as_str()).chain(format_targets));
+    let targets = TargetSet::new(
+        args.target
+            .iter()
+            .map(std::string::String::as_str)
+            .chain(format_targets),
+    );
 
     if args.assume_rtl {
         srcs = srcs.assign_target("rtl".to_string());
@@ -266,7 +271,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
 
     // Filter the sources by specified packages.
     let packages = &srcs.get_package_list(
-        sess.manifest.package.name.to_string(),
+        sess.manifest.package.name.clone(),
         &get_package_strings(&args.package),
         &get_package_strings(&args.exclude),
         args.no_deps,
@@ -459,7 +464,7 @@ fn emit_template(
         all_defines.extend(
             src.defines
                 .iter()
-                .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+                .map(|(k, &v)| (k.clone(), v.map(String::from))),
         );
         all_incdirs.append(&mut src.clone().get_incdirs());
         all_files.extend(src.files.iter().filter_map(|file| match file {
@@ -479,7 +484,10 @@ fn emit_template(
 
     all_incdirs.sort();
     let all_incdirs: IndexSet<PathBuf> = if emit_incdirs {
-        all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
+        all_incdirs
+            .into_iter()
+            .map(std::path::Path::to_path_buf)
+            .collect()
     } else {
         IndexSet::new()
     };
@@ -498,8 +506,8 @@ fn emit_template(
                     Some(SourceType::Verilog) => Some(SourceType::Verilog),
                     Some(SourceType::Vhdl) => Some(SourceType::Vhdl),
                     _ => match p.extension().and_then(std::ffi::OsStr::to_str) {
-                        Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
-                        Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
+                        Some("sv" | "v" | "vp") => Some(SourceType::Verilog),
+                        Some("vhd" | "vhdl") => Some(SourceType::Vhdl),
                         _ => Some(SourceType::Unknown),
                     },
                 },
@@ -517,7 +525,7 @@ fn emit_template(
                         local_defines.extend(
                             src.defines
                                 .iter()
-                                .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+                                .map(|(k, &v)| (k.clone(), v.map(String::from))),
                         );
 
                         add_defines(&mut local_defines, &args.define);
@@ -543,7 +551,7 @@ fn emit_template(
                     file_type: match ty {
                         SourceType::Verilog => "verilog".to_string(),
                         SourceType::Vhdl => "vhdl".to_string(),
-                        SourceType::Unknown => "".to_string(),
+                        SourceType::Unknown => String::new(),
                     },
                 });
             },

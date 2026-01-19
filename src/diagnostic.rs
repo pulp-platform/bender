@@ -31,7 +31,7 @@ impl Diagnostics {
     pub fn init(suppressed: HashSet<String>) {
         // Set up miette with our custom renderer
         miette::set_hook(Box::new(|_| Box::new(DiagnosticRenderer))).unwrap();
-        let diag = Diagnostics {
+        let diag = Self {
             all_suppressed: suppressed.contains("all") || suppressed.contains("Wall"),
             suppressed,
             emitted: Mutex::new(HashSet::new()),
@@ -43,15 +43,16 @@ impl Diagnostics {
     }
 
     /// Get the global diagnostics manager.
-    fn get() -> &'static Diagnostics {
+    fn get() -> &'static Self {
         GLOBAL_DIAGNOSTICS
             .get()
             .expect("Diagnostics not initialized!")
     }
 
     /// Check whether a warning/error code is suppressed.
+    #[must_use]
     pub fn is_suppressed(code: &str) -> bool {
-        let diag = Diagnostics::get();
+        let diag = Self::get();
         diag.all_suppressed || diag.suppressed.contains(code)
     }
 }
@@ -97,11 +98,11 @@ impl ReportHandler for DiagnosticRenderer {
 
         // Write the code, if any
         if let Some(code) = diagnostic.code() {
-            write!(f, "{}", format!("[{}]", code).style(style))?;
+            write!(f, "{}", format!("[{code}]").style(style))?;
         }
 
         // Write the main diagnostic message
-        write!(f, ": {}", diagnostic)?;
+        write!(f, ": {diagnostic}")?;
 
         // We collect all footer lines into a vector.
         let mut annotations: Vec<String> = Vec::new();

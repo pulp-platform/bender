@@ -16,6 +16,7 @@ use std::hash::Hash;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::string::ToString;
 
 use glob::glob;
 use indexmap::IndexMap;
@@ -26,9 +27,9 @@ use serde_yaml_ng::Value;
 use subst;
 
 use crate::diagnostic::{Diagnostics, Warnings};
-use crate::error::*;
+use crate::error::{Error, Result};
 use crate::target::TargetSpec;
-use crate::util::*;
+use crate::util::{SeqOrStruct, StringOrStruct, Void, string_list};
 
 /// A package manifest.
 ///
@@ -55,7 +56,7 @@ pub struct Manifest {
 
 impl PrefixPaths for Manifest {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
-        Ok(Manifest {
+        Ok(Self {
             package: self.package,
             dependencies: self.dependencies.prefix_paths(prefix)?,
             sources: self
@@ -145,11 +146,11 @@ pub enum Dependency {
 impl PrefixPaths for Dependency {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         Ok(match self {
-            Dependency::Path {
+            Self::Path {
                 target,
                 path,
                 pass_targets,
-            } => Dependency::Path {
+            } => Self::Path {
                 target,
                 path: path.prefix_paths(prefix)?,
                 pass_targets,
@@ -166,19 +167,19 @@ impl Serialize for Dependency {
     {
         use serde::ser::SerializeMap;
         match *self {
-            Dependency::Version {
+            Self::Version {
                 ref target,
                 ref version,
                 ref pass_targets,
             } => {
                 let mut map = serializer.serialize_map(Some(3))?;
                 map.serialize_entry("target", target)?;
-                map.serialize_entry("version", &format!("{}", version))?;
+                map.serialize_entry("version", &format!("{version}"))?;
                 map.serialize_entry("pass_targets", pass_targets)?;
                 map.end()
             }
             // format!("{}, {:?}", version, pass_targets).serialize(serializer),
-            Dependency::Path {
+            Self::Path {
                 ref target,
                 ref path,
                 ref pass_targets,
@@ -191,7 +192,7 @@ impl Serialize for Dependency {
             }
 
             // path.serialize(serializer),
-            Dependency::GitRevision {
+            Self::GitRevision {
                 ref target,
                 ref url,
                 ref rev,
@@ -204,7 +205,7 @@ impl Serialize for Dependency {
                 map.serialize_entry("pass_targets", pass_targets)?;
                 map.end()
             }
-            Dependency::GitVersion {
+            Self::GitVersion {
                 ref target,
                 ref url,
                 ref version,
@@ -213,7 +214,7 @@ impl Serialize for Dependency {
                 let mut map = serializer.serialize_map(Some(4))?;
                 map.serialize_entry("target", target)?;
                 map.serialize_entry("git", url)?;
-                map.serialize_entry("version", &format!("{}", version))?;
+                map.serialize_entry("version", &format!("{version}"))?;
                 map.serialize_entry("pass_targets", pass_targets)?;
                 map.end()
             }
@@ -236,7 +237,7 @@ pub struct Sources {
 
 impl PrefixPaths for Sources {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
-        Ok(Sources {
+        Ok(Self {
             target: self.target,
             include_dirs: self.include_dirs.prefix_paths(prefix)?,
             defines: self.defines,
@@ -262,23 +263,23 @@ pub enum SourceFile {
 impl fmt::Debug for SourceFile {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SourceFile::File(ref path) => {
+            Self::File(ref path) => {
                 fmt::Debug::fmt(path, f)?;
                 write!(f, " as <unknown>")
             }
-            SourceFile::SvFile(ref path) => {
+            Self::SvFile(ref path) => {
                 fmt::Debug::fmt(path, f)?;
                 write!(f, " as SystemVerilog")
             }
-            SourceFile::VerilogFile(ref path) => {
+            Self::VerilogFile(ref path) => {
                 fmt::Debug::fmt(path, f)?;
                 write!(f, " as Verilog")
             }
-            SourceFile::VhdlFile(ref path) => {
+            Self::VhdlFile(ref path) => {
                 fmt::Debug::fmt(path, f)?;
                 write!(f, " as Vhdl")
             }
-            SourceFile::Group(ref srcs) => fmt::Debug::fmt(srcs, f),
+            Self::Group(ref srcs) => fmt::Debug::fmt(srcs, f),
         }
     }
 }
@@ -286,11 +287,11 @@ impl fmt::Debug for SourceFile {
 impl PrefixPaths for SourceFile {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         Ok(match self {
-            SourceFile::File(path) => SourceFile::File(path.prefix_paths(prefix)?),
-            SourceFile::SvFile(path) => SourceFile::SvFile(path.prefix_paths(prefix)?),
-            SourceFile::VerilogFile(path) => SourceFile::VerilogFile(path.prefix_paths(prefix)?),
-            SourceFile::VhdlFile(path) => SourceFile::VhdlFile(path.prefix_paths(prefix)?),
-            SourceFile::Group(group) => SourceFile::Group(Box::new(group.prefix_paths(prefix)?)),
+            Self::File(path) => Self::File(path.prefix_paths(prefix)?),
+            Self::SvFile(path) => Self::SvFile(path.prefix_paths(prefix)?),
+            Self::VerilogFile(path) => Self::VerilogFile(path.prefix_paths(prefix)?),
+            Self::VhdlFile(path) => Self::VhdlFile(path.prefix_paths(prefix)?),
+            Self::Group(group) => Self::Group(Box::new(group.prefix_paths(prefix)?)),
         })
     }
 }
@@ -306,7 +307,7 @@ pub struct Workspace {
 
 impl PrefixPaths for Workspace {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
-        Ok(Workspace {
+        Ok(Self {
             checkout_dir: self.checkout_dir.prefix_paths(prefix)?,
             package_links: self
                 .package_links
@@ -411,7 +412,7 @@ where
     T: PrefixPaths,
 {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
-        Ok(StringOrStruct(self.0.prefix_paths(prefix)?))
+        Ok(Self(self.0.prefix_paths(prefix)?))
     }
 }
 
@@ -421,7 +422,7 @@ where
     T: PrefixPaths,
 {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
-        Ok(SeqOrStruct::new(self.0.prefix_paths(prefix)?))
+        Ok(Self::new(self.0.prefix_paths(prefix)?))
     }
 }
 
@@ -467,7 +468,7 @@ impl PartialManifest {
 
 impl PrefixPaths for PartialManifest {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
-        Ok(PartialManifest {
+        Ok(Self {
             package: self.package,
             dependencies: self.dependencies.prefix_paths(prefix)?,
             sources: self.sources.map_or(
@@ -536,7 +537,7 @@ impl Validate for PartialManifest {
         let plugins = match self.plugins {
             Some(s) => s
                 .iter()
-                .map(|(k, v)| Ok((k.clone(), env_path_from_string(v.to_string())?)))
+                .map(|(k, v)| Ok((k.clone(), env_path_from_string(v.clone())?)))
                 .collect::<Result<IndexMap<_, _>>>()?,
             None => IndexMap::new(),
         };
@@ -567,10 +568,12 @@ impl Validate for PartialManifest {
             dependencies: deps,
             sources: match srcs {
                 Some(SourceFile::Group(srcs)) => Some(*srcs),
-                Some(SourceFile::File(_))
-                | Some(SourceFile::SvFile(_))
-                | Some(SourceFile::VerilogFile(_))
-                | Some(SourceFile::VhdlFile(_)) => Some(Sources {
+                Some(
+                    SourceFile::File(_)
+                    | SourceFile::SvFile(_)
+                    | SourceFile::VerilogFile(_)
+                    | SourceFile::VhdlFile(_),
+                ) => Some(Sources {
                     target: TargetSpec::Wildcard,
                     include_dirs: Vec::new(),
                     defines: IndexMap::new(),
@@ -580,7 +583,7 @@ impl Validate for PartialManifest {
             },
             export_include_dirs: exp_inc_dirs
                 .iter()
-                .filter_map(|path| match env_path_from_string(path.to_string()) {
+                .filter_map(|path| match env_path_from_string(path.clone()) {
                     Ok(parsed_path) => {
                         if !(pre_output || parsed_path.exists() && parsed_path.is_dir()) {
                             Warnings::IncludeDirMissing(parsed_path.clone()).emit();
@@ -644,7 +647,7 @@ pub struct PartialDependency {
 impl FromStr for PartialDependency {
     type Err = Void;
     fn from_str(s: &str) -> std::result::Result<Self, Void> {
-        Ok(PartialDependency {
+        Ok(Self {
             target: None,
             path: None,
             git: None,
@@ -658,7 +661,7 @@ impl FromStr for PartialDependency {
 
 impl PrefixPaths for PartialDependency {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
-        Ok(PartialDependency {
+        Ok(Self {
             path: self.path.prefix_paths(prefix)?,
             ..self
         })
@@ -679,7 +682,7 @@ impl Validate for PartialDependency {
         let version = match self.version {
             Some(v) => Some(semver::VersionReq::parse(&v).map_err(|cause| {
                 Error::chain(
-                    format!("\"{}\" is not a valid semantic version requirement.", v),
+                    format!("\"{v}\" is not a valid semantic version requirement."),
                     cause,
                 )
             })?),
@@ -710,8 +713,7 @@ impl Validate for PartialDependency {
                 "or",
             ) {
                 Err(Error::new(format!(
-                    "A `path` dependency cannot have a {} field.",
-                    list
+                    "A `path` dependency cannot have a {list} field."
                 )))
             } else {
                 Ok(Dependency::Path {
@@ -779,10 +781,11 @@ pub struct PartialSources {
 }
 
 impl PartialSources {
-    /// Create new empty PartialSources struct so partial sources can be emptied out
+    /// Create new empty `PartialSources` struct so partial sources can be emptied out
     /// when calling validate on db of git repo since source files won't actually be present
+    #[must_use]
     pub fn new_empty() -> Self {
-        PartialSources {
+        Self {
             target: None,
             include_dirs: None,
             defines: None,
@@ -798,7 +801,7 @@ impl PartialSources {
 
 impl PrefixPaths for PartialSources {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
-        Ok(PartialSources {
+        Ok(Self {
             target: self.target,
             include_dirs: self.include_dirs.prefix_paths(prefix)?,
             defines: self.defines,
@@ -814,7 +817,7 @@ impl PrefixPaths for PartialSources {
 
 impl From<Vec<PartialSourceFile>> for PartialSources {
     fn from(v: Vec<PartialSourceFile>) -> Self {
-        PartialSources {
+        Self {
             target: None,
             include_dirs: None,
             defines: None,
@@ -833,7 +836,7 @@ impl Validate for PartialSources {
     type Error = Error;
     fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceFile> {
         match self {
-            PartialSources {
+            Self {
                 target: None,
                 include_dirs: None,
                 defines: None,
@@ -844,7 +847,7 @@ impl Validate for PartialSources {
                 external_flists: None,
                 extra: _,
             } => PartialSourceFile::SvFile(sv).validate(package_name, pre_output),
-            PartialSources {
+            Self {
                 target: None,
                 include_dirs: None,
                 defines: None,
@@ -855,7 +858,7 @@ impl Validate for PartialSources {
                 external_flists: None,
                 extra: _,
             } => PartialSourceFile::VerilogFile(v).validate(package_name, pre_output),
-            PartialSources {
+            Self {
                 target: None,
                 include_dirs: None,
                 defines: None,
@@ -866,7 +869,7 @@ impl Validate for PartialSources {
                 external_flists: None,
                 extra: _,
             } => PartialSourceFile::VhdlFile(vhd).validate(package_name, pre_output),
-            PartialSources {
+            Self {
                 target,
                 include_dirs,
                 defines,
@@ -878,10 +881,9 @@ impl Validate for PartialSources {
                 extra,
             } => {
                 let external_flists: Result<Vec<_>> = external_flists
-                    .clone()
                     .unwrap_or_default()
                     .iter()
-                    .filter_map(|path| match env_path_from_string(path.to_string()) {
+                    .filter_map(|path| match env_path_from_string(path.clone()) {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
                             if Diagnostics::is_suppressed("E30") {
@@ -902,7 +904,7 @@ impl Validate for PartialSources {
                     .map(|filename| {
                         let file = File::open(&filename).map_err(|cause| {
                             Error::chain(
-                                format!("Unable to open external flist file {:?}", filename),
+                                format!("Unable to open external flist file {filename:?}"),
                                 cause,
                             )
                         })?;
@@ -912,7 +914,7 @@ impl Validate for PartialSources {
                             .map(|line| {
                                 line.map_err(|cause| {
                                     Error::chain(
-                                        format!("Error reading external flist file {:?}", filename),
+                                        format!("Error reading external flist file {filename:?}"),
                                         cause,
                                     )
                                 })
@@ -930,7 +932,7 @@ impl Validate for PartialSources {
                                 } else {
                                     Some(
                                         line.split_whitespace()
-                                            .map(|s| s.to_string())
+                                            .map(ToString::to_string)
                                             .collect::<Vec<_>>(),
                                     )
                                 }
@@ -944,7 +946,7 @@ impl Validate for PartialSources {
                 let external_flist_groups: Result<Vec<PartialSourceFile>> = external_flist_list?
                     .into_iter()
                     .map(|(flist_dir, flist)| {
-                        Ok(PartialSourceFile::Group(Box::new(PartialSources {
+                        Ok(PartialSourceFile::Group(Box::new(Self {
                             target: None,
                             include_dirs: Some(
                                 flist
@@ -958,7 +960,7 @@ impl Validate for PartialSources {
                                         }
                                     })
                                     .flat_map(|s| {
-                                        s.split('+').map(|s| s.to_string()).collect::<Vec<_>>()
+                                        s.split('+').map(ToString::to_string).collect::<Vec<_>>()
                                     })
                                     .map(|dir| dir.prefix_paths(&flist_dir))
                                     .collect::<Result<_>>()?,
@@ -975,16 +977,16 @@ impl Validate for PartialSources {
                                         }
                                     })
                                     .flat_map(|s| {
-                                        s.split('+').map(|s| s.to_string()).collect::<Vec<_>>()
+                                        s.split('+').map(ToString::to_string).collect::<Vec<_>>()
                                     })
                                     .map(|file| {
-                                        if let Some(eq_idx) = file.find("=") {
+                                        if let Some(eq_idx) = file.find('=') {
                                             (
                                                 file[..eq_idx].to_string(),
                                                 Some(file[eq_idx + 1..].to_string()),
                                             )
                                         } else {
-                                            (file.to_string(), None)
+                                            (file, None)
                                         }
                                     })
                                     .collect(),
@@ -993,7 +995,7 @@ impl Validate for PartialSources {
                                 flist
                                     .into_iter()
                                     .filter_map(|file| {
-                                        if file.starts_with("+") {
+                                        if file.starts_with('+') {
                                             None
                                         } else {
                                             // prefix path
@@ -1020,7 +1022,7 @@ impl Validate for PartialSources {
                             | PartialSourceFile::SvFile(ref filename)
                             | PartialSourceFile::VerilogFile(ref filename)
                             | PartialSourceFile::VhdlFile(ref filename) => {
-                                match env_string_from_string(filename.to_string()) {
+                                match env_string_from_string(filename.clone()) {
                                     Ok(p) => match file {
                                         PartialSourceFile::File(_) => {
                                             Some(Ok(PartialSourceFile::File(p)))
@@ -1081,7 +1083,7 @@ impl Validate for PartialSources {
                 let include_dirs: Result<Vec<_>> = include_dirs
                     .unwrap_or_default()
                     .iter()
-                    .filter_map(|path| match env_path_from_string(path.to_string()) {
+                    .filter_map(|path| match env_path_from_string(path.clone()) {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
                             if Diagnostics::is_suppressed("E30") {
@@ -1123,7 +1125,7 @@ impl Validate for PartialSources {
                     files,
                 })))
             }
-            PartialSources {
+            Self {
                 target: None,
                 include_dirs: None,
                 defines: None,
@@ -1161,19 +1163,11 @@ pub enum PartialSourceFile {
 impl PrefixPaths for PartialSourceFile {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         Ok(match self {
-            PartialSourceFile::File(path) => PartialSourceFile::File(path.prefix_paths(prefix)?),
-            PartialSourceFile::Group(group) => {
-                PartialSourceFile::Group(Box::new(group.prefix_paths(prefix)?))
-            }
-            PartialSourceFile::SvFile(path) => {
-                PartialSourceFile::SvFile(path.prefix_paths(prefix)?)
-            }
-            PartialSourceFile::VerilogFile(path) => {
-                PartialSourceFile::VerilogFile(path.prefix_paths(prefix)?)
-            }
-            PartialSourceFile::VhdlFile(path) => {
-                PartialSourceFile::VhdlFile(path.prefix_paths(prefix)?)
-            }
+            Self::File(path) => Self::File(path.prefix_paths(prefix)?),
+            Self::Group(group) => Self::Group(Box::new(group.prefix_paths(prefix)?)),
+            Self::SvFile(path) => Self::SvFile(path.prefix_paths(prefix)?),
+            Self::VerilogFile(path) => Self::VerilogFile(path.prefix_paths(prefix)?),
+            Self::VhdlFile(path) => Self::VhdlFile(path.prefix_paths(prefix)?),
         })
     }
 }
@@ -1185,18 +1179,18 @@ impl Serialize for PartialSourceFile {
         S: Serializer,
     {
         match *self {
-            PartialSourceFile::File(ref path) => path.serialize(serializer),
-            PartialSourceFile::Group(ref srcs) => srcs.serialize(serializer),
-            PartialSourceFile::SvFile(ref path) => path.serialize(serializer),
-            PartialSourceFile::VerilogFile(ref path) => path.serialize(serializer),
-            PartialSourceFile::VhdlFile(ref path) => path.serialize(serializer),
+            Self::File(ref path) => path.serialize(serializer),
+            Self::Group(ref srcs) => srcs.serialize(serializer),
+            Self::SvFile(ref path) => path.serialize(serializer),
+            Self::VerilogFile(ref path) => path.serialize(serializer),
+            Self::VhdlFile(ref path) => path.serialize(serializer),
         }
     }
 }
 
 // Custom deserialization for partial source files.
 impl<'de> Deserialize<'de> for PartialSourceFile {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<PartialSourceFile, D::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -1239,18 +1233,14 @@ impl Validate for PartialSourceFile {
     type Error = Error;
     fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceFile> {
         match self {
-            PartialSourceFile::File(path) => Ok(SourceFile::File(PathBuf::from(path))),
+            Self::File(path) => Ok(SourceFile::File(PathBuf::from(path))),
             // PartialSourceFile::Group(srcs) => Ok(Some(SourceFile::Group(Box::new(
             //     srcs.validate(package_name, pre_output, suppress_warnings)?,
             // )))),
-            PartialSourceFile::Group(srcs) => Ok(srcs.validate(package_name, pre_output)?),
-            PartialSourceFile::SvFile(path) => Ok(SourceFile::SvFile(env_path_from_string(path)?)),
-            PartialSourceFile::VerilogFile(path) => {
-                Ok(SourceFile::VerilogFile(env_path_from_string(path)?))
-            }
-            PartialSourceFile::VhdlFile(path) => {
-                Ok(SourceFile::VhdlFile(env_path_from_string(path)?))
-            }
+            Self::Group(srcs) => Ok(srcs.validate(package_name, pre_output)?),
+            Self::SvFile(path) => Ok(SourceFile::SvFile(env_path_from_string(path)?)),
+            Self::VerilogFile(path) => Ok(SourceFile::VerilogFile(env_path_from_string(path)?)),
+            Self::VhdlFile(path) => Ok(SourceFile::VhdlFile(env_path_from_string(path)?)),
         }
     }
 }
@@ -1266,45 +1256,41 @@ pub trait GlobFile {
 }
 
 impl GlobFile for PartialSourceFile {
-    type Output = Vec<PartialSourceFile>;
+    type Output = Vec<Self>;
     type Error = Error;
 
-    fn glob_file(self) -> Result<Vec<PartialSourceFile>> {
+    fn glob_file(self) -> Result<Vec<Self>> {
         // let mut partial_source_files_vec: Vec<PartialSourceFile> = Vec::new();
 
         // Only operate on files, not groups
         match self {
-            PartialSourceFile::File(ref path)
-            | PartialSourceFile::SvFile(ref path)
-            | PartialSourceFile::VerilogFile(ref path)
-            | PartialSourceFile::VhdlFile(ref path) => {
+            Self::File(ref path)
+            | Self::SvFile(ref path)
+            | Self::VerilogFile(ref path)
+            | Self::VhdlFile(ref path) => {
                 // Check if glob patterns used
-                if path.contains("*") || path.contains("?") {
+                if path.contains('*') || path.contains('?') {
                     let glob_matches = glob(path).map_err(|cause| {
-                        Error::chain(format!("Invalid glob pattern for {:?}", path), cause)
+                        Error::chain(format!("Invalid glob pattern for {path:?}"), cause)
                     })?;
                     let out = glob_matches
                         .map(|glob_match| {
                             let file_str = glob_match
                                 .map_err(|cause| {
-                                    Error::chain(format!("Glob match failed for {:?}", path), cause)
+                                    Error::chain(format!("Glob match failed for {path:?}"), cause)
                                 })?
                                 .to_str()
                                 .unwrap()
                                 .to_string();
                             Ok(match self {
-                                PartialSourceFile::File(_) => PartialSourceFile::File(file_str),
-                                PartialSourceFile::SvFile(_) => PartialSourceFile::SvFile(file_str),
-                                PartialSourceFile::VerilogFile(_) => {
-                                    PartialSourceFile::VerilogFile(file_str)
-                                }
-                                PartialSourceFile::VhdlFile(_) => {
-                                    PartialSourceFile::VhdlFile(file_str)
-                                }
+                                Self::File(_) => Self::File(file_str),
+                                Self::SvFile(_) => Self::SvFile(file_str),
+                                Self::VerilogFile(_) => Self::VerilogFile(file_str),
+                                Self::VhdlFile(_) => Self::VhdlFile(file_str),
                                 _ => unreachable!(),
                             })
                         })
-                        .collect::<Result<Vec<PartialSourceFile>>>()?;
+                        .collect::<Result<Vec<Self>>>()?;
                     if out.is_empty() {
                         Warnings::NoFilesForGlobPattern { path: path.clone() }.emit();
                     }
@@ -1336,7 +1322,7 @@ pub struct PartialWorkspace {
 
 impl PrefixPaths for PartialWorkspace {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
-        Ok(PartialWorkspace {
+        Ok(Self {
             checkout_dir: self.checkout_dir.prefix_paths(prefix)?,
             package_links: match self.package_links {
                 Some(idx_map) => Some(
@@ -1360,7 +1346,7 @@ impl Validate for PartialWorkspace {
             .package_links
             .unwrap_or_default()
             .iter()
-            .map(|(k, v)| Ok((env_path_from_string(k.to_string())?, v.clone())))
+            .map(|(k, v)| Ok((env_path_from_string(k.clone())?, v.clone())))
             .collect();
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
@@ -1475,8 +1461,9 @@ pub struct PartialConfig {
 
 impl PartialConfig {
     /// Create a new empty configuration.
-    pub fn new() -> PartialConfig {
-        PartialConfig {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
             database: None,
             git: None,
             overrides: None,
@@ -1494,7 +1481,7 @@ impl Default for PartialConfig {
 
 impl PrefixPaths for PartialConfig {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
-        Ok(PartialConfig {
+        Ok(Self {
             database: self.database.prefix_paths(prefix)?,
             overrides: self.overrides.prefix_paths(prefix)?,
             plugins: self.plugins.prefix_paths(prefix)?,
@@ -1504,8 +1491,8 @@ impl PrefixPaths for PartialConfig {
 }
 
 impl Merge for PartialConfig {
-    fn merge(self, other: PartialConfig) -> PartialConfig {
-        PartialConfig {
+    fn merge(self, other: Self) -> Self {
+        Self {
             database: self.database.or(other.database),
             git: self.git.or(other.git),
             overrides: match (self.overrides, other.overrides) {
@@ -1545,15 +1532,13 @@ impl Validate for PartialConfig {
             overrides: match self.overrides {
                 Some(d) => d
                     .validate(package_name, pre_output)
-                    .map_err(|(key, cause)| {
-                        Error::chain(format!("In override `{}`:", key), cause)
-                    })?,
+                    .map_err(|(key, cause)| Error::chain(format!("In override `{key}`:"), cause))?,
                 None => IndexMap::new(),
             },
             plugins: match self.plugins {
                 Some(d) => d
                     .validate(package_name, pre_output)
-                    .map_err(|(key, cause)| Error::chain(format!("In plugin `{}`:", key), cause))?,
+                    .map_err(|(key, cause)| Error::chain(format!("In plugin `{key}`:"), cause))?,
                 None => IndexMap::new(),
             },
             git_throttle: self.git_throttle,
@@ -1583,7 +1568,7 @@ pub struct VendorPackage {
 impl PrefixPaths for VendorPackage {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         let patch_root = self.patch_dir.prefix_paths(prefix)?;
-        Ok(VendorPackage {
+        Ok(Self {
             name: self.name,
             target_dir: self.target_dir.prefix_paths(prefix)?,
             upstream: self.upstream,
@@ -1638,7 +1623,7 @@ pub struct PartialVendorPackage {
 impl PrefixPaths for PartialVendorPackage {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         let patch_root = self.patch_dir.prefix_paths(prefix)?;
-        Ok(PartialVendorPackage {
+        Ok(Self {
             name: self.name,
             target_dir: self.target_dir.prefix_paths(prefix)?,
             upstream: self.upstream,
@@ -1699,7 +1684,7 @@ impl Validate for PartialVendorPackage {
             },
             include_from_upstream: match self.include_from_upstream {
                 Some(include_from_upstream) => include_from_upstream,
-                None => vec![String::from("")],
+                None => vec![String::new()],
             },
             exclude_from_upstream: {
                 let mut excl = self.exclude_from_upstream.unwrap_or_default();
@@ -1756,7 +1741,7 @@ impl Validate for PartialPassedTarget {
 impl FromStr for PartialPassedTarget {
     type Err = Void;
     fn from_str(s: &str) -> std::result::Result<Self, Void> {
-        Ok(PartialPassedTarget {
+        Ok(Self {
             target: None,
             pass: Some(s.to_string()),
         })
@@ -1808,12 +1793,8 @@ pub enum LockedSource {
 
 #[cfg(unix)]
 fn env_string_from_string(path_str: String) -> Result<String> {
-    subst::substitute(&path_str, &subst::Env).map_err(|cause| {
-        Error::chain(
-            format!("Unable to substitute with env: {}", path_str),
-            cause,
-        )
-    })
+    subst::substitute(&path_str, &subst::Env)
+        .map_err(|cause| Error::chain(format!("Unable to substitute with env: {path_str}"), cause))
 }
 
 #[cfg(windows)]

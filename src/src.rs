@@ -43,14 +43,10 @@ pub struct SourceGroup<'ctx> {
     pub version: Option<semver::Version>,
 }
 
-impl<'ctx> Validate for SourceGroup<'ctx> {
-    type Output = SourceGroup<'ctx>;
+impl Validate for SourceGroup<'_> {
+    type Output = Self;
     type Error = Error;
-    fn validate(
-        self,
-        package_name: &str,
-        pre_output: bool,
-    ) -> crate::error::Result<SourceGroup<'ctx>> {
+    fn validate(self, package_name: &str, pre_output: bool) -> crate::error::Result<Self> {
         Ok(SourceGroup {
             files: self
                 .files
@@ -75,6 +71,7 @@ impl<'ctx> Validate for SourceGroup<'ctx> {
 impl<'ctx> SourceGroup<'ctx> {
     /// Simplify the source group. Removes empty subgroups and inlines subgroups
     /// with the same configuration.
+    #[must_use]
     pub fn simplify(self) -> Self {
         let files = self
             .files
@@ -108,7 +105,8 @@ impl<'ctx> SourceGroup<'ctx> {
     }
 
     /// Filter the sources, keeping only the ones that apply to a target.
-    pub fn filter_targets(&self, targets: &TargetSet) -> Option<SourceGroup<'ctx>> {
+    #[must_use]
+    pub fn filter_targets(&self, targets: &TargetSet) -> Option<Self> {
         let all_targets = match self.package {
             Some(pkg) => targets.reduce_for_dependency(pkg),
             None => targets.clone(),
@@ -153,8 +151,9 @@ impl<'ctx> SourceGroup<'ctx> {
         )
     }
 
-    /// Assigns target to SourceGroup without target
-    pub fn assign_target(&self, target: String) -> SourceGroup<'ctx> {
+    /// Assigns target to `SourceGroup` without target
+    #[must_use]
+    pub fn assign_target(&self, target: String) -> Self {
         let files = self
             .files
             .iter()
@@ -207,6 +206,7 @@ impl<'ctx> SourceGroup<'ctx> {
     }
 
     /// Get list of packages based on constraints.
+    #[must_use]
     pub fn get_package_list(
         &self,
         top_package: String,
@@ -216,10 +216,10 @@ impl<'ctx> SourceGroup<'ctx> {
     ) -> IndexSet<String> {
         let mut result = IndexSet::new();
 
-        if !packages.is_empty() {
-            result.extend(packages.clone());
-        } else {
+        if packages.is_empty() {
             result.insert(top_package);
+        } else {
+            result.extend(packages.clone());
         }
 
         result = &result - excludes;
@@ -236,7 +236,8 @@ impl<'ctx> SourceGroup<'ctx> {
     }
 
     /// Filter the sources, keeping only the ones that apply to the selected packages.
-    pub fn filter_packages(&self, packages: &IndexSet<String>) -> Option<SourceGroup<'ctx>> {
+    #[must_use]
+    pub fn filter_packages(&self, packages: &IndexSet<String>) -> Option<Self> {
         let mut files = Vec::new();
 
         if self.package.is_none() || packages.contains(self.package.unwrap()) {
@@ -270,6 +271,7 @@ impl<'ctx> SourceGroup<'ctx> {
     }
 
     /// Return list of unique include directories for the current src
+    #[must_use]
     pub fn get_incdirs(self) -> Vec<&'ctx Path> {
         let incdirs = self
             .include_dirs
@@ -286,13 +288,14 @@ impl<'ctx> SourceGroup<'ctx> {
     ///
     /// Removes all levels of hierarchy and produces a canonical list of source
     /// groups.
-    pub fn flatten(self) -> Vec<SourceGroup<'ctx>> {
+    #[must_use]
+    pub fn flatten(self) -> Vec<Self> {
         let mut v = vec![];
         self.flatten_into(&mut v);
         v
     }
 
-    fn flatten_into(mut self, into: &mut Vec<SourceGroup<'ctx>>) {
+    fn flatten_into(mut self, into: &mut Vec<Self>) {
         let mut files = vec![];
         let subfiles = std::mem::take(&mut self.files);
         let flush_files = |files: &mut Vec<SourceFile<'ctx>>, into: &mut Vec<SourceGroup<'ctx>>| {
@@ -326,7 +329,7 @@ impl<'ctx> SourceGroup<'ctx> {
                     grp.include_dirs = IndexSet::<&Path>::from_iter(
                         self.include_dirs
                             .iter()
-                            .cloned()
+                            .copied()
                             .chain(grp.include_dirs.into_iter()),
                     )
                     .into_iter()
@@ -345,6 +348,7 @@ impl<'ctx> SourceGroup<'ctx> {
     }
 
     /// Get available targets in sourcegroup.
+    #[must_use]
     pub fn get_avail_targets(&self) -> IndexSet<String> {
         let mut targets = self.target.get_avail();
         for file in &self.files {
@@ -383,13 +387,13 @@ pub enum SourceFile<'ctx> {
     Group(Box<SourceGroup<'ctx>>),
 }
 
-impl<'ctx> fmt::Debug for SourceFile<'ctx> {
+impl fmt::Debug for SourceFile<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             SourceFile::File(path, ty) => {
                 fmt::Debug::fmt(path, f)?;
                 if let Some(t) = ty {
-                    write!(f, " as {:?}", t)
+                    write!(f, " as {t:?}")
                 } else {
                     write!(f, " as <unknown>")
                 }
@@ -400,21 +404,21 @@ impl<'ctx> fmt::Debug for SourceFile<'ctx> {
 }
 
 impl<'ctx> From<SourceGroup<'ctx>> for SourceFile<'ctx> {
-    fn from(group: SourceGroup<'ctx>) -> SourceFile<'ctx> {
+    fn from(group: SourceGroup<'ctx>) -> Self {
         SourceFile::Group(Box::new(group))
     }
 }
 
 impl<'ctx> From<&'ctx Path> for SourceFile<'ctx> {
-    fn from(path: &'ctx Path) -> SourceFile<'ctx> {
+    fn from(path: &'ctx Path) -> Self {
         SourceFile::File(path, &None)
     }
 }
 
-impl<'ctx> Validate for SourceFile<'ctx> {
-    type Output = SourceFile<'ctx>;
+impl Validate for SourceFile<'_> {
+    type Output = Self;
     type Error = Error;
-    fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceFile<'ctx>, Error> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<Self, Error> {
         match self {
             SourceFile::File(path, ty) => {
                 let env_path_buf =
@@ -422,10 +426,7 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                 let exists = env_path_buf.exists() && env_path_buf.is_file();
                 if exists || Diagnostics::is_suppressed("E31") {
                     if !exists {
-                        Warnings::FileMissing {
-                            path: env_path_buf.clone(),
-                        }
-                        .emit();
+                        Warnings::FileMissing { path: env_path_buf }.emit();
                     }
                     Ok(SourceFile::File(path, ty))
                 } else {
@@ -443,7 +444,7 @@ impl<'ctx> Validate for SourceFile<'ctx> {
 }
 
 // Custom serialization for source files.
-impl<'ctx> Serialize for SourceFile<'ctx> {
+impl Serialize for SourceFile<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,

@@ -14,7 +14,7 @@ use serde_json;
 use tokio::runtime::Runtime;
 
 use crate::config::{Dependency, Validate};
-use crate::error::*;
+use crate::error::{Error, Result};
 use crate::sess::{Session, SessionIo};
 use crate::target::{TargetSet, TargetSpec};
 
@@ -79,7 +79,7 @@ pub fn run(sess: &Session, args: &SourcesArgs) -> Result<()> {
     }
 
     // Filter the sources by target.
-    let targets = TargetSet::new(args.target.iter().map(|s| s.as_str()));
+    let targets = TargetSet::new(args.target.iter().map(std::string::String::as_str));
 
     if args.assume_rtl {
         srcs = srcs.assign_target("rtl".to_string());
@@ -87,7 +87,7 @@ pub fn run(sess: &Session, args: &SourcesArgs) -> Result<()> {
 
     // Filter the sources by specified packages.
     let packages = &srcs.get_package_list(
-        sess.manifest.package.name.to_string(),
+        sess.manifest.package.name.clone(),
         &get_package_strings(&args.package),
         &get_package_strings(&args.exclude),
         args.no_deps,
@@ -182,8 +182,8 @@ pub fn get_passed_targets(
                         required_packages.insert(name.clone());
                     }
                 }
-            })
-    };
+            });
+    }
     for pkgs in sess.packages().iter().rev() {
         let manifests = rt
             .block_on(join_all(
@@ -233,8 +233,8 @@ pub fn get_passed_targets(
                                 required_packages.insert(name.clone());
                             }
                         }
-                    })
-            };
+                    });
+            }
         });
     }
 

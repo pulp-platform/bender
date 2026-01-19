@@ -19,7 +19,7 @@ use tokio::runtime::Runtime;
 use crate::config;
 use crate::config::PrefixPaths;
 use crate::diagnostic::Warnings;
-use crate::error::*;
+use crate::error::{Error, Result};
 use crate::git::Git;
 use crate::sess::{DependencySource, Session};
 use crate::stageln;
@@ -109,7 +109,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                             is_ssh: url.contains("git@"),
                         }.emit();
                         Error::chain(
-                            format!("Failed to initialize git database in {:?}.", tmp_path),
+                            format!("Failed to initialize git database in {tmp_path:?}."),
                             cause,
                         )
                     }).await?;
@@ -118,10 +118,10 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                         _ => Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout")),
                     }?;
                     git.clone().spawn_with(|c| c.arg("checkout").arg(rev_hash)).await?;
-                    if *rev_hash != git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{}^{{commit}}", rev_hash))).await?.trim_end_matches('\n') {
-                        Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout"))
-                    } else {
+                    if *rev_hash == git.spawn_with(|c| c.arg("rev-parse").arg("--verify").arg(format!("{rev_hash}^{{commit}}"))).await?.trim_end_matches('\n') {
                         Ok(())
+                    } else {
+                        Err(Error::new("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout"))
                     }
                 })?;
 
@@ -138,7 +138,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                 from_prefix: link.from,
                 to_prefix: link.to,
                 exclude: vec![],
-            })
+            });
         }
 
         // If links do not specify patch dirs, use package-wide patch dir
@@ -175,7 +175,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
         // Add all subdirs and files to the exclude list of above dirs
         // avoids duplicate handling of the same changes
         let mut seen_paths: HashSet<PathBuf> = HashSet::new();
-        for patch_link in sorted_links.iter_mut() {
+        for patch_link in &mut sorted_links {
             patch_link.exclude = seen_paths
                 .iter()
                 .filter(|path| path.starts_with(&patch_link.to_prefix)) // subdir?
@@ -205,12 +205,12 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                     let get_diff = diff(&rt, git.clone(), vendor_package, patch_link, dep_path.clone())
                         .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
                     if !get_diff.is_empty() {
-                        let _ = write!(std::io::stdout(), "{}", get_diff);
+                        let _ = write!(std::io::stdout(), "{get_diff}");
                         // If desired, return an error (e.g. for CI)
                         if err_on_diff.is_some() {
                             let err_msg : Option<&String> = err_on_diff.as_ref();
                             let err_msg = match err_msg {
-                                Some(err_msg) => err_msg.to_string(),
+                                Some(err_msg) => err_msg.clone(),
                                 _ => "Found differences, please patch (e.g. using bender vendor patch).".to_string()
                             };
                             return Err(Error::new(err_msg))
@@ -235,7 +235,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                             std::fs::remove_file(target_path.clone())
                         }
                         .map_err(|cause| {
-                            Error::chain(format!("Failed to remove {:?}.", target_path), cause)
+                            Error::chain(format!("Failed to remove {target_path:?}."), cause)
                         })?;
                     }
 
@@ -271,38 +271,35 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
 
                 // Generate patch
                 sorted_links.into_iter().try_for_each(|patch_link| {
-                    match patch_link.patch_dir.clone() {
-                        Some(patch_dir) => {
-                            if *plain {
-                                let get_diff = diff(
-                                    &rt,
-                                    git.clone(),
-                                    vendor_package,
-                                    patch_link,
-                                    dep_path.clone(),
-                                )
-                                .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
-                                gen_plain_patch(get_diff, patch_dir, false)
-                            } else {
-                                gen_format_patch(
-                                    &rt,
-                                    sess,
-                                    git.clone(),
-                                    patch_link,
-                                    vendor_package.target_dir.clone(),
-                                    message.as_ref(),
-                                )
-                            }
+                    if let Some(patch_dir) = patch_link.patch_dir.clone() {
+                        if *plain {
+                            let get_diff = diff(
+                                &rt,
+                                git.clone(),
+                                vendor_package,
+                                patch_link,
+                                dep_path.clone(),
+                            )
+                            .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
+                            gen_plain_patch(get_diff, patch_dir, false)
+                        } else {
+                            gen_format_patch(
+                                &rt,
+                                sess,
+                                git.clone(),
+                                patch_link,
+                                vendor_package.target_dir.clone(),
+                                message.as_ref(),
+                            )
                         }
-                        None => {
-                            Warnings::NoPatchDir {
-                                vendor_pkg: vendor_package.name.clone(),
-                                from_prefix: patch_link.from_prefix.clone(),
-                                to_prefix: patch_link.to_prefix.clone(),
-                            }
-                            .emit();
-                            Ok(())
+                    } else {
+                        Warnings::NoPatchDir {
+                            vendor_pkg: vendor_package.name.clone(),
+                            from_prefix: patch_link.from_prefix.clone(),
+                            to_prefix: patch_link.to_prefix,
                         }
+                        .emit();
+                        Ok(())
                     }
                 })
             }
@@ -338,12 +335,7 @@ pub fn init(
     })?;
 
     if no_patch {
-        apply_patches(
-            rt,
-            git.clone(),
-            vendor_package.name.clone(),
-            patch_link.clone(),
-        )?;
+        apply_patches(rt, git.clone(), vendor_package.name.clone(), patch_link)?;
     }
 
     // Check if includes exist
@@ -356,8 +348,8 @@ pub fn init(
     }
 
     // Copy src to dst recursively.
-    match link_from.is_dir() {
-        true => copy_recursively(
+    if link_from.is_dir() {
+        copy_recursively(
             &link_from,
             &link_to,
             &extend_paths(&vendor_package.include_from_upstream, dep_path, false)?,
@@ -367,27 +359,24 @@ pub fn init(
                 .into_iter()
                 .map(|excl| format!("{}/{}", &dep_path.to_str().unwrap(), &excl))
                 .collect(),
-        )?,
-        false => {
-            if link_from.exists() {
-                std::fs::copy(&link_from, &link_to).map_err(|cause| {
-                    Error::chain(
-                        format!(
-                            "Failed to copy {} to {}.",
-                            link_from.to_str().unwrap(),
-                            link_to.to_str().unwrap(),
-                        ),
-                        cause,
-                    )
-                })?;
-            } else {
-                Warnings::NotInUpstream {
-                    path: link_from.to_str().unwrap().to_string(),
-                }
-                .emit();
-            }
+        )?;
+    } else if link_from.exists() {
+        std::fs::copy(&link_from, &link_to).map_err(|cause| {
+            Error::chain(
+                format!(
+                    "Failed to copy {} to {}.",
+                    link_from.to_str().unwrap(),
+                    link_to.to_str().unwrap(),
+                ),
+                cause,
+            )
+        })?;
+    } else {
+        Warnings::NotInUpstream {
+            path: link_from.to_str().unwrap().to_string(),
         }
-    };
+        .emit();
+    }
 
     Ok(())
 }
@@ -426,7 +415,7 @@ pub fn apply_patches(
                     );
                     Ok(())
                 })
-                .and_then(|_| {
+                .and_then(|()| {
                     git.clone().spawn_with(|c| {
                         let is_file = patch_link
                             .from_prefix
@@ -458,7 +447,7 @@ pub fn apply_patches(
                 })
                 .await
                 .map_err(move |cause| {
-                    Error::chain(format!("Failed to apply patch {:?}.", patch), cause)
+                    Error::chain(format!("Failed to apply patch {patch:?}."), cause)
                 })
                 .map(|_| git.clone())
             })?;
@@ -521,7 +510,7 @@ pub fn diff(
                 )
             })?;
         }
-    };
+    }
     // Get diff
     rt.block_on(async {
         git.spawn_with(|c| {
@@ -635,7 +624,9 @@ pub fn gen_format_patch(
 
     // If the patch link maps a file, we operate in the file's parent directory
     // Therefore, only get the diff for that file.
-    let include_pathspec = if !to_path.is_dir() {
+    let include_pathspec = if to_path.is_dir() {
+        ".".to_string()
+    } else {
         patch_link
             .to_prefix
             .file_name()
@@ -643,8 +634,6 @@ pub fn gen_format_patch(
             .to_str()
             .unwrap()
             .to_string()
-    } else {
-        ".".to_string()
     };
 
     // Build the exclude pathspec to diff only the applicable files

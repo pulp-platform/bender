@@ -18,10 +18,10 @@ use semver::{Version, VersionReq};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
-/// Re-export owo_colors for use in macros.
+/// Re-export `owo_colors` for use in macros.
 pub use owo_colors::OwoColorize;
 
-use crate::error::*;
+use crate::error::{Error, Result};
 
 /// A type that cannot be materialized.
 #[derive(Debug)]
@@ -83,7 +83,7 @@ impl<'de, T> Deserialize<'de> for StringOrStruct<T>
 where
     T: Deserialize<'de> + FromStr<Err = Void>,
 {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<StringOrStruct<T>, D::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -117,7 +117,7 @@ where
 
         deserializer
             .deserialize_any(Visitor::<T>(PhantomData))
-            .map(|v| StringOrStruct(v))
+            .map(|v| Self(v))
     }
 }
 
@@ -130,9 +130,9 @@ where
 pub struct SeqOrStruct<T, F>(pub T, PhantomData<F>);
 
 impl<T, F> SeqOrStruct<T, F> {
-    /// Method for creating new SeqOrStruct to keep PhantomData private
-    pub fn new(item: T) -> Self {
-        SeqOrStruct(item, PhantomData)
+    /// Method for creating new `SeqOrStruct` to keep `PhantomData` private
+    pub const fn new(item: T) -> Self {
+        Self(item, PhantomData)
     }
 }
 
@@ -153,7 +153,7 @@ where
     T: Deserialize<'de> + From<Vec<F>>,
     F: Deserialize<'de>,
 {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<SeqOrStruct<T, F>, D::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -189,7 +189,7 @@ where
 
         deserializer
             .deserialize_any(Visitor::<T, F>(PhantomData, PhantomData))
-            .map(|v| SeqOrStruct(v, PhantomData))
+            .map(|v| Self(v, PhantomData))
     }
 }
 
@@ -225,7 +225,7 @@ pub fn try_modification_time<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
 pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
     let mut top_bound = Version::new(u64::MAX, u64::MAX, u64::MAX);
     let mut found = false; // major, minor, patch
-    for comp in req.comparators.iter() {
+    for comp in &req.comparators {
         match comp.op {
             semver::Op::Exact | semver::Op::LessEq => {
                 let max_exact = Version {
@@ -346,8 +346,7 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
             }
             _ => {
                 return Err(Error::new(format!(
-                    "Cannot extract top bound from version requirement: {}",
-                    req
+                    "Cannot extract top bound from version requirement: {req}"
                 )));
             }
         }
@@ -360,7 +359,7 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
 pub fn version_req_bottom_bound(req: &VersionReq) -> Result<Option<Version>> {
     let mut bottom_bound = Version::new(0, 0, 0);
     let mut found = false;
-    for comp in req.comparators.iter() {
+    for comp in &req.comparators {
         match comp.op {
             semver::Op::Exact
             | semver::Op::GreaterEq
@@ -413,8 +412,7 @@ pub fn version_req_bottom_bound(req: &VersionReq) -> Result<Option<Version>> {
             }
             _ => {
                 return Err(Error::new(format!(
-                    "Cannot extract bottom bound from version requirement: {}",
-                    req
+                    "Cannot extract bottom bound from version requirement: {req}"
                 )));
             }
         }

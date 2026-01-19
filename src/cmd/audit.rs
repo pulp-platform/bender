@@ -13,7 +13,7 @@ use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
 use crate::cmd::parents::get_parent_array;
-use crate::error::*;
+use crate::error::Result;
 use crate::sess::{DependencyVersions, Session, SessionIo};
 
 /// Get information about version conflicts and possible updates.
@@ -37,7 +37,7 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
     let rt = Runtime::new()?;
     let io = SessionIo::new(sess);
 
-    let binding = sess.packages().clone();
+    let binding = sess.packages();
     let pkgs = binding.iter().flatten().collect::<Vec<_>>();
 
     let io_ref = &io;
@@ -60,7 +60,7 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
         })
         .collect::<Result<HashMap<_, _>>>()?;
 
-    let mut audit_str = String::from("");
+    let mut audit_str = String::new();
 
     let name_width = pkgs
         .iter()
@@ -90,11 +90,10 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
         let mut conflicting = false;
         let mut version_req_exists = false;
         let mut compatible_versions = available_versions.clone();
-        let (default_version, url) = parent_array
-            .values()
-            .next()
-            .map(|v| (v[0].clone(), v[1].clone()))
-            .unwrap_or_else(|| ("".to_string(), "".to_string()));
+        let (default_version, url) = parent_array.values().next().map_or_else(
+            || (String::new(), String::new()),
+            |v| (v[0].clone(), v[1].clone()),
+        );
         for parent in parent_array.values() {
             match VersionReq::parse(&parent[0]) {
                 Ok(parent_version) => {
@@ -117,7 +116,7 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
             None
         };
 
-        audit_str.push_str(&format!("{:>1$}\t", pkg_name, name_width));
+        audit_str.push_str(&format!("{pkg_name:>name_width$}\t"));
 
         // if conflicting:
         if conflicting {
@@ -132,13 +131,11 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
         // if rev:
         if (current_version.is_none() || !version_req_exists) && current_revision.is_some() {
             audit_str.push_str(&format!(
-                "    uses a \x1B[31;1mHash:\x1B[m\t{}\n",
-                current_revision_unwrapped
+                "    uses a \x1B[31;1mHash:\x1B[m\t{current_revision_unwrapped}\n"
             ));
             if let Some(highest_version) = highest_version {
                 audit_str.push_str(&format!(
-                    "\t\x1B[31;1m\x1B[m\thighest version: {}\n",
-                    highest_version
+                    "\t\x1B[31;1m\x1B[m\thighest version: {highest_version}\n"
                 ));
             }
         }
@@ -149,8 +146,7 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
                 if let Some(highest_version) = highest_version {
                     if *highest_version == *current_version && !args.only_update {
                         audit_str.push_str(&format!(
-                            "  is \x1B[32;1mUp-to-date:\x1B[m\t@ {}\n",
-                            current_version_unwrapped
+                            "  is \x1B[32;1mUp-to-date:\x1B[m\t@ {current_version_unwrapped}\n"
                         ));
                     }
                 }
@@ -163,8 +159,7 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
                 if let Some(max_compatible) = max_compatible {
                     if *max_compatible > *current_version {
                         audit_str.push_str(&format!(
-                            "can \x1B[32;1mAuto-update:\x1B[m\t{} -> {}\n",
-                            current_version_unwrapped, max_compatible
+                            "can \x1B[32;1mAuto-update:\x1B[m\t{current_version_unwrapped} -> {max_compatible}\n"
                         ));
                     }
                 }
@@ -179,8 +174,7 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
                         && (max_compatible.is_none() || *max_compatible.unwrap() < *highest_version)
                     {
                         audit_str.push_str(&format!(
-                            "     can \x1B[33;1mUpdate:\x1B[m\t{} -> {}\n",
-                            current_version_unwrapped, highest_version
+                            "     can \x1B[33;1mUpdate:\x1B[m\t{current_version_unwrapped} -> {highest_version}\n"
                         ));
                     }
                 }
@@ -189,7 +183,7 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
     }
 
     let mut tw = TabWriter::new(vec![]);
-    write!(&mut tw, "{}", audit_str).unwrap();
+    write!(&mut tw, "{audit_str}").unwrap();
     tw.flush().unwrap();
     print!("{}", String::from_utf8(tw.into_inner().unwrap()).unwrap());
 

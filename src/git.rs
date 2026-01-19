@@ -14,7 +14,7 @@ use tokio::process::Command;
 use tokio::sync::Semaphore;
 
 use crate::debugln;
-use crate::error::*;
+use crate::error::{Error, Result};
 
 /// A git repository.
 ///
@@ -32,7 +32,7 @@ pub struct Git<'ctx> {
 
 impl<'ctx> Git<'ctx> {
     /// Create a new git context.
-    pub fn new(path: &'ctx Path, git: &'ctx String, throttle: Arc<Semaphore>) -> Git<'ctx> {
+    pub const fn new(path: &'ctx Path, git: &'ctx String, throttle: Arc<Semaphore>) -> Self {
         Git {
             path,
             git,
@@ -44,6 +44,7 @@ impl<'ctx> Git<'ctx> {
     ///
     /// The command will have the form `git <subcommand>` and be pre-configured
     /// to operate in the repository's path.
+    #[must_use]
     pub fn command(self, subcommand: &str) -> Command {
         let mut cmd = Command::new(self.git);
         cmd.arg(subcommand);
@@ -95,16 +96,16 @@ impl<'ctx> Git<'ctx> {
             } else {
                 let mut msg = format!("Git command ({:?}) in directory {:?}", cmd, self.path);
                 match output.status.code() {
-                    Some(code) => msg.push_str(&format!(" failed with exit code {}", code)),
+                    Some(code) => msg.push_str(&format!(" failed with exit code {code}")),
                     None => msg.push_str(" failed"),
-                };
+                }
                 match String::from_utf8(output.stderr) {
                     Ok(txt) => {
                         msg.push_str(":\n\n");
                         msg.push_str(&txt);
                     }
-                    Err(err) => msg.push_str(&format!(". Stderr is not valid UTF-8, {}.", err)),
-                };
+                    Err(err) => msg.push_str(&format!(". Stderr is not valid UTF-8, {err}.")),
+                }
                 Err(Error::new(msg))
             }
         });
@@ -199,10 +200,12 @@ impl<'ctx> Git<'ctx> {
                 .await
                 .map(|_| ()),
 
-            None => self
-                .spawn_interactive_with(|c| c.arg("-c").arg("commit.gpgsign=false").arg("commit"))
+            None => {
+                self.spawn_interactive_with(|c| {
+                    c.arg("-c").arg("commit.gpgsign=false").arg("commit")
+                })
                 .await
-                .map(|_| ()),
+            }
         }
     }
 
@@ -304,14 +307,15 @@ pub struct TreeEntry {
 
 impl TreeEntry {
     /// Parse a single line of output of `git ls-tree`.
-    pub fn parse(input: &str) -> TreeEntry {
+    #[must_use]
+    pub fn parse(input: &str) -> Self {
         let tab = input.find('\t').unwrap();
         let (metadata, name) = input.split_at(tab);
         let mut iter = metadata.split(' ');
         let mode = iter.next().unwrap();
         let kind = iter.next().unwrap();
         let hash = iter.next().unwrap();
-        TreeEntry {
+        Self {
             name: name.into(),
             hash: hash.into(),
             kind: kind.into(),
