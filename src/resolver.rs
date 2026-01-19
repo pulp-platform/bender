@@ -6,20 +6,18 @@
 #![deny(missing_docs)]
 
 use std::collections::HashMap;
-// use std::f32::consts::E;
 use std::fmt;
 use std::fmt::Write as _;
 use std::fs;
+use std::io::IsTerminal;
 use std::io::{self, Write};
 use std::mem;
 use std::process::Command as SysCommand;
 
 use futures::future::join_all;
 use indexmap::{IndexMap, IndexSet};
-use is_terminal::IsTerminal;
 use itertools::Itertools;
 use semver::{Version, VersionReq};
-// use serde_json::value::Index;
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 

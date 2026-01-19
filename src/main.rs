@@ -16,7 +16,6 @@ extern crate blake2;
 extern crate clap;
 extern crate dirs;
 extern crate glob;
-extern crate is_terminal;
 extern crate itertools;
 extern crate pathdiff;
 extern crate semver;

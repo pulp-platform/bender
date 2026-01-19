@@ -8,12 +8,12 @@ use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::fs;
 use std::fs::read_to_string;
+use std::io::IsTerminal;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
 use clap::{ArgAction, Args};
 use indexmap::{IndexMap, IndexSet};
-use is_terminal::IsTerminal;
 use itertools::Itertools;
 use tokio::runtime::Runtime;
 use walkdir::{DirEntry, WalkDir};
