@@ -546,8 +546,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             &self.sess.config.git,
             self.sess.git_throttle.clone(),
         );
-        let url = String::from(url);
-        let url2 = url.clone();
 
         // Either initialize the repository or update it if needed.
         if !db_dir.join("config").exists() {
@@ -584,7 +582,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .await
                 .map_err(move |cause| {
                     Warnings::GitInitFailed {
-                        is_ssh: url3.contains("git@"),
+                        is_ssh: url.contains("git@"),
                     }
                     .emit();
                     Error::chain(
@@ -619,7 +617,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .await
                 .map_err(move |cause| {
                     Warnings::GitInitFailed {
-                        is_ssh: url3.contains("git@"),
+                        is_ssh: url.contains("git@"),
                     }
                     .emit();
                     Error::chain(
