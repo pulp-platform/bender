@@ -5,8 +5,6 @@
 //!
 //! This module implements the subcommands of the command line tool.
 
-#![deny(missing_docs)]
-
 pub mod audit;
 pub mod checkout;
 pub mod clean;

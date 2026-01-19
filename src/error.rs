@@ -5,8 +5,8 @@
 
 use std;
 use std::fmt;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 pub static ENABLE_DEBUG: AtomicBool = AtomicBool::new(false);
 
@@ -28,7 +28,7 @@ macro_rules! noteln {
 macro_rules! debugln {
     ($($arg:tt)*) => {
         if $crate::error::ENABLE_DEBUG.load(std::sync::atomic::Ordering::Relaxed) {
-            diagnostic!($crate::error::Severity::Debug; $($arg)*);
+            $crate::diagnostic!($crate::error::Severity::Debug; $($arg)*);
         }
     }
 }
@@ -43,6 +43,7 @@ macro_rules! debugln {
 }
 
 /// Emit a diagnostic message.
+#[macro_export]
 macro_rules! diagnostic {
     ($severity:expr; $($arg:tt)*) => {
         eprintln!("{} {}", $severity, format!($($arg)*))

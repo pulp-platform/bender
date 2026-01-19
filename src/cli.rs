@@ -27,6 +27,7 @@ use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::lockfile::*;
 use crate::sess::{Session, SessionArenas, SessionIo};
+use crate::{debugln, stageln};
 
 #[derive(Parser, Debug)]
 #[command(name = "bender")]

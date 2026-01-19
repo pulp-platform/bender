@@ -16,6 +16,7 @@ use crate::config::{Locked, LockedSource};
 use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{DependencyRef, DependencySource, Session, SessionIo};
+use crate::{debugln, stageln};
 
 /// Clone dependency to a working directory
 #[derive(Args, Debug)]

@@ -14,8 +14,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use indexmap::IndexSet;
-use serde::de::{Deserialize, Deserializer};
-use serde::ser::{Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::*;
 

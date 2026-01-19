@@ -13,6 +13,7 @@ use futures::TryFutureExt;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
 
+use crate::debugln;
 use crate::error::*;
 
 /// A git repository.

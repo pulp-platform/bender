@@ -16,6 +16,7 @@ use crate::config::{Dependency, Locked, LockedSource};
 use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{DependencySource, Session, SessionIo};
+use crate::{debugln, stageln};
 
 /// Snapshot the cloned IPs from the working directory into the Bender.lock file
 #[derive(Args, Debug)]
