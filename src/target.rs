@@ -20,7 +20,7 @@ use serde::ser::{Serialize, Serializer};
 use crate::error::*;
 
 /// A target specification.
-#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Default)]
+#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Default, Hash)]
 pub enum TargetSpec {
     /// Matches all targets.
     #[default]
@@ -354,6 +354,52 @@ impl TargetSet {
     /// Get an iterator over this set.
     pub fn iter(&self) -> impl Iterator<Item = &String> {
         self.0.iter()
+    }
+
+    /// Insert a target into the set.
+    pub fn insert(&mut self, target: String) {
+        self.0.insert(target);
+    }
+
+    /// Reduce target set for a dependency.
+    pub fn reduce_for_dependency(&self, dep_name: &str) -> TargetSet {
+        // collect targets relevant to the dependency
+        let local_targets = TargetSet::new(
+            self.iter()
+                .filter_map(|trgt| {
+                    if !trgt.contains(':') {
+                        Some(trgt.clone())
+                    } else {
+                        let parts: Vec<&str> = trgt.splitn(2, ':').collect();
+                        if dep_name == parts[0].to_lowercase().as_str() || parts[0] == "*" {
+                            Some(parts[1].to_string())
+                        } else {
+                            None
+                        }
+                    }
+                })
+                .collect::<IndexSet<_>>(),
+        );
+
+        // collect negative targets to be removed
+        let neg_targets = local_targets
+            .iter()
+            .filter_map(|t| t.strip_prefix('-').map(|neg_target| neg_target.to_string()))
+            .collect::<IndexSet<_>>();
+
+        // remove negative targets from all_targets
+        TargetSet::new(
+            local_targets
+                .iter()
+                .filter_map(|t| {
+                    if t.starts_with('-') || neg_targets.contains(t) {
+                        None
+                    } else {
+                        Some(t.clone())
+                    }
+                })
+                .collect::<IndexSet<_>>(),
+        )
     }
 }
 

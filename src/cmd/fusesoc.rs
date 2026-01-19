@@ -67,7 +67,6 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
                 sess.manifest.dependencies.keys().cloned().collect(),
                 IndexMap::new(),
                 version_string.clone(),
-                IndexMap::new(),
             )
             .flatten()),
         None => Err(Error::new("Error in loading sources")),
@@ -523,7 +522,6 @@ fn get_fuse_depend_string(
                 files: group.files.clone(),
                 dependencies: group.dependencies.clone(),
                 version: version_string.clone(),
-                passed_targets: TargetSet::empty(),
             })
             .collect()
     } else {

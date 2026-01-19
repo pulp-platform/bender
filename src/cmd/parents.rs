@@ -41,7 +41,9 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
     if args.targets {
         let mut res = String::from("");
         for (k, v) in parent_array.iter() {
-            res.push_str(&format!("    {}\tpasses: {:?}\n", k, v).to_string());
+            res.push_str(
+                &format!("    {}\tfilters: {}\tpasses: {:?}\n", k, &v[0], &v[1..]).to_string(),
+            );
         }
         let mut tw = TabWriter::new(vec![]);
         write!(&mut tw, "{}", res).unwrap();
@@ -102,12 +104,20 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
         Warnings::DepOverride {
             pkg: dep.to_string(),
             pkg_override: match sess.config.overrides[dep] {
-                Dependency::Version(ref v, _) => format!("version {}", fmt_version!(v)),
-                Dependency::Path(ref path, _) => format!("path {}", fmt_path!(path.display())),
-                Dependency::GitRevision(ref url, ref rev, _) => {
+                Dependency::Version { ref version, .. } => {
+                    format!("version {}", fmt_version!(version))
+                }
+                Dependency::Path { ref path, .. } => format!("path {}", fmt_path!(path.display())),
+                Dependency::GitRevision {
+                    ref url, ref rev, ..
+                } => {
                     format!("git {} at revision {}", fmt_path!(url), fmt_version!(rev))
                 }
-                Dependency::GitVersion(ref url, ref version, _) => {
+                Dependency::GitVersion {
+                    ref url,
+                    ref version,
+                    ..
+                } => {
                     format!(
                         "git {} with version {}",
                         fmt_path!(url),
@@ -136,10 +146,30 @@ pub fn get_parent_array(
             map.insert(
                 sess.manifest.package.name.clone(),
                 match sess.manifest.dependencies.get(dep).unwrap() {
-                    Dependency::Version(_, tgts) => tgts.clone(),
-                    Dependency::Path(_, tgts) => tgts.clone(),
-                    Dependency::GitRevision(_, _, tgts) => tgts.clone(),
-                    Dependency::GitVersion(_, _, tgts) => tgts.clone(),
+                    Dependency::Version {
+                        target: targetspec,
+                        pass_targets: tgts,
+                        ..
+                    }
+                    | Dependency::Path {
+                        target: targetspec,
+                        pass_targets: tgts,
+                        ..
+                    }
+                    | Dependency::GitRevision {
+                        target: targetspec,
+                        pass_targets: tgts,
+                        ..
+                    }
+                    | Dependency::GitVersion {
+                        target: targetspec,
+                        pass_targets: tgts,
+                        ..
+                    } => {
+                        let mut tgts = tgts.iter().map(|t| t.to_string()).collect::<Vec<_>>();
+                        tgts.insert(0, targetspec.to_string());
+                        tgts
+                    }
                 },
             );
         } else {
@@ -177,10 +207,31 @@ pub fn get_parent_array(
                         map.insert(
                             pkg_name.to_string(),
                             match dep_manifest.dependencies.get(dep).unwrap() {
-                                Dependency::Version(_, tgts) => tgts.clone(),
-                                Dependency::Path(_, tgts) => tgts.clone(),
-                                Dependency::GitRevision(_, _, tgts) => tgts.clone(),
-                                Dependency::GitVersion(_, _, tgts) => tgts.clone(),
+                                Dependency::Version {
+                                    target: targetspec,
+                                    pass_targets: tgts,
+                                    ..
+                                }
+                                | Dependency::Path {
+                                    target: targetspec,
+                                    pass_targets: tgts,
+                                    ..
+                                }
+                                | Dependency::GitRevision {
+                                    target: targetspec,
+                                    pass_targets: tgts,
+                                    ..
+                                }
+                                | Dependency::GitVersion {
+                                    target: targetspec,
+                                    pass_targets: tgts,
+                                    ..
+                                } => {
+                                    let mut tgts =
+                                        tgts.iter().map(|t| t.to_string()).collect::<Vec<_>>();
+                                    tgts.insert(0, targetspec.to_string());
+                                    tgts
+                                }
                             },
                         );
                     } else {

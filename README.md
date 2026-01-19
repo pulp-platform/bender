@@ -109,11 +109,20 @@ dependencies:
   # Registry dependency. Not supported at the moment.
   # common_verification: "0.2"
 
-  # Git version dependency.
-  common_verification: { git: "git@github.com:pulp-platform/common_verification.git", version: "0.1" }
+  # Git version dependency, only included if target "test" or "regression_test" is set.
+  common_verification: { git: "git@github.com:pulp-platform/common_verification.git", version: "0.2", target: "any(test, regression_test)" }
 
-  # Git revision dependency.
-  common_cells: { git: "git@github.com:pulp-platform/common_cells.git", rev: master, pass_targets: ["CC_CUSTOM_TARGET"] }
+
+  # Git revision dependency, passing a custom target (equivalent to `-t common_cells:cc_custom_target`).
+  common_cells: { git: "git@github.com:pulp-platform/common_cells.git", rev: master, pass_targets: ["cc_custom_target"] }
+
+  # Git version dependency, passing conditional targets to a dependency (equivalent to `-t cva6:cv64a6_imafdcv_sv39` if target 64bit is set, `-t cva6:cv32a6_imac_sv32` if target 32bit is set)
+  ariane:
+    git: "git@github.com:openhwgroup/cva6.git"
+    version: 5.3.0
+    pass_targets:
+      - {target: 64bit, pass: "cv64a6_imafdcv_sv39"}
+      - {target: 32bit, pass: "cv32a6_imac_sv32"}
 
 # Freeze any dependency updates. Optional. False if omitted.
 # Useful for chip packages. Once the chip is in final tapeout mode, and
@@ -238,6 +247,14 @@ All git tags of the form `vX.Y.Z` are considered a version of the package.
 > Note: Git tags without the `v` prefix will not be detected by bender. eg: use `v1.2.3`, and **NOT** `1.2.3`
 
 [Relevant dependency resolution code](https://github.com/pulp-platform/bender/blob/master/src/resolver.rs)
+
+#### Target handling
+
+Specified dependencies can be filtered, similar to the sources below. For consistency, this filtering does **NOT** apply during an update, i.e., all dependencies will be accounted for in the Bender.lock file. The target filtering only applies for sources and script outputs. This can be used e.g., to include specific IP only for testing.
+
+#### Passing targets
+
+For sources and script generation, targets can be passed from a package to its dependency directly in the `Bender.yml` file. This allows for enabling and disabling of specific features. Furthermore, these passed targets can be again filtered with a target specification applied to the specific target. This can be used e.g., to enable specific features of dependencies.
 
 
 ### Sources

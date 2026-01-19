@@ -6,6 +6,7 @@
 #![deny(missing_docs)]
 
 use std;
+use std::collections::BTreeSet;
 use std::fmt;
 use std::io::Write;
 use std::iter::FromIterator;
@@ -35,7 +36,7 @@ use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::git::Git;
 use crate::src::SourceGroup;
-use crate::target::TargetSet;
+use crate::target::TargetSpec;
 use crate::util::try_modification_time;
 
 /// A session on the command line.
@@ -385,7 +386,6 @@ impl<'ctx> Session<'ctx> {
         dependencies: IndexSet<String>,
         dependency_export_includes: IndexMap<String, IndexSet<&'ctx Path>>,
         version: Option<Version>,
-        passed_targets: IndexMap<String, TargetSet>,
     ) -> SourceGroup<'ctx> {
         let include_dirs: IndexSet<&Path> =
             IndexSet::from_iter(sources.include_dirs.iter().map(|d| self.intern_path(d)));
@@ -417,29 +417,25 @@ impl<'ctx> Session<'ctx> {
                         dependencies.clone(),
                         dependency_export_includes.clone(),
                         version.clone(),
-                        passed_targets.clone(),
                     )
                     .into(),
             })
             .collect();
 
-        let binding = TargetSet::empty();
-        let local_passed_targets = match package {
-            Some(name) => passed_targets.get(name).unwrap_or(&binding),
-            None => &binding,
-        };
+        let mut targets = BTreeSet::new();
+        targets.insert(sources.target.clone());
+        let target = TargetSpec::All(targets);
 
         SourceGroup {
             package,
             independent: false,
-            target: sources.target.clone(),
+            target,
             include_dirs: include_dirs.clone(),
             export_incdirs: dependency_export_includes.clone(),
             defines,
             files,
             dependencies,
             version,
-            passed_targets: local_passed_targets.clone(),
         }
     }
 
@@ -1016,7 +1012,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         used_git_rev: &str,
     ) -> Result<()> {
         for dep in (dep_iter_mut).iter_mut() {
-            if let (_, config::Dependency::Path(ref path, _)) = dep {
+            if let (_, config::Dependency::Path { path, .. }) = dep {
                 if !path.starts_with("/") {
                     Warnings::PathDepInGitDep {
                         pkg: dep.0.clone(),
@@ -1032,7 +1028,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 reference_path
                                     .strip_prefix(dep_base_path)
                                     .unwrap()
-                                    .join(path)
+                                    .join(&mut *path)
                                     .join("Bender.yml"),
                             ),
                         )
@@ -1059,7 +1055,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         sub_file.flush()?;
                     }
 
-                    *dep.1 = config::Dependency::Path(sub_dep_path.clone(), Vec::new());
+                    *dep.1 = config::Dependency::Path {
+                        target: TargetSpec::Wildcard,
+                        path: sub_dep_path.clone(),
+                        pass_targets: Vec::new(),
+                    };
 
                     // Further dependencies
                     let _manifest: Result<_> = match sub_data {
@@ -1419,78 +1419,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             all_export_include_dirs
         );
 
-        let passed_targets: Vec<IndexMap<String, IndexSet<String>>> = ranks
-            .clone()
-            .into_iter()
-            .chain(once(vec![Some(self.sess.manifest)]))
-            .map(|manifests| {
-                let vec_of_indexmaps = manifests
-                    .clone()
-                    .into_iter()
-                    .flatten()
-                    .map(|m| {
-                        m.dependencies
-                            .clone()
-                            .into_iter()
-                            .map(|(d, c)| {
-                                let tmp_tgts = match c {
-                                    config::Dependency::Path(_, ref pass_tgts) => pass_tgts,
-                                    config::Dependency::Version(_, ref pass_tgts) => pass_tgts,
-                                    config::Dependency::GitRevision(_, _, ref pass_tgts) => {
-                                        pass_tgts
-                                    }
-                                    config::Dependency::GitVersion(_, _, ref pass_tgts) => {
-                                        pass_tgts
-                                    }
-                                };
-                                (d.clone(), tmp_tgts.clone())
-                            })
-                            .collect::<IndexMap<String, Vec<String>>>()
-                    })
-                    .collect::<Vec<IndexMap<String, Vec<String>>>>();
-                let mut final_indexmap = IndexMap::<String, IndexSet<String>>::new();
-                for element in vec_of_indexmaps {
-                    for (k, v) in element {
-                        let existing: IndexSet<String> =
-                            final_indexmap.get(&k).unwrap_or(&IndexSet::new()).clone();
-                        final_indexmap.insert(
-                            k,
-                            IndexSet::from_iter(
-                                [existing.into_iter().collect::<Vec<_>>(), v]
-                                    .concat()
-                                    .into_iter(),
-                            ),
-                        );
-                    }
-                }
-                final_indexmap
-            })
-            .collect();
-
-        let mut final_indexmap = IndexMap::<String, IndexSet<String>>::new();
-        for element in passed_targets {
-            for (k, v) in element {
-                let existing: IndexSet<String> =
-                    final_indexmap.get(&k).unwrap_or(&IndexSet::new()).clone();
-                final_indexmap.insert(
-                    k,
-                    IndexSet::from_iter(
-                        [
-                            existing.into_iter().collect::<Vec<_>>(),
-                            v.into_iter().collect::<Vec<_>>(),
-                        ]
-                        .concat()
-                        .into_iter(),
-                    ),
-                );
-            }
-        }
-
-        let final_indexmap: IndexMap<String, TargetSet> = final_indexmap
-            .into_iter()
-            .map(|(k, v)| (k, TargetSet::new(v.into_iter())))
-            .collect();
-
         let files = ranks
             .into_iter()
             .chain(once(vec![Some(self.sess.manifest)]))
@@ -1530,7 +1458,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                         Ok(dep_id) => self.sess.dependency(dep_id).version.clone(),
                                         Err(_) => None,
                                     },
-                                    final_indexmap.clone(),
                                 )
                                 .into()
                         })
@@ -1749,11 +1676,11 @@ pub enum DependencySource {
 
 impl<'a> From<&'a config::Dependency> for DependencySource {
     fn from(cfg: &'a config::Dependency) -> DependencySource {
-        match *cfg {
-            config::Dependency::Path(ref path, _) => DependencySource::Path(path.clone()),
-            config::Dependency::GitRevision(ref url, _, _) => DependencySource::Git(url.clone()),
-            config::Dependency::GitVersion(ref url, _, _) => DependencySource::Git(url.clone()),
-            config::Dependency::Version(_, _) => DependencySource::Registry,
+        match cfg {
+            config::Dependency::Path { path, .. } => DependencySource::Path(path.clone()),
+            config::Dependency::GitRevision { url, .. } => DependencySource::Git(url.clone()),
+            config::Dependency::GitVersion { url, .. } => DependencySource::Git(url.clone()),
+            config::Dependency::Version { .. } => DependencySource::Registry,
         }
     }
 }
@@ -1894,12 +1821,13 @@ pub enum DependencyConstraint {
 impl<'a> From<&'a config::Dependency> for DependencyConstraint {
     fn from(cfg: &'a config::Dependency) -> DependencyConstraint {
         match *cfg {
-            config::Dependency::Path(..) => DependencyConstraint::Path,
-            config::Dependency::Version(ref v, _) | config::Dependency::GitVersion(_, ref v, _) => {
-                DependencyConstraint::Version(v.clone())
+            config::Dependency::Path { .. } => DependencyConstraint::Path,
+            config::Dependency::Version { ref version, .. }
+            | config::Dependency::GitVersion { ref version, .. } => {
+                DependencyConstraint::Version(version.clone())
             }
-            config::Dependency::GitRevision(_, ref r, _) => {
-                DependencyConstraint::Revision(r.clone())
+            config::Dependency::GitRevision { ref rev, .. } => {
+                DependencyConstraint::Revision(rev.clone())
             }
         }
     }
