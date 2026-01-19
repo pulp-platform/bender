@@ -254,7 +254,7 @@ pub fn main() -> Result<()> {
                 }
                 if path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
                     debugln!("main: removing existing link {:?}", path);
-                    std::fs::remove_file(path).map_err(|cause| {
+                    remove_symlink_dir(path).map_err(|cause| {
                         Error::chain(
                             format!("Failed to remove symlink at path {:?}.", path),
                             cause,
@@ -331,6 +331,16 @@ fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
 #[cfg(target_os = "windows")]
 fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
     Ok(std::os::windows::fs::symlink_dir(p, q)?)
+}
+
+#[cfg(target_family = "unix")]
+fn remove_symlink_dir(path: &Path) -> Result<()> {
+    Ok(std::fs::remove_file(path)?)
+}
+
+#[cfg(target_os = "windows")]
+fn remove_symlink_dir(path: &Path) -> Result<()> {
+    Ok(std::fs::remove_dir(path)?)
 }
 
 /// Find the root directory of a package.

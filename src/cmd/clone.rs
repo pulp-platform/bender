@@ -269,7 +269,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
                 }
                 if link_path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
                     debugln!("main: removing existing link {:?}", link_path);
-                    std::fs::remove_file(link_path).map_err(|cause| {
+                    remove_symlink_dir(link_path).map_err(|cause| {
                         Error::chain(
                             format!("Failed to remove symlink at path {:?}.", link_path),
                             cause,
@@ -324,6 +324,18 @@ pub fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
 #[cfg(windows)]
 pub fn symlink_dir(p: &Path, q: &Path) -> Result<()> {
     Ok(std::os::windows::fs::symlink_dir(p, q)?)
+}
+
+/// Remove a directory symlink.
+#[cfg(unix)]
+pub fn remove_symlink_dir(path: &Path) -> Result<()> {
+    Ok(std::fs::remove_file(path)?)
+}
+
+/// Remove a directory symlink.
+#[cfg(windows)]
+pub fn remove_symlink_dir(path: &Path) -> Result<()> {
+    Ok(std::fs::remove_dir(path)?)
 }
 
 /// A helper function to recursively get all path subdependencies of a dependency.
