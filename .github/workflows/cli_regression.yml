@@ -12,7 +12,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          components: rustfmt
       - name: Run CLI Regression
         run: cargo test --test cli_regression -- --ignored
         env:
@@ -20,6 +19,18 @@ jobs:
 
   test-windows:
     runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Run CLI Regression
+        run: cargo test --test cli_regression -- --ignored
+        env:
+          BENDER_TEST_GOLDEN_BRANCH: ${{ github.base_ref }}
+
+  test-macos:
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
