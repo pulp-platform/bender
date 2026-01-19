@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use glob::glob;
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 use semver;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -26,6 +26,7 @@ use serde_yaml_ng::Value;
 #[cfg(unix)]
 use subst;
 
+use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::target::TargetSpec;
 use crate::util::*;
@@ -266,7 +267,6 @@ pub trait Validate {
         self,
         package_name: &str,
         pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
     ) -> std::result::Result<Self::Output, Self::Error>;
 }
 
@@ -282,15 +282,12 @@ where
         self,
         package_name: &str,
         pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
     ) -> std::result::Result<Self::Output, Self::Error> {
         self.into_iter()
-            .map(
-                |(k, v)| match v.validate(package_name, pre_output, suppress_warnings) {
-                    Ok(v) => Ok((k, v)),
-                    Err(e) => Err((k, e)),
-                },
-            )
+            .map(|(k, v)| match v.validate(package_name, pre_output) {
+                Ok(v) => Ok((k, v)),
+                Err(e) => Err((k, e)),
+            })
             .collect()
     }
 }
@@ -305,15 +302,12 @@ where
         self,
         package_name: &str,
         pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
     ) -> std::result::Result<Self::Output, Self::Error> {
         self.into_iter()
-            .map(
-                |v| match v.validate(package_name, pre_output, suppress_warnings) {
-                    Ok(v) => Ok(v),
-                    Err(e) => Err(e),
-                },
-            )
+            .map(|v| match v.validate(package_name, pre_output) {
+                Ok(v) => Ok(v),
+                Err(e) => Err(e),
+            })
             .collect()
     }
 }
@@ -329,9 +323,8 @@ where
         self,
         package_name: &str,
         pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
     ) -> std::result::Result<T::Output, T::Error> {
-        self.0.validate(package_name, pre_output, suppress_warnings)
+        self.0.validate(package_name, pre_output)
     }
 }
 
@@ -346,9 +339,8 @@ where
         self,
         package_name: &str,
         pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
     ) -> std::result::Result<T::Output, T::Error> {
-        self.0.validate(package_name, pre_output, suppress_warnings)
+        self.0.validate(package_name, pre_output)
     }
 }
 
@@ -406,10 +398,9 @@ impl PartialManifest {
         mut self,
         package_name: &str,
         pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
     ) -> Result<Manifest> {
         self.sources = Some(SeqOrStruct::new(PartialSources::new_empty()));
-        self.validate(package_name, pre_output, suppress_warnings)
+        self.validate(package_name, pre_output)
     }
 }
 
@@ -443,24 +434,17 @@ impl PrefixPaths for PartialManifest {
 impl Validate for PartialManifest {
     type Output = Manifest;
     type Error = Error;
-    fn validate(
-        self,
-        _package_name: &str,
-        pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
-    ) -> Result<Manifest> {
+    fn validate(self, _package_name: &str, pre_output: bool) -> Result<Manifest> {
         let pkg = match self.package {
             Some(mut p) => {
                 p.name = p.name.to_lowercase();
                 if !pre_output {
                     p.extra.iter().for_each(|(k, _)| {
-                        if !suppress_warnings.contains("W03") {
-                            warnln!(
-                                "[W03] Ignoring unknown field `{}` in manifest package for {}.",
-                                k,
-                                p.name
-                            );
+                        Warnings::IgnoreUnknownField {
+                            field: k.clone(),
+                            pkg: p.name.clone(),
                         }
+                        .emit();
                     });
                 }
                 p
@@ -472,7 +456,7 @@ impl Validate for PartialManifest {
                 .into_iter()
                 .map(|(k, v)| (k.to_lowercase(), v))
                 .collect::<IndexMap<_, _>>()
-                .validate(&pkg.name, pre_output, suppress_warnings)
+                .validate(&pkg.name, pre_output)
                 .map_err(|(key, cause)| {
                     Error::chain(
                         format!("In dependency `{}` of package `{}`:", key, pkg.name),
@@ -482,12 +466,9 @@ impl Validate for PartialManifest {
             None => IndexMap::new(),
         };
         let srcs = match self.sources {
-            Some(s) => Some(
-                s.validate(&pkg.name, pre_output, suppress_warnings)
-                    .map_err(|cause| {
-                        Error::chain(format!("In source list of package `{}`:", pkg.name), cause)
-                    })?,
-            ),
+            Some(s) => Some(s.validate(&pkg.name, pre_output).map_err(|cause| {
+                Error::chain(format!("In source list of package `{}`:", pkg.name), cause)
+            })?),
             None => None,
         };
         let exp_inc_dirs = self.export_include_dirs.unwrap_or_default();
@@ -501,25 +482,23 @@ impl Validate for PartialManifest {
         let frozen = self.frozen.unwrap_or(false);
         let workspace = match self.workspace {
             Some(w) => w
-                .validate(&pkg.name, pre_output, suppress_warnings)
+                .validate(&pkg.name, pre_output)
                 .map_err(|cause| Error::chain("In workspace configuration:", cause))?,
             None => Workspace::default(),
         };
         let vendor_package = match self.vendor_package {
             Some(vend) => vend
-                .validate(&pkg.name, pre_output, suppress_warnings)
+                .validate(&pkg.name, pre_output)
                 .map_err(|cause| Error::chain("Unable to parse vendor_package", cause))?,
             None => Vec::new(),
         };
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
-                if !suppress_warnings.contains("W03") {
-                    warnln!(
-                        "[W03] Ignoring unknown field `{}` in manifest for {}.",
-                        k,
-                        pkg.name
-                    );
+                Warnings::IgnoreUnknownField {
+                    field: k.clone(),
+                    pkg: pkg.name.clone(),
                 }
+                .emit();
             });
         }
         Ok(Manifest {
@@ -542,22 +521,18 @@ impl Validate for PartialManifest {
                 .iter()
                 .filter_map(|path| match env_path_from_string(path.to_string()) {
                     Ok(parsed_path) => {
-                        if !(suppress_warnings.contains("W24")
-                            || pre_output
-                            || parsed_path.exists() && parsed_path.is_dir())
-                        {
-                            warnln!(
-                                "[W24] Include directory {} doesn't exist.",
-                                &parsed_path.display()
-                            );
+                        if !(pre_output || parsed_path.exists() && parsed_path.is_dir()) {
+                            Warnings::IncludeDirMissing(parsed_path.clone()).emit();
                         }
+
                         Some(Ok(parsed_path))
                     }
                     Err(cause) => {
-                        if suppress_warnings.contains("E30") {
-                            if !suppress_warnings.contains("W30") {
-                                warnln!("[W30] File not added, ignoring: {}", cause);
+                        if Diagnostics::is_suppressed("E30") {
+                            Warnings::IgnoredPath {
+                                cause: cause.to_string(),
                             }
+                            .emit();
                             None
                         } else {
                             Some(Err(Error::chain("[E30]", cause)))
@@ -629,12 +604,7 @@ impl PrefixPaths for PartialDependency {
 impl Validate for PartialDependency {
     type Output = Dependency;
     type Error = Error;
-    fn validate(
-        self,
-        package_name: &str,
-        pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
-    ) -> Result<Dependency> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<Dependency> {
         let pass_targets = self
             .pass_targets
             .unwrap_or_default()
@@ -657,13 +627,11 @@ impl Validate for PartialDependency {
         }
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
-                if !suppress_warnings.contains("W03") {
-                    warnln!(
-                        "[W03] Ignoring unknown field `{}` in a dependency in manifest for {}.",
-                        k,
-                        package_name
-                    );
+                Warnings::IgnoreUnknownField {
+                    field: k.clone(),
+                    pkg: package_name.to_string(),
                 }
+                .emit();
             });
         }
         if let Some(path) = self.path {
@@ -780,12 +748,7 @@ impl From<Vec<PartialSourceFile>> for PartialSources {
 impl Validate for PartialSources {
     type Output = SourceFile;
     type Error = Error;
-    fn validate(
-        self,
-        package_name: &str,
-        pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
-    ) -> Result<SourceFile> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceFile> {
         match self {
             PartialSources {
                 target: None,
@@ -797,7 +760,7 @@ impl Validate for PartialSources {
                 vhd: None,
                 external_flists: None,
                 extra: _,
-            } => PartialSourceFile::SvFile(sv).validate(package_name, pre_output, suppress_warnings),
+            } => PartialSourceFile::SvFile(sv).validate(package_name, pre_output),
             PartialSources {
                 target: None,
                 include_dirs: None,
@@ -808,7 +771,7 @@ impl Validate for PartialSources {
                 vhd: None,
                 external_flists: None,
                 extra: _,
-            } => PartialSourceFile::VerilogFile(v).validate(package_name, pre_output, suppress_warnings),
+            } => PartialSourceFile::VerilogFile(v).validate(package_name, pre_output),
             PartialSources {
                 target: None,
                 include_dirs: None,
@@ -819,7 +782,7 @@ impl Validate for PartialSources {
                 vhd: Some(vhd),
                 external_flists: None,
                 extra: _,
-            } => PartialSourceFile::VhdlFile(vhd).validate(package_name, pre_output, suppress_warnings),
+            } => PartialSourceFile::VhdlFile(vhd).validate(package_name, pre_output),
             PartialSources {
                 target,
                 include_dirs,
@@ -838,10 +801,8 @@ impl Validate for PartialSources {
                     .filter_map(|path| match env_path_from_string(path.to_string()) {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
-                            if suppress_warnings.contains("E30") {
-                                if !suppress_warnings.contains("W30") {
-                                    warnln!("[W30] File not added, ignoring: {}", cause);
-                                }
+                            if Diagnostics::is_suppressed("E30") {
+                                Warnings::IgnoredPath {cause: cause.to_string()}.emit();
                                 None
                             } else {
                                 Some(Err(Error::chain("[E30]", cause)))
@@ -980,10 +941,8 @@ impl Validate for PartialSources {
                                 _ => unreachable!(),
                             },
                             Err(cause) => {
-                                if suppress_warnings.contains("E30") {
-                                    if !suppress_warnings.contains("W30") {
-                                        warnln!("[W30] File not added, ignoring: {}", cause);
-                                    }
+                                if Diagnostics::is_suppressed("E30") {
+                                    Warnings::IgnoredPath {cause: cause.to_string()}.emit();
                                     None
                                 } else {
                                     Some(Err(Error::chain("[E30]", cause)))
@@ -1005,7 +964,7 @@ impl Validate for PartialSources {
                             | PartialSourceFile::VerilogFile(_)
                             | PartialSourceFile::VhdlFile(_) => {
                                 // PartialSources .files item is pointing to PartialSourceFiles::file so do glob extension
-                                pre_glob_file.glob_file(suppress_warnings)
+                                pre_glob_file.glob_file()
                             }
                             _ => {
                                 // PartialSources .files item is pointing to PartialSourceFiles::group so pass on for recursion
@@ -1025,10 +984,8 @@ impl Validate for PartialSources {
                     .filter_map(|path| match env_path_from_string(path.to_string()) {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
-                            if suppress_warnings.contains("E30") {
-                                if !suppress_warnings.contains("W30") {
-                                    warnln!("[W30] File not added, ignoring: {}", cause);
-                                }
+                            if Diagnostics::is_suppressed("E30") {
+                                Warnings::IgnoredPath {cause: cause.to_string()}.emit();
                                 None
                             } else {
                                 Some(Err(Error::chain("[E30]", cause)))
@@ -1040,25 +997,20 @@ impl Validate for PartialSources {
                 let defines = defines.unwrap_or_default();
                 let files: Result<Vec<_>> = post_glob_files
                     .into_iter()
-                    .map(|f| f.validate(package_name, pre_output, suppress_warnings))
+                    .map(|f| f.validate(package_name, pre_output))
                     .collect();
                 let files: Vec<SourceFile> = files?;
                 let files: Vec<SourceFile> = files.into_iter().collect();
-                if files.is_empty() && !pre_output && !suppress_warnings.contains("W04") {
-                    warnln!(
-                        "[W04] No source files specified in a sourcegroup in manifest for {}.",
-                        package_name
-                    );
+                if files.is_empty() && !pre_output {
+                    Warnings::NoFilesInSourceGroup(package_name.to_string()).emit();
                 }
                 if !pre_output {
                     extra.iter().for_each(|(k, _)| {
-                        if !suppress_warnings.contains("W03") {
-                            warnln!(
-                                "[W03] Ignoring unknown field `{}` in sources in manifest for {}.",
-                                k,
-                                package_name
-                            );
+                        Warnings::IgnoreUnknownField {
+                            field: k.clone(),
+                            pkg: package_name.to_string(),
                         }
+                        .emit();
                     });
                 }
                 Ok(SourceFile::Group(Box::new(Sources {
@@ -1184,20 +1136,13 @@ impl<'de> Deserialize<'de> for PartialSourceFile {
 impl Validate for PartialSourceFile {
     type Output = SourceFile;
     type Error = Error;
-    fn validate(
-        self,
-        package_name: &str,
-        pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
-    ) -> Result<SourceFile> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceFile> {
         match self {
             PartialSourceFile::File(path) => Ok(SourceFile::File(PathBuf::from(path))),
             // PartialSourceFile::Group(srcs) => Ok(Some(SourceFile::Group(Box::new(
             //     srcs.validate(package_name, pre_output, suppress_warnings)?,
             // )))),
-            PartialSourceFile::Group(srcs) => {
-                Ok(srcs.validate(package_name, pre_output, suppress_warnings)?)
-            }
+            PartialSourceFile::Group(srcs) => Ok(srcs.validate(package_name, pre_output)?),
             PartialSourceFile::SvFile(path) => Ok(SourceFile::SvFile(env_path_from_string(path)?)),
             PartialSourceFile::VerilogFile(path) => {
                 Ok(SourceFile::VerilogFile(env_path_from_string(path)?))
@@ -1216,14 +1161,14 @@ pub trait GlobFile {
     /// The error type produced by validation.
     type Error;
     /// Validate self and convert to a full list of paths that exist
-    fn glob_file(self, suppress_warnings: &IndexSet<String>) -> Result<Self::Output>;
+    fn glob_file(self) -> Result<Self::Output>;
 }
 
 impl GlobFile for PartialSourceFile {
     type Output = Vec<PartialSourceFile>;
     type Error = Error;
 
-    fn glob_file(self, suppress_warnings: &IndexSet<String>) -> Result<Vec<PartialSourceFile>> {
+    fn glob_file(self) -> Result<Vec<PartialSourceFile>> {
         // let mut partial_source_files_vec: Vec<PartialSourceFile> = Vec::new();
 
         // Only operate on files, not groups
@@ -1259,8 +1204,8 @@ impl GlobFile for PartialSourceFile {
                             })
                         })
                         .collect::<Result<Vec<PartialSourceFile>>>()?;
-                    if out.is_empty() && !suppress_warnings.contains("W05") {
-                        warnln!("[W05] No files found for glob pattern {:?}", path);
+                    if out.is_empty() {
+                        Warnings::NoFilesForGlobPattern { path: path.clone() }.emit();
                     }
                     Ok(out)
                 } else {
@@ -1309,12 +1254,7 @@ impl PrefixPaths for PartialWorkspace {
 impl Validate for PartialWorkspace {
     type Output = Workspace;
     type Error = Error;
-    fn validate(
-        self,
-        package_name: &str,
-        pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
-    ) -> Result<Workspace> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<Workspace> {
         let package_links: Result<IndexMap<_, _>> = self
             .package_links
             .unwrap_or_default()
@@ -1323,13 +1263,11 @@ impl Validate for PartialWorkspace {
             .collect();
         if !pre_output {
             self.extra.iter().for_each(|(k, _)| {
-                if !suppress_warnings.contains("W03") {
-                    warnln!(
-                        "[W03] Ignoring unknown field `{}` in workspace configuration in manifest for {}.",
-                        k,
-                        package_name
-                    );
+                Warnings::IgnoreUnknownField {
+                    field: k.clone(),
+                    pkg: package_name.to_string(),
                 }
+                .emit();
             });
         }
         Ok(Workspace {
@@ -1493,12 +1431,7 @@ impl Merge for PartialConfig {
 impl Validate for PartialConfig {
     type Output = Config;
     type Error = Error;
-    fn validate(
-        self,
-        package_name: &str,
-        pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
-    ) -> Result<Config> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<Config> {
         Ok(Config {
             database: match self.database {
                 Some(db) => env_path_from_string(db)?,
@@ -1510,7 +1443,7 @@ impl Validate for PartialConfig {
             },
             overrides: match self.overrides {
                 Some(d) => d
-                    .validate(package_name, pre_output, suppress_warnings)
+                    .validate(package_name, pre_output)
                     .map_err(|(key, cause)| {
                         Error::chain(format!("In override `{}`:", key), cause)
                     })?,
@@ -1518,7 +1451,7 @@ impl Validate for PartialConfig {
             },
             plugins: match self.plugins {
                 Some(d) => d
-                    .validate(package_name, pre_output, suppress_warnings)
+                    .validate(package_name, pre_output)
                     .map_err(|(key, cause)| Error::chain(format!("In plugin `{}`:", key), cause))?,
                 None => IndexMap::new(),
             },
@@ -1640,12 +1573,7 @@ impl PrefixPaths for PartialVendorPackage {
 impl Validate for PartialVendorPackage {
     type Output = VendorPackage;
     type Error = Error;
-    fn validate(
-        self,
-        package_name: &str,
-        pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
-    ) -> Result<VendorPackage> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<VendorPackage> {
         Ok(VendorPackage {
             name: match self.name {
                 Some(name) => name,
@@ -1657,7 +1585,7 @@ impl Validate for PartialVendorPackage {
             },
             upstream: match self.upstream {
                 Some(upstream) => upstream
-                    .validate(package_name, pre_output, suppress_warnings)
+                    .validate(package_name, pre_output)
                     .map_err(|cause| {
                         Error::chain("Unable to parse external import upstream", cause)
                     })?,

@@ -18,6 +18,9 @@ use semver::{Version, VersionReq};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
+/// Re-export owo_colors for use in macros.
+pub use owo_colors::OwoColorize;
+
 use crate::error::*;
 
 /// A type that cannot be materialized.
@@ -426,4 +429,36 @@ pub fn version_req_bottom_bound(req: &VersionReq) -> Result<Option<Version>> {
     } else {
         Ok(None)
     }
+}
+
+/// Format for `package` names in diagnostic messages.
+#[macro_export]
+macro_rules! fmt_pkg {
+    ($pkg:expr) => {
+        $crate::util::OwoColorize::bold(&$pkg)
+    };
+}
+
+/// Format for `path` and `url` fields in diagnostic messages.
+#[macro_export]
+macro_rules! fmt_path {
+    ($pkg:expr) => {
+        $crate::util::OwoColorize::underline(&$pkg)
+    };
+}
+
+/// Format for `field` names in diagnostic messages.
+#[macro_export]
+macro_rules! fmt_field {
+    ($field:expr) => {
+        $crate::util::OwoColorize::italic(&$field)
+    };
+}
+
+/// Format for `version` and `revision` fields in diagnostic messages.
+#[macro_export]
+macro_rules! fmt_version {
+    ($ver:expr) => {
+        $crate::util::OwoColorize::bold(&$ver)
+    };
 }

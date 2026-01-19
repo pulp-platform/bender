@@ -31,6 +31,7 @@ use typed_arena::Arena;
 
 use crate::cli::read_manifest;
 use crate::config::{self, Config, Manifest, PartialManifest};
+use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::git::Git;
 use crate::src::SourceGroup;
@@ -77,8 +78,6 @@ pub struct Session<'ctx> {
     pub git_throttle: Arc<Semaphore>,
     /// A toggle to disable remote fetches & clones
     pub local_only: bool,
-    /// A list of warnings to suppress.
-    pub suppress_warnings: IndexSet<String>,
 }
 
 impl<'ctx> Session<'ctx> {
@@ -92,7 +91,6 @@ impl<'ctx> Session<'ctx> {
         local_only: bool,
         force_fetch: bool,
         git_throttle: usize,
-        suppress_warnings: IndexSet<String>,
     ) -> Session<'ctx> {
         Session {
             root,
@@ -118,7 +116,6 @@ impl<'ctx> Session<'ctx> {
             cache: Default::default(),
             git_throttle: Arc::new(Semaphore::new(git_throttle)),
             local_only,
-            suppress_warnings,
         }
     }
 
@@ -140,15 +137,15 @@ impl<'ctx> Session<'ctx> {
             calling_package
         );
         let src = DependencySource::from(cfg);
-        self.deps.lock().unwrap().add(
-            self.intern_dependency_entry(DependencyEntry {
+        self.deps
+            .lock()
+            .unwrap()
+            .add(self.intern_dependency_entry(DependencyEntry {
                 name: name.into(),
                 source: src,
                 revision: None,
                 version: None,
-            }),
-            &self.suppress_warnings,
-        )
+            }))
     }
 
     /// Load a lock file.
@@ -175,7 +172,6 @@ impl<'ctx> Session<'ctx> {
                         .as_ref()
                         .map(|s| semver::Version::parse(s).unwrap()),
                 }),
-                &self.suppress_warnings,
             );
             graph_names.insert(id, &pkg.dependencies);
             names.insert(name.clone(), id);
@@ -577,14 +573,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 })
                 .await
                 .map_err(move |cause| {
-                    if url3.contains("git@") && !self.sess.suppress_warnings.contains("W07") {
-                        warnln!("[W07] Please ensure your public ssh key is added to the git server.");
+                    Warnings::GitInitFailed {
+                        is_ssh: url3.contains("git@"),
                     }
-                    if !self.sess.suppress_warnings.contains("W07") {
-                        warnln!(
-                            "[W07] Please ensure the url is correct and you have access to the repository."
-                        );
-                    }
+                    .emit();
                     Error::chain(
                         format!("Failed to initialize git database in {:?}.", db_dir),
                         cause,
@@ -612,14 +604,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 })
                 .await
                 .map_err(move |cause| {
-                    if url3.contains("git@") && !self.sess.suppress_warnings.contains("W07") {
-                        warnln!("[W07] Please ensure your public ssh key is added to the git server.");
+                    Warnings::GitInitFailed {
+                        is_ssh: url3.contains("git@"),
                     }
-                    if !self.sess.suppress_warnings.contains("W07") {
-                        warnln!(
-                            "[W07] Please ensure the url is correct and you have access to the repository."
-                        );
-                    }
+                    .emit();
                     Error::chain(
                         format!("Failed to update git database in {:?}.", db_dir),
                         cause,
@@ -903,25 +891,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     {
                         CheckoutState::ToCheckout
                     } else {
-                        if !self.sess.suppress_warnings.contains("W19") {
-                            warnln!(
-                                "[W19] Workspace checkout directory set and has uncommitted changes, not updating {} at {}.\n\
-                                \tRun `bender checkout --force` to overwrite the dependency at your own risk.",
-                                name,
-                                path.display()
-                            );
-                        }
+                        Warnings::CheckoutDirDirty(name.to_string(), path.to_path_buf()).emit();
                         CheckoutState::Clean
                     }
                 } else {
-                    if !self.sess.suppress_warnings.contains("W19") {
-                        warnln!(
-                            "[W19] Workspace checkout directory set and remote url doesn't match, not updating {} at {}.\n\
-                            \tRun `bender checkout --force` to overwrite the dependency at your own risk.",
-                            name,
-                            path.display()
-                        );
-                    }
+                    Warnings::CheckoutDirUrlMismatch(name.to_string(), path.to_path_buf()).emit();
                     CheckoutState::Clean
                 }
             } else {
@@ -975,18 +949,26 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     git.clone()
                         .spawn_with(move |c| c.arg("fetch").arg("--all"))
                         .await?;
-                    git.clone().spawn_with(move |c| c.arg("tag").arg(tag_name_1).arg(revision).arg("--force").arg("--no-sign")).map_err(|cause| {
-                        if !self.sess.suppress_warnings.contains("W08") {
-                            warnln!("[W08] Please ensure the commits are available on the remote or run bender update");
-                        }
-                        Error::chain(
-                            format!(
-                                "Failed to checkout commit {} for {} given in Bender.lock.\n",
-                                revision, name
-                            ),
-                            cause,
-                        )
-                    }).await
+                    git.clone()
+                        .spawn_with(move |c| {
+                            c.arg("tag")
+                                .arg(tag_name_1)
+                                .arg(revision)
+                                .arg("--force")
+                                .arg("--no-sign")
+                        })
+                        .map_err(|cause| {
+                            Warnings::RevisionNotFound(revision.to_string(), name.to_string())
+                                .emit();
+                            Error::chain(
+                                format!(
+                                    "Failed to checkout commit {} for {} given in Bender.lock.\n",
+                                    revision, name
+                                ),
+                                cause,
+                            )
+                        })
+                        .await
                 }
             }?;
             if clear == CheckoutState::ToClone {
@@ -1036,10 +1018,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         for dep in (dep_iter_mut).iter_mut() {
             if let (_, config::Dependency::Path(ref path, _)) = dep {
                 if !path.starts_with("/") {
-                    if !self.sess.suppress_warnings.contains("W09") {
-                        warnln!("[W09] Path dependencies ({:?}) in git dependencies ({:?}) currently not fully supported. \
-                        Your mileage may vary.", dep.0, top_package_name);
+                    Warnings::PathDepInGitDep {
+                        pkg: dep.0.clone(),
+                        top_pkg: top_package_name.clone(),
                     }
+                    .emit();
 
                     let sub_entries = db
                         .clone()
@@ -1092,9 +1075,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     cause,
                                 )
                             })?;
-                            let mut full = partial
-                                .validate_ignore_sources("", true, &self.sess.suppress_warnings)
-                                .map_err(|cause| {
+                            let mut full =
+                                partial.validate_ignore_sources("", true).map_err(|cause| {
                                     Error::chain(
                                         format!(
                                             "Error in manifest of dependency `{}` at revision \
@@ -1155,18 +1137,19 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         use self::DependencyVersion as DepVer;
         match (&dep.source, version) {
             (DepSrc::Path(path), DepVer::Path) => {
-                if !path.starts_with("/") && !self.sess.suppress_warnings.contains("W10") {
-                    warnln!("[W10] There may be issues in the path for {:?}.", dep.name);
+                if !path.is_absolute() {
+                    Warnings::MaybePathIssues(dep.name.clone(), path.to_path_buf()).emit();
                 }
                 let manifest_path = path.join("Bender.yml");
                 if manifest_path.exists() {
-                    match read_manifest(&manifest_path, &self.sess.suppress_warnings) {
+                    match read_manifest(&manifest_path) {
                         Ok(m) => {
-                            if dep.name != m.package.name
-                                && !self.sess.suppress_warnings.contains("W11")
-                            {
-                                warnln!("[W11] Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
-                                    dep.name, m.package.name); // TODO: This should be an error
+                            if dep.name != m.package.name {
+                                Warnings::DepPkgNameNotMatching(
+                                    dep.name.clone(),
+                                    m.package.name.clone(),
+                                )
+                                .emit();
                             }
                             Ok(Some(self.sess.intern_manifest(m)))
                         }
@@ -1195,30 +1178,29 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             Error::chain(format!("Syntax error in manifest {:?}.", path), cause)
                         })?;
 
-                    match partial.validate_ignore_sources("", true, &self.sess.suppress_warnings) {
+                    match partial.validate_ignore_sources("", true) {
                         Ok(m) => {
-                            if dep.name != m.package.name
-                                && !self.sess.suppress_warnings.contains("W11")
-                            {
-                                warnln!("[W11] Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
-                                    dep.name, m.package.name); // TODO: This should be an error
+                            if dep.name != m.package.name {
+                                Warnings::DepPkgNameNotMatching(
+                                    dep.name.clone(),
+                                    m.package.name.clone(),
+                                )
+                                .emit();
                             }
                             Ok(Some(self.sess.intern_manifest(m)))
                         }
                         Err(e) => Err(e),
                     }
                 } else {
-                    if !(self.sess.suppress_warnings.contains("E32")
-                        && self.sess.suppress_warnings.contains("W32"))
-                    {
+                    if !(Diagnostics::is_suppressed("E32")) {
                         if let DepSrc::Path(ref path) = dep.source {
                             if !path.exists() {
-                                if self.sess.suppress_warnings.contains("E32") {
-                                    warnln!(
-                                        "[W32] Path {:?} for dependency {:?} does not exist.",
-                                        path,
-                                        dep.name
-                                    );
+                                if Diagnostics::is_suppressed("E32") {
+                                    Warnings::DepPathMissing {
+                                        pkg: dep.name.clone(),
+                                        path: path.to_path_buf(),
+                                    }
+                                    .emit();
                                 } else {
                                     return Err(Error::new(format!(
                                         "[E32] Path {:?} for dependency {:?} does not exist.",
@@ -1228,13 +1210,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             }
                         }
                     }
-                    if !self.sess.suppress_warnings.contains("W12") {
-                        warnln!(
-                            "[W12] Manifest not found for {:?} at {:?}",
-                            dep.name,
-                            dep.source
-                        );
+                    Warnings::ManifestNotFound {
+                        pkg: dep.name.clone(),
+                        src: manifest_path.display().to_string(),
                     }
+                    .emit();
                     Ok(None)
                 }
             }
@@ -1263,9 +1243,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     cause,
                                 )
                             })?;
-                        let mut full = partial
-                            .validate_ignore_sources("", true, &self.sess.suppress_warnings)
-                            .map_err(|cause| {
+                        let mut full =
+                            partial.validate_ignore_sources("", true).map_err(|cause| {
                                 Error::chain(
                                     format!(
                                         "Error in manifest of dependency `{}` at revision \
@@ -1290,9 +1269,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Ok(Some(self.sess.intern_manifest(full)))
                     }
                     None => {
-                        if !self.sess.suppress_warnings.contains("W12") {
-                            warnln!("[W12] Manifest not found for {:?}", dep.name);
+                        Warnings::ManifestNotFound {
+                            pkg: dep.name.clone(),
+                            src: url.to_string(),
                         }
+                        .emit();
                         Ok(None)
                     }
                 };
@@ -1303,18 +1284,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     .lock()
                     .unwrap()
                     .insert(cache_key, manifest);
-                if dep.name
-                    != match manifest {
-                        Some(x) => &x.package.name,
-                        None => "dead",
-                    }
-                    && !self.sess.suppress_warnings.contains("W11")
-                {
-                    warnln!("[W11] Dependency name and package name do not match for {:?} / {:?}, this can cause unwanted behavior",
-                            dep.name, match manifest {
-                                Some(x) => &x.package.name,
-                                None => "dead"
-                            }); // TODO (micprog): This should be an error
+                let pkg_name = match manifest {
+                    Some(x) => x.package.name.clone(),
+                    None => "dead".to_string(),
+                };
+                if dep.name != pkg_name {
+                    Warnings::DepPkgNameNotMatching(dep.name.clone(), pkg_name.clone()).emit();
                 }
                 Ok(manifest)
             }
@@ -1354,7 +1329,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .and_then(move |path| {
                 let manifest_path = path.join("Bender.yml");
                 if manifest_path.exists() {
-                    match read_manifest(&manifest_path, &self.sess.suppress_warnings) {
+                    match read_manifest(&manifest_path) {
                         Ok(m) => Ok(Some(self.sess.intern_manifest(m))),
                         Err(e) => Err(e),
                     }
@@ -1530,21 +1505,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 IndexMap::new();
                             export_include_dirs.insert(
                                 m.package.name.clone(),
-                                m.export_include_dirs
-                                    .iter()
-                                    .map(PathBuf::as_path)
-                                    .collect(),
+                                m.export_include_dirs.iter().map(PathBuf::as_path).collect(),
                             );
                             if !m.dependencies.is_empty() {
                                 for i in m.dependencies.keys() {
                                     if !all_export_include_dirs.contains_key(i) {
-                                        if !self.sess.suppress_warnings.contains("W13") {
-                                            warnln!("[W13] Name issue with {:?}, `export_include_dirs` not handled\n\tCould relate to name mismatch, see `bender update`", i);
-                                        }
-                                        export_include_dirs.insert(i.clone(), IndexSet::new());
+                                        Warnings::ExportDirNameIssue(i.clone()).emit();
+                                        export_include_dirs.insert(i.to_string(), IndexSet::new());
                                     } else {
                                         export_include_dirs.insert(
-                                            i.clone(),
+                                            i.to_string(),
                                             all_export_include_dirs[i].clone(),
                                         );
                                     }
@@ -1829,22 +1799,14 @@ impl<'ctx> DependencyTable<'ctx> {
     ///
     /// The reference with which the information can later be retrieved is
     /// returned.
-    pub fn add(
-        &mut self,
-        entry: &'ctx DependencyEntry,
-        suppress_warnings: &IndexSet<String>,
-    ) -> DependencyRef {
+    pub fn add(&mut self, entry: &'ctx DependencyEntry) -> DependencyRef {
         if let Some(&id) = self.ids.get(&entry) {
             debugln!("sess: reusing {:?}", id);
             id
         } else {
             if let DependencySource::Path(path) = &entry.source {
-                if !path.exists() && !suppress_warnings.contains("W22") {
-                    warnln!(
-                        "[W22] Dependency `{}` has source path `{}` which does not exist",
-                        entry.name,
-                        path.display()
-                    );
+                if !path.exists() {
+                    Warnings::DepSourcePathMissing(entry.name.clone(), path.clone()).emit();
                 }
             }
             let id = DependencyRef(self.list.len());

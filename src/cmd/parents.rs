@@ -5,6 +5,7 @@
 
 use std::io::Write;
 
+use crate::diagnostic::Warnings;
 use clap::Args;
 use indexmap::IndexMap;
 use tabwriter::TabWriter;
@@ -14,6 +15,7 @@ use crate::config::Dependency;
 use crate::error::*;
 use crate::sess::{DependencyConstraint, DependencySource};
 use crate::sess::{Session, SessionIo};
+use crate::{fmt_path, fmt_version};
 
 /// List packages calling this dependency
 #[derive(Args, Debug)]
@@ -96,12 +98,25 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
         }
     );
 
-    if sess.config.overrides.contains_key(dep) && !sess.suppress_warnings.contains("W18") {
-        warnln!(
-            "[W18] An override is configured for {} to {:?}",
-            dep,
-            sess.config.overrides[dep]
-        )
+    if sess.config.overrides.contains_key(dep) {
+        Warnings::DepOverride {
+            pkg: dep.to_string(),
+            pkg_override: match sess.config.overrides[dep] {
+                Dependency::Version(ref v, _) => format!("version {}", fmt_version!(v)),
+                Dependency::Path(ref path, _) => format!("path {}", fmt_path!(path.display())),
+                Dependency::GitRevision(ref url, ref rev, _) => {
+                    format!("git {} at revision {}", fmt_path!(url), fmt_version!(rev))
+                }
+                Dependency::GitVersion(ref url, ref version, _) => {
+                    format!(
+                        "git {} with version {}",
+                        fmt_path!(url),
+                        fmt_version!(version)
+                    )
+                }
+            },
+        }
+        .emit();
     }
 
     Ok(())
@@ -150,9 +165,10 @@ pub fn get_parent_array(
                 let dep_manifest = rt.block_on(io.dependency_manifest(pkg, false, &[]))?;
                 // Filter out dependencies without a manifest
                 if dep_manifest.is_none() {
-                    if !sess.suppress_warnings.contains("W17") {
-                        warnln!("[W17] {} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
+                    Warnings::IncludeDepManifestMismatch {
+                        pkg: pkg_name.to_string(),
                     }
+                    .emit();
                     continue;
                 }
                 let dep_manifest = dep_manifest.unwrap();
@@ -182,9 +198,11 @@ pub fn get_parent_array(
                             ],
                         );
                     }
-                } else if !sess.suppress_warnings.contains("W17") {
-                    // Filter out dependencies with mismatching manifest
-                    warnln!("[W17] {} is shown to include dependency, but manifest does not have this information.", pkg_name.to_string());
+                } else {
+                    Warnings::IncludeDepManifestMismatch {
+                        pkg: pkg_name.to_string(),
+                    }
+                    .emit();
                 }
             }
         }

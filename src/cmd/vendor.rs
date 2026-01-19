@@ -17,6 +17,7 @@ use tokio::runtime::Runtime;
 
 use crate::config;
 use crate::config::PrefixPaths;
+use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::futures::TryFutureExt;
 use crate::git::Git;
@@ -103,10 +104,9 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                     stageln!("Cloning", "{} ({})", vendor_package.name, url);
                     git.clone().spawn_with(|c| c.arg("clone").arg(url).arg("."))
                     .map_err(move |cause| {
-                        if url.contains("git@") {
-                            warnln!("[W07] Please ensure your public ssh key is added to the git server.");
-                        }
-                        warnln!("[W07] Please ensure the url is correct and you have access to the repository.");
+                        Warnings::GitInitFailed {
+                            is_ssh: url.contains("git@"),
+                        }.emit();
                         Error::chain(
                             format!("Failed to initialize git database in {:?}.", tmp_path),
                             cause,
@@ -269,25 +269,39 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                 }
 
                 // Generate patch
-                sorted_links.into_iter().try_for_each( |patch_link| {
+                sorted_links.into_iter().try_for_each(|patch_link| {
                     match patch_link.patch_dir.clone() {
                         Some(patch_dir) => {
                             if *plain {
-                                let get_diff = diff(&rt,
-                                                    git.clone(),
-                                                    vendor_package,
-                                                    patch_link,
-                                                    dep_path.clone())
-                                            .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
+                                let get_diff = diff(
+                                    &rt,
+                                    git.clone(),
+                                    vendor_package,
+                                    patch_link,
+                                    dep_path.clone(),
+                                )
+                                .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
                                 gen_plain_patch(get_diff, patch_dir, false)
                             } else {
-                                gen_format_patch(&rt, sess, git.clone(), patch_link, vendor_package.target_dir.clone(), message.as_ref())
+                                gen_format_patch(
+                                    &rt,
+                                    sess,
+                                    git.clone(),
+                                    patch_link,
+                                    vendor_package.target_dir.clone(),
+                                    message.as_ref(),
+                                )
                             }
-                        },
+                        }
                         None => {
-                            warnln!("[W15] No patch directory specified for package {}, mapping {} => {}. Skipping patch generation.", vendor_package.name.clone(), patch_link.from_prefix.to_str().unwrap(), patch_link.to_prefix.to_str().unwrap());
+                            Warnings::NoPatchDir {
+                                vendor_pkg: vendor_package.name.clone(),
+                                from_prefix: patch_link.from_prefix.clone(),
+                                to_prefix: patch_link.to_prefix.clone(),
+                            }
+                            .emit();
                             Ok(())
-                        },
+                        }
                     }
                 })
             }
@@ -336,7 +350,7 @@ pub fn init(
         if !PathBuf::from(extend_paths(std::slice::from_ref(&path), dep_path, true)?[0].clone())
             .exists()
         {
-            warnln!("[W16] {} not found in upstream, continuing.", path);
+            Warnings::NotInUpstream { path }.emit();
         }
     }
 
@@ -366,10 +380,10 @@ pub fn init(
                     )
                 })?;
             } else {
-                warnln!(
-                    "[W16] {} not found in upstream, continuing.",
-                    link_from.to_str().unwrap()
-                );
+                Warnings::NotInUpstream {
+                    path: link_from.to_str().unwrap().to_string(),
+                }
+                .emit();
             }
         }
     };

@@ -12,6 +12,7 @@ use tokio::runtime::Runtime;
 
 use crate::cmd::clone::{get_path_subdeps, symlink_dir};
 use crate::config::{Dependency, Locked, LockedSource};
+use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{DependencySource, Session, SessionIo};
 
@@ -57,11 +58,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
                             .is_empty()
                             && !args.no_skip
                         {
-                            warnln!(
-                                "Skipping dirty dependency {}\
-                                        \t use `--no-skip` to still snapshot.",
-                                name
-                            );
+                            Warnings::SkippingDirtyDep { pkg: name.clone() }.emit();
                             continue;
                         }
 
@@ -255,11 +252,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
                     )
                 })?;
                 if !meta.file_type().is_symlink() {
-                    warnln!(
-                        "[W15] Skipping link to package {} at {:?} since there is something there",
-                        pkg_name,
-                        link_path
-                    );
+                    Warnings::SkippingPackageLink(pkg_name.clone(), link_path.to_path_buf()).emit();
                     continue;
                 }
                 if link_path.read_link().map(|d| d != pkg_path).unwrap_or(true) {

@@ -24,6 +24,7 @@ use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
 use crate::config::{self, Locked, LockedPackage, LockedSource, Manifest};
+use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{
     DependencyConstraint, DependencyRef, DependencySource, DependencyVersion, DependencyVersions,
@@ -104,16 +105,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                     //  - the dependency is not in a clean state (i.e., was modified)
                     if !ignore_checkout {
                         if !is_git_repo {
-                            if !self.sess.suppress_warnings.contains("W06") {
-                                warnln!("[W06] Dependency `{}` in checkout_dir `{}` is not a git repository. Setting as path dependency.\n\
-                                        \tPlease use `bender clone` to work on git dependencies.\n\
-                                        \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
-                                    dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
-                                    &checkout.display());
-                            }
+                            Warnings::NotAGitDependency(depname.clone(), checkout.clone()).emit();
                             self.checked_out.insert(
                                 depname,
-                                config::Dependency::Path(dir.unwrap().path(), Vec::new()),
+                                config::Dependency::Path(dir.unwrap().path(), vec![]),
                             );
                         } else if !(SysCommand::new(&self.sess.config.git) // If not in a clean state
                             .arg("status")
@@ -123,16 +118,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                             .stdout
                             .is_empty())
                         {
-                            if !self.sess.suppress_warnings.contains("W06") {
-                                warnln!("[W06] Dependency `{}` in checkout_dir `{}` is not in a clean state. Setting as path dependency.\n\
-                                        \tPlease use `bender clone` to work on git dependencies.\n\
-                                        \tRun `bender update --ignore-checkout-dir` to overwrite this at your own risk.",
-                                    dir.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap(),
-                                    &checkout.display());
-                            }
+                            Warnings::DirtyGitDependency(depname.clone(), checkout.clone()).emit();
                             self.checked_out.insert(
                                 depname,
-                                config::Dependency::Path(dir.unwrap().path(), Vec::new()),
+                                config::Dependency::Path(dir.unwrap().path(), vec![]),
                             );
                         }
                     }
@@ -385,12 +374,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                                 match &locked_package.revision {
                                     Some(r) => r.clone(),
                                     None => {
-                                        if !io.sess.suppress_warnings.contains("W21") {
-                                            warnln!(
-                                                "[W21] No revision found in lock file for git dependency `{}`",
-                                                name
-                                            );
+                                        Warnings::NoRevisionInLockFile {
+                                            pkg: name.to_string(),
                                         }
+                                        .emit();
                                         return None;
                                     }
                                 },
@@ -473,13 +460,11 @@ impl<'ctx> DependencyResolver<'ctx> {
                     match gv.revs.iter().position(|rev| *rev == hash.unwrap()) {
                         Some(index) => index,
                         None => {
-                            if !self.sess.suppress_warnings.contains("W23") {
-                                warnln!(
-                                    "[W23] Locked revision `{:?}` for dependency `{}` not found in available revisions, allowing update.",
-                                    hash.unwrap(),
-                                    dep
-                                );
+                            Warnings::LockedRevisionNotFound {
+                                rev: hash.unwrap().to_string(),
+                                pkg: dep.to_string(),
                             }
+                            .emit();
                             self.locked.get_mut(dep.as_str()).unwrap().3 = false;
                             continue;
                         }
@@ -653,14 +638,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                         if id == con_src {
                             return Err(e);
                         }
-                        if !self.sess.suppress_warnings.contains("W20") {
-                            warnln!(
-                                "[W20] Ignoring error for `{}` at `{}`: {}",
-                                name,
-                                self.sess.dependency_source(*con_src),
-                                e
-                            );
-                        }
+                        Warnings::IgnoringError(name.to_string(), self.sess.dependency_source(*con_src).to_string(), e.to_string()).emit();
                         Ok((*id, IndexSet::new()))
                     }
                 }

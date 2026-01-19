@@ -18,6 +18,7 @@ use itertools::Itertools;
 use tokio::runtime::Runtime;
 use walkdir::{DirEntry, WalkDir};
 
+use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup};
@@ -132,8 +133,8 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
         Error::chain(format!("Unable to write corefile for {:?}.", &name), cause)
     })?;
 
-    if fuse_depend_string.len() > 1 && !sess.suppress_warnings.contains("W16") {
-        warnln!("[W16] Depend strings may be wrong for the included dependencies!");
+    if fuse_depend_string.len() > 1 {
+        Warnings::DependStringMaybeWrong.emit();
     }
 
     Ok(())

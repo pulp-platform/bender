@@ -32,6 +32,7 @@ pub mod error;
 pub mod cli;
 pub mod cmd;
 pub mod config;
+pub mod diagnostic;
 pub mod git;
 pub mod lockfile;
 pub mod resolver;
@@ -39,6 +40,7 @@ pub mod resolver;
 pub mod sess;
 pub mod src;
 pub mod target;
+#[macro_use]
 pub mod util;
 
 fn main() {

@@ -15,6 +15,7 @@ use indexmap::{IndexMap, IndexSet};
 use serde::ser::{Serialize, Serializer};
 
 use crate::config::Validate;
+use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::Error;
 use crate::sess::Session;
 use crate::target::{TargetSet, TargetSpec};
@@ -52,20 +53,19 @@ impl<'ctx> Validate for SourceGroup<'ctx> {
         self,
         package_name: &str,
         pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
     ) -> crate::error::Result<SourceGroup<'ctx>> {
         Ok(SourceGroup {
             files: self
                 .files
                 .into_iter()
-                .map(|f| f.validate(package_name, pre_output, suppress_warnings))
+                .map(|f| f.validate(package_name, pre_output))
                 .collect::<Result<Vec<_>, Error>>()?,
             include_dirs: self
                 .include_dirs
                 .into_iter()
                 .map(|p| {
-                    if !(suppress_warnings.contains("W24") || p.exists() && p.is_dir()) {
-                        warnln!("[W24] Include directory {} doesn't exist.", p.display());
+                    if !p.exists() || !p.is_dir() {
+                        Warnings::IncludeDirMissing(p.to_path_buf()).emit();
                     }
                     Ok(p)
                 })
@@ -469,23 +469,18 @@ impl<'ctx> From<&'ctx Path> for SourceFile<'ctx> {
 impl<'ctx> Validate for SourceFile<'ctx> {
     type Output = SourceFile<'ctx>;
     type Error = Error;
-    fn validate(
-        self,
-        package_name: &str,
-        pre_output: bool,
-        suppress_warnings: &IndexSet<String>,
-    ) -> Result<SourceFile<'ctx>, Error> {
+    fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceFile<'ctx>, Error> {
         match self {
             SourceFile::File(path, ty) => {
                 let env_path_buf =
                     crate::config::env_path_from_string(path.to_string_lossy().to_string())?;
                 let exists = env_path_buf.exists() && env_path_buf.is_file();
-                if exists || suppress_warnings.contains("E31") {
-                    if !(exists || suppress_warnings.contains("W31")) {
-                        warnln!(
-                            "[W31] File {} doesn't exist.",
-                            env_path_buf.to_string_lossy()
-                        );
+                if exists || Diagnostics::is_suppressed("E31") {
+                    if !exists {
+                        Warnings::FileMissing {
+                            path: env_path_buf.clone(),
+                        }
+                        .emit();
                     }
                     Ok(SourceFile::File(path, ty))
                 } else {
@@ -495,11 +490,9 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                     )))
                 }
             }
-            SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate(
-                package_name,
-                pre_output,
-                suppress_warnings,
-            )?))),
+            SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(
+                srcs.validate(package_name, pre_output)?,
+            ))),
         }
     }
 }
