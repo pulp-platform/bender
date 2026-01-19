@@ -10,7 +10,8 @@ use clap::Args;
 use indexmap::IndexMap;
 use tokio::runtime::Runtime;
 
-use crate::cmd::clone::{get_path_subdeps, symlink_dir};
+use crate::cli::symlink_dir;
+use crate::cmd::clone::get_path_subdeps;
 use crate::config::{Dependency, Locked, LockedSource};
 use crate::diagnostic::Warnings;
 use crate::error::*;
