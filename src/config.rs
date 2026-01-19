@@ -619,7 +619,7 @@ impl Validate for PartialDependency {
             .pass_targets
             .unwrap_or_default()
             .into_iter()
-            .map(|s| s.validate(package_name, pre_output, suppress_warnings))
+            .map(|s| s.validate(package_name, pre_output))
             .collect::<Result<Vec<_>>>()?;
         let version = match self.version {
             Some(v) => Some(semver::VersionReq::parse(&v).map_err(|cause| {
@@ -1659,7 +1659,6 @@ impl Validate for PartialPassedTarget {
         self,
         _package_name: &str,
         _pre_output: bool,
-        _suppress_warnings: &IndexSet<String>,
     ) -> Result<PassedTarget> {
         Ok(PassedTarget {
             target: self.target.unwrap_or_default(),

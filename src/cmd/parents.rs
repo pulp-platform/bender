@@ -104,12 +104,12 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
         Warnings::DepOverride {
             pkg: dep.to_string(),
             pkg_override: match sess.config.overrides[dep] {
-                Dependency::Version(ref v, _) => format!("version {}", fmt_version!(v)),
-                Dependency::Path(ref path, _) => format!("path {}", fmt_path!(path.display())),
-                Dependency::GitRevision(ref url, ref rev, _) => {
+                Dependency::Version(_, ref v, _) => format!("version {}", fmt_version!(v)),
+                Dependency::Path(_, ref path, _) => format!("path {}", fmt_path!(path.display())),
+                Dependency::GitRevision(_, ref url, ref rev, _) => {
                     format!("git {} at revision {}", fmt_path!(url), fmt_version!(rev))
                 }
-                Dependency::GitVersion(ref url, ref version, _) => {
+                Dependency::GitVersion(_, ref url, ref version, _) => {
                     format!(
                         "git {} with version {}",
                         fmt_path!(url),
