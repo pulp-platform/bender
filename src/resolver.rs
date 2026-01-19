@@ -109,11 +109,11 @@ impl<'ctx> DependencyResolver<'ctx> {
                             Warnings::NotAGitDependency(depname.clone(), checkout.clone()).emit();
                             self.checked_out.insert(
                                 depname,
-                                config::Dependency::Path(
-                                    TargetSpec::Wildcard,
-                                    dir.unwrap().path(),
-                                    vec![],
-                                ),
+                                config::Dependency::Path {
+                                    target: TargetSpec::Wildcard,
+                                    path: dir.unwrap().path(),
+                                    pass_targets: vec![],
+                                },
                             );
                         } else if !(SysCommand::new(&self.sess.config.git) // If not in a clean state
                             .arg("status")
@@ -126,11 +126,11 @@ impl<'ctx> DependencyResolver<'ctx> {
                             Warnings::DirtyGitDependency(depname.clone(), checkout.clone()).emit();
                             self.checked_out.insert(
                                 depname,
-                                config::Dependency::Path(
-                                    TargetSpec::Wildcard,
-                                    dir.unwrap().path(),
-                                    vec![],
-                                ),
+                                config::Dependency::Path {
+                                    target: TargetSpec::Wildcard,
+                                    path: dir.unwrap().path(),
+                                    pass_targets: vec![],
+                                },
                             );
                         }
                     }
@@ -357,17 +357,21 @@ impl<'ctx> DependencyResolver<'ctx> {
                 let name = name.as_str();
                 debugln!("resolve: registering {} from lockfile", &name);
                 let dep = match &locked_package.source {
-                    LockedSource::Path(p) => config::Dependency::Path(TargetSpec::Wildcard, p.clone(), Vec::new()),
+                    LockedSource::Path(p) => config::Dependency::Path {
+                        target: TargetSpec::Wildcard,
+                        path: p.clone(),
+                        pass_targets: Vec::new(),
+                    },
                     LockedSource::Registry(..) => {
                         unreachable!("Registry dependencies not yet supported.");
                     }
                     LockedSource::Git(u) => {
                         if let Some(version) = &locked_package.version {
                             let parsed_version = Version::parse(version).unwrap();
-                            config::Dependency::GitVersion(
-                                TargetSpec::Wildcard,
-                                u.clone(),
-                                VersionReq {
+                            config::Dependency::GitVersion {
+                                target: TargetSpec::Wildcard,
+                                url: u.clone(),
+                                version: VersionReq {
                                     comparators: vec![semver::Comparator {
                                         op: semver::Op::Exact,
                                         major: parsed_version.major,
@@ -376,13 +380,13 @@ impl<'ctx> DependencyResolver<'ctx> {
                                         pre: parsed_version.pre,
                                     }],
                                 },
-                                Vec::new(),
-                            )
+                                pass_targets: Vec::new(),
+                            }
                         } else {
-                            config::Dependency::GitRevision(
-                                TargetSpec::Wildcard,
-                                u.clone(),
-                                match &locked_package.revision {
+                            config::Dependency::GitRevision {
+                                target: TargetSpec::Wildcard,
+                                url: u.clone(),
+                                rev: match &locked_package.revision {
                                     Some(r) => r.clone(),
                                     None => {
                                         Warnings::NoRevisionInLockFile {
@@ -392,8 +396,8 @@ impl<'ctx> DependencyResolver<'ctx> {
                                         return None;
                                     }
                                 },
-                                Vec::new(),
-                            )
+                                pass_targets: Vec::new(),
+                            }
                         }
                     }
                 };
@@ -419,22 +423,24 @@ impl<'ctx> DependencyResolver<'ctx> {
                     unreachable!("Registry dependencies not yet supported.");
                     // TODO should probably be config::Dependeny::Version(vers, str?)
                 }
-                DependencySource::Path(p) => {
-                    config::Dependency::Path(TargetSpec::Wildcard, p, Vec::new())
-                }
+                DependencySource::Path(p) => config::Dependency::Path {
+                    target: TargetSpec::Wildcard,
+                    path: p,
+                    pass_targets: Vec::new(),
+                },
                 DependencySource::Git(u) => match &cnstr {
-                    DependencyConstraint::Version(v) => config::Dependency::GitVersion(
-                        TargetSpec::Wildcard,
-                        u,
-                        v.clone(),
-                        Vec::new(),
-                    ),
-                    DependencyConstraint::Revision(r) => config::Dependency::GitRevision(
-                        TargetSpec::Wildcard,
-                        u,
-                        r.clone(),
-                        Vec::new(),
-                    ),
+                    DependencyConstraint::Version(v) => config::Dependency::GitVersion {
+                        target: TargetSpec::Wildcard,
+                        url: u,
+                        version: v.clone(),
+                        pass_targets: Vec::new(),
+                    },
+                    DependencyConstraint::Revision(r) => config::Dependency::GitRevision {
+                        target: TargetSpec::Wildcard,
+                        url: u,
+                        rev: r.clone(),
+                        pass_targets: Vec::new(),
+                    },
                     _ => unreachable!(),
                 },
             };

@@ -151,10 +151,26 @@ pub fn get_passed_targets(
             .dependencies
             .iter()
             .for_each(|(name, dep)| match dep {
-                Dependency::Version(filter, _, tgts)
-                | Dependency::Path(filter, _, tgts)
-                | Dependency::GitRevision(filter, _, _, tgts)
-                | Dependency::GitVersion(filter, _, _, tgts) => {
+                Dependency::Version {
+                    target: filter,
+                    pass_targets: tgts,
+                    ..
+                }
+                | Dependency::Path {
+                    target: filter,
+                    pass_targets: tgts,
+                    ..
+                }
+                | Dependency::GitRevision {
+                    target: filter,
+                    pass_targets: tgts,
+                    ..
+                }
+                | Dependency::GitVersion {
+                    target: filter,
+                    pass_targets: tgts,
+                    ..
+                } => {
                     for t in tgts {
                         if TargetSpec::All(BTreeSet::from([filter.clone(), t.target.clone()]))
                             .matches(&global_targets.reduce_for_dependency(name))
@@ -183,10 +199,26 @@ pub fn get_passed_targets(
                     .dependencies
                     .iter()
                     .for_each(|(name, dep)| match dep {
-                        Dependency::Version(filter, _, tgts)
-                        | Dependency::Path(filter, _, tgts)
-                        | Dependency::GitRevision(filter, _, _, tgts)
-                        | Dependency::GitVersion(filter, _, _, tgts) => {
+                        Dependency::Version {
+                            target: filter,
+                            pass_targets: tgts,
+                            ..
+                        }
+                        | Dependency::Path {
+                            target: filter,
+                            pass_targets: tgts,
+                            ..
+                        }
+                        | Dependency::GitRevision {
+                            target: filter,
+                            pass_targets: tgts,
+                            ..
+                        }
+                        | Dependency::GitVersion {
+                            target: filter,
+                            pass_targets: tgts,
+                            ..
+                        } => {
                             for t in tgts {
                                 if TargetSpec::All(BTreeSet::from([
                                     filter.clone(),

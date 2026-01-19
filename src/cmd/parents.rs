@@ -104,12 +104,20 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
         Warnings::DepOverride {
             pkg: dep.to_string(),
             pkg_override: match sess.config.overrides[dep] {
-                Dependency::Version(_, ref v, _) => format!("version {}", fmt_version!(v)),
-                Dependency::Path(_, ref path, _) => format!("path {}", fmt_path!(path.display())),
-                Dependency::GitRevision(_, ref url, ref rev, _) => {
+                Dependency::Version { ref version, .. } => {
+                    format!("version {}", fmt_version!(version))
+                }
+                Dependency::Path { ref path, .. } => format!("path {}", fmt_path!(path.display())),
+                Dependency::GitRevision {
+                    ref url, ref rev, ..
+                } => {
                     format!("git {} at revision {}", fmt_path!(url), fmt_version!(rev))
                 }
-                Dependency::GitVersion(_, ref url, ref version, _) => {
+                Dependency::GitVersion {
+                    ref url,
+                    ref version,
+                    ..
+                } => {
                     format!(
                         "git {} with version {}",
                         fmt_path!(url),
@@ -138,10 +146,26 @@ pub fn get_parent_array(
             map.insert(
                 sess.manifest.package.name.clone(),
                 match sess.manifest.dependencies.get(dep).unwrap() {
-                    Dependency::Version(targetspec, _, tgts)
-                    | Dependency::Path(targetspec, _, tgts)
-                    | Dependency::GitRevision(targetspec, _, _, tgts)
-                    | Dependency::GitVersion(targetspec, _, _, tgts) => {
+                    Dependency::Version {
+                        target: targetspec,
+                        pass_targets: tgts,
+                        ..
+                    }
+                    | Dependency::Path {
+                        target: targetspec,
+                        pass_targets: tgts,
+                        ..
+                    }
+                    | Dependency::GitRevision {
+                        target: targetspec,
+                        pass_targets: tgts,
+                        ..
+                    }
+                    | Dependency::GitVersion {
+                        target: targetspec,
+                        pass_targets: tgts,
+                        ..
+                    } => {
                         let mut tgts = tgts.iter().map(|t| t.to_string()).collect::<Vec<_>>();
                         tgts.insert(0, targetspec.to_string());
                         tgts
@@ -183,10 +207,26 @@ pub fn get_parent_array(
                         map.insert(
                             pkg_name.to_string(),
                             match dep_manifest.dependencies.get(dep).unwrap() {
-                                Dependency::Version(targetspec, _, tgts)
-                                | Dependency::Path(targetspec, _, tgts)
-                                | Dependency::GitRevision(targetspec, _, _, tgts)
-                                | Dependency::GitVersion(targetspec, _, _, tgts) => {
+                                Dependency::Version {
+                                    target: targetspec,
+                                    pass_targets: tgts,
+                                    ..
+                                }
+                                | Dependency::Path {
+                                    target: targetspec,
+                                    pass_targets: tgts,
+                                    ..
+                                }
+                                | Dependency::GitRevision {
+                                    target: targetspec,
+                                    pass_targets: tgts,
+                                    ..
+                                }
+                                | Dependency::GitVersion {
+                                    target: targetspec,
+                                    pass_targets: tgts,
+                                    ..
+                                } => {
                                     let mut tgts =
                                         tgts.iter().map(|t| t.to_string()).collect::<Vec<_>>();
                                     tgts.insert(0, targetspec.to_string());

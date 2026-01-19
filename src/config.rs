@@ -98,25 +98,63 @@ pub struct Package {
 #[derive(Clone, Debug)]
 pub enum Dependency {
     /// A dependency that can be found in one of the package repositories.
-    Version(TargetSpec, semver::VersionReq, Vec<PassedTarget>),
+    Version {
+        /// The targets for which the dependency should be considered.
+        target: TargetSpec,
+        /// The version requirement of the package.
+        version: semver::VersionReq,
+        /// Targets to pass to the dependency
+        pass_targets: Vec<PassedTarget>,
+    },
     /// A local path dependency. The exact version of the dependency found at
     /// the given path will be used, regardless of any actual versioning
     /// constraints.
-    Path(TargetSpec, PathBuf, Vec<PassedTarget>),
+    Path {
+        /// The targets for which the dependency should be considered.
+        target: TargetSpec,
+        /// The path to the dependency.
+        path: PathBuf,
+        /// Targets to pass to the dependency
+        pass_targets: Vec<PassedTarget>,
+    },
     /// A git dependency specified by a revision.
-    GitRevision(TargetSpec, String, String, Vec<PassedTarget>),
+    GitRevision {
+        /// The targets for which the dependency should be considered.
+        target: TargetSpec,
+        /// The git URL to the package.
+        url: String,
+        /// The git revision of the package to use. Can be a commit hash, branch, or tag.
+        rev: String,
+        /// Targets to pass to the dependency
+        pass_targets: Vec<PassedTarget>,
+    },
     /// A git dependency specified by a version requirement. Works similarly to
     /// the `GitRevision`, but extracts all tags of the form `v.*` from the
     /// repository and matches the version against that.
-    GitVersion(TargetSpec, String, semver::VersionReq, Vec<PassedTarget>),
+    GitVersion {
+        /// The targets for which the dependency should be considered.
+        target: TargetSpec,
+        /// The git URL to the package.
+        url: String,
+        /// The version requirement of the package.
+        version: semver::VersionReq,
+        /// Targets to pass to the dependency
+        pass_targets: Vec<PassedTarget>,
+    },
 }
 
 impl PrefixPaths for Dependency {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         Ok(match self {
-            Dependency::Path(t, p, pass_tgts) => {
-                Dependency::Path(t, p.prefix_paths(prefix)?, pass_tgts)
-            }
+            Dependency::Path {
+                target,
+                path,
+                pass_targets,
+            } => Dependency::Path {
+                target,
+                path: path.prefix_paths(prefix)?,
+                pass_targets,
+            },
             v => v,
         })
     }
@@ -129,7 +167,11 @@ impl Serialize for Dependency {
     {
         use serde::ser::SerializeMap;
         match *self {
-            Dependency::Version(ref target, ref version, ref pass_targets) => {
+            Dependency::Version {
+                ref target,
+                ref version,
+                ref pass_targets,
+            } => {
                 let mut map = serializer.serialize_map(Some(3))?;
                 map.serialize_entry("target", target)?;
                 map.serialize_entry("version", &format!("{}", version))?;
@@ -137,7 +179,11 @@ impl Serialize for Dependency {
                 map.end()
             }
             // format!("{}, {:?}", version, pass_targets).serialize(serializer),
-            Dependency::Path(ref target, ref path, ref pass_targets) => {
+            Dependency::Path {
+                ref target,
+                ref path,
+                ref pass_targets,
+            } => {
                 let mut map = serializer.serialize_map(Some(3))?;
                 map.serialize_entry("target", target)?;
                 map.serialize_entry("path", path)?;
@@ -146,7 +192,12 @@ impl Serialize for Dependency {
             }
 
             // path.serialize(serializer),
-            Dependency::GitRevision(ref target, ref url, ref rev, ref pass_targets) => {
+            Dependency::GitRevision {
+                ref target,
+                ref url,
+                ref rev,
+                ref pass_targets,
+            } => {
                 let mut map = serializer.serialize_map(Some(4))?;
                 map.serialize_entry("target", target)?;
                 map.serialize_entry("git", url)?;
@@ -154,7 +205,12 @@ impl Serialize for Dependency {
                 map.serialize_entry("pass_targets", pass_targets)?;
                 map.end()
             }
-            Dependency::GitVersion(ref target, ref url, ref version, ref pass_targets) => {
+            Dependency::GitVersion {
+                ref target,
+                ref url,
+                ref version,
+                ref pass_targets,
+            } => {
                 let mut map = serializer.serialize_map(Some(4))?;
                 map.serialize_entry("target", target)?;
                 map.serialize_entry("git", url)?;
@@ -659,24 +715,38 @@ impl Validate for PartialDependency {
                     list
                 )))
             } else {
-                Ok(Dependency::Path(
+                Ok(Dependency::Path {
                     target,
-                    env_path_from_string(path)?,
+                    path: env_path_from_string(path)?,
                     pass_targets,
-                ))
+                })
             }
         } else if let Some(git) = self.git {
             if let Some(rev) = self.rev {
-                Ok(Dependency::GitRevision(target, git, rev, pass_targets))
+                Ok(Dependency::GitRevision {
+                    target,
+                    url: git,
+                    rev,
+                    pass_targets,
+                })
             } else if let Some(version) = version {
-                Ok(Dependency::GitVersion(target, git, version, pass_targets))
+                Ok(Dependency::GitVersion {
+                    target,
+                    url: git,
+                    version,
+                    pass_targets,
+                })
             } else {
                 Err(Error::new(
                     "A `git` dependency must have either a `rev` or `version` field.",
                 ))
             }
         } else if let Some(version) = version {
-            Ok(Dependency::Version(target, version, pass_targets))
+            Ok(Dependency::Version {
+                target,
+                version,
+                pass_targets,
+            })
         } else {
             Err(Error::new(
                 "A dependency must specify `version`, `path`, or `git`.",
@@ -1655,11 +1725,7 @@ pub struct PartialPassedTarget {
 impl Validate for PartialPassedTarget {
     type Output = PassedTarget;
     type Error = Error;
-    fn validate(
-        self,
-        _package_name: &str,
-        _pre_output: bool,
-    ) -> Result<PassedTarget> {
+    fn validate(self, _package_name: &str, _pre_output: bool) -> Result<PassedTarget> {
         Ok(PassedTarget {
             target: self.target.unwrap_or_default(),
             pass: match self.pass {

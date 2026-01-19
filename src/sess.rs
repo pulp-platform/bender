@@ -1012,7 +1012,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         used_git_rev: &str,
     ) -> Result<()> {
         for dep in (dep_iter_mut).iter_mut() {
-            if let (_, config::Dependency::Path(_, path, _)) = dep {
+            if let (_, config::Dependency::Path { path, .. }) = dep {
                 if !path.starts_with("/") {
                     Warnings::PathDepInGitDep {
                         pkg: dep.0.clone(),
@@ -1055,11 +1055,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         sub_file.flush()?;
                     }
 
-                    *dep.1 = config::Dependency::Path(
-                        TargetSpec::Wildcard,
-                        sub_dep_path.clone(),
-                        Vec::new(),
-                    );
+                    *dep.1 = config::Dependency::Path {
+                        target: TargetSpec::Wildcard,
+                        path: sub_dep_path.clone(),
+                        pass_targets: Vec::new(),
+                    };
 
                     // Further dependencies
                     let _manifest: Result<_> = match sub_data {
@@ -1676,11 +1676,11 @@ pub enum DependencySource {
 
 impl<'a> From<&'a config::Dependency> for DependencySource {
     fn from(cfg: &'a config::Dependency) -> DependencySource {
-        match *cfg {
-            config::Dependency::Path(_, ref path, _) => DependencySource::Path(path.clone()),
-            config::Dependency::GitRevision(_, ref url, _, _) => DependencySource::Git(url.clone()),
-            config::Dependency::GitVersion(_, ref url, _, _) => DependencySource::Git(url.clone()),
-            config::Dependency::Version(_, _, _) => DependencySource::Registry,
+        match cfg {
+            config::Dependency::Path { path, .. } => DependencySource::Path(path.clone()),
+            config::Dependency::GitRevision { url, .. } => DependencySource::Git(url.clone()),
+            config::Dependency::GitVersion { url, .. } => DependencySource::Git(url.clone()),
+            config::Dependency::Version { .. } => DependencySource::Registry,
         }
     }
 }
@@ -1821,13 +1821,13 @@ pub enum DependencyConstraint {
 impl<'a> From<&'a config::Dependency> for DependencyConstraint {
     fn from(cfg: &'a config::Dependency) -> DependencyConstraint {
         match *cfg {
-            config::Dependency::Path(..) => DependencyConstraint::Path,
-            config::Dependency::Version(_, ref v, _)
-            | config::Dependency::GitVersion(_, _, ref v, _) => {
-                DependencyConstraint::Version(v.clone())
+            config::Dependency::Path { .. } => DependencyConstraint::Path,
+            config::Dependency::Version { ref version, .. }
+            | config::Dependency::GitVersion { ref version, .. } => {
+                DependencyConstraint::Version(version.clone())
             }
-            config::Dependency::GitRevision(_, _, ref r, _) => {
-                DependencyConstraint::Revision(r.clone())
+            config::Dependency::GitRevision { ref rev, .. } => {
+                DependencyConstraint::Revision(rev.clone())
             }
         }
     }
