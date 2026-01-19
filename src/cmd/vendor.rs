@@ -10,6 +10,8 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
+use futures::TryFutureExt;
+use futures::future::{self};
 use glob::Pattern;
 use tempfile::TempDir;
 use tokio::runtime::Runtime;

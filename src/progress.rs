@@ -473,7 +473,9 @@ mod tests {
     }
     #[test]
     fn test_parsing_error() {
-        let p = parse_git_line("fatal: unable to access 'https://example.com/repo.git/': Could not resolve host: example.com");
+        let p = parse_git_line(
+            "fatal: unable to access 'https://example.com/repo.git/': Could not resolve host: example.com",
+        );
         match p {
             GitProgress::Error(msg) => assert!(msg.contains("fatal: unable to access")),
             _ => panic!("Failed to parse error"),
