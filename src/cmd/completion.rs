@@ -7,7 +7,7 @@ use std::io;
 
 use crate::error::*;
 use clap::{Args, Command};
-use clap_complete::{generate, Shell};
+use clap_complete::{Shell, generate};
 
 /// Emit shell completion script
 #[derive(Args, Debug)]

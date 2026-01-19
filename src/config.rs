@@ -885,7 +885,10 @@ impl Validate for PartialSources {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
                             if Diagnostics::is_suppressed("E30") {
-                                Warnings::IgnoredPath {cause: cause.to_string()}.emit();
+                                Warnings::IgnoredPath {
+                                    cause: cause.to_string(),
+                                }
+                                .emit();
                                 None
                             } else {
                                 Some(Err(Error::chain("[E30]", cause)))
@@ -986,18 +989,20 @@ impl Validate for PartialSources {
                                     })
                                     .collect(),
                             ),
-                            files: Some(flist
-                                .into_iter()
-                                .filter_map(|file| {
-                                    if file.starts_with("+") {
-                                        None
-                                    } else {
-                                        // prefix path
-                                        Some(PartialSourceFile::File(file))
-                                    }
-                                })
-                                .map(|file| file.prefix_paths(&flist_dir))
-                                .collect::<Result<Vec<_>>>()?),
+                            files: Some(
+                                flist
+                                    .into_iter()
+                                    .filter_map(|file| {
+                                        if file.starts_with("+") {
+                                            None
+                                        } else {
+                                            // prefix path
+                                            Some(PartialSourceFile::File(file))
+                                        }
+                                    })
+                                    .map(|file| file.prefix_paths(&flist_dir))
+                                    .collect::<Result<Vec<_>>>()?,
+                            ),
                             sv: None,
                             v: None,
                             vhd: None,
@@ -1008,33 +1013,45 @@ impl Validate for PartialSources {
                     .collect();
 
                 let post_env_files: Vec<PartialSourceFile> = if let Some(fls) = files {
-                    fls
-                    .into_iter()
-                    .chain(external_flist_groups?.into_iter())
-                    .filter_map(|file| match file {
-                        PartialSourceFile::File(ref filename)
-                        | PartialSourceFile::SvFile(ref filename)
-                        | PartialSourceFile::VerilogFile(ref filename)
-                        | PartialSourceFile::VhdlFile(ref filename) => match env_string_from_string(filename.to_string()) {
-                            Ok(p) => match file {
-                                PartialSourceFile::File(_) => Some(Ok(PartialSourceFile::File(p))),
-                                PartialSourceFile::SvFile(_) => Some(Ok(PartialSourceFile::SvFile(p))),
-                                PartialSourceFile::VerilogFile(_) => Some(Ok(PartialSourceFile::VerilogFile(p))),
-                                PartialSourceFile::VhdlFile(_) => Some(Ok(PartialSourceFile::VhdlFile(p))),
-                                _ => unreachable!(),
-                            },
-                            Err(cause) => {
-                                if Diagnostics::is_suppressed("E30") {
-                                    Warnings::IgnoredPath {cause: cause.to_string()}.emit();
-                                    None
-                                } else {
-                                    Some(Err(Error::chain("[E30]", cause)))
+                    fls.into_iter()
+                        .chain(external_flist_groups?.into_iter())
+                        .filter_map(|file| match file {
+                            PartialSourceFile::File(ref filename)
+                            | PartialSourceFile::SvFile(ref filename)
+                            | PartialSourceFile::VerilogFile(ref filename)
+                            | PartialSourceFile::VhdlFile(ref filename) => {
+                                match env_string_from_string(filename.to_string()) {
+                                    Ok(p) => match file {
+                                        PartialSourceFile::File(_) => {
+                                            Some(Ok(PartialSourceFile::File(p)))
+                                        }
+                                        PartialSourceFile::SvFile(_) => {
+                                            Some(Ok(PartialSourceFile::SvFile(p)))
+                                        }
+                                        PartialSourceFile::VerilogFile(_) => {
+                                            Some(Ok(PartialSourceFile::VerilogFile(p)))
+                                        }
+                                        PartialSourceFile::VhdlFile(_) => {
+                                            Some(Ok(PartialSourceFile::VhdlFile(p)))
+                                        }
+                                        _ => unreachable!(),
+                                    },
+                                    Err(cause) => {
+                                        if Diagnostics::is_suppressed("E30") {
+                                            Warnings::IgnoredPath {
+                                                cause: cause.to_string(),
+                                            }
+                                            .emit();
+                                            None
+                                        } else {
+                                            Some(Err(Error::chain("[E30]", cause)))
+                                        }
+                                    }
                                 }
                             }
-                        },
-                        other => Some(Ok(other)),
-                    })
-                    .collect::<Result<Vec<_>>>()?
+                            other => Some(Ok(other)),
+                        })
+                        .collect::<Result<Vec<_>>>()?
                 } else {
                     Vec::new()
                 };
@@ -1068,7 +1085,10 @@ impl Validate for PartialSources {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
                             if Diagnostics::is_suppressed("E30") {
-                                Warnings::IgnoredPath {cause: cause.to_string()}.emit();
+                                Warnings::IgnoredPath {
+                                    cause: cause.to_string(),
+                                }
+                                .emit();
                                 None
                             } else {
                                 Some(Err(Error::chain("[E30]", cause)))
@@ -1113,14 +1133,12 @@ impl Validate for PartialSources {
                 vhd: _vhd,
                 external_flists: None,
                 extra: _,
-            } => {
-                Err(Error::new("Only a single source with a single type is supported."))
-            },
-            _ => {
-                Err(Error::new(
-                    "Do not mix `sv`, `v`, or `vhd` with `files`, `target`, `include_dirs`, and `defines`.",
-                ))
-            }
+            } => Err(Error::new(
+                "Only a single source with a single type is supported.",
+            )),
+            _ => Err(Error::new(
+                "Do not mix `sv`, `v`, or `vhd` with `files`, `target`, `include_dirs`, and `defines`.",
+            )),
         }
     }
 }

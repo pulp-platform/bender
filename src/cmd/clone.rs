@@ -35,7 +35,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
     let depref = sess.dependency_with_name(dep)?;
 
     let path_mod = &args.path; // TODO make this option for config in the Bender.yml file?
-                               // Check current config for matches
+    // Check current config for matches
     if sess.config.overrides.contains_key(dep) {
         match &sess.config.overrides[dep] {
             config::Dependency::Path { path: p, .. } => {

@@ -353,11 +353,7 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
         }
     }
 
-    if found {
-        Ok(Some(top_bound))
-    } else {
-        Ok(None)
-    }
+    if found { Ok(Some(top_bound)) } else { Ok(None) }
 }
 
 /// Extract bottom bound from a version requirement.
