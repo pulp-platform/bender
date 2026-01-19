@@ -658,7 +658,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         dep_revs.map(move |revs| (refs, revs))
                     }
                 });
-                dep_refs_and_revs.and_then(move |(refs, revs)| {
+                dep_refs_and_revs.map(move |(refs, revs)| {
                     let refs: Vec<_> = refs
                         .into_iter()
                         .map(|(a, b)| (self.sess.intern_string(a), self.sess.intern_string(b)))
@@ -727,11 +727,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
                     *self.git_versions.lock().unwrap() = git_versions.clone();
 
-                    Ok(GitVersions {
+                    GitVersions {
                         versions,
                         refs,
                         revs,
-                    })
+                    }
                 })
             }
         }
@@ -830,14 +830,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     update_list,
                 )
                 .await
-                .and_then(move |path| {
+                .inspect(move |&path| {
                     self.sess
                         .cache
                         .checkout
                         .lock()
                         .unwrap()
                         .insert(dep_id, path);
-                    Ok(path)
                 }),
         }
     }
@@ -1451,14 +1450,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     Ok(None)
                 }
             })
-            .and_then(move |manifest| {
+            .inspect(move |&manifest| {
                 self.sess
                     .cache
                     .dependency_manifest
                     .lock()
                     .unwrap()
                     .insert(dep_id, manifest);
-                Ok(manifest)
             })
     }
 
