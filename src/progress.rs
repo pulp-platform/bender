@@ -5,6 +5,7 @@ use crate::util::fmt_duration;
 
 use indexmap::IndexMap;
 use owo_colors::OwoColorize;
+use std::io::IsTerminal;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -49,6 +50,8 @@ pub struct ProgressHandler {
     git_op: GitProgressOps,
     /// The name of the repository being processed.
     name: String,
+    /// Whether we are running in a TTY.
+    tty: bool,
 }
 
 /// The git operation types that currently support progress reporting.
@@ -84,8 +87,13 @@ pub async fn monitor_stderr(
             continue;
         }
 
-        // Process the line, if we can parse it and have a handler
-        if let (Ok(line), Some(h)) = (std::str::from_utf8(&buffer), &handler) {
+        // Process the line, if:
+        // - it is valid UTF-8
+        // - we have a progress handler
+        // - we are in a TTY
+        if let (Ok(line), Some(h @ ProgressHandler { tty: true, .. })) =
+            (std::str::from_utf8(&buffer), &handler)
+        {
             // Parse the line and update the progress bar accordingly
             let progress = parse_git_line(line);
             h.update_pb(progress, state.as_mut().unwrap());
@@ -111,6 +119,7 @@ impl ProgressHandler {
             multiprogress,
             git_op,
             name: name.to_string(),
+            tty: std::io::stderr().is_terminal(),
         }
     }
 
@@ -281,15 +290,21 @@ impl ProgressHandler {
             GitProgressOps::Submodule => "Updated Submodules",
         };
 
-        // Print a completion message on top of active progress bars
-        self.multiprogress
-            .println(format!(
-                "  {} {} {}",
-                fmt_completed!(op_str),
-                fmt_pkg!(&self.name),
-                fmt_duration(state.start_time.elapsed()).dimmed()
-            ))
-            .unwrap();
+        let finish_msg = format!(
+            "  {} {} {}",
+            fmt_completed!(op_str),
+            fmt_pkg!(&self.name),
+            fmt_duration(state.start_time.elapsed()).dimmed()
+        );
+
+        // In TTY mode, we can print on top of the progress bars
+        // otherwise, we just print to stderr.
+        if self.tty {
+            // Print a completion message on top of active progress bars
+            self.multiprogress.println(finish_msg).unwrap();
+        } else {
+            eprintln!("{}", finish_msg);
+        }
     }
 }
 
