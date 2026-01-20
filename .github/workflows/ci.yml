@@ -44,6 +44,16 @@ jobs:
           toolchain: stable
       - name: Build
         run: cargo build
+        env:
+          # Disable full variable debugging (speedup for linking)
+          #    0 = no debug info (fastest)
+          #    1 = line tables only (good for panic traces)
+          #    2 = full debug info (slow, default)
+          CARGO_PROFILE_DEV_DEBUG: 1
+
+          # Use unpacked debug info (skips massive .pdb creation)
+          # This is safe in CI because you aren't attaching a debugger there.
+          CARGO_PROFILE_DEV_SPLIT_DEBUGINFO: "unpacked"
       - name: Cargo Test
         run: cargo test --all
       - name: Run unit-tests
