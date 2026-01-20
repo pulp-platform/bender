@@ -1007,7 +1007,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .clone()
                 .spawn_with(move |c| c.arg("config").arg("lfs.url").arg(url))
                 .await?;
-            local_git.clone().spawn_with(move |c| c.arg("lfs").arg("pull")).await?;
+            local_git
+                .clone()
+                .spawn_with(move |c| c.arg("lfs").arg("pull"))
+                .await?;
             local_git
                 .clone()
                 .spawn_with(move |c| {
