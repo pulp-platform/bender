@@ -2,7 +2,7 @@
 set -e
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
-BENDER="cargo run --"
+BENDER=${BENDER:-"cargo run --"}
 DIR="$(pwd)"/tmp/"$(basename $0 _test.sh)"
 [ ! -d "$DIR" ] || rm -rf "$DIR"
 mkdir -p "$DIR"
