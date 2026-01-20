@@ -430,6 +430,8 @@ where
 pub struct PartialManifest {
     /// The package definition.
     pub package: Option<Package>,
+    /// The remotes for package repositories.
+    pub remotes: Option<IndexMap<String, StringOrStruct<RemoteConfig>>>,
     /// The dependencies.
     pub dependencies: Option<IndexMap<String, StringOrStruct<PartialDependency>>>,
     /// The source files.
@@ -466,6 +468,7 @@ impl PartialManifest {
 impl PrefixPaths for PartialManifest {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         Ok(PartialManifest {
+            remotes: self.remotes,
             dependencies: self.dependencies.prefix_paths(prefix)?,
             sources: self.sources.prefix_paths(prefix)?,
             export_include_dirs: match self.export_include_dirs {
@@ -505,6 +508,44 @@ impl Validate for PartialManifest {
             }
             None => return Err(Error::new("Missing package information.")),
         };
+
+        let remotes = self
+            .remotes
+            .map(|r| {
+                r.validate(&pkg.name, pre_output).map_err(|(key, cause)| {
+                    Error::chain(
+                        format!("In remote `{key}` of package `{}`:", pkg.name),
+                        cause,
+                    )
+                })
+            })
+            .transpose()?;
+
+        let default_remote = if let Some(r_map) = &remotes {
+            // If there is only one remote, it becomes the default.
+            if r_map.len() == 1 {
+                Some(r_map.values().next().unwrap())
+            } else {
+                // Otherwise, we validate that there is at most one default remote.
+                let defaults: Vec<_> = r_map.values().filter(|r| r.default).collect();
+                // Check how many default remotes there are.
+                match defaults.as_slice() {
+                    // No default remote. Allowed, but only allows explicit remote selection.
+                    [] => None,
+                    // Exactly one default remote.
+                    [remote] => Some(*remote),
+                    // Multiple default remotes. Not allowed.
+                    _ => {
+                        return Err(Error::new(
+                            "Multiple remotes marked as default. Only one allowed.",
+                        ));
+                    }
+                }
+            }
+        } else {
+            None
+        };
+
         let deps = match self.dependencies {
             Some(d) => d
                 .into_iter()
@@ -1723,6 +1764,44 @@ impl FromStr for PartialPassedTarget {
 impl fmt::Display for PassedTarget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "target: `{}`: `{}`", self.target, self.pass)
+    }
+}
+
+/// A remote index configuration.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RemoteConfig {
+    /// The URL prefix of the remote index.
+    pub url: String,
+    /// Whether this remote is the default.
+    #[serde(default)]
+    pub default: bool,
+}
+
+impl FromStr for RemoteConfig {
+    type Err = Void;
+    fn from_str(s: &str) -> std::result::Result<Self, Void> {
+        Ok(RemoteConfig {
+            url: s.into(),
+            default: false,
+        })
+    }
+}
+
+impl Validate for RemoteConfig {
+    type Output = RemoteConfig;
+    type Error = Error;
+    fn validate(self, _package_name: &str, _pre_output: bool) -> Result<RemoteConfig> {
+        let mut normalized_url = self.url.trim().to_string();
+
+        // Strip trailing slashes, to avoid double slashes when appending paths.
+        while normalized_url.ends_with('/') {
+            normalized_url.pop();
+        }
+
+        Ok(RemoteConfig {
+            url: normalized_url,
+            default: self.default,
+        })
     }
 }
 
