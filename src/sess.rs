@@ -970,7 +970,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             if clear == CheckoutState::ToClone {
                 git.clone()
                     .spawn_with(move |c| {
-                        c.arg("clone")
+                        c.arg("-c")
+                            .arg("filter.lfs.smudge=")
+                            .arg("-c")
+                            .arg("filter.lfs.process=")
+                            .arg("-c")
+                            .arg("filter.lfs.required=false")
+                            .arg("clone")
                             .arg(git.path)
                             .arg(path)
                             .arg("--branch")
@@ -984,9 +990,24 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     .await?;
                 local_git
                     .clone()
-                    .spawn_with(move |c| c.arg("checkout").arg(tag_name_2).arg("--force"))
+                    .spawn_with(move |c| {
+                        c.arg("-c")
+                            .arg("filter.lfs.smudge=")
+                            .arg("-c")
+                            .arg("filter.lfs.process=")
+                            .arg("-c")
+                            .arg("filter.lfs.required=false")
+                            .arg("checkout")
+                            .arg(tag_name_2)
+                            .arg("--force")
+                    })
                     .await?;
             }
+            local_git
+                .clone()
+                .spawn_with(move |c| c.arg("config").arg("lfs.url").arg(url))
+                .await?;
+            local_git.clone().spawn_with(move |c| c.arg("lfs").arg("pull")).await?;
             local_git
                 .clone()
                 .spawn_with(move |c| {
