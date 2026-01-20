@@ -1183,17 +1183,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     cause,
                                 )
                             })?;
-                            let mut full =
-                                partial.validate_ignore_sources("", true).map_err(|cause| {
-                                    Error::chain(
-                                        format!(
-                                            "Error in manifest of dependency `{}` at revision \
+                            let mut full = partial.validate_ignore_sources().map_err(|cause| {
+                                Error::chain(
+                                    format!(
+                                        "Error in manifest of dependency `{}` at revision \
                                              `{}`.",
-                                            dep.0, used_git_rev
-                                        ),
-                                        cause,
-                                    )
-                                })?;
+                                        dep.0, used_git_rev
+                                    ),
+                                    cause,
+                                )
+                            })?;
                             self.sub_dependency_fixing(
                                 &mut full.dependencies,
                                 full.package.name.clone(),
@@ -1286,7 +1285,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             Error::chain(format!("Syntax error in manifest {:?}.", path), cause)
                         })?;
 
-                    match partial.validate_ignore_sources("", true) {
+                    match partial.validate_ignore_sources() {
                         Ok(m) => {
                             if dep.name != m.package.name {
                                 Warnings::DepPkgNameNotMatching(
@@ -1350,17 +1349,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     cause,
                                 )
                             })?;
-                        let mut full =
-                            partial.validate_ignore_sources("", true).map_err(|cause| {
-                                Error::chain(
-                                    format!(
-                                        "Error in manifest of dependency `{}` at revision \
+                        let mut full = partial.validate_ignore_sources().map_err(|cause| {
+                            Error::chain(
+                                format!(
+                                    "Error in manifest of dependency `{}` at revision \
                                          `{}`.",
-                                        dep_name, rev
-                                    ),
-                                    cause,
-                                )
-                            })?;
+                                    dep_name, rev
+                                ),
+                                cause,
+                            )
+                        })?;
 
                         // Add base path to path dependencies within git repositories
                         self.sub_dependency_fixing(
