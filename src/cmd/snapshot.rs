@@ -10,7 +10,7 @@ use clap::Args;
 use indexmap::IndexMap;
 use tokio::runtime::Runtime;
 
-use crate::cli::symlink_dir;
+use crate::cli::{remove_symlink_dir, symlink_dir};
 use crate::cmd::clone::get_path_subdeps;
 use crate::config::{Dependency, Locked, LockedSource};
 use crate::diagnostic::Warnings;
@@ -262,7 +262,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
                 }
                 if link_path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
                     debugln!("main: removing existing link {:?}", link_path);
-                    std::fs::remove_file(link_path).map_err(|cause| {
+                    remove_symlink_dir(link_path).map_err(|cause| {
                         Error::chain(
                             format!("Failed to remove symlink at path {:?}.", link_path),
                             cause,
