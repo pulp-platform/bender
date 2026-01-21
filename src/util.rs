@@ -468,7 +468,7 @@ macro_rules! fmt_field {
 #[macro_export]
 macro_rules! fmt_version {
     ($ver:expr) => {
-        $crate::util::OwoColorize::bold(&$ver)
+        $crate::util::OwoColorize::cyan(&$ver)
     };
 }
 
