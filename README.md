@@ -248,6 +248,14 @@ All git tags of the form `vX.Y.Z` are considered a version of the package.
 
 [Relevant dependency resolution code](https://github.com/pulp-platform/bender/blob/master/src/resolver.rs)
 
+#### Git LFS Support
+
+Bender detects if a repository requires Git LFS and if the `git-lfs` tool is installed on your system.
+
+- If the repository uses LFS (detected via `.gitattributes`) and `git-lfs` is installed, Bender will automatically configure LFS and pull the required files.
+- If the repository appears to use LFS but `git-lfs` is **not** installed, Bender will print a warning (`W33`) but proceed with the checkout. In this case, you may end up with pointer files instead of the actual large files, which can cause build failures.
+- If the repository does not use LFS, Bender skips LFS operations entirely to save time.
+
 #### Target handling
 
 Specified dependencies can be filtered, similar to the sources below. For consistency, this filtering does **NOT** apply during an update, i.e., all dependencies will be accounted for in the Bender.lock file. The target filtering only applies for sources and script outputs. This can be used e.g., to include specific IP only for testing.

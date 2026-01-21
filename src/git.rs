@@ -157,6 +157,45 @@ impl<'ctx> Git<'ctx> {
         Ok(())
     }
 
+    /// Check if git-lfs is available.
+    pub async fn has_lfs(self) -> bool {
+        self.spawn_with(|c| c.arg("lfs").arg("version"))
+            .await
+            .is_ok()
+    }
+
+    /// Check if the repository uses LFS.
+    pub async fn uses_lfs(self) -> Result<bool> {
+        let output = self.spawn_with(|c| c.arg("lfs").arg("ls-files")).await?;
+        Ok(!output.trim().is_empty())
+    }
+
+    /// Check if the repository has LFS attributes configured.
+    pub async fn uses_lfs_attributes(self) -> Result<bool> {
+        // We use tokio::task::spawn_blocking because walkdir is synchronous
+        // and file I/O should not block the async runtime.
+        let path = self.path.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            use walkdir::WalkDir;
+            for entry in WalkDir::new(&path) {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                if entry.file_type().is_file() && entry.file_name() == ".gitattributes" {
+                    if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                        if content.contains("filter=lfs") {
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+            Ok(false)
+        })
+        .await
+        .map_err(|e| Error::chain("Failed to join blocking task", e))?
+    }
+
     /// Fetch the tags and refs of a remote.
     pub async fn fetch(self, remote: &str) -> Result<()> {
         let r1 = String::from(remote);

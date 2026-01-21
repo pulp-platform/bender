@@ -1003,14 +1003,32 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     })
                     .await?;
             }
-            local_git
-                .clone()
-                .spawn_with(move |c| c.arg("config").arg("lfs.url").arg(url))
-                .await?;
-            local_git
-                .clone()
-                .spawn_with(move |c| c.arg("lfs").arg("pull"))
-                .await?;
+            if local_git.clone().has_lfs().await {
+                // Check if the repo actually tracks files with LFS
+                let uses_lfs = local_git.clone().uses_lfs().await.unwrap_or(false);
+                if uses_lfs {
+                    local_git
+                        .clone()
+                        .spawn_with(move |c| c.arg("config").arg("lfs.url").arg(url))
+                        .await?;
+                    local_git
+                        .clone()
+                        .spawn_with(move |c| c.arg("lfs").arg("pull"))
+                        .await?;
+                }
+            } else {
+                if local_git
+                    .clone()
+                    .uses_lfs_attributes()
+                    .await
+                    .unwrap_or(false)
+                {
+                    Warnings::LfsMissing {
+                        pkg: name.to_string(),
+                    }
+                    .emit();
+                }
+            }
             local_git
                 .clone()
                 .spawn_with(move |c| {

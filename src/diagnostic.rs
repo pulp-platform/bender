@@ -319,6 +319,13 @@ pub enum Warnings {
     #[error("Path {} for dependency {} does not exist.", fmt_path!(path.display()), fmt_pkg!(pkg))]
     #[diagnostic(code(W32))]
     DepPathMissing { pkg: String, path: PathBuf },
+
+    #[error("Dependency {} seems to use git-lfs, but git-lfs is not installed.", fmt_pkg!(pkg))]
+    #[diagnostic(
+        code(W33),
+        help("Install git-lfs to ensure all files are fetched correctly.")
+    )]
+    LfsMissing { pkg: String },
 }
 
 #[cfg(test)]
