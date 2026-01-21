@@ -1018,6 +1018,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     )
                     .await?;
             } else if clear == CheckoutState::ToCheckout {
+                let pb = Some(ProgressHandler::new(
+                    self.sess.multiprogress.clone(),
+                    GitProgressOps::Fetch,
+                    name,
+                ));
                 local_git
                     .clone()
                     .spawn_with(
@@ -1028,7 +1033,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .arg("--prune")
                                 .arg("--progress")
                         },
-                        None,
+                        pb,
                     )
                     .await?;
                 let pb = Some(ProgressHandler::new(
