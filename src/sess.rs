@@ -1799,7 +1799,7 @@ impl fmt::Display for DependencySource {
         match *self {
             DependencySource::Registry => write!(f, "registry"),
             DependencySource::Path(ref path) => write!(f, "{:?}", path),
-            DependencySource::Git(ref url) => write!(f, "`{}`", url),
+            DependencySource::Git(ref url) => write!(f, "{}", url),
         }
     }
 }

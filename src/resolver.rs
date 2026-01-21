@@ -30,6 +30,7 @@ use crate::sess::{
 };
 use crate::target::TargetSpec;
 use crate::util::{version_req_bottom_bound, version_req_top_bound};
+use crate::{fmt_path, fmt_pkg, fmt_version};
 
 /// A dependency resolver.
 pub struct DependencyResolver<'ctx> {
@@ -709,26 +710,26 @@ impl<'ctx> DependencyResolver<'ctx> {
         sources: &IndexMap<DependencyRef, DependencyReference<'ctx>>,
     ) -> Result<(DependencyRef, IndexSet<usize>)> {
         let mut msg = format!(
-            "Dependency requirements conflict with each other on dependency `{}`.\n",
-            name
+            "Dependency requirements conflict with each other on dependency {}.\n",
+            fmt_pkg!(name)
         );
         let mut cons = Vec::new();
         let mut constr_align = String::from("");
         for &(pkg_name, ref con, ref dsrc) in all_cons {
             constr_align.push_str(&format!(
-                "\n- package `{}`\trequires\t`{}`{}\tat `{}`",
-                pkg_name,
-                con,
+                "\n- package {}\trequires\t{}{}\tat {}",
+                fmt_pkg!(pkg_name),
+                fmt_version!(con),
                 match con {
                     DependencyConstraint::Version(req) => format!(
                         " ({} <= x < {})",
-                        version_req_bottom_bound(req)?.unwrap(),
-                        version_req_top_bound(req)?.unwrap()
+                        fmt_version!(version_req_bottom_bound(req)?.unwrap()),
+                        fmt_version!(version_req_top_bound(req)?.unwrap())
                     ),
                     DependencyConstraint::Revision(_) => "".to_string(),
                     DependencyConstraint::Path => "".to_string(),
                 },
-                self.sess.dependency_source(*dsrc),
+                fmt_path!(self.sess.dependency_source(*dsrc)),
             ));
             cons.push((con, dsrc));
         }
@@ -794,9 +795,9 @@ impl<'ctx> DependencyResolver<'ctx> {
         if let Some((cnstr, src, _, _)) = self.locked.get(name) {
             let _ = write!(
                 msg,
-                "\n\nThe previous lockfile required `{}` at `{}`",
-                cnstr,
-                self.sess.dependency_source(*src)
+                "\n\nThe previous lockfile required {} at {}.",
+                fmt_version!(cnstr),
+                fmt_path!(self.sess.dependency_source(*src))
             );
             cons.insert(0, (cnstr, src));
         }
@@ -807,18 +808,19 @@ impl<'ctx> DependencyResolver<'ctx> {
             } else {
                 eprintln!(
                     "{}\n\nTo resolve this conflict manually, \
-                        select a revision for `{}` among:",
-                    msg, name
+                        select a revision for {} among:",
+                    msg,
+                    fmt_pkg!(name)
                 );
 
                 let mut tw2 = TabWriter::new(vec![]);
                 for (idx, e) in cons.iter().enumerate() {
                     writeln!(
                         &mut tw2,
-                        "{})\t`{}`\tat `{}`",
+                        "{})\t{}\tat {}",
                         idx,
-                        e.0,
-                        self.sess.dependency_source(*e.1)
+                        fmt_version!(e.0),
+                        fmt_path!(self.sess.dependency_source(*e.1))
                     )
                     .unwrap();
                 }
