@@ -53,7 +53,7 @@ macro_rules! debugln {
 /// Emit a diagnostic message.
 macro_rules! diagnostic {
     ($severity:expr; $($arg:tt)*) => {
-        eprintln!("{} {}", $severity, format!($($arg)*))
+        eprintln!("{:>14} {}", $severity, format!($($arg)*))
     }
 }
 
@@ -74,7 +74,7 @@ impl fmt::Display for Severity {
             Severity::Debug => ("Debug:", Style::new().blue().bold()),
             Severity::Stage(name) => (name, Style::new().green().bold()),
         };
-        write!(f, "  {}", severity.style(style))
+        write!(f, "{:>14}", severity.style(style))
     }
 }
 

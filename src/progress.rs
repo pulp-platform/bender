@@ -17,6 +17,9 @@ use crate::{fmt_completed, fmt_pkg, fmt_stage};
 
 static RE_GIT: OnceLock<Regex> = OnceLock::new();
 
+// The alignment of the operation strings
+const OP_ALIGN: usize = 12;
+
 /// The result of parsing a git progress line.
 pub enum GitProgress {
     SubmoduleRegistered { name: String },
@@ -27,6 +30,29 @@ pub enum GitProgress {
     Checkout { percent: u8 },
     Error(String),
     Other,
+}
+
+impl GitProgressOps {
+    /// Returns the present-tense name (for active bars) and the padding needed for the spinner.
+    fn active_fmt(&self) -> (&'static str, usize) {
+        let name = match self {
+            Self::Clone => "Cloning",
+            Self::Fetch => "Fetching",
+            Self::Checkout => "Checking out",
+            Self::Submodule => "Submodules",
+        };
+        (name, (OP_ALIGN - name.len()) + 1)
+    }
+
+    /// Returns the past-tense name (for finished lines).
+    fn past_fmt(&self) -> &'static str {
+        match self {
+            Self::Clone => "Cloned",
+            Self::Fetch => "Fetched",
+            Self::Checkout => "Checked out",
+            Self::Submodule => "Submodules",
+        }
+    }
 }
 
 /// Captures (dynamic) state information for a git operation's progress.
@@ -126,27 +152,24 @@ impl ProgressHandler {
     /// Adds a new progress bar to the multi-progress and returns the initial state
     /// that is needed to track progress updates.
     pub fn start(&self) -> ProgressState {
-        // Create and configure the main progress bar
-        let style = ProgressStyle::with_template(
-            "{spinner:.cyan} {prefix:<32!} {bar:40.cyan/blue} {percent:>3}% {msg}",
-        )
-        .unwrap()
-        .progress_chars("-- ")
-        .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]);
+        let (op_name, spinner_pad) = self.git_op.active_fmt();
+
+        // Set the prefix based on the git operation
+        let template = format!(
+            "{{spinner:>{spinner_pad}.cyan}} {{prefix:<32}} {{bar:40.cyan/blue}} {{percent:>3}}% {{msg}}"
+        );
+
+        let style = ProgressStyle::with_template(template.as_str())
+            .unwrap()
+            .progress_chars("-- ")
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]);
 
         // Create and attach the progress bar to the multi-progress bar.
         let pb = self
             .multiprogress
             .add(ProgressBar::new(100).with_style(style));
 
-        // Set the prefix based on the git operation
-        let prefix = match self.git_op {
-            GitProgressOps::Clone => "Cloning",
-            GitProgressOps::Fetch => "Fetching",
-            GitProgressOps::Checkout => "Checking out",
-            GitProgressOps::Submodule => "Updating Submodules",
-        };
-        let prefix = format!("{} {}", fmt_stage!(prefix), fmt_pkg!(&self.name));
+        let prefix = format!("{} {}", fmt_stage!(op_name), fmt_pkg!(&self.name));
         pb.set_prefix(prefix);
 
         // Configure the spinners to automatically tick every 100ms
@@ -177,12 +200,12 @@ impl ProgressHandler {
                     // The main bar simply becomes a spinner since the sub-bar will show progress
                     // on the subsequent line.
                     state.pb.set_style(
-                        ProgressStyle::with_template("{spinner:.cyan} {prefix:<40!}").unwrap(),
+                        ProgressStyle::with_template("{spinner:>3.cyan} {prefix:<40!}").unwrap(),
                     );
 
                     // The submodule style is similar to the main bar, but indented and without spinner
                     let style = ProgressStyle::with_template(
-                        "    {prefix:<32!} {bar:40.cyan/blue} {percent:>3}% {msg}",
+                        "     {prefix:<24!} {bar:40.cyan/blue} {percent:>3}% {msg}",
                     )
                     .unwrap()
                     .progress_chars("-- ");
@@ -282,17 +305,9 @@ impl ProgressHandler {
         }
         state.pb.finish_and_clear();
 
-        // Print a final message indicating completion
-        let op_str = match self.git_op {
-            GitProgressOps::Clone => "Cloned",
-            GitProgressOps::Fetch => "Fetched",
-            GitProgressOps::Checkout => "Checked out",
-            GitProgressOps::Submodule => "Updated Submodules",
-        };
-
         let finish_msg = format!(
-            "  {} {} {}",
-            fmt_completed!(op_str),
+            "{:>14} {} {}",
+            fmt_completed!(self.git_op.past_fmt()),
             fmt_pkg!(&self.name),
             fmt_duration(state.start_time.elapsed()).dimmed()
         );
