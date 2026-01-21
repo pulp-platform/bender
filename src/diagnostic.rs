@@ -64,6 +64,22 @@ impl Diagnostics {
         let diag = Diagnostics::get();
         diag.all_suppressed || diag.suppressed.contains(code)
     }
+
+    // Print cleanly (using suspend if a bar exists)
+    pub fn eprintln(msg: &str) {
+        let diag = Diagnostics::get();
+        let mp_guard = diag.multiprogress.lock().unwrap();
+
+        if let Some(mp) = &*mp_guard {
+            // If we have progress bars, hide them momentarily
+            mp.suspend(|| {
+                eprintln!("{msg}");
+            });
+        } else {
+            // Otherwise just print
+            eprintln!("{msg}");
+        }
+    }
 }
 
 impl Warnings {
@@ -86,22 +102,9 @@ impl Warnings {
         emitted.insert(self.clone());
         drop(emitted);
 
-        // Prepare the report
+        // Prepare and emit the report
         let report = miette::Report::new(self.clone());
-
-        // Print cleanly (using suspend if a bar exists)
-        let mp_guard = diag.multiprogress.lock().unwrap();
-
-        if let Some(mp) = &*mp_guard {
-            // If we have progress bars, hide them momentarily
-            mp.suspend(|| {
-                eprintln!("{:?}", report);
-            });
-        } else {
-            eprintln!("No multiprogress bar available.");
-            // Otherwise just print
-            eprintln!("{:?}", report);
-        }
+        Diagnostics::eprintln(&format!("{report:?}"));
     }
 }
 

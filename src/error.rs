@@ -53,7 +53,7 @@ macro_rules! debugln {
 /// Emit a diagnostic message.
 macro_rules! diagnostic {
     ($severity:expr; $($arg:tt)*) => {
-        eprintln!("{:>14} {}", $severity, format!($($arg)*))
+        $crate::diagnostic::Diagnostics::eprintln(&format!("{:>14} {}", $severity, format!($($arg)*)))
     }
 }
 
