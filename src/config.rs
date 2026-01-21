@@ -542,15 +542,29 @@ impl Validate for PartialManifest {
         let deps = match self.dependencies {
             Some(d) => d
                 .into_iter()
-                .map(|(k, v)| (k.to_lowercase(), v))
-                .collect::<IndexMap<_, _>>()
-                .validate(ctx)
-                .map_err(|(key, cause)| {
-                    Error::chain(
-                        format!("In dependency `{}` of package `{}`:", key, pkg.name),
-                        cause,
-                    )
-                })?,
+                .map(|(k, v)| {
+                    let dep_name = k.to_lowercase();
+
+                    // We need to construct a new context for the dependency validation
+                    // since we need the dependency name and the remote definitions
+                    // to validate a dependency.
+                    let dep_ctx = ValidationContext {
+                        package_name: &dep_name,
+                        pre_output: ctx.pre_output,
+                        remotes: remotes.as_ref(),
+                        default_remote,
+                    };
+
+                    let validated = v.validate(&dep_ctx).map_err(|cause| {
+                        Error::chain(
+                            format!("In dependency `{dep_name}` of package `{}`:", pkg.name),
+                            cause,
+                        )
+                    })?;
+
+                    Ok((dep_name, validated))
+                })
+                .collect::<Result<IndexMap<_, _>>>()?,
             None => IndexMap::new(),
         };
         let srcs = match self.sources {
@@ -661,6 +675,8 @@ pub struct PartialDependency {
     /// The version requirement of the package. This will be parsed into a
     /// semantic versioning requirement.
     version: Option<String>,
+    /// The remote to use for this dependency
+    remote: Option<String>,
     /// Targets to pass to the dependency
     pass_targets: Option<Vec<StringOrStruct<PartialPassedTarget>>>,
     /// Unknown extra fields
@@ -668,6 +684,15 @@ pub struct PartialDependency {
     extra: HashMap<String, Value>,
 }
 
+/// The `FromStr` implementation allows specifying a dependency as a simple
+/// version string. For example:
+/// ```yaml
+/// my_dep: "1.2.3"
+/// ```
+/// will be interpreted as:
+/// ```yaml
+/// my_dep: { version: "1.2.3" }
+/// ```
 impl FromStr for PartialDependency {
     type Err = Void;
     fn from_str(s: &str) -> std::result::Result<Self, Void> {
@@ -698,20 +723,17 @@ impl Validate for PartialDependency {
             .into_iter()
             .map(|s| s.validate(ctx))
             .collect::<Result<Vec<_>>>()?;
-        let version = match self.version {
-            Some(v) => Some(semver::VersionReq::parse(&v).map_err(|cause| {
-                Error::chain(
-                    format!("\"{}\" is not a valid semantic version requirement.", v),
-                    cause,
-                )
-            })?),
-            None => None,
-        };
-        if self.rev.is_some() && version.is_some() {
-            return Err(Error::new(
-                "A dependency cannot specify `version` and `rev` at the same time.",
-            ));
-        }
+        let version = self
+            .version
+            .map(|v| {
+                semver::VersionReq::parse(&v).map_err(|cause| {
+                    Error::chain(
+                        format!("\"{}\" is not a valid semantic version requirement.", v),
+                        cause,
+                    )
+                })
+            })
+            .transpose()?;
         if !ctx.pre_output {
             self.extra.iter().for_each(|(k, _)| {
                 Warnings::IgnoreUnknownField {
@@ -721,57 +743,82 @@ impl Validate for PartialDependency {
                 .emit();
             });
         }
-        if let Some(path) = self.path {
-            if let Some(list) = string_list(
-                self.git
-                    .map(|_| "`git`")
-                    .iter()
-                    .chain(self.rev.map(|_| "`rev`").iter())
-                    .chain(version.map(|_| "`version`").iter()),
-                ",",
-                "or",
-            ) {
-                Err(Error::new(format!(
-                    "A `path` dependency cannot have a {} field.",
-                    list
-                )))
-            } else {
-                Ok(Dependency::Path {
-                    target,
-                    path: env_path_from_string(path)?,
-                    pass_targets,
-                })
+
+        match (self.git, self.path, self.rev, version, self.remote) {
+            // Git dependencies with default remote, e.g.:
+            // ```yaml
+            // my_dep: "1.2.3"
+            // my_dep: {version: "1.2.3"}
+            // ```
+            (None, None, None, Some(version), None) => {
+                if let Some(default_remote) = ctx.default_remote {
+                    Ok(Dependency::GitVersion {
+                        target,
+                        url: format!("{}/{}.git", default_remote.url, ctx.package_name),
+                        version,
+                        pass_targets,
+                    })
+                } else {
+                    Err(Error::new(
+                        "A dependency with only a `version` field requires a default remote to be set.",
+                    ))
+                }
             }
-        } else if let Some(git) = self.git {
-            if let Some(rev) = self.rev {
-                Ok(Dependency::GitRevision {
-                    target,
-                    url: git,
-                    rev,
-                    pass_targets,
-                })
-            } else if let Some(version) = version {
-                Ok(Dependency::GitVersion {
-                    target,
-                    url: git,
-                    version,
-                    pass_targets,
-                })
-            } else {
-                Err(Error::new(
-                    "A `git` dependency must have either a `rev` or `version` field.",
-                ))
+            // Git dependencies with specified remote, e.g.:
+            // ```yaml
+            // my_dep: {version: "1.2.3", remote: "my_remote"}
+            // ```
+            (None, None, None, Some(version), Some(remote_name)) => {
+                if let Some(remote) = ctx.remotes.and_then(|r| r.get(&remote_name)) {
+                    Ok(Dependency::GitVersion {
+                        target,
+                        url: format!("{}/{}.git", remote.url, ctx.package_name),
+                        version,
+                        pass_targets,
+                    })
+                } else {
+                    Err(Error::new(format!(
+                        "Remote `{remote_name}` not found for dependency `{}`.",
+                        ctx.package_name
+                    )))
+                }
             }
-        } else if let Some(version) = version {
-            Ok(Dependency::Version {
+            // Git dependencies with explicit git and version, e.g.:
+            // ```yaml
+            // my_dep: {git: "http://example.com/repo.git", version: "1.2.3"}
+            // ```
+            (Some(git), None, None, Some(version), None) => Ok(Dependency::GitVersion {
                 target,
+                url: git,
                 version,
                 pass_targets,
-            })
-        } else {
-            Err(Error::new(
-                "A dependency must specify `version`, `path`, or `git`.",
-            ))
+            }),
+            // Git dependencies with revisions, e.g.:
+            // ```yaml
+            // my_dep: {git: "http://example.com/repo.git", rev: "my_branch"}
+            // my_dep: {git: "http://example.com/repo.git", rev: "some_hash"}
+            // ```
+            (Some(git), None, Some(rev), None, None) => Ok(Dependency::GitRevision {
+                target,
+                url: git,
+                rev,
+                pass_targets,
+            }),
+            // Path dependencies, e.g.:
+            // ```yaml
+            // my_dep: {path: "../my_dep"}
+            // ```
+            (None, Some(path), None, None, _) => Ok(Dependency::Path {
+                target,
+                path: env_path_from_string(path)?,
+                pass_targets,
+            }),
+            // TODO(fischeti): Emit specific errors for the following invalid cases:
+            // * version + rev
+            // * path + (git | rev | version)
+            // * git without (rev | version)
+            // * none of (path | git | rev | version)
+            _ => Err(Error::new("Weird combination of fields in dependency.")),
         }
     }
 }
