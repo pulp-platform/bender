@@ -813,12 +813,30 @@ impl Validate for PartialDependency {
                 path: env_path_from_string(path)?,
                 pass_targets,
             }),
-            // TODO(fischeti): Emit specific errors for the following invalid cases:
-            // * version + rev
-            // * path + (git | rev | version)
-            // * git without (rev | version)
-            // * none of (path | git | rev | version)
-            _ => Err(Error::new("Weird combination of fields in dependency.")),
+            (_, _, Some(_), Some(_), _) => Err(Error::new(format!(
+                "Dependency `{}` cannot specify both `version` and `rev` fields.",
+                ctx.package_name
+            ))),
+            (git, Some(_), rev, version, _)
+                if git.is_some() || rev.is_some() || version.is_some() =>
+            {
+                Err(Error::new(format!(
+                    "Path dependency `{}` cannot specify `git`, `rev`, or `version` fields.",
+                    ctx.package_name
+                )))
+            }
+            (Some(_), _, None, None, _) => Err(Error::new(format!(
+                "Dependency `{}` with `git` must also specify `rev` or `version`.",
+                ctx.package_name
+            ))),
+            (None, None, None, None, _) => Err(Error::new(format!(
+                "Dependency `{}` must specify at least one of `path`, `git`, `rev`, or `version`.",
+                ctx.package_name
+            ))),
+            cfg => Err(Error::new(format!(
+                "Invalid configuration for dependency `{}`: {cfg:?}",
+                ctx.package_name
+            ))),
         }
     }
 }
