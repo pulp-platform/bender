@@ -228,19 +228,6 @@ pub enum Warnings {
     DirtyGitDependency(String, PathBuf),
 
     // TODO(fischeti): This is part of an error, not a warning. Could be converted to an Error in the future.
-    #[error("Failed to initialize git database.")]
-    #[diagnostic(
-        code(W07),
-        help("Please ensure the url is correct and you have access to the repository. {}",
-        if *is_ssh {
-            "\nEnsure your SSH keys are set up correctly."
-        } else {
-            ""
-        })
-    )]
-    GitInitFailed { is_ssh: bool },
-
-    // TODO(fischeti): This is part of an error, not a warning. Could be converted to an Error in the future.
     #[error("Revision {} not found in repository {}.", fmt_version!(.0), fmt_pkg!(.1))]
     #[diagnostic(
         code(W08),

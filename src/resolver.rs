@@ -17,9 +17,10 @@ use std::process::Command as SysCommand;
 use futures::future::{join_all, try_join_all};
 use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools;
-use miette::{bail, ensure, miette, Error, IntoDiagnostic, Result};
+use miette::{bail, miette, Diagnostic, IntoDiagnostic, Result};
 use semver::{Version, VersionReq};
 use tabwriter::TabWriter;
+use thiserror::Error;
 use tokio::runtime::Runtime;
 
 use crate::config::{self, Locked, LockedPackage, LockedSource, Manifest};
@@ -31,6 +32,20 @@ use crate::sess::{
 use crate::target::TargetSpec;
 use crate::util::{version_req_bottom_bound, version_req_top_bound};
 use crate::{fmt_path, fmt_pkg, fmt_version};
+
+/// Errors that require help messages
+#[derive(Error, Debug, Diagnostic)]
+#[diagnostic(severity(Error))]
+#[allow(missing_docs)]
+pub enum Error {
+    #[error("Package {0} has the same name as top package {1}")]
+    #[diagnostic(help("Please ensure no packages with same name as top package"))]
+    TopPkgNamingCollision(String, String),
+
+    #[error("Package {0} has the same name as calling package {1}")]
+    #[diagnostic(help("Please ensure no packages with same name as calling package"))]
+    CallingPkgNamingCollision(String, String),
+}
 
 /// A dependency resolver.
 pub struct DependencyResolver<'ctx> {
@@ -320,20 +335,18 @@ impl<'ctx> DependencyResolver<'ctx> {
 
         // Register the versions.
         for (name, id) in names {
-            ensure!(
-                name != self.sess.manifest.package.name,
-                "Please ensure no packages with same name as top package\n\
-                    \tCurrently {} is called in {}",
-                name,
-                calling_package
-            );
-            ensure!(
-                name != calling_package,
-                "Please ensure no packages with same name as calling package\n\
-                \tCurrently {} is called in {}",
-                name,
-                calling_package
-            );
+            if name == self.sess.manifest.package.name {
+                Err(Error::TopPkgNamingCollision(
+                    name.to_string(),
+                    calling_package.to_string(),
+                ))?;
+            }
+            if name == calling_package {
+                Err(Error::CallingPkgNamingCollision(
+                    name.to_string(),
+                    calling_package.to_string(),
+                ))?;
+            }
             self.register_dependency(name, id, versions[&id].clone());
         }
         Ok(())
@@ -461,7 +474,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             .block_on(join_all(keep_locked.iter().map(|dep| {
                 let (_, src, hash, _) = self.locked.get(dep.as_str()).unwrap().clone();
                 async move {
-                    Ok::<(_, _), Error>((
+                    Ok::<(_, _), miette::Error>((
                         dep.to_string(),
                         (hash, io.dependency_versions(src, false).await?, src),
                     ))

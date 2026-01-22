@@ -15,7 +15,8 @@ use std::path::PathBuf;
 use clap::{ArgAction, Args};
 use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools;
-use miette::{bail, ensure, Error, IntoDiagnostic, Result, WrapErr};
+use miette::{bail, Diagnostic, IntoDiagnostic, Result, WrapErr};
+use thiserror::Error;
 use tokio::runtime::Runtime;
 use walkdir::{DirEntry, WalkDir};
 
@@ -24,6 +25,16 @@ use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup};
 use crate::target::TargetSet;
 use crate::target::TargetSpec;
+
+/// Errors that require help messages
+#[derive(Error, Debug, Diagnostic)]
+#[diagnostic(severity(Error))]
+#[allow(missing_docs)]
+pub enum Error {
+    #[error("{0}.core already exists")]
+    #[diagnostic(help("Please delete the file to generate it again."))]
+    ExistingCoreFile(String),
+}
 
 /// Creates a FuseSoC `.core` file for all dependencies where none is present
 #[derive(Args, Debug)]
@@ -81,11 +92,9 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
         Err(_) => bender_generate_flag.to_string(),
     };
 
-    ensure!(
-        file_str.contains(bender_generate_flag),
-        "{}.core already exists, please delete to generate.",
-        name
-    );
+    if !file_str.contains(bender_generate_flag) {
+        Err(Error::ExistingCoreFile(name.clone()))?;
+    }
 
     let fuse_depend_string = sess
         .manifest
@@ -274,7 +283,7 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
                                 eprintln!("Choice out of bounds!");
                                 continue;
                             }
-                            break Ok::<usize, Error>(choice);
+                            break Ok::<usize, miette::Error>(choice);
                         }?
                     };
                 }

@@ -5,11 +5,13 @@
 
 use std::collections::BTreeMap;
 use std::io::Write;
+use std::path::PathBuf;
 
 use clap::Args;
 use indexmap::IndexSet;
-use miette::{bail, Result};
+use miette::{bail, Diagnostic, Result};
 use tabwriter::TabWriter;
+use thiserror::Error;
 
 use crate::cmd;
 use crate::config::{Locked, LockedPackage};
@@ -18,6 +20,16 @@ use crate::lockfile::*;
 use crate::resolver::DependencyResolver;
 use crate::sess::Session;
 use crate::{fmt_completed, fmt_pkg};
+
+/// Errors that require help messages
+#[derive(Error, Debug, Diagnostic)]
+#[diagnostic(severity(Error))]
+#[allow(missing_docs)]
+pub enum Error {
+    #[error("Refusing to update dependencies because the package is frozen.")]
+    #[diagnostic(help("Remove the `frozen: true` from {0:?} to proceed; there be dragons."))]
+    FrozenPackage(PathBuf),
+}
 
 /// Update the dependencies
 #[derive(Args, Debug)]
@@ -105,11 +117,7 @@ pub fn run_plain<'ctx>(
     keep_locked: IndexSet<&'ctx String>,
 ) -> Result<(Locked, Vec<String>)> {
     if sess.manifest.frozen {
-        bail!(
-            "Refusing to update dependencies because the package is frozen.
-            Remove the `frozen: true` from {:?} to proceed; there be dragons.",
-            sess.root.join("Bender.yml")
-        );
+        Err(Error::FrozenPackage(sess.root.join("Bender.yml")))?
     }
     debugln!(
         "main: lockfile {:?} outdated",

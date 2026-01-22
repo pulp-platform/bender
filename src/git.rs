@@ -11,13 +11,36 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use futures::TryFutureExt;
-use miette::{miette, IntoDiagnostic, Result, WrapErr};
+use miette::{miette, Diagnostic, IntoDiagnostic, Result, WrapErr};
+use thiserror::Error;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
 use walkdir::WalkDir;
 
 use crate::progress::{monitor_stderr, ProgressHandler};
+
+/// Errors that require help messages
+#[derive(Error, Debug, Diagnostic)]
+#[diagnostic(severity(Error))]
+#[allow(missing_docs)]
+pub enum Error {
+    /// In case there are many ongoing requests (see #52)
+    #[error("System limit reached: Too many open files")]
+    #[diagnostic(help("Please consider increasing your `ulimit -n` (e.g. `ulimit -n 4096`)."))]
+    TooManyOpenFiles,
+
+    #[error("Failed to fetch git database.")]
+    #[diagnostic(
+        help("Please ensure the url is correct and you have access to the repository. {}",
+        if *is_ssh {
+            "\nEnsure your SSH keys are set up correctly."
+        } else {
+            ""
+        })
+    )]
+    FetchFailed { is_ssh: bool },
+}
 
 /// A git repository.
 ///
@@ -85,12 +108,8 @@ impl<'ctx> Git<'ctx> {
                 .to_lowercase()
                 .contains("too many open files")
             {
-                miette!(
-                    help = "Please consider increasing your `ulimit -n` (e.g. `ulimit -n 4096`).",
-                    "System limit reached: Too many open files"
-                )
+                Error::TooManyOpenFiles.into()
             } else {
-                // Just a standard error wrapper
                 miette!(cause).wrap_err("Failed to spawn child process")
             }
         })?;
@@ -239,7 +258,11 @@ impl<'ctx> Git<'ctx> {
     }
 
     /// Fetch the tags and refs of a remote.
-    pub async fn fetch(self, remote: &str, pb: Option<ProgressHandler>) -> Result<()> {
+    pub async fn fetch(
+        self,
+        remote: &str,
+        pb: Option<ProgressHandler>,
+    ) -> std::result::Result<(), Error> {
         self.clone()
             .spawn_with(
                 |c| {
@@ -252,6 +275,10 @@ impl<'ctx> Git<'ctx> {
                 pb,
             )
             .await
+            .map_err(|_| {
+                let is_ssh = remote.contains("git@");
+                Error::FetchFailed { is_ssh }
+            })
             .map(|_| ())
     }
 

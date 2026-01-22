@@ -8,7 +8,8 @@ use std::process::Command as SysCommand;
 
 use clap::Args;
 use indexmap::IndexMap;
-use miette::{bail, ensure, Context, IntoDiagnostic, Result};
+use miette::{bail, ensure, Context, Diagnostic, IntoDiagnostic, Result};
+use thiserror::Error;
 use tokio::runtime::Runtime;
 
 use crate::cli::{remove_symlink_dir, symlink_dir};
@@ -17,6 +18,16 @@ use crate::config::{Locked, LockedSource};
 use crate::diagnostic::Warnings;
 use crate::sess::{DependencyRef, DependencySource, Session, SessionIo};
 use crate::{fmt_path, fmt_pkg};
+
+/// Errors that require help messages
+#[derive(Error, Debug, Diagnostic)]
+#[diagnostic(severity(Error))]
+pub enum Error {
+    /// If this is already in Bender.local (e.g. from a previous clone)
+    #[error("Dependency {} already has a path override at {}", .0, .1.display())]
+    #[diagnostic(help("Please check Bender.local or .bender.yml"))]
+    DepHasPathOverride(String, PathBuf),
+}
 
 /// Clone dependency to a working directory
 #[derive(Args, Debug)]
@@ -39,12 +50,10 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
     if sess.config.overrides.contains_key(dep) {
         match &sess.config.overrides[dep] {
             config::Dependency::Path { path: p, .. } => {
-                bail!("Dependency `{}` already has a path override at\n\t{}\n\tPlease check Bender.local or .bender.yml",
-                    dep,
-                    p.to_str().unwrap()
-                );
+                return Err(Error::DepHasPathOverride(dep.clone(), p.to_path_buf()))?;
             }
             _ => {
+                // TODO(fischeti): Convert to Warning
                 eprintln!("A non-path override is already present, proceeding anyways");
             }
         }
@@ -154,10 +163,9 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
         dep, path_mod
     );
     if local_path.exists() {
-        let local_file_str = match std::fs::read_to_string(&local_path) {
-            Err(why) => bail!("Reading Bender.local failed with msg:\n\t{}", why),
-            Ok(local_file_str) => local_file_str,
-        };
+        let local_file_str = std::fs::read_to_string(&local_path)
+            .into_diagnostic()
+            .wrap_err("Reading Bender.local failed")?;
         let mut new_str = String::new();
         if local_file_str.contains("overrides:") {
             let split = local_file_str.split('\n');
@@ -180,11 +188,13 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
             new_str.push_str(&dep_str);
             new_str.push_str(&local_file_str);
         }
-        if let Err(why) = std::fs::write(local_path, new_str) {
-            bail!("Writing new Bender.local failed with msg:\n\t{}", why);
-        }
-    } else if let Err(why) = std::fs::write(local_path, format!("overrides:\n{}", dep_str)) {
-        bail!("Writing new Bender.local failed with msg:\n\t{}", why);
+        std::fs::write(local_path, new_str)
+            .into_diagnostic()
+            .wrap_err("Writing new Bender.local failed")?;
+    } else {
+        std::fs::write(local_path, format!("overrides:\n{}", dep_str))
+            .into_diagnostic()
+            .wrap_err("Writing new Bender.local failed")?;
     };
 
     eprintln!("{} dependency added to Bender.local", dep);

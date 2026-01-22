@@ -11,8 +11,9 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
 use glob::Pattern;
-use miette::{bail, ensure, Error, IntoDiagnostic, Result, WrapErr};
+use miette::{bail, Diagnostic, IntoDiagnostic, Result, WrapErr};
 use tempfile::TempDir;
+use thiserror::Error;
 use tokio::runtime::Runtime;
 
 use crate::config;
@@ -23,6 +24,26 @@ use crate::git::Git;
 use crate::progress::{GitProgressOps, ProgressHandler};
 use crate::sess::{DependencySource, Session};
 use crate::{fmt_path, fmt_pkg};
+
+/// Errors that require help messages
+#[derive(Error, Debug, Diagnostic)]
+#[diagnostic(severity(Error))]
+#[allow(missing_docs)]
+pub enum Error {
+    #[error("Upstream vendor reference not a commit hash.")]
+    #[diagnostic(help("Please ensure your vendor reference is a commit hash to avoid upstream changes impacting your checkout."))]
+    UpstreamNotHash,
+
+    #[error("Could not find {}", .0.display())]
+    #[diagnostic(help("Did you run bender vendor init?"))]
+    PatchNotExists(PathBuf),
+
+    #[error("Patch file does not start with number.")]
+    #[diagnostic(help(
+        "Please ensure all patches start with four numbers for proper ordering in {}", .0.display()
+    ))]
+    NoLeadingNumber(PathBuf),
+}
 
 /// A patch linkage
 #[derive(Clone)]
@@ -146,7 +167,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                     {
                         Err(Error::UpstreamNotHash)?
                     } else {
-                        Ok(())
+                        Ok::<(), miette::Error>(())
                     }
                 })?;
 
@@ -515,11 +536,9 @@ pub fn diff(
         .to_prefix
         .clone()
         .prefix_paths(vendor_package.target_dir.as_ref())?;
-    ensure!(
-        link_to.exists(),
-        "Could not find {}. Did you run bender vendor init?",
-        link_to.to_str().unwrap()
-    );
+    if !link_to.exists() {
+        Err(Error::PatchNotExists(link_to.clone()))?
+    }
     // Copy src to dst recursively.
     match &link_to.is_dir() {
         true => copy_recursively(
@@ -600,10 +619,7 @@ pub fn gen_plain_patch(diff: String, patch_dir: impl AsRef<Path>, no_patch: bool
                 .iter()
                 .all(|s| s.chars().all(char::is_numeric))
             {
-                bail!(
-                    "Please ensure all patches start with four numbers for proper ordering in {}",
-                    patch_dir.as_ref().to_str().unwrap()
-                );
+                Err(Error::NoLeadingNumber(patch_dir.as_ref().to_path_buf()))?
             }
             let max_number = leading_numbers
                 .iter()
@@ -635,11 +651,9 @@ pub fn gen_format_patch(
         .to_prefix
         .clone()
         .prefix_paths(target_dir.as_ref())?;
-    ensure!(
-        to_path.exists(),
-        "Could not find {}. Did you run bender vendor init?",
-        to_path.to_str().unwrap()
-    );
+    if !to_path.exists() {
+        Err(Error::PatchNotExists(to_path.clone()))?
+    }
     let git_parent = Git::new(
         if to_path.is_dir() {
             &to_path
@@ -706,16 +720,27 @@ pub fn gen_format_patch(
 
         // Apply diff and stage changes in ghost repo
         rt.block_on(async {
-            git.clone().spawn_with(|c| {
-                c.arg("apply")
-                    .arg("--directory")
-                    .arg(&from_path_relative)
-                    .arg("-p1")
-                    .arg(&diff_cached_path)
-            }, None)
-            .and_then(|_| git.clone().spawn_with(|c| c.arg("add").arg("--all"), None))
-            .await
-        }).wrap_err("Could not apply staged changes on top of patched upstream repository. Did you commit all previously patched modifications?")?;
+            git.clone()
+                .spawn_with(
+                    |c| {
+                        c.arg("apply")
+                            .arg("--directory")
+                            .arg(&from_path_relative)
+                            .arg("-p1")
+                            .arg(&diff_cached_path)
+                    },
+                    None,
+                )
+                .and_then(|_| git.clone().spawn_with(|c| c.arg("add").arg("--all"), None))
+                .await
+        })
+        .map_err(|cause| {
+            miette::miette!(
+                help = "Did you commit all previously patched modifications?",
+                "Could not apply staged changes on top of patched upstream repository. Cause: {}",
+                cause
+            )
+        })?;
 
         // Commit all staged changes in ghost repo
         rt.block_on(git.clone().commit(message))?;
@@ -746,10 +771,7 @@ pub fn gen_format_patch(
                 .iter()
                 .all(|s| s.chars().all(char::is_numeric))
             {
-                bail!(
-                    "Please ensure all patches start with four numbers for proper ordering in {}",
-                    patch_dir.to_str().unwrap()
-                );
+                Err(Error::NoLeadingNumber(patch_dir.clone()))?
             }
             leading_numbers
                 .iter()
