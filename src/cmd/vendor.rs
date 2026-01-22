@@ -10,7 +10,6 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
-use futures::future::{self};
 use glob::Pattern;
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
@@ -416,76 +415,71 @@ pub fn apply_patches(
     package_name: String,
     patch_link: PatchLink,
 ) -> Result<usize> {
-    if let Some(patch_dir) = patch_link.patch_dir.clone() {
-        // Create directory in case it does not already exist
-        std::fs::create_dir_all(patch_dir.clone()).map_err(|cause| {
-            Error::chain(
-                format!("Failed to create directory {:?}", patch_dir.clone()),
-                cause,
-            )
-        })?;
+    let patch_dir = match &patch_link.patch_dir {
+        Some(patch_dir) => patch_dir,
+        None => return Ok(0),
+    };
 
-        let mut patches = std::fs::read_dir(patch_dir)?
-            .map(move |f| f.unwrap().path())
-            .filter(|f| f.extension().is_some())
-            .filter(|f| f.extension().unwrap() == "patch")
-            .collect::<Vec<_>>();
-        patches.sort_by_key(|patch_path| patch_path.to_str().unwrap().to_lowercase());
+    // Create directory in case it does not already exist
+    std::fs::create_dir_all(patch_dir).map_err(|cause| {
+        Error::chain(format!("Failed to create directory {patch_dir:?}"), cause)
+    })?;
 
-        for patch in patches.clone() {
-            rt.block_on(async {
-                future::lazy(|_| Ok(()))
-                    .and_then(|_| {
-                        git.clone().spawn_with(
-                            |c| {
-                                let is_file = patch_link
-                                    .from_prefix
-                                    .clone()
-                                    .prefix_paths(git.path)
-                                    .unwrap()
-                                    .is_file();
+    let mut patches = std::fs::read_dir(patch_dir)?
+        .map(move |f| f.unwrap().path())
+        .filter(|f| f.extension().is_some())
+        .filter(|f| f.extension().unwrap() == "patch")
+        .collect::<Vec<_>>();
+    patches.sort_by_key(|patch_path| patch_path.to_str().unwrap().to_lowercase());
 
-                                let current_patch_target = if is_file {
-                                    patch_link.from_prefix.parent().unwrap().to_str().unwrap()
-                                } else {
-                                    patch_link.from_prefix.as_path().to_str().unwrap()
-                                };
+    rt.block_on(async {
+        for patch in &patches {
+            git.clone()
+                .spawn_with(
+                    |c| {
+                        let is_file = patch_link
+                            .from_prefix
+                            .clone()
+                            .prefix_paths(git.path)
+                            .unwrap()
+                            .is_file();
 
-                                c.arg("apply")
-                                    .arg("--directory")
-                                    .arg(current_patch_target)
-                                    .arg("-p1")
-                                    .arg(&patch);
+                        let current_patch_target = if is_file {
+                            patch_link.from_prefix.parent().unwrap().to_str().unwrap()
+                        } else {
+                            patch_link.from_prefix.as_path().to_str().unwrap()
+                        };
 
-                                // limit to specific file for file links
-                                if is_file {
-                                    let file_path = patch_link.from_prefix.to_str().unwrap();
-                                    c.arg("--include").arg(file_path);
-                                }
-                                c
-                            },
-                            None,
-                        )
-                    })
-                    .await
-                    .map_err(|cause| {
-                        Error::chain(format!("Failed to apply patch {:?}.", patch.clone()), cause)
-                    })
-                    .map(|_| {
-                        stageln!(
-                            "Patched",
-                            "{} with {}",
-                            fmt_pkg!(package_name),
-                            fmt_path!(patch.display())
-                        );
-                    })
-                    .map(|_| git.clone())
-            })?;
+                        c.arg("apply")
+                            .arg("--directory")
+                            .arg(current_patch_target)
+                            .arg("-p1")
+                            .arg(patch);
+
+                        // limit to specific file for file links
+                        if is_file {
+                            let file_path = patch_link.from_prefix.to_str().unwrap();
+                            c.arg("--include").arg(file_path);
+                        }
+                        c
+                    },
+                    None,
+                )
+                .await
+                .map_err(|cause| {
+                    Error::chain(format!("Failed to apply patch {patch:?}."), cause)
+                })?;
+
+            stageln!(
+                "Patched",
+                "{} with {}",
+                fmt_pkg!(package_name),
+                fmt_path!(patch.display())
+            );
         }
-        Ok(patches.len())
-    } else {
-        Ok(0)
-    }
+        Ok::<(), Error>(())
+    })?;
+    Ok(patches.len())
 }
 
 /// Generate diff
