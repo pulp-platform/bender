@@ -4,7 +4,6 @@
 use crate::util::fmt_duration;
 
 use indexmap::IndexMap;
-use owo_colors::OwoColorize;
 use std::io::IsTerminal;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -13,7 +12,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use regex::Regex;
 use tokio::io::{AsyncReadExt, BufReader};
 
-use crate::{fmt_completed, fmt_pkg, fmt_stage};
+use crate::{fmt_completed, fmt_dim, fmt_pkg, fmt_stage};
 
 static RE_GIT: OnceLock<Regex> = OnceLock::new();
 
@@ -215,7 +214,7 @@ impl ProgressHandler {
                     // to have a "T" connector (├─) instead of an "L"
                     let prev_bar = match state.sub_bars.last() {
                         Some((last_name, last_pb)) => {
-                            let prev_prefix = format!("{} {}", "├─".dimmed(), last_name);
+                            let prev_prefix = format!("{} {}", fmt_dim!("├─"), last_name);
                             last_pb.set_prefix(prev_prefix);
                             last_pb // Insert the new one after this one
                         }
@@ -227,9 +226,9 @@ impl ProgressHandler {
                         .multiprogress
                         .insert_after(prev_bar, ProgressBar::new(100).with_style(style));
                     // Set the prefix and initial message
-                    let sub_prefix = format!("{} {}", "╰─".dimmed(), &name);
+                    let sub_prefix = format!("{} {}", fmt_dim!("╰─"), &name);
                     sub_pb.set_prefix(sub_prefix);
-                    sub_pb.set_message(format!("{}", "Waiting...".dimmed()));
+                    sub_pb.set_message(format!("{}", fmt_dim!("Waiting...")));
 
                     // Store the sub-bar in the state for later updates
                     state.sub_bars.insert(name, sub_pb);
@@ -252,7 +251,7 @@ impl ProgressHandler {
                     // Set the new bar to active
                     if let Some(bar) = state.sub_bars.get(&name) {
                         // Switch style to the active progress bar style
-                        bar.set_message(format!("{}", "Cloning...".dimmed()));
+                        bar.set_message(format!("{}", fmt_dim!("Cloning...")));
                     }
                     state.active_sub = Some(name);
                 }
@@ -270,17 +269,17 @@ impl ProgressHandler {
             }
             // Update the progress percentage for receiving objects
             GitProgress::Receiving { percent, .. } => {
-                target_pb.set_message(format!("{}", "Receiving objects".dimmed()));
+                target_pb.set_message(format!("{}", fmt_dim!("Receiving objects")));
                 target_pb.set_position(percent as u64);
             }
             // Update the progress percentage for resolving deltas
             GitProgress::Resolving { percent, .. } => {
-                target_pb.set_message(format!("{}", "Resolving deltas".dimmed()));
+                target_pb.set_message(format!("{}", fmt_dim!("Resolving deltas")));
                 target_pb.set_position(percent as u64);
             }
             // Update the progress percentage for checking out files
             GitProgress::Checkout { percent, .. } => {
-                target_pb.set_message(format!("{}", "Checking out".dimmed()));
+                target_pb.set_message(format!("{}", fmt_dim!("Checking out")));
                 target_pb.set_position(percent as u64);
             }
             // Handle errors by finishing and clearing the target bar, then logging the error
@@ -309,7 +308,7 @@ impl ProgressHandler {
             "{:>14} {} {}",
             fmt_completed!(self.git_op.past_fmt()),
             fmt_pkg!(&self.name),
-            fmt_duration(state.start_time.elapsed()).dimmed()
+            fmt_dim!(fmt_duration(state.start_time.elapsed()))
         );
 
         // In TTY mode, we can print on top of the progress bars

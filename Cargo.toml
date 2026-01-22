@@ -39,7 +39,7 @@ subst = "0.3"
 tera = "1.19"
 miette = "7.6.0"
 thiserror = "2.0.18"
-owo-colors = "4.2.3"
+owo-colors = { version = "4.2.3", features = ["supports-colors"] }
 indicatif = "0.18.3"
 regex = "1.12.2"
 

@@ -8,7 +8,6 @@ use std::io::Write;
 
 use clap::Args;
 use indexmap::IndexSet;
-use owo_colors::OwoColorize;
 use tabwriter::TabWriter;
 
 use crate::cmd;

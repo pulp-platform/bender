@@ -8,10 +8,10 @@ use std::sync::{Mutex, OnceLock};
 
 use indicatif::MultiProgress;
 use miette::{Diagnostic, ReportHandler};
-use owo_colors::{OwoColorize, Style};
+use owo_colors::Style;
 use thiserror::Error;
 
-use crate::{fmt_field, fmt_path, fmt_pkg, fmt_version};
+use crate::{fmt_dim, fmt_field, fmt_path, fmt_pkg, fmt_version, fmt_with_style};
 
 static GLOBAL_DIAGNOSTICS: OnceLock<Diagnostics> = OnceLock::new();
 
@@ -120,11 +120,11 @@ impl ReportHandler for DiagnosticRenderer {
         };
 
         // Write the severity prefix
-        write!(f, "{}", severity.style(style))?;
+        write!(f, "{}", fmt_with_style!(severity, style))?;
 
         // Write the code, if any
         if let Some(code) = diagnostic.code() {
-            write!(f, "{}", format!("[{}]", code).style(style))?;
+            write!(f, "{}", fmt_with_style!(format!("[{}]", code), style))?;
         }
 
         // Write the main diagnostic message
@@ -139,8 +139,8 @@ impl ReportHandler for DiagnosticRenderer {
             for line in help_str.lines() {
                 annotations.push(format!(
                     "{} {}",
-                    "help:".bold(),
-                    line.replace("\x1b[0m", "\x1b[0m\x1b[2m").dimmed()
+                    fmt_with_style!("help:", Style::new().bold()),
+                    fmt_dim!(line.replace("\x1b[0m", "\x1b[0m\x1b[2m"))
                 ));
             }
         }
@@ -154,7 +154,7 @@ impl ReportHandler for DiagnosticRenderer {
             // The last item gets the corner, everyone else gets a branch
             let is_last = i == annotations.len() - 1;
             let prefix = if is_last { corner } else { branch };
-            write!(f, "\n{} {}", prefix.dimmed(), note)?;
+            write!(f, "\n{} {}", fmt_dim!(prefix), note)?;
         }
 
         Ok(())

@@ -8,7 +8,7 @@ use std::fmt;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use owo_colors::{OwoColorize, Style};
+use owo_colors::Style;
 
 pub static ENABLE_DEBUG: AtomicBool = AtomicBool::new(false);
 
@@ -53,7 +53,7 @@ macro_rules! debugln {
 /// Emit a diagnostic message.
 macro_rules! diagnostic {
     ($severity:expr; $($arg:tt)*) => {
-        $crate::diagnostic::Diagnostics::eprintln(&format!("{:>14} {}", $severity, format!($($arg)*)))
+        $crate::diagnostic::Diagnostics::eprintln(&format!("{} {}", $severity, format!($($arg)*)))
     }
 }
 
@@ -74,7 +74,7 @@ impl fmt::Display for Severity {
             Severity::Debug => ("Debug:", Style::new().blue().bold()),
             Severity::Stage(name) => (name, Style::new().green().bold()),
         };
-        write!(f, "{:>14}", severity.style(style))
+        write!(f, "{:>14}", crate::fmt_with_style!(severity, style))
     }
 }
 
