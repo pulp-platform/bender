@@ -12,6 +12,7 @@ use std::sync::Arc;
 use futures::TryFutureExt;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
+use walkdir::WalkDir;
 
 use crate::error::*;
 
@@ -157,13 +158,6 @@ impl<'ctx> Git<'ctx> {
         Ok(())
     }
 
-    /// Check if git-lfs is available.
-    pub async fn has_lfs(self) -> bool {
-        self.spawn_with(|c| c.arg("lfs").arg("version"))
-            .await
-            .is_ok()
-    }
-
     /// Check if the repository uses LFS.
     pub async fn uses_lfs(self) -> Result<bool> {
         let output = self.spawn_with(|c| c.arg("lfs").arg("ls-files")).await?;
@@ -176,24 +170,20 @@ impl<'ctx> Git<'ctx> {
         // and file I/O should not block the async runtime.
         let path = self.path.to_path_buf();
         tokio::task::spawn_blocking(move || {
-            use walkdir::WalkDir;
-            for entry in WalkDir::new(&path) {
-                let entry = match entry {
-                    Ok(e) => e,
-                    Err(_) => continue,
-                };
+            Ok(WalkDir::new(&path).into_iter().flatten().any(|entry| {
                 if entry.file_type().is_file() && entry.file_name() == ".gitattributes" {
                     if let Ok(content) = std::fs::read_to_string(entry.path()) {
-                        if content.contains("filter=lfs") {
-                            return Ok(true);
-                        }
+                        content.contains("filter=lfs")
+                    } else {
+                        false
                     }
+                } else {
+                    false
                 }
-            }
-            Ok(false)
+            }))
         })
         .await
-        .map_err(|e| Error::chain("Failed to join blocking task", e))?
+        .map_err(|cause| Error::chain("Failed to join blocking task", cause))?
     }
 
     /// Fetch the tags and refs of a remote.

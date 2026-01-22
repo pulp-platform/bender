@@ -305,8 +305,15 @@ pub enum Warnings {
     IncludeDirMissing(PathBuf),
 
     #[error("Skipping dirty dependency {}", fmt_pkg!(pkg))]
-    #[diagnostic(help("Use `--no-skip` to still snapshot {}.", fmt_pkg!(pkg)))]
+    #[diagnostic(code(W25), help("Use `--no-skip` to still snapshot {}.", fmt_pkg!(pkg)))]
     SkippingDirtyDep { pkg: String },
+
+    #[error("Dependency {} seems to use git-lfs, but git-lfs failed with `{}`.", fmt_pkg!(.0), .1)]
+    #[diagnostic(
+        code(W26),
+        help("You may need to install git-lfs to ensure all files are fetched correctly.")
+    )]
+    LfsMissing(String, String),
 
     #[error("File not added, ignoring: {cause}")]
     #[diagnostic(code(W30))]
@@ -319,13 +326,6 @@ pub enum Warnings {
     #[error("Path {} for dependency {} does not exist.", fmt_path!(path.display()), fmt_pkg!(pkg))]
     #[diagnostic(code(W32))]
     DepPathMissing { pkg: String, path: PathBuf },
-
-    #[error("Dependency {} seems to use git-lfs, but git-lfs is not installed.", fmt_pkg!(pkg))]
-    #[diagnostic(
-        code(W33),
-        help("Install git-lfs to ensure all files are fetched correctly.")
-    )]
-    LfsMissing { pkg: String },
 }
 
 #[cfg(test)]
