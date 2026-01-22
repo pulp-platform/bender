@@ -232,19 +232,17 @@ impl<'ctx> Git<'ctx> {
 
     /// Fetch the tags and refs of a remote.
     pub async fn fetch(self, remote: &str, pb: Option<ProgressHandler>) -> Result<()> {
-        let r1 = String::from(remote);
-        let r2 = String::from(remote);
         self.clone()
             .spawn_with(
-                |c| c.arg("fetch").arg("--prune").arg(r1).arg("--progress"),
+                |c| {
+                    c.arg("fetch")
+                        .arg("--tags")
+                        .arg("--prune")
+                        .arg(remote)
+                        .arg("--progress")
+                },
                 pb,
             )
-            .and_then(|_| {
-                self.spawn_with(
-                    |c| c.arg("fetch").arg("--tags").arg("--prune").arg(r2),
-                    None,
-                )
-            })
             .await
             .map(|_| ())
     }
