@@ -483,6 +483,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
         overrides: None,
         plugins: None,
         git_throttle: None,
+        git_lfs: None,
     };
     out = out.merge(default_cfg);
 

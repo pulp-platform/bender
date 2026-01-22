@@ -315,6 +315,13 @@ pub enum Warnings {
     )]
     LfsMissing(String, String),
 
+    #[error("Git LFS is disabled but dependency {} seems to use git-lfs.", fmt_pkg!(.0))]
+    #[diagnostic(
+        code(W27),
+        help("Enable git-lfs support in the configuration to fetch all files correctly.")
+    )]
+    LfsDisabled(String),
+
     #[error("File not added, ignoring: {cause}")]
     #[diagnostic(code(W30))]
     IgnoredPath { cause: String },

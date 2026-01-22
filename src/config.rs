@@ -1439,6 +1439,8 @@ pub struct Config {
     pub plugins: IndexMap<String, Dependency>,
     /// The git throttle value to use unless overridden by the user.
     pub git_throttle: Option<usize>,
+    /// Enable git LFS support, requires git-lfs (default: true)
+    pub git_lfs: bool,
 }
 
 /// A partial configuration.
@@ -1454,6 +1456,8 @@ pub struct PartialConfig {
     pub plugins: Option<IndexMap<String, PartialDependency>>,
     /// The git throttle value to use unless overridden by the user.
     pub git_throttle: Option<usize>,
+    /// Enable git LFS support, requires git-lfs (default: true)
+    pub git_lfs: Option<bool>,
 }
 
 impl PartialConfig {
@@ -1465,6 +1469,7 @@ impl PartialConfig {
             overrides: None,
             plugins: None,
             git_throttle: None,
+            git_lfs: None,
         }
     }
 }
@@ -1508,6 +1513,11 @@ impl Merge for PartialConfig {
                 (None, None) => None,
             },
             git_throttle: self.git_throttle.or(other.git_throttle),
+            git_lfs: match (self.git_lfs, other.git_lfs) {
+                (Some(v), None) | (None, Some(v)) => Some(v),
+                (Some(v1), Some(v2)) => Some(v1 | v2),
+                (None, None) => None,
+            },
         }
     }
 }
@@ -1540,6 +1550,7 @@ impl Validate for PartialConfig {
                 None => IndexMap::new(),
             },
             git_throttle: self.git_throttle,
+            git_lfs: self.git_lfs.unwrap_or(true),
         })
     }
 }

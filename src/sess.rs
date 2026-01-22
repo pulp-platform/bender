@@ -1005,23 +1005,27 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             // Check if the repo uses LFS attributes
             if local_git.clone().uses_lfs_attributes().await? {
-                // Check if the repo actually tracks files with LFS
-                let uses_lfs = local_git.clone().uses_lfs().await;
-                match uses_lfs {
-                    Ok(true) => {
-                        local_git
-                            .clone()
-                            .spawn_with(move |c| c.arg("config").arg("lfs.url").arg(url))
-                            .await?;
-                        local_git
-                            .clone()
-                            .spawn_with(move |c| c.arg("lfs").arg("pull"))
-                            .await?;
+                if self.sess.config.git_lfs {
+                    // Check if the repo actually tracks files with LFS
+                    let uses_lfs = local_git.clone().uses_lfs().await;
+                    match uses_lfs {
+                        Ok(true) => {
+                            local_git
+                                .clone()
+                                .spawn_with(move |c| c.arg("config").arg("lfs.url").arg(url))
+                                .await?;
+                            local_git
+                                .clone()
+                                .spawn_with(move |c| c.arg("lfs").arg("pull"))
+                                .await?;
+                        }
+                        Ok(false) => {}
+                        Err(cause) => {
+                            Warnings::LfsMissing(name.to_string(), cause.to_string()).emit();
+                        }
                     }
-                    Ok(false) => {}
-                    Err(cause) => {
-                        Warnings::LfsMissing(name.to_string(), cause.to_string()).emit();
-                    }
+                } else {
+                    Warnings::LfsDisabled(name.to_string()).emit();
                 }
             }
             local_git

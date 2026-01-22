@@ -405,6 +405,20 @@ overrides:
 # DEPRECATED: This will be removed at some point.
 plugins:
   additional-tools: { path: "/usr/local/additional-tools" }
+
+# Number of parallel git tasks. Optional.
+# Default: 4
+# The number of parallel git operations executed by bender can be adjusted to
+# manage performance and load on git servers. Can be overriden as a command
+# line argument.
+git_throttle: 2
+
+# Enable git lfs. Optional.
+# Default: true
+# Some git dependencies may use git-lfs for additional source files. As
+# fetching these files may not always be desired or requried, it can be
+# disabled. For multiple conflicting settings will use true.
+git_lfs: false
 ```
 
 [Relevant code](https://github.com/pulp-platform/bender/blob/master/src/config.rs)
