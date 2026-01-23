@@ -970,7 +970,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             if clear == CheckoutState::ToClone {
                 git.clone()
                     .spawn_with(move |c| {
-                        c.arg("clone")
+                        c.arg("-c")
+                            .arg("filter.lfs.smudge=")
+                            .arg("-c")
+                            .arg("filter.lfs.process=")
+                            .arg("-c")
+                            .arg("filter.lfs.required=false")
+                            .arg("clone")
                             .arg(git.path)
                             .arg(path)
                             .arg("--branch")
@@ -984,8 +990,43 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     .await?;
                 local_git
                     .clone()
-                    .spawn_with(move |c| c.arg("checkout").arg(tag_name_2).arg("--force"))
+                    .spawn_with(move |c| {
+                        c.arg("-c")
+                            .arg("filter.lfs.smudge=")
+                            .arg("-c")
+                            .arg("filter.lfs.process=")
+                            .arg("-c")
+                            .arg("filter.lfs.required=false")
+                            .arg("checkout")
+                            .arg(tag_name_2)
+                            .arg("--force")
+                    })
                     .await?;
+            }
+            // Check if the repo uses LFS attributes
+            if local_git.clone().uses_lfs_attributes().await? {
+                if self.sess.config.git_lfs {
+                    // Check if the repo actually tracks files with LFS
+                    let uses_lfs = local_git.clone().uses_lfs().await;
+                    match uses_lfs {
+                        Ok(true) => {
+                            local_git
+                                .clone()
+                                .spawn_with(move |c| c.arg("config").arg("lfs.url").arg(url))
+                                .await?;
+                            local_git
+                                .clone()
+                                .spawn_with(move |c| c.arg("lfs").arg("pull"))
+                                .await?;
+                        }
+                        Ok(false) => {}
+                        Err(cause) => {
+                            Warnings::LfsMissing(name.to_string(), cause.to_string()).emit();
+                        }
+                    }
+                } else {
+                    Warnings::LfsDisabled(name.to_string()).emit();
+                }
             }
             local_git
                 .clone()

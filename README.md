@@ -248,6 +248,14 @@ All git tags of the form `vX.Y.Z` are considered a version of the package.
 
 [Relevant dependency resolution code](https://github.com/pulp-platform/bender/blob/master/src/resolver.rs)
 
+#### Git LFS Support
+
+Bender detects if a repository requires Git LFS and if the `git-lfs` tool is installed on your system.
+
+- If the repository uses LFS (detected via `.gitattributes`) and `git-lfs` is installed, Bender will automatically configure LFS and pull the required files.
+- If the repository appears to use LFS but `git-lfs` is **not** installed, Bender will print a warning (`W33`) but proceed with the checkout. In this case, you may end up with pointer files instead of the actual large files, which can cause build failures.
+- If the repository does not use LFS, Bender skips LFS operations entirely to save time.
+
 #### Target handling
 
 Specified dependencies can be filtered, similar to the sources below. For consistency, this filtering does **NOT** apply during an update, i.e., all dependencies will be accounted for in the Bender.lock file. The target filtering only applies for sources and script outputs. This can be used e.g., to include specific IP only for testing.
@@ -397,6 +405,20 @@ overrides:
 # DEPRECATED: This will be removed at some point.
 plugins:
   additional-tools: { path: "/usr/local/additional-tools" }
+
+# Number of parallel git tasks. Optional.
+# Default: 4
+# The number of parallel git operations executed by bender can be adjusted to
+# manage performance and load on git servers. Can be overriden as a command
+# line argument.
+git_throttle: 2
+
+# Enable git lfs. Optional.
+# Default: true
+# Some git dependencies may use git-lfs for additional source files. As
+# fetching these files may not always be desired or requried, it can be
+# disabled. For multiple conflicting settings will use true.
+git_lfs: false
 ```
 
 [Relevant code](https://github.com/pulp-platform/bender/blob/master/src/config.rs)

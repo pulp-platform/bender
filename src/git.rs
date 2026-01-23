@@ -12,6 +12,7 @@ use std::sync::Arc;
 use futures::TryFutureExt;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
+use walkdir::WalkDir;
 
 use crate::error::*;
 
@@ -155,6 +156,34 @@ impl<'ctx> Git<'ctx> {
         f(&mut cmd);
         cmd.spawn()?.wait().await?;
         Ok(())
+    }
+
+    /// Check if the repository uses LFS.
+    pub async fn uses_lfs(self) -> Result<bool> {
+        let output = self.spawn_with(|c| c.arg("lfs").arg("ls-files")).await?;
+        Ok(!output.trim().is_empty())
+    }
+
+    /// Check if the repository has LFS attributes configured.
+    pub async fn uses_lfs_attributes(self) -> Result<bool> {
+        // We use tokio::task::spawn_blocking because walkdir is synchronous
+        // and file I/O should not block the async runtime.
+        let path = self.path.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            Ok(WalkDir::new(&path).into_iter().flatten().any(|entry| {
+                if entry.file_type().is_file() && entry.file_name() == ".gitattributes" {
+                    if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                        content.contains("filter=lfs")
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }))
+        })
+        .await
+        .map_err(|cause| Error::chain("Failed to join blocking task", cause))?
     }
 
     /// Fetch the tags and refs of a remote.
