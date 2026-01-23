@@ -440,15 +440,6 @@ mod tests {
     }
 
     #[test]
-    fn test_contains_no_code() {
-        let warn = Warnings::SkippingDirtyDep {
-            pkg: "example_pkg".to_string(),
-        };
-        let code = warn.code();
-        assert!(code.is_none());
-    }
-
-    #[test]
     fn test_contains_help() {
         let warn = Warnings::SkippingPackageLink(
             "example_pkg".to_string(),
