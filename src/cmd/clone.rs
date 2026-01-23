@@ -16,6 +16,7 @@ use crate::config::{Locked, LockedSource};
 use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{DependencyRef, DependencySource, Session, SessionIo};
+use crate::{fmt_path, fmt_pkg};
 
 /// Clone dependency to a working directory
 #[derive(Args, Debug)]
@@ -281,7 +282,6 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
 
             // Create the symlink if there is nothing at the destination.
             if !link_path.exists() {
-                stageln!("Linking", "{} ({:?})", pkg_name, link_path);
                 if let Some(parent) = link_path.parent() {
                     std::fs::create_dir_all(parent).map_err(|cause| {
                         Error::chain(format!("Failed to create directory {:?}.", parent), cause)
@@ -307,6 +307,12 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
                 if let Some(d) = previous_dir {
                     std::env::set_current_dir(d).unwrap();
                 }
+                stageln!(
+                    "Linked",
+                    "{} to {}",
+                    fmt_pkg!(pkg_name),
+                    fmt_path!(path.display())
+                );
             }
             eprintln!("{} symlink updated", dep);
         }

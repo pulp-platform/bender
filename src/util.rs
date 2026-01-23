@@ -19,7 +19,7 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
 /// Re-export owo_colors for use in macros.
-pub use owo_colors::OwoColorize;
+pub use owo_colors::{OwoColorize, Stream, Style};
 
 use crate::error::*;
 
@@ -431,11 +431,30 @@ pub fn version_req_bottom_bound(req: &VersionReq) -> Result<Option<Version>> {
     }
 }
 
+/// Format time duration with proper units.
+pub fn fmt_duration(duration: std::time::Duration) -> String {
+    match duration.as_millis() {
+        t if t < 1000 => format!("in {}ms", t),
+        t if t < 60_000 => format!("in {:.1}s", t as f64 / 1000.0),
+        t => format!("in {:.1}min", t as f64 / 60000.0),
+    }
+}
+
+/// Format with style if supported.
+#[macro_export]
+macro_rules! fmt_with_style {
+    ($item:expr, $style:expr) => {
+        $crate::util::OwoColorize::if_supports_color(&$item, $crate::util::Stream::Stderr, |t| {
+            $crate::util::OwoColorize::style(t, $style)
+        })
+    };
+}
+
 /// Format for `package` names in diagnostic messages.
 #[macro_export]
 macro_rules! fmt_pkg {
     ($pkg:expr) => {
-        $crate::util::OwoColorize::bold(&$pkg)
+        $crate::fmt_with_style!($pkg, $crate::util::Style::new().bold())
     };
 }
 
@@ -443,7 +462,7 @@ macro_rules! fmt_pkg {
 #[macro_export]
 macro_rules! fmt_path {
     ($pkg:expr) => {
-        $crate::util::OwoColorize::underline(&$pkg)
+        $crate::fmt_with_style!($pkg, $crate::util::Style::new().underline())
     };
 }
 
@@ -451,7 +470,7 @@ macro_rules! fmt_path {
 #[macro_export]
 macro_rules! fmt_field {
     ($field:expr) => {
-        $crate::util::OwoColorize::italic(&$field)
+        $crate::fmt_with_style!($field, $crate::util::Style::new().italic())
     };
 }
 
@@ -459,6 +478,30 @@ macro_rules! fmt_field {
 #[macro_export]
 macro_rules! fmt_version {
     ($ver:expr) => {
-        $crate::util::OwoColorize::bold(&$ver)
+        $crate::fmt_with_style!($ver, $crate::util::Style::new().cyan())
+    };
+}
+
+/// Format for an ongoing progress stage in diagnostic messages.
+#[macro_export]
+macro_rules! fmt_stage {
+    ($stage:expr) => {
+        $crate::fmt_with_style!($stage, $crate::util::Style::new().cyan().bold())
+    };
+}
+
+/// Format a completed progress stage in diagnostic messages.
+#[macro_export]
+macro_rules! fmt_completed {
+    ($stage:expr) => {
+        $crate::fmt_with_style!($stage, $crate::util::Style::new().green().bold())
+    };
+}
+
+/// Format for dimmed text in diagnostic messages.
+#[macro_export]
+macro_rules! fmt_dim {
+    ($msg:expr) => {
+        $crate::fmt_with_style!($msg, $crate::util::Style::new().dimmed())
     };
 }

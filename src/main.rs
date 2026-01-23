@@ -16,7 +16,6 @@ extern crate blake2;
 extern crate clap;
 extern crate dirs;
 extern crate glob;
-extern crate is_terminal;
 extern crate itertools;
 extern crate pathdiff;
 extern crate semver;
@@ -35,6 +34,7 @@ pub mod config;
 pub mod diagnostic;
 pub mod git;
 pub mod lockfile;
+pub mod progress;
 pub mod resolver;
 #[allow(clippy::bind_instead_of_map)]
 pub mod sess;

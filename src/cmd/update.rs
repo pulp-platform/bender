@@ -17,6 +17,7 @@ use crate::error::*;
 use crate::lockfile::*;
 use crate::resolver::DependencyResolver;
 use crate::sess::Session;
+use crate::{fmt_completed, fmt_pkg};
 
 /// Update the dependencies
 #[derive(Args, Debug)]
@@ -162,7 +163,11 @@ pub fn run_plain<'ctx>(
         update_map.into_iter().chain(removed_map).collect();
     let mut update_str = String::from("");
     for (name, (existing_dep, new_dep)) in update_map.clone() {
-        update_str.push_str(&format!("\x1B[32;1m{:>12}\x1B[0m {}:\t", "Updating", name));
+        update_str.push_str(&format!(
+            "{:>14} {}:\t",
+            fmt_completed!("Updating"),
+            fmt_pkg!(name)
+        ));
         if let Some(existing_dep) = existing_dep {
             update_str.push_str(
                 &existing_dep

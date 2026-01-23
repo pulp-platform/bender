@@ -6,11 +6,12 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
+use indicatif::MultiProgress;
 use miette::{Diagnostic, ReportHandler};
-use owo_colors::OwoColorize;
+use owo_colors::Style;
 use thiserror::Error;
 
-use crate::{fmt_field, fmt_path, fmt_pkg, fmt_version};
+use crate::{fmt_dim, fmt_field, fmt_path, fmt_pkg, fmt_version, fmt_with_style};
 
 static GLOBAL_DIAGNOSTICS: OnceLock<Diagnostics> = OnceLock::new();
 
@@ -24,6 +25,8 @@ pub struct Diagnostics {
     /// A set of already emitted warnings.
     /// Requires synchronization as warnings may be emitted from multiple threads.
     emitted: Mutex<HashSet<Warnings>>,
+    /// The active multi-progress bar (if any).
+    multiprogress: Mutex<Option<MultiProgress>>,
 }
 
 impl Diagnostics {
@@ -35,11 +38,18 @@ impl Diagnostics {
             all_suppressed: suppressed.contains("all") || suppressed.contains("Wall"),
             suppressed,
             emitted: Mutex::new(HashSet::new()),
+            multiprogress: Mutex::new(None),
         };
 
         GLOBAL_DIAGNOSTICS
             .set(diag)
             .expect("Diagnostics already initialized!");
+    }
+
+    pub fn set_multiprogress(multiprogress: Option<MultiProgress>) {
+        let diag = Diagnostics::get();
+        let mut guard = diag.multiprogress.lock().unwrap();
+        *guard = multiprogress;
     }
 
     /// Get the global diagnostics manager.
@@ -53,6 +63,22 @@ impl Diagnostics {
     pub fn is_suppressed(code: &str) -> bool {
         let diag = Diagnostics::get();
         diag.all_suppressed || diag.suppressed.contains(code)
+    }
+
+    // Print cleanly (using suspend if a bar exists)
+    pub fn eprintln(msg: &str) {
+        let diag = Diagnostics::get();
+        let mp_guard = diag.multiprogress.lock().unwrap();
+
+        if let Some(mp) = &*mp_guard {
+            // If we have progress bars, hide them momentarily
+            mp.suspend(|| {
+                eprintln!("{msg}");
+            });
+        } else {
+            // Otherwise just print
+            eprintln!("{msg}");
+        }
     }
 }
 
@@ -76,8 +102,9 @@ impl Warnings {
         emitted.insert(self.clone());
         drop(emitted);
 
-        // Print the warning report (consumes self i.e. the warning)
-        eprintln!("{:?}", miette::Report::new(self));
+        // Prepare and emit the report
+        let report = miette::Report::new(self.clone());
+        Diagnostics::eprintln(&format!("{report:?}"));
     }
 }
 
@@ -87,17 +114,17 @@ impl ReportHandler for DiagnosticRenderer {
     fn debug(&self, diagnostic: &dyn Diagnostic, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Determine severity and the resulting style
         let (severity, style) = match diagnostic.severity().unwrap_or_default() {
-            miette::Severity::Error => ("error", owo_colors::Style::new().red().bold()),
-            miette::Severity::Warning => ("warning", owo_colors::Style::new().yellow().bold()),
-            miette::Severity::Advice => ("advice", owo_colors::Style::new().cyan().bold()),
+            miette::Severity::Error => ("error", Style::new().red().bold()),
+            miette::Severity::Warning => ("warning", Style::new().yellow().bold()),
+            miette::Severity::Advice => ("advice", Style::new().cyan().bold()),
         };
 
         // Write the severity prefix
-        write!(f, "{}", severity.style(style))?;
+        write!(f, "{}", fmt_with_style!(severity, style))?;
 
         // Write the code, if any
         if let Some(code) = diagnostic.code() {
-            write!(f, "{}", format!("[{}]", code).style(style))?;
+            write!(f, "{}", fmt_with_style!(format!("[{}]", code), style))?;
         }
 
         // Write the main diagnostic message
@@ -112,8 +139,8 @@ impl ReportHandler for DiagnosticRenderer {
             for line in help_str.lines() {
                 annotations.push(format!(
                     "{} {}",
-                    "help:".bold(),
-                    line.replace("\x1b[0m", "\x1b[0m\x1b[2m").dimmed()
+                    fmt_with_style!("help:", Style::new().bold()),
+                    fmt_dim!(line.replace("\x1b[0m", "\x1b[0m\x1b[2m"))
                 ));
             }
         }
@@ -127,7 +154,7 @@ impl ReportHandler for DiagnosticRenderer {
             // The last item gets the corner, everyone else gets a branch
             let is_last = i == annotations.len() - 1;
             let prefix = if is_last { corner } else { branch };
-            write!(f, "\n{} {}", prefix.dimmed(), note)?;
+            write!(f, "\n{} {}", fmt_dim!(prefix), note)?;
         }
 
         Ok(())
@@ -385,6 +412,7 @@ mod tests {
             suppressed: HashSet::new(),
             all_suppressed: true,
             emitted: Mutex::new(HashSet::new()),
+            multiprogress: Mutex::new(None),
         };
 
         // Manual check of the logic inside emit()

@@ -27,6 +27,7 @@ use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::lockfile::*;
 use crate::sess::{Session, SessionArenas, SessionIo};
+use crate::{fmt_path, fmt_pkg};
 
 #[derive(Parser, Debug)]
 #[command(name = "bender")]
@@ -265,7 +266,6 @@ pub fn main() -> Result<()> {
 
             // Create the symlink if there is nothing at the destination.
             if !path.exists() {
-                stageln!("Linking", "{} ({:?})", pkg_name, path);
                 if let Some(parent) = path.parent() {
                     std::fs::create_dir_all(parent).map_err(|cause| {
                         Error::chain(format!("Failed to create directory {:?}.", parent), cause)
@@ -291,6 +291,12 @@ pub fn main() -> Result<()> {
                 if let Some(d) = previous_dir {
                     std::env::set_current_dir(d).unwrap();
                 }
+                stageln!(
+                    "Linked",
+                    "{} to {}",
+                    fmt_pkg!(pkg_name),
+                    fmt_path!(path.display())
+                );
             }
         }
     }

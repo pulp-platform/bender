@@ -8,6 +8,8 @@ use std::fmt;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
+use owo_colors::Style;
+
 pub static ENABLE_DEBUG: AtomicBool = AtomicBool::new(false);
 
 /// Print an error.
@@ -18,8 +20,8 @@ macro_rules! errorln {
 
 /// Print an informational note.
 #[macro_export]
-macro_rules! noteln {
-    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Note; $($arg)*); }
+macro_rules! infoln {
+    ($($arg:tt)*) => { diagnostic!($crate::error::Severity::Info; $($arg)*); }
 }
 
 /// Print debug information. Omitted in release builds.
@@ -31,6 +33,12 @@ macro_rules! debugln {
             diagnostic!($crate::error::Severity::Debug; $($arg)*);
         }
     }
+}
+
+/// Format and print stage progress.
+#[macro_export]
+macro_rules! stageln {
+    ($stage_name:expr, $($arg:tt)*) => { diagnostic!($crate::error::Severity::Stage($stage_name); $($arg)*); }
 }
 
 /// Print debug information. Omitted in release builds.
@@ -45,7 +53,7 @@ macro_rules! debugln {
 /// Emit a diagnostic message.
 macro_rules! diagnostic {
     ($severity:expr; $($arg:tt)*) => {
-        eprintln!("{} {}", $severity, format!($($arg)*))
+        $crate::diagnostic::Diagnostics::eprintln(&format!("{} {}", $severity, format!($($arg)*)))
     }
 }
 
@@ -53,20 +61,20 @@ macro_rules! diagnostic {
 #[derive(PartialEq, Eq)]
 pub enum Severity {
     Debug,
-    Note,
-    Warning,
+    Info,
     Error,
+    Stage(&'static str),
 }
 
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let (color, prefix) = match *self {
-            Severity::Error => ("\x1B[31;1m", "error"),
-            Severity::Warning => ("\x1B[33;1m", "warning"),
-            Severity::Note => ("\x1B[;1m", "note"),
-            Severity::Debug => ("\x1B[34;1m", "debug"),
+        let (severity, style) = match *self {
+            Severity::Error => ("Error:", Style::new().red().bold()),
+            Severity::Info => ("Info:", Style::new().white().bold()),
+            Severity::Debug => ("Debug:", Style::new().blue().bold()),
+            Severity::Stage(name) => (name, Style::new().green().bold()),
         };
-        write!(f, "{}{}:\x1B[m", color, prefix)
+        write!(f, "{:>14}", crate::fmt_with_style!(severity, style))
     }
 }
 
@@ -137,17 +145,4 @@ impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Error {
         Error::chain("Cannot startup runtime.".to_string(), err)
     }
-}
-
-/// Format and print stage progress.
-#[macro_export]
-macro_rules! stageln {
-    ($stage:expr, $($arg:tt)*) => {
-        $crate::error::println_stage($stage, &format!($($arg)*))
-    }
-}
-
-/// Print stage progress.
-pub fn println_stage(stage: &str, message: &str) {
-    eprintln!("\x1B[32;1m{:>12}\x1B[0m {}", stage, message);
 }
