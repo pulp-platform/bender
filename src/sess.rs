@@ -8,6 +8,7 @@
 use std;
 use std::collections::BTreeSet;
 use std::fmt;
+use std::io::IsTerminal;
 use std::io::Write;
 use std::iter::FromIterator;
 use std::mem::swap;
@@ -81,8 +82,8 @@ pub struct Session<'ctx> {
     pub git_throttle: Arc<Semaphore>,
     /// A toggle to disable remote fetches & clones
     pub local_only: bool,
-    /// The global progress bar manager.
-    pub multiprogress: MultiProgress,
+    /// The global progress bar manager, if any
+    pub multiprogress: Option<MultiProgress>,
 }
 
 impl<'ctx> Session<'ctx> {
@@ -96,12 +97,15 @@ impl<'ctx> Session<'ctx> {
         local_only: bool,
         force_fetch: bool,
         git_throttle: usize,
+        no_progress: bool,
     ) -> Session<'ctx> {
-        // Create the global multi-progress bar manager.
-        let multiprogress = MultiProgress::new();
+        // Create the global multi-progress bar manager, if progress bars are
+        // enabled and we are running in a terminal.
+        let multiprogress =
+            (!no_progress && std::io::stderr().is_terminal()).then(MultiProgress::new);
 
         // Register it with the global diagnostics system
-        Diagnostics::set_multiprogress(Some(multiprogress.clone()));
+        Diagnostics::set_multiprogress(multiprogress.clone());
 
         Session {
             root,

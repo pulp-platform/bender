@@ -61,6 +61,15 @@ struct Cli {
     #[arg(long, global = true, action = ArgAction::Append, help_heading = "Global Options", env = "BENDER_SUPPRESS_WARNINGS")]
     suppress: Vec<String>,
 
+    /// Disable progress bars
+    #[arg(
+        long,
+        global = true,
+        help_heading = "Global Options",
+        env = "BENDER_NO_PROGRESS"
+    )]
+    no_progress: bool,
+
     /// Print additional debug information
     #[cfg(debug_assertions)]
     #[arg(
@@ -188,6 +197,7 @@ pub fn main() -> Result<()> {
         cli.local,
         force_fetch,
         git_throttle,
+        cli.no_progress,
     );
 
     if let Commands::Clean(args) = cli.command {

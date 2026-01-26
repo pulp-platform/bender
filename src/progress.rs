@@ -4,7 +4,6 @@
 use crate::util::fmt_duration;
 
 use indexmap::IndexMap;
-use std::io::IsTerminal;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -70,13 +69,11 @@ pub struct ProgressState {
 /// Captures (static) information neeed to handle progress updates for a git operation.
 pub struct ProgressHandler {
     /// Reference to the multi-progress bar, which can manage multiple progress bars.
-    multiprogress: MultiProgress,
+    multiprogress: Option<MultiProgress>,
     /// The type of git operation being performed.
     git_op: GitProgressOps,
     /// The name of the repository being processed.
     name: String,
-    /// Whether we are running in a TTY.
-    tty: bool,
 }
 
 /// The git operation types that currently support progress reporting.
@@ -113,11 +110,18 @@ pub async fn monitor_stderr(
         }
 
         // Process the line, if:
-        // - it is valid UTF-8
-        // - we have a progress handler
-        // - we are in a TTY
-        if let (Ok(line), Some(h @ ProgressHandler { tty: true, .. })) =
-            (std::str::from_utf8(&buffer), &handler)
+        if let (
+            // 1. it is valid UTF-8
+            Ok(line),
+            // 2. we have a progress handler
+            Some(
+                h @ ProgressHandler {
+                    // 3. we have a multi-progress bar
+                    multiprogress: Some(_),
+                    ..
+                },
+            ),
+        ) = (std::str::from_utf8(&buffer), &handler)
         {
             // Parse the line and update the progress bar accordingly
             let progress = parse_git_line(line);
@@ -139,18 +143,27 @@ pub async fn monitor_stderr(
 
 impl ProgressHandler {
     /// Create a new progress handler for a git operation.
-    pub fn new(multiprogress: MultiProgress, git_op: GitProgressOps, name: &str) -> Self {
+    pub fn new(multiprogress: Option<MultiProgress>, git_op: GitProgressOps, name: &str) -> Self {
         Self {
             multiprogress,
             git_op,
             name: name.to_string(),
-            tty: std::io::stderr().is_terminal(),
         }
     }
 
     /// Adds a new progress bar to the multi-progress and returns the initial state
     /// that is needed to track progress updates.
     pub fn start(&self) -> ProgressState {
+        // In case there is no multi-progress progress, we just create a hidden progress bar.
+        if self.multiprogress.is_none() {
+            return ProgressState {
+                pb: ProgressBar::hidden(),
+                sub_bars: IndexMap::new(),
+                active_sub: None,
+                start_time: std::time::Instant::now(),
+            };
+        }
+
         let (op_name, spinner_pad) = self.git_op.active_fmt();
 
         // Set the prefix based on the git operation
@@ -166,6 +179,8 @@ impl ProgressHandler {
         // Create and attach the progress bar to the multi-progress bar.
         let pb = self
             .multiprogress
+            .as_ref()
+            .unwrap()
             .add(ProgressBar::new(100).with_style(style));
 
         let prefix = format!("{} {}", fmt_stage!(op_name), fmt_pkg!(&self.name));
@@ -224,6 +239,8 @@ impl ProgressHandler {
                     // Create the new sub-bar and insert it in the multi-progress *after* the previous sub-bar
                     let sub_pb = self
                         .multiprogress
+                        .as_ref()
+                        .unwrap()
                         .insert_after(prev_bar, ProgressBar::new(100).with_style(style));
                     // Set the prefix and initial message
                     let sub_prefix = format!("{} {}", fmt_dim!("╰─"), &name);
@@ -311,11 +328,11 @@ impl ProgressHandler {
             fmt_dim!(fmt_duration(state.start_time.elapsed()))
         );
 
-        // In TTY mode, we can print on top of the progress bars
-        // otherwise, we just print to stderr.
-        if self.tty {
+        // We print on top of the progress bars, if they exist.
+        // Otherwise, we just print to stderr.
+        if let Some(multi) = self.multiprogress {
             // Print a completion message on top of active progress bars
-            self.multiprogress.println(finish_msg).unwrap();
+            multi.println(finish_msg).unwrap();
         } else {
             eprintln!("{}", finish_msg);
         }
