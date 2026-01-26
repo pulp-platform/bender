@@ -79,6 +79,11 @@ impl<'ctx> Git<'ctx> {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
+        // Disable interactive terminal prompts.
+        // This ensures git fails immediately with a specific error message
+        // instead of hanging indefinitely if auth is missing.
+        cmd.env("GIT_TERMINAL_PROMPT", "0");
+
         // Spawn the child process
         let mut child = cmd.spawn().map_err(|cause| {
             if cause
