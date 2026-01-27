@@ -3,7 +3,7 @@
 
 fn main() {
     if let Err(e) = bender::cli::main() {
-        eprintln!("{}", e);
+        bender::errorln!("{}", e);
         std::process::exit(1);
     }
 }
