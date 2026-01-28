@@ -12,7 +12,7 @@ use std::iter::FromIterator;
 use std::path::Path;
 
 use indexmap::{IndexMap, IndexSet};
-use serde::ser::{Serialize, Serializer};
+use serde::{Serialize, Serializer};
 
 use crate::config::Validate;
 use crate::diagnostic::{Diagnostics, Warnings};

@@ -9,17 +9,31 @@ set -e
 # CFAIL=`tput setaf 1`
 # CPASS=`tput setaf 2`
 
-TMP=`mktemp`
+TEST_OUTPUT=`mktemp`
 TESTS_DIR="$(dirname "${BASH_SOURCE[0]}")"
+PROJECT_ROOT="$(cd "$TESTS_DIR/.." && pwd)"
+
+# Build bender
+(cd "$PROJECT_ROOT" && cargo build)
+
+# Find the bender binary
+if [ -z "$BENDER" ]; then
+    DEBUG_BIN="$PROJECT_ROOT/target/debug/bender"
+    if [ -f "$DEBUG_BIN" ]; then
+        export BENDER="$DEBUG_BIN"
+    elif [ -f "$DEBUG_BIN.exe" ]; then
+        export BENDER="$DEBUG_BIN.exe"
+    fi
+fi
 
 NUM_PASS=0
 NUM_FAIL=0
 while read -d $'\0' TEST; do
 	echo -n "running ${CNAME}$TEST${CRST} ..."
-	if ! $TEST &> $TMP; then
+	if ! $TEST &> $TEST_OUTPUT; then
 		NUM_FAIL=$((NUM_FAIL+1))
 		echo " ${CFAIL}failed${CRST}"
-		cat $TMP
+		cat $TEST_OUTPUT
 	else
 		NUM_PASS=$((NUM_PASS+1))
 		echo " ${CPASS}passed${CRST}"

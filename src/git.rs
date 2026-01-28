@@ -16,8 +16,9 @@ use tokio::process::Command;
 use tokio::sync::Semaphore;
 use walkdir::WalkDir;
 
-use crate::progress::{monitor_stderr, ProgressHandler};
+use crate::progress::{ProgressHandler, monitor_stderr};
 
+use crate::debugln;
 use crate::error::*;
 
 /// A git repository.

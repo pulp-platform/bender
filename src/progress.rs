@@ -11,7 +11,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use regex::Regex;
 use tokio::io::{AsyncReadExt, BufReader};
 
-use crate::{fmt_completed, fmt_dim, fmt_pkg, fmt_stage};
+use crate::{errorln, fmt_completed, fmt_dim, fmt_pkg, fmt_stage};
 
 static RE_GIT: OnceLock<Regex> = OnceLock::new();
 
@@ -473,7 +473,9 @@ mod tests {
     }
     #[test]
     fn test_parsing_error() {
-        let p = parse_git_line("fatal: unable to access 'https://example.com/repo.git/': Could not resolve host: example.com");
+        let p = parse_git_line(
+            "fatal: unable to access 'https://example.com/repo.git/': Could not resolve host: example.com",
+        );
         match p {
             GitProgress::Error(msg) => assert!(msg.contains("fatal: unable to access")),
             _ => panic!("Failed to parse error"),

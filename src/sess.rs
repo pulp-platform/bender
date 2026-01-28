@@ -24,8 +24,8 @@ use std::fs::canonicalize;
 use dunce::canonicalize;
 
 use async_recursion::async_recursion;
-use futures::future::join_all;
 use futures::TryFutureExt;
+use futures::future::join_all;
 use indexmap::{IndexMap, IndexSet};
 use indicatif::MultiProgress;
 use semver::Version;
@@ -34,6 +34,7 @@ use typed_arena::Arena;
 
 use crate::cli::read_manifest;
 use crate::config::{self, Config, Manifest, PartialManifest};
+use crate::debugln;
 use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::git::Git;
@@ -542,7 +543,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 return Err(Error::chain(
                     format!("Failed to create git database directory {:?}.", db_dir),
                     cause,
-                ))
+                ));
             }
         };
         let git = Git::new(
@@ -648,89 +649,87 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             None => {
                 debugln!("sess: git_versions get new");
-                let dep_refs = git.clone().list_refs().await;
-                let dep_revs = git.clone().list_revs().await;
-                let dep_refs_and_revs = dep_refs.and_then(|refs| -> Result<_> {
-                    if refs.is_empty() {
-                        Ok((refs, vec![]))
+                let dep_revs = git.clone().list_revs();
+                let dep_refs = git.clone().list_refs().await?;
+                let (refs, revs) = {
+                    if dep_refs.is_empty() {
+                        (dep_refs, vec![])
                     } else {
-                        dep_revs.map(move |revs| (refs, revs))
+                        (dep_refs, dep_revs.await?)
                     }
-                });
-                dep_refs_and_revs.and_then(move |(refs, revs)| {
-                    let refs: Vec<_> = refs
-                        .into_iter()
-                        .map(|(a, b)| (self.sess.intern_string(a), self.sess.intern_string(b)))
-                        .collect();
-                    let revs: Vec<_> = revs
-                        .into_iter()
-                        .map(|s| self.sess.intern_string(s))
-                        .collect();
-                    debugln!("sess: refs {:?}", refs);
-                    let (tags, branches) = {
-                        // Create a lookup table for the revisions. This will be used to
-                        // only accept refs that point to actual revisions.
-                        let rev_ids: IndexSet<&str> = revs.iter().copied().collect();
+                };
+                let refs: Vec<_> = refs
+                    .into_iter()
+                    .map(|(a, b)| (self.sess.intern_string(a), self.sess.intern_string(b)))
+                    .collect();
+                let revs: Vec<_> = revs
+                    .into_iter()
+                    .map(|s| self.sess.intern_string(s))
+                    .collect();
+                debugln!("sess: refs {:?}", refs);
+                let (tags, branches) = {
+                    // Create a lookup table for the revisions. This will be used to
+                    // only accept refs that point to actual revisions.
+                    let rev_ids: IndexSet<&str> = revs.iter().copied().collect();
 
-                        // Split the refs into tags and branches, discard
-                        // everything else.
-                        let mut tags = IndexMap::<&'ctx str, &'ctx str>::new();
-                        let mut branches = IndexMap::<&'ctx str, &'ctx str>::new();
-                        let tag_pfx = "refs/tags/";
-                        let branch_pfx = "refs/remotes/origin/";
-                        for (hash, rf) in refs {
-                            if !rev_ids.contains(hash) {
-                                continue;
-                            }
-                            if let Some(stripped) = rf.strip_prefix(tag_pfx) {
-                                tags.insert(stripped, hash);
-                            } else if let Some(stripped) = rf.strip_prefix(branch_pfx) {
-                                branches.insert(stripped, hash);
-                            }
+                    // Split the refs into tags and branches, discard
+                    // everything else.
+                    let mut tags = IndexMap::<&'ctx str, &'ctx str>::new();
+                    let mut branches = IndexMap::<&'ctx str, &'ctx str>::new();
+                    let tag_pfx = "refs/tags/";
+                    let branch_pfx = "refs/remotes/origin/";
+                    for (hash, rf) in refs {
+                        if !rev_ids.contains(hash) {
+                            continue;
                         }
-                        (tags, branches)
-                    };
+                        if let Some(stripped) = rf.strip_prefix(tag_pfx) {
+                            tags.insert(stripped, hash);
+                        } else if let Some(stripped) = rf.strip_prefix(branch_pfx) {
+                            branches.insert(stripped, hash);
+                        }
+                    }
+                    (tags, branches)
+                };
 
-                    // Extract the tags that look like semantic versions.
-                    let mut versions: Vec<(semver::Version, &'ctx str)> = tags
-                        .iter()
-                        .filter_map(|(tag, &hash)| {
-                            if let Some(stripped) = tag.strip_prefix('v') {
-                                match semver::Version::parse(stripped) {
-                                    Ok(v) => Some((v, hash)),
-                                    Err(_) => None,
-                                }
-                            } else {
-                                None
+                // Extract the tags that look like semantic versions.
+                let mut versions: Vec<(semver::Version, &'ctx str)> = tags
+                    .iter()
+                    .filter_map(|(tag, &hash)| {
+                        if let Some(stripped) = tag.strip_prefix('v') {
+                            match semver::Version::parse(stripped) {
+                                Ok(v) => Some((v, hash)),
+                                Err(_) => None,
                             }
-                        })
-                        .collect();
-                    versions.sort_by(|a, b| b.cmp(a));
-
-                    // Merge tags and branches.
-                    let refs: IndexMap<&str, &str> =
-                        branches.into_iter().chain(tags.into_iter()).collect();
-
-                    let mut git_versions = self.git_versions.lock().unwrap().clone();
-
-                    let git_path = git.path;
-
-                    git_versions.insert(
-                        git_path.to_path_buf(),
-                        GitVersions {
-                            versions: versions.clone(),
-                            refs: refs.clone(),
-                            revs: revs.clone(),
-                        },
-                    );
-
-                    *self.git_versions.lock().unwrap() = git_versions.clone();
-
-                    Ok(GitVersions {
-                        versions,
-                        refs,
-                        revs,
+                        } else {
+                            None
+                        }
                     })
+                    .collect();
+                versions.sort_by(|a, b| b.cmp(a));
+
+                // Merge tags and branches.
+                let refs: IndexMap<&str, &str> =
+                    branches.into_iter().chain(tags.into_iter()).collect();
+
+                let mut git_versions = self.git_versions.lock().unwrap().clone();
+
+                let git_path = git.path;
+
+                git_versions.insert(
+                    git_path.to_path_buf(),
+                    GitVersions {
+                        versions: versions.clone(),
+                        refs: refs.clone(),
+                        revs: revs.clone(),
+                    },
+                );
+
+                *self.git_versions.lock().unwrap() = git_versions.clone();
+
+                Ok(GitVersions {
+                    versions,
+                    refs,
+                    revs,
                 })
             }
         }
@@ -756,8 +755,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             let mut hasher = Blake2b512::new();
             match dep_source {
                 DependencySource::Registry => unimplemented!(),
-                DependencySource::Git(ref url) => hasher.update(url.as_bytes()),
-                DependencySource::Path(ref path) => {
+                DependencySource::Git(url) => hasher.update(url.as_bytes()),
+                DependencySource::Path(path) => {
                     // Determine and canonicalize the dependency path, and
                     // immediately return it.
                     let path = self.sess.root.join(path);
@@ -819,25 +818,25 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         match dep.source {
             DependencySource::Path(..) => unreachable!(),
             DependencySource::Registry => unimplemented!(),
-            DependencySource::Git(ref url) => self
-                .checkout_git(
-                    self.sess.intern_string(&dep.name),
-                    checkout_dir,
-                    self.sess.intern_string(url),
-                    self.sess.intern_string(dep.revision.as_ref().unwrap()),
-                    force,
-                    update_list,
-                )
-                .await
-                .and_then(move |path| {
-                    self.sess
-                        .cache
-                        .checkout
-                        .lock()
-                        .unwrap()
-                        .insert(dep_id, path);
-                    Ok(path)
-                }),
+            DependencySource::Git(ref url) => {
+                let path = self
+                    .checkout_git(
+                        self.sess.intern_string(&dep.name),
+                        checkout_dir,
+                        self.sess.intern_string(url),
+                        self.sess.intern_string(dep.revision.as_ref().unwrap()),
+                        force,
+                        update_list,
+                    )
+                    .await?;
+                self.sess
+                    .cache
+                    .checkout
+                    .lock()
+                    .unwrap()
+                    .insert(dep_id, path);
+                Ok(path)
+            }
         }
     }
 
@@ -1336,7 +1335,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             (DepSrc::Git(url), DepVer::Git(rev)) => {
                 let dep_name = self.sess.intern_string(dep.name.as_str());
-                // TODO MICHAERO: May need proper chaining using and_then
                 let db = self.git_database(&dep.name, url, false, None).await?;
                 let entries = db.clone().list_files(rev, Some("Bender.yml")).await?;
                 let data = match entries.into_iter().next() {
@@ -1437,7 +1435,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // Otherwise ensure that there is a checkout of the dependency and read
         // the manifest there.
         self.sess.stats.num_calls_dependency_manifest.increment();
-        self.checkout(dep_id, force, update_list)
+        let manifest = self
+            .checkout(dep_id, force, update_list)
             .await
             .and_then(move |path| {
                 let manifest_path = path.join("Bender.yml");
@@ -1449,16 +1448,14 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 } else {
                     Ok(None)
                 }
-            })
-            .and_then(move |manifest| {
-                self.sess
-                    .cache
-                    .dependency_manifest
-                    .lock()
-                    .unwrap()
-                    .insert(dep_id, manifest);
-                Ok(manifest)
-            })
+            })?;
+        self.sess
+            .cache
+            .dependency_manifest
+            .lock()
+            .unwrap()
+            .insert(dep_id, manifest);
+        Ok(manifest)
     }
 
     /// Load the source file manifest.

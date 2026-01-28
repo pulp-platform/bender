@@ -416,17 +416,6 @@ where
     }
 }
 
-fn relativize_path(path: &std::path::Path, root: &std::path::Path) -> String {
-    if path.starts_with(root) {
-        format!(
-            "$ROOT/{}",
-            path.strip_prefix(root).unwrap().to_str().unwrap()
-        )
-    } else {
-        path.to_str().unwrap().to_string()
-    }
-}
-
 static HEADER_AUTOGEN: &str = "This script was generated automatically by bender.";
 
 fn add_defines(defines: &mut IndexMap<String, Option<String>>, define_args: &[String]) {

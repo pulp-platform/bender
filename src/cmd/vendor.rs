@@ -10,6 +10,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
+use futures::TryFutureExt;
 use glob::Pattern;
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
@@ -18,11 +19,10 @@ use crate::config;
 use crate::config::PrefixPaths;
 use crate::diagnostic::Warnings;
 use crate::error::*;
-use crate::futures::TryFutureExt;
 use crate::git::Git;
 use crate::progress::{GitProgressOps, ProgressHandler};
 use crate::sess::{DependencySource, Session};
-use crate::{fmt_path, fmt_pkg};
+use crate::{fmt_path, fmt_pkg, stageln};
 
 /// A patch linkage
 #[derive(Clone)]

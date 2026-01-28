@@ -207,11 +207,21 @@ pub enum Warnings {
     NoFilesForGlobPattern { path: String },
 
     #[error("Dependency {} in checkout_dir {} is not a git repository. Setting as path dependency.", fmt_pkg!(.0), fmt_path!(.1.display()))]
-    #[diagnostic(code(W06), help("Use `bender clone` to work on git dependencies.\nRun `bender update --ignore-checkout-dir` to overwrite this at your own risk."))]
+    #[diagnostic(
+        code(W06),
+        help(
+            "Use `bender clone` to work on git dependencies.\nRun `bender update --ignore-checkout-dir` to overwrite this at your own risk."
+        )
+    )]
     NotAGitDependency(String, PathBuf),
 
     #[error("Dependency {} in checkout_dir {} is not in a clean state. Setting as path dependency.", fmt_pkg!(.0), fmt_path!(.1.display()))]
-    #[diagnostic(code(W06), help("Use `bender clone` to work on git dependencies.\nRun `bender update --ignore-checkout-dir` to overwrite this at your own risk."))]
+    #[diagnostic(
+        code(W06),
+        help(
+            "Use `bender clone` to work on git dependencies.\nRun `bender update --ignore-checkout-dir` to overwrite this at your own risk."
+        )
+    )]
     DirtyGitDependency(String, PathBuf),
 
     // TODO(fischeti): This is part of an error, not a warning. Could be converted to an Error in the future.
@@ -261,7 +271,9 @@ pub enum Warnings {
     #[error("Name issue with package {}. `export_include_dirs` cannot be handled.", fmt_pkg!(.0))]
     #[diagnostic(
         code(W13),
-        help("Could be related to name mismatch between calling manifest and package manifest, check `bender update`.")
+        help(
+            "Could be related to name mismatch between calling manifest and package manifest, check `bender update`."
+        )
     )]
     ExportDirNameIssue(String),
 

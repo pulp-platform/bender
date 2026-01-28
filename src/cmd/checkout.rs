@@ -8,6 +8,7 @@ use tokio::runtime::Runtime;
 
 use crate::error::*;
 use crate::fmt_dim;
+use crate::infoln;
 use crate::sess::{Session, SessionIo};
 use crate::util::fmt_duration;
 

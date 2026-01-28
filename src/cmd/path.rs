@@ -9,6 +9,7 @@ use clap::Args;
 use futures::future::join_all;
 use tokio::runtime::Runtime;
 
+use crate::debugln;
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
 

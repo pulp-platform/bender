@@ -16,7 +16,7 @@ use crate::config::{Locked, LockedSource};
 use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{DependencyRef, DependencySource, Session, SessionIo};
-use crate::{fmt_path, fmt_pkg};
+use crate::{debugln, fmt_path, fmt_pkg, stageln};
 
 /// Clone dependency to a working directory
 #[derive(Args, Debug)]
@@ -35,7 +35,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
     let depref = sess.dependency_with_name(dep)?;
 
     let path_mod = &args.path; // TODO make this option for config in the Bender.yml file?
-                               // Check current config for matches
+    // Check current config for matches
     if sess.config.overrides.contains_key(dep) {
         match &sess.config.overrides[dep] {
             config::Dependency::Path { path: p, .. } => {
