@@ -677,6 +677,8 @@ pub struct PartialDependency {
     version: Option<String>,
     /// The remote to use for this dependency
     remote: Option<String>,
+    /// The upstream name of the remote to use for this dependency
+    upstream_name: Option<String>,
     /// Targets to pass to the dependency
     pass_targets: Option<Vec<StringOrStruct<PartialPassedTarget>>>,
     /// Unknown extra fields
@@ -752,9 +754,10 @@ impl Validate for PartialDependency {
             // ```
             (None, None, None, Some(version), None) => {
                 if let Some(default_remote) = ctx.default_remote {
+                    let git_name = self.upstream_name.unwrap_or(ctx.package_name.to_string());
                     Ok(Dependency::GitVersion {
                         target,
-                        url: format!("{}/{}.git", default_remote.url, ctx.package_name),
+                        url: format!("{}/{}.git", default_remote.url, git_name),
                         version,
                         pass_targets,
                     })
@@ -770,9 +773,10 @@ impl Validate for PartialDependency {
             // ```
             (None, None, None, Some(version), Some(remote_name)) => {
                 if let Some(remote) = ctx.remotes.and_then(|r| r.get(&remote_name)) {
+                    let git_name = self.upstream_name.unwrap_or(ctx.package_name.to_string());
                     Ok(Dependency::GitVersion {
                         target,
-                        url: format!("{}/{}.git", remote.url, ctx.package_name),
+                        url: format!("{}/{}.git", remote.url, git_name),
                         version,
                         pass_targets,
                     })
