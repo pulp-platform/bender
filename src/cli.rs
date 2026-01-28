@@ -106,6 +106,7 @@ enum Commands {
     Init,
     Snapshot(cmd::snapshot::SnapshotArgs),
     Audit(cmd::audit::AuditArgs),
+    Pickle(cmd::pickle::PickleArgs),
     #[command(external_subcommand)]
     Plugin(Vec<String>),
 }
@@ -329,6 +330,7 @@ pub fn main() -> Result<()> {
         Commands::Fusesoc(args) => cmd::fusesoc::run(&sess, &args),
         Commands::Snapshot(args) => cmd::snapshot::run(&sess, &args),
         Commands::Audit(args) => cmd::audit::run(&sess, &args),
+        Commands::Pickle(args) => cmd::pickle::run(args),
         Commands::Plugin(args) => {
             let (plugin_name, plugin_args) = args
                 .split_first()

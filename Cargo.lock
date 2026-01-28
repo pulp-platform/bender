@@ -114,6 +114,7 @@ version = "0.30.0"
 dependencies = [
  "assert_cmd",
  "async-recursion",
+ "bender-slang",
  "blake2",
  "clap",
  "clap_complete",
