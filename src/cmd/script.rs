@@ -13,7 +13,7 @@ use tera::{Context, Tera};
 use tokio::runtime::Runtime;
 
 use crate::cmd::sources::get_passed_targets;
-use crate::config::Validate;
+use crate::config::{Validate, ValidationContext};
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup, SourceType};
@@ -301,7 +301,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
     let srcs = srcs
         .flatten()
         .into_iter()
-        .map(|f| f.validate("", false))
+        .map(|f| f.validate(&ValidationContext::default()))
         .collect::<Result<Vec<_>>>()?;
 
     let mut tera_context = Context::new();
