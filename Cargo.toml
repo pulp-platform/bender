@@ -13,7 +13,12 @@ license = "Apache-2.0 OR MIT"
 edition = "2024"
 rust-version = "1.85.1"
 
+[workspace]
+members = ["crates/bender-slang"]
+
 [dependencies]
+bender-slang = { path = "crates/bender-slang" }
+
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
 serde_json = "1"
