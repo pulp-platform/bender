@@ -108,6 +108,7 @@ version = "0.29.1"
 dependencies = [
  "assert_cmd",
  "async-recursion",
+ "bender-slang",
  "blake2",
  "clap",
  "clap_complete",
