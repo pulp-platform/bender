@@ -6,19 +6,42 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 ### Added
-- Add flag for `rtl` target to files without target in script and sources.
-- Add `pass_targets` to dependencies to allow passing targets for hierarchical file filtering (not only global).
-- Add application of targets to only specific packages with a `<PKG>:<TARGET>` model for the target flag.
-- Add target filtering for dependencies.
+- Add warnings for nonexistent include directory and errors for missing path dependency (https://github.com/pulp-platform/bender/pull/229).
+- Add vlog-arg for synopsys scripts (https://github.com/pulp-platform/bender/pull/227).
+- Add flag for `rtl` target to files without target in script and sources (https://github.com/pulp-platform/bender/pull/186).
+- Add support for verilog/vhdl files with custom file endings in manifest (https://github.com/pulp-platform/bender/pull/207).
+- Add CI check for unused crates, cleanup (https://github.com/pulp-platform/bender/pull/242).
+- Add information for git version tags (https://github.com/pulp-platform/bender/pull/243).
+- Add `pass_targets` to dependencies to allow passing targets for hierarchical file filtering (not only global) (https://github.com/pulp-platform/bender/pull/235).
+- Add `audit` command to check for possible dependency updates (https://github.com/pulp-platform/bender/pull/236).
+- Add CLI script output regression tests (https://github.com/pulp-platform/bender/pull/245).
+- Add metadata to script output to assist with traceability (https://github.com/pulp-platform/bender/pull/244).
+- Add application of targets to only specific packages with a `<PKG>:<TARGET>` model for the target flag (https://github.com/pulp-platform/bender/pull/247).
+- Add target filtering for dependencies (https://github.com/pulp-platform/bender/pull/250).
+- Fixed symlink removal for windows (https://github.com/pulp-platform/bender/pull/252).
+- Add LFS support for dependencies (https://github.com/pulp-platform/bender/pull/259).
+- Add progress bars for git actions (https://github.com/pulp-platform/bender/pull/239, https://github.com/pulp-platform/bender/pull/262).
+
+### Fixed
+- Fix suppression of all warnings along with an error (https://github.com/pulp-platform/bender/pull/234).
+- Ensure sources output files are validated (https://github.com/pulp-platform/bender/pull/234).
+- Properly fail cloning for path dependencies (https://github.com/pulp-platform/bender/pull/225).
+- Fix symlink handling in windows (https://github.com/pulp-platform/bender/pull/252, https://github.com/pulp-platform/bender/pull/255).
+- Fix git authentification hangs (https://github.com/pulp-platform/bender/pull/261).
+
+### Changed
+- Change order of choice selection for conflicts on update (https://github.com/pulp-platform/bender/pull/237).
+- Refactor CLI, group flags, add aliases and support for env variables (https://github.com/pulp-platform/bender/pull/240).
+- Consolidate warnings, suppression and deduplication (https://github.com/pulp-platform/bender/pull/246).
 
 ## 0.29.1 - 2025-11-24
 ### Fixed
-- Ensure informative print is not in stdout (e.g. fix for scripts)
-- Use write to stdout instead of print to enable piping bender output into another command
-- Remove compile warnings for release
+- Ensure informative print is not in stdout (e.g. fix for scripts) (https://github.com/pulp-platform/bender/pull/231)
+- Use write to stdout instead of print to enable piping bender output into another command (https://github.com/pulp-platform/bender/pull/231)
+- Remove compile warnings for release (https://github.com/pulp-platform/bender/pull/231)
 
 ### Added
-- Add `snapshot` command to relink git version after working on a dependency with `bender clone`.
+- Add `snapshot` command to relink git version after working on a dependency with `bender clone` (https://github.com/pulp-platform/bender/pull/230).
 
 ## 0.29.0 - 2025-11-07
 ### Fixed

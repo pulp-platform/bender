@@ -234,17 +234,17 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
                     } else {
                         comp.major + 1
                     },
-                    minor: if comp.minor.is_some() {
+                    minor: if let Some(minor) = comp.minor {
                         if comp.patch.is_some() {
-                            comp.minor.unwrap()
+                            minor
                         } else {
-                            comp.minor.unwrap() + 1
+                            minor + 1
                         }
                     } else {
                         0
                     },
-                    patch: if comp.patch.is_some() {
-                        comp.patch.unwrap() + 1
+                    patch: if let Some(patch) = comp.patch {
+                        patch + 1
                     } else {
                         0
                     },
@@ -278,8 +278,8 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
                     } else {
                         comp.major + 1
                     },
-                    minor: if comp.minor.is_some() {
-                        comp.minor.unwrap() + 1
+                    minor: if let Some(minor) = comp.minor {
+                        minor + 1
                     } else {
                         0
                     },
@@ -293,29 +293,33 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
                 }
             }
             semver::Op::Caret => {
-                let max_caret = if comp.major > 0 || comp.minor.is_none() {
-                    Version {
+                let max_caret = match (comp.minor, comp.patch) {
+                    (None, _) if comp.major > 0 => Version {
                         major: comp.major + 1,
                         minor: 0,
                         patch: 0,
                         pre: semver::Prerelease::EMPTY,
                         build: semver::BuildMetadata::EMPTY,
-                    }
-                } else if comp.minor.unwrap() > 0 || comp.patch.is_none() {
-                    Version {
+                    },
+                    (Some(minor), None) if minor > 0 => Version {
                         major: comp.major,
-                        minor: comp.minor.unwrap() + 1,
+                        minor: minor + 1,
                         patch: 0,
                         pre: semver::Prerelease::EMPTY,
                         build: semver::BuildMetadata::EMPTY,
-                    }
-                } else {
-                    Version {
+                    },
+                    (Some(minor), Some(patch)) => Version {
                         major: comp.major,
-                        minor: comp.minor.unwrap(),
-                        patch: comp.patch.unwrap() + 1,
+                        minor,
+                        patch: patch + 1,
                         pre: semver::Prerelease::EMPTY,
                         build: semver::BuildMetadata::EMPTY,
+                    },
+                    _ => {
+                        return Err(Error::new(format!(
+                            "Cannot extract top bound from version requirement: {}",
+                            req
+                        )));
                     }
                 };
                 if top_bound > max_caret {
@@ -330,8 +334,8 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
                     } else {
                         comp.major + 1
                     },
-                    minor: if comp.minor.is_some() {
-                        comp.minor.unwrap() + 1
+                    minor: if let Some(minor) = comp.minor {
+                        minor + 1
                     } else {
                         0
                     },
@@ -386,17 +390,17 @@ pub fn version_req_bottom_bound(req: &VersionReq) -> Result<Option<Version>> {
                     } else {
                         comp.major + 1
                     },
-                    minor: if comp.minor.is_some() {
+                    minor: if let Some(minor) = comp.minor {
                         if comp.patch.is_some() {
-                            comp.minor.unwrap() + 1
+                            minor + 1
                         } else {
-                            comp.minor.unwrap()
+                            minor
                         }
                     } else {
                         0
                     },
-                    patch: if comp.patch.is_some() {
-                        comp.patch.unwrap() + 1
+                    patch: if let Some(patch) = comp.patch {
+                        patch + 1
                     } else {
                         0
                     },

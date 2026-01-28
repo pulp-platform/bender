@@ -1093,7 +1093,7 @@ impl<'ctx> DependencyResolver<'ctx> {
 ///
 /// Note that despite the different sources, they might refer to the same
 /// dependency and be compatible, e.g. via the git hash.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct Dependency<'ctx> {
     /// The name of the dependency.
     name: &'ctx str,
@@ -1110,9 +1110,7 @@ impl<'ctx> Dependency<'ctx> {
     fn new(name: &'ctx str) -> Dependency<'ctx> {
         Dependency {
             name,
-            sources: IndexMap::new(),
-            manifest: None,
-            state: State::Open,
+            ..Default::default()
         }
     }
 
@@ -1168,9 +1166,10 @@ impl<'ctx> DependencyReference<'ctx> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 enum State {
     /// The dependency has never been seen before and is not constrained.
+    #[default]
     Open,
     /// The dependency has been locked in the lockfile.
     Locked(DependencyRef, usize),

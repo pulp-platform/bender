@@ -514,15 +514,8 @@ fn get_fuse_depend_string(
         src_packages
             .iter()
             .map(|group| SourceGroup {
-                package: group.package,
-                independent: group.independent,
-                target: group.target.clone(),
-                include_dirs: group.include_dirs.clone(),
-                export_incdirs: group.export_incdirs.clone(),
-                defines: group.defines.clone(),
-                files: group.files.clone(),
-                dependencies: group.dependencies.clone(),
                 version: version_string.clone(),
+                ..group.clone()
             })
             .collect()
     } else {
