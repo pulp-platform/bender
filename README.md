@@ -109,7 +109,9 @@ remotes:
 
   # Additional non-default remotes (HTTP or SSH).
   openhw: "https://github.com/openhwgroup"
-  internal: "git@gitlab.company.com:internal-repo"
+  # Template remote URL where `{}` is a placeholder for dependency name.
+  # If no placeholder is found, "<url>/{}.git" is used.
+  internal: "git@gitlab.company.com:internal-repo/{}/release"
 
 # Other packages this package depends on. Optional.
 dependencies:
