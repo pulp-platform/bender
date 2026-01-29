@@ -76,7 +76,7 @@ jobs:
             -v "$GITHUB_WORKSPACE/target/$platform/$tgtname:/source/target" \
             --platform $full_platform \
             $tgtname-$platform \
-            cargo build --release;
+            cargo build --release --all-features;
         shell: bash
       - name: OS Create Package
         run: |
@@ -121,7 +121,7 @@ jobs:
             -v "$GITHUB_WORKSPACE/target/$platform/$tgtname:/source/target" \
             --platform $full_platform \
             $tgtname-$platform \
-            cargo build --release;
+            cargo build --release --all-features;
         shell: bash
       - name: OS Create Package
         run: |
@@ -170,7 +170,7 @@ jobs:
             -v "$GITHUB_WORKSPACE/target/amd64:/source/target" \
             --platform linux/amd64 \
             manylinux-amd64 \
-            cargo build --release;
+            cargo build --release --all-features;
       - name: GNU Create Package
         run: .github/scripts/package.sh amd64
         shell: bash
@@ -215,7 +215,7 @@ jobs:
             -v "$GITHUB_WORKSPACE/target/arm64:/source/target" \
             --platform linux/arm64 \
             manylinux-arm64 \
-            cargo build --release;
+            cargo build --release --all-features;
       - name: GNU Create Package
         run: .github/scripts/package.sh arm64
         shell: bash
@@ -240,7 +240,7 @@ jobs:
           rustup target add aarch64-apple-darwin
           cargo install universal2
       - name: MacOS Build
-        run: cargo-universal2 --release
+        run: cargo-universal2 --release --all-features
       - name: Get Artifact Name
         run: |
           if [[ "$GITHUB_REF" =~ ^refs/tags/v.*$ ]]; then \
