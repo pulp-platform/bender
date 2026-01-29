@@ -824,7 +824,7 @@ impl Validate for PartialDependency {
                 if git.is_some() || rev.is_some() || version.is_some() =>
             {
                 Err(Error::new(format!(
-                    "Path dependency `{}` cannot specify `git`, `rev`, or `version` fields.",
+                    "Dependency `{}` cannot simultaneously specify `path` with `git`, `rev`, or `version` fields.",
                     ctx.package_name
                 )))
             }
