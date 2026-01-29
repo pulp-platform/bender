@@ -753,10 +753,10 @@ impl Validate for PartialDependency {
             // ```
             (None, None, None, Some(version), None) => {
                 if let Some(default_remote) = vctx.default_remote {
-                    let git_name = self.upstream_name.unwrap_or(vctx.package_name.to_string());
+                    let git_name = self.upstream_name.as_deref().unwrap_or(vctx.package_name);
                     Ok(Dependency::GitVersion {
                         target,
-                        url: format!("{}/{}.git", default_remote.url, git_name),
+                        url: default_remote.url.replace("{}", git_name),
                         version,
                         pass_targets,
                     })
@@ -772,10 +772,10 @@ impl Validate for PartialDependency {
             // ```
             (None, None, None, Some(version), Some(remote_name)) => {
                 if let Some(remote) = vctx.remotes.and_then(|r| r.get(&remote_name)) {
-                    let git_name = self.upstream_name.unwrap_or(vctx.package_name.to_string());
+                    let git_name = self.upstream_name.as_deref().unwrap_or(vctx.package_name);
                     Ok(Dependency::GitVersion {
                         target,
-                        url: format!("{}/{}.git", remote.url, git_name),
+                        url: remote.url.replace("{}", git_name),
                         version,
                         pass_targets,
                     })
@@ -1852,15 +1852,24 @@ impl Validate for RemoteConfig {
     type Output = RemoteConfig;
     type Error = Error;
     fn validate(self, _vctx: &ValidationContext) -> Result<RemoteConfig> {
-        let mut normalized_url = self.url.trim().to_string();
+        let raw_url = self.url.trim();
 
-        // Strip trailing slashes, to avoid double slashes when appending paths.
-        while normalized_url.ends_with('/') {
-            normalized_url.pop();
-        }
+        let template_url = match raw_url.matches("{}").count() {
+            0 => {
+                let base_url = raw_url.trim_end_matches('/');
+                format!("{}/{}.git", base_url, "{}")
+            }
+            1 => raw_url.to_string(),
+            _ => {
+                return Err(Error::new(format!(
+                    "Remote URL '{}' contains multiple '{{}}' placeholders. Only one is allowed.",
+                    raw_url
+                )));
+            }
+        };
 
         Ok(RemoteConfig {
-            url: normalized_url,
+            url: template_url,
             default: self.default,
         })
     }
