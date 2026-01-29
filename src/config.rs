@@ -450,11 +450,10 @@ impl PartialManifest {
     /// the initial check of a dependency manifest that is done before cloning the dependency will ignore whether source files exist
     pub fn validate_ignore_sources(mut self) -> Result<Manifest> {
         self.sources = Some(SeqOrStruct::new(PartialSources::new_empty()));
-        let ctx = ValidationContext {
+        self.validate(&ValidationContext {
             pre_output: true,
             ..Default::default()
-        };
-        self.validate(&ctx)
+        })
     }
 }
 

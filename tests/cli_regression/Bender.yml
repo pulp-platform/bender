@@ -6,7 +6,7 @@ remotes:
 
 dependencies:
   common_cells: "1.39.0"
-  common_verification: { version: " 0.2.5", remote: "pulp" }
+  common_verification: { version: "0.2.5", remote: "pulp" }
   tech_cells_generic:
     git: "https://github.com/pulp-platform/tech_cells_generic.git"
     version: "0.2.13"

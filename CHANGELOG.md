@@ -33,7 +33,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - Change order of choice selection for conflicts on update (https://github.com/pulp-platform/bender/pull/237).
 - Refactor CLI, group flags, add aliases and support for env variables (https://github.com/pulp-platform/bender/pull/240).
 - Consolidate warnings, suppression and deduplication (https://github.com/pulp-platform/bender/pull/246).
-- Add default `remotes` to manifest to allow specifying multiple (default) remotes for dependencies, without having to write out the full git url every time.
+- Add default `remotes` to manifest to allow specifying multiple (default) remotes for dependencies, without having to write out the full git url every time (https://github.com/pulp-platform/bender/pull/260).
 
 ## 0.29.1 - 2025-11-24
 ### Fixed
