@@ -13,7 +13,7 @@ ROOT="{{ root }}"
     {% endfor %}{% for incdir in group.incdirs %}"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}" \
     {% endfor %}{% elif group.file_type == 'vhdl' %}{{ vhdlan_bin }} \
     {% for tmp_arg in vhdlan_args %}{{ tmp_arg }} \
-    {% endfor %}{% endif %}{% for file in group.files %}"{{ file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
+    {% endfor %}{% endif %}{% for file in group.files %}"{{ file.0 | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
     {% endif %}{% endfor %}
 {% endif %}{% endfor %}
 {% else %}{# compilation_mode == 'common' #}{% for file in all_verilog %}{% if loop.first %}{{ vlogan_bin }} -sverilog \
@@ -21,12 +21,12 @@ ROOT="{{ root }}"
     {% for tmp_arg in vlogan_args %}{{ tmp_arg }} \
     {% endfor %}{% for define in all_defines %}"+define+{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}" \
     {% endfor %}{% for incdir in all_incdirs %}"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}" \
-    {% endfor %}{% endif %}"{{ file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
+    {% endfor %}{% endif %}"{{ file.0 | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
     {% endif %}{% if loop.last %}
 {% endif %}{% endfor %}
 {% for file in all_vhdl %}{% if loop.first %}{{ vhdlan_bin }} \
     {% for tmp_arg in vhdlan_args %}{{ tmp_arg }} \
-    {% endfor %}{% endif %}"{{ file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
+    {% endfor %}{% endif %}"{{ file.0 | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
     {% endif %}{% if loop.last %}
 {% endif %}{% endfor %}
 {% endif %}

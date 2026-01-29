@@ -18,7 +18,8 @@ set search_path $search_path_initial
     } \
     {% else %} \
         {% endif %}{% endfor %}[list \
-    {% for file in group.files %}{{ '    ' }}"{{ file | replace(from=root, to='$ROOT') }}" \
+    {% for file in group.files %}{% if source_annotations %}{% if file.1 %}{{ '    ' }}# {{ file.1 }}
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.0 | replace(from=root, to='$ROOT') }}" \
     {% endfor %}]
 {% endif %}{% endfor %}
 {% else %}{# compilation_mode == 'common' #}{% for file in all_verilog %}{% if loop.first %}set search_path $search_path_initial
@@ -32,14 +33,16 @@ set_db init_hdl_search_path $search_path
     } \
     {% else %} \
         {% endif %}{% endfor %}[list \
-    {% endif %}{{ '    ' }}"{{ file | replace(from=root, to='$ROOT') }}" \
+    {% endif %}{% if source_annotations %}{% if file.1 %}{{ '    ' }}# {{ file.1 }}
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.0 | replace(from=root, to='$ROOT') }}" \
     {% if loop.last %}]
 {% if abort_on_error %}}]} {return 1}{% endif %}
 {% endif %}{% endfor %}
 {% for file in all_vhdl %}{% if loop.first %}
 {% if abort_on_error %}if {[catch { {% endif %}read_hdl -language vhdl \
     [list \
-    {% endif %}{{ '    ' }}"{{ file | replace(from=root, to='$ROOT') }}" \
+    {% endif %}{% if source_annotations %}{% if file.1 %}{{ '    ' }}# {{ file.1 }}
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.0 | replace(from=root, to='$ROOT') }}" \
     {% if loop.last %}]
 {% if abort_on_error %}}]} {return 1}{% endif %}
 {% endif %}{% endfor %}

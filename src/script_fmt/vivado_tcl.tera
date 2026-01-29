@@ -4,12 +4,14 @@ set ROOT "{{ root }}"
 #}{% for group in srcs %}
 {% if source_annotations %}# {{ group.metadata }}{#                                                     Add metadata #}
 {% endif %}add_files -norecurse -fileset [current_fileset] [list \{#                                    Add files command #}
-    {% for file in group.files %}{{ file | replace(from=root, to='$ROOT') }} \{#                        Add group's files #}
+    {% for file in group.files %}{% if source_annotations %}{% if file.1 %}# {{ file.1 }}{#             Add file comments, if present #}
+    {% endif %}{% endif %}{{ file.0 | replace(from=root, to='$ROOT') }} \{#                             Add group's files #}
 {% if not loop.last %}    {% endif %}{% endfor %}]
 {% endfor %}{% else %}{# compilation_mode == 'common' #}{#                                              Common block for all files
 #}{% for file in all_files %}{#                                                                         Loop over all files
 #}{% if loop.first %}add_files -norecurse -fileset [current_fileset] [list \{#                          Add files command #}
-    {% endif %}{{ file | replace(from=root, to='$ROOT') }} \{#                                          Add all files #}
+    {% endif %}{% if source_annotations %}{% if file.1 %}# {{ file.1 }}{#                               Add file comments, if present #}
+    {% endif %}{% endif %}{{ file.0 | replace(from=root, to='$ROOT') }} \{#                             Add all files #}
 {% if not loop.last %}    {% endif %}{% if loop.last %}]
 {% endif %}{% endfor %}{% endif %}{#
 #}{% for arg in vivado_filesets %}{#                                                                    Loop over vivado arguments

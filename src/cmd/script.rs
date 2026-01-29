@@ -465,7 +465,7 @@ fn emit_template(
         );
         all_incdirs.append(&mut src.clone().get_incdirs());
         all_files.extend(src.files.iter().filter_map(|file| match file {
-            SourceFile::File(p, _) => Some(p.to_string_lossy().to_string()),
+            SourceFile::File(p, _) => Some((p.to_string_lossy().to_string(), None::<String>)),
             SourceFile::Group(_) => None,
         }));
     }
@@ -538,7 +538,7 @@ fn emit_template(
                     files: files
                         .iter()
                         .map(|f| match f {
-                            SourceFile::File(p, _) => p.to_path_buf(),
+                            SourceFile::File(p, _) => (p.to_path_buf(), None),
                             SourceFile::Group(_) => unreachable!(),
                         })
                         .collect(),
@@ -607,6 +607,6 @@ struct TplSrcStruct {
     metadata: String,
     defines: IndexSet<(String, Option<String>)>,
     incdirs: IndexSet<PathBuf>,
-    files: IndexSet<PathBuf>,
+    files: IndexSet<(PathBuf, Option<String>)>,
     file_type: String,
 }
