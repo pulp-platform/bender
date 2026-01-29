@@ -836,6 +836,10 @@ impl Validate for PartialDependency {
                 "Dependency `{}` must specify at least one of `path`, `git`, `rev`, or `version`.",
                 vctx.package_name
             ))),
+            (Some(_), _, _, _, Some(_)) => Err(Error::new(format!(
+                "Dependency `{}` cannot simultaneously specify `git` and `remote`",
+                vctx.package_name
+            ))),
             cfg => Err(Error::new(format!(
                 "Invalid configuration for dependency `{}`: {cfg:?}",
                 vctx.package_name
