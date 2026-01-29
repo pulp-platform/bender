@@ -22,7 +22,9 @@ use tokio::runtime::Runtime;
 
 use crate::cmd;
 use crate::cmd::fusesoc::FusesocArgs;
-use crate::config::{Config, Manifest, Merge, PartialConfig, PrefixPaths, Validate};
+use crate::config::{
+    Config, Manifest, Merge, PartialConfig, PrefixPaths, Validate, ValidationContext,
+};
 use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::lockfile::*;
@@ -426,7 +428,7 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
     partial
         .prefix_paths(path.parent().unwrap())
         .map_err(|cause| Error::chain(format!("Error in manifest prefixing {:?}.", path), cause))?
-        .validate("", false)
+        .validate(&ValidationContext::default())
         .map_err(|cause| Error::chain(format!("Error in manifest {:?}.", path), cause))
 }
 
@@ -505,7 +507,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
 
     // Validate the configuration.
     let mut out = out
-        .validate("", false)
+        .validate(&ValidationContext::default())
         .map_err(|cause| Error::chain("Invalid configuration:", cause))?;
 
     out.overrides = out

@@ -14,7 +14,7 @@ use std::path::Path;
 use indexmap::{IndexMap, IndexSet};
 use serde::{Serialize, Serializer};
 
-use crate::config::Validate;
+use crate::config::{Validate, ValidationContext};
 use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::Error;
 use crate::target::{TargetSet, TargetSpec};
@@ -46,16 +46,12 @@ pub struct SourceGroup<'ctx> {
 impl<'ctx> Validate for SourceGroup<'ctx> {
     type Output = SourceGroup<'ctx>;
     type Error = Error;
-    fn validate(
-        self,
-        package_name: &str,
-        pre_output: bool,
-    ) -> crate::error::Result<SourceGroup<'ctx>> {
+    fn validate(self, vctx: &ValidationContext) -> crate::error::Result<SourceGroup<'ctx>> {
         Ok(SourceGroup {
             files: self
                 .files
                 .into_iter()
-                .map(|f| f.validate(package_name, pre_output))
+                .map(|f| f.validate(vctx))
                 .collect::<Result<Vec<_>, Error>>()?,
             include_dirs: self
                 .include_dirs
@@ -396,7 +392,7 @@ impl<'ctx> From<&'ctx Path> for SourceFile<'ctx> {
 impl<'ctx> Validate for SourceFile<'ctx> {
     type Output = SourceFile<'ctx>;
     type Error = Error;
-    fn validate(self, package_name: &str, pre_output: bool) -> Result<SourceFile<'ctx>, Error> {
+    fn validate(self, vctx: &ValidationContext) -> Result<SourceFile<'ctx>, Error> {
         match self {
             SourceFile::File(path, ty) => {
                 let env_path_buf =
@@ -417,9 +413,7 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                     )))
                 }
             }
-            SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(
-                srcs.validate(package_name, pre_output)?,
-            ))),
+            SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate(vctx)?))),
         }
     }
 }

@@ -101,24 +101,47 @@ package:
   # By convention, authors should be listed in the form shown below.
   authors: ["John Doe <john@doe.si>"]
 
+# Specify git remotes for dependencies. Optional.
+remotes:
+  pulp:
+    url: "https://github.com/pulp-platform"
+    default: true # Only required if multiple remotes are specified.
+
+  # Additional non-default remotes (HTTP or SSH).
+  openhw: "https://github.com/openhwgroup"
+  # Template remote URL where `{}` is a placeholder for dependency name.
+  # If no placeholder is found, "<url>/{}.git" is used.
+  internal: "git@gitlab.company.com:internal-repo/{}/release"
+
 # Other packages this package depends on. Optional.
 dependencies:
   # Path dependency.
   axi: { path: "../axi" }
 
-  # Registry dependency. Not supported at the moment.
-  # common_verification: "0.2"
+  # Git version dependency from default remote.
+  apb: "0.2"
+
+  # Git version dependency from non-default remote.
+  fll: { version: "0.8", remote: "internal" }
+
+  # Git version dependency with explicit git url.
+  ara: { git: "https://github.com/john_doe/ara.git", version: "2" }
+
+  # Git revision dependency (always requires explicit git url).
+  spatz: {git: "https://github.com/pulp-platform/spatz.git", rev: "fixes" }
 
   # Git version dependency, only included if target "test" or "regression_test" is set.
-  common_verification: { git: "git@github.com:pulp-platform/common_verification.git", version: "0.2", target: "any(test, regression_test)" }
+  common_verification: { version: "0.2", target: "any(test, regression_test)" }
 
+  # Git revision dependency, passing a custom target.
+  # (equivalent to `-t common_cells:cc_custom_target`).
+  common_cells: { rev: master, pass_targets: ["cc_custom_target"] }
 
-  # Git revision dependency, passing a custom target (equivalent to `-t common_cells:cc_custom_target`).
-  common_cells: { git: "git@github.com:pulp-platform/common_cells.git", rev: master, pass_targets: ["cc_custom_target"] }
-
-  # Git version dependency, passing conditional targets to a dependency (equivalent to `-t cva6:cv64a6_imafdcv_sv39` if target 64bit is set, `-t cva6:cv32a6_imac_sv32` if target 32bit is set)
+  # Git version dependency, passing conditional targets to a dependency
+  # (equivalent to `-t cva6:cv64a6_imafdcv_sv39` if target 64bit is set,
+  # `-t cva6:cv32a6_imac_sv32` if target 32bit is set)
   ariane:
-    git: "git@github.com:openhwgroup/cva6.git"
+    remote: openhw
     version: 5.3.0
     pass_targets:
       - {target: 64bit, pass: "cv64a6_imafdcv_sv39"}

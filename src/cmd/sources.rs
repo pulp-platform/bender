@@ -13,7 +13,7 @@ use indexmap::IndexSet;
 use serde_json;
 use tokio::runtime::Runtime;
 
-use crate::config::{Dependency, Validate};
+use crate::config::{Dependency, Validate, ValidationContext};
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::target::{TargetSet, TargetSpec};
@@ -118,7 +118,7 @@ pub fn run(sess: &Session, args: &SourcesArgs) -> Result<()> {
 
     srcs = srcs.filter_packages(&packages).unwrap_or_default();
 
-    srcs = srcs.validate("", false)?;
+    srcs = srcs.validate(&ValidationContext::default())?;
 
     let result = {
         let stdout = std::io::stdout();
