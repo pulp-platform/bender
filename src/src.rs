@@ -46,12 +46,12 @@ pub struct SourceGroup<'ctx> {
 impl<'ctx> Validate for SourceGroup<'ctx> {
     type Output = SourceGroup<'ctx>;
     type Error = Error;
-    fn validate(self, ctx: &ValidationContext) -> crate::error::Result<SourceGroup<'ctx>> {
+    fn validate(self, vctx: &ValidationContext) -> crate::error::Result<SourceGroup<'ctx>> {
         Ok(SourceGroup {
             files: self
                 .files
                 .into_iter()
-                .map(|f| f.validate(ctx))
+                .map(|f| f.validate(vctx))
                 .collect::<Result<Vec<_>, Error>>()?,
             include_dirs: self
                 .include_dirs
@@ -392,7 +392,7 @@ impl<'ctx> From<&'ctx Path> for SourceFile<'ctx> {
 impl<'ctx> Validate for SourceFile<'ctx> {
     type Output = SourceFile<'ctx>;
     type Error = Error;
-    fn validate(self, ctx: &ValidationContext) -> Result<SourceFile<'ctx>, Error> {
+    fn validate(self, vctx: &ValidationContext) -> Result<SourceFile<'ctx>, Error> {
         match self {
             SourceFile::File(path, ty) => {
                 let env_path_buf =
@@ -413,7 +413,7 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                     )))
                 }
             }
-            SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate(ctx)?))),
+            SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate(vctx)?))),
         }
     }
 }

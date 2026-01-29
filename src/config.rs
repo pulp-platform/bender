@@ -335,7 +335,7 @@ pub trait Validate {
     /// The error type produced by validation.
     type Error;
     /// Validate self and convert into the non-partial version.
-    fn validate(self, ctx: &ValidationContext) -> std::result::Result<Self::Output, Self::Error>;
+    fn validate(self, vctx: &ValidationContext) -> std::result::Result<Self::Output, Self::Error>;
 }
 
 // Implement `Validate` for hash maps of validatable values.
@@ -346,9 +346,9 @@ where
 {
     type Output = IndexMap<K, V::Output>;
     type Error = (K, Error);
-    fn validate(self, ctx: &ValidationContext) -> std::result::Result<Self::Output, Self::Error> {
+    fn validate(self, vctx: &ValidationContext) -> std::result::Result<Self::Output, Self::Error> {
         self.into_iter()
-            .map(|(k, v)| match v.validate(ctx) {
+            .map(|(k, v)| match v.validate(vctx) {
                 Ok(v) => Ok((k, v)),
                 Err(e) => Err((k, e)),
             })
@@ -362,9 +362,9 @@ where
 {
     type Output = Vec<V::Output>;
     type Error = Error;
-    fn validate(self, ctx: &ValidationContext) -> std::result::Result<Self::Output, Self::Error> {
+    fn validate(self, vctx: &ValidationContext) -> std::result::Result<Self::Output, Self::Error> {
         self.into_iter()
-            .map(|v| match v.validate(ctx) {
+            .map(|v| match v.validate(vctx) {
                 Ok(v) => Ok(v),
                 Err(e) => Err(e),
             })
@@ -379,8 +379,8 @@ where
 {
     type Output = T::Output;
     type Error = T::Error;
-    fn validate(self, ctx: &ValidationContext) -> std::result::Result<T::Output, T::Error> {
-        self.0.validate(ctx)
+    fn validate(self, vctx: &ValidationContext) -> std::result::Result<T::Output, T::Error> {
+        self.0.validate(vctx)
     }
 }
 
@@ -391,8 +391,8 @@ where
 {
     type Output = T::Output;
     type Error = T::Error;
-    fn validate(self, ctx: &ValidationContext) -> std::result::Result<T::Output, T::Error> {
-        self.0.validate(ctx)
+    fn validate(self, vctx: &ValidationContext) -> std::result::Result<T::Output, T::Error> {
+        self.0.validate(vctx)
     }
 }
 
@@ -483,11 +483,11 @@ impl PrefixPaths for PartialManifest {
 impl Validate for PartialManifest {
     type Output = Manifest;
     type Error = Error;
-    fn validate(self, ctx: &ValidationContext) -> Result<Manifest> {
+    fn validate(self, vctx: &ValidationContext) -> Result<Manifest> {
         let pkg = match self.package {
             Some(mut p) => {
                 p.name = p.name.to_lowercase();
-                if !ctx.pre_output {
+                if !vctx.pre_output {
                     p.extra.iter().for_each(|(k, _)| {
                         Warnings::IgnoreUnknownField {
                             field: k.clone(),
@@ -504,7 +504,7 @@ impl Validate for PartialManifest {
         let remotes = self
             .remotes
             .map(|r| {
-                r.validate(ctx).map_err(|(key, cause)| {
+                r.validate(vctx).map_err(|(key, cause)| {
                     Error::chain(
                         format!("In remote `{key}` of package `{}`:", pkg.name),
                         cause,
@@ -547,14 +547,14 @@ impl Validate for PartialManifest {
                     // We need to construct a new context for the dependency validation
                     // since we need the dependency name and the remote definitions
                     // to validate a dependency.
-                    let dep_ctx = ValidationContext {
+                    let dep_vctx = ValidationContext {
                         package_name: &dep_name,
-                        pre_output: ctx.pre_output,
+                        pre_output: vctx.pre_output,
                         remotes: remotes.as_ref(),
                         default_remote,
                     };
 
-                    let validated = v.validate(&dep_ctx).map_err(|cause| {
+                    let validated = v.validate(&dep_vctx).map_err(|cause| {
                         Error::chain(
                             format!("In dependency `{dep_name}` of package `{}`:", pkg.name),
                             cause,
@@ -567,7 +567,7 @@ impl Validate for PartialManifest {
             None => IndexMap::new(),
         };
         let srcs = match self.sources {
-            Some(s) => Some(s.validate(ctx).map_err(|cause| {
+            Some(s) => Some(s.validate(vctx).map_err(|cause| {
                 Error::chain(format!("In source list of package `{}`:", pkg.name), cause)
             })?),
             None => None,
@@ -583,17 +583,17 @@ impl Validate for PartialManifest {
         let frozen = self.frozen.unwrap_or(false);
         let workspace = match self.workspace {
             Some(w) => w
-                .validate(ctx)
+                .validate(vctx)
                 .map_err(|cause| Error::chain("In workspace configuration:", cause))?,
             None => Workspace::default(),
         };
         let vendor_package = match self.vendor_package {
             Some(vend) => vend
-                .validate(ctx)
+                .validate(vctx)
                 .map_err(|cause| Error::chain("Unable to parse vendor_package", cause))?,
             None => Vec::new(),
         };
-        if !ctx.pre_output {
+        if !vctx.pre_output {
             self.extra.iter().for_each(|(k, _)| {
                 Warnings::IgnoreUnknownField {
                     field: k.clone(),
@@ -622,7 +622,7 @@ impl Validate for PartialManifest {
                 .iter()
                 .filter_map(|path| match env_path_from_string(path.to_string()) {
                     Ok(parsed_path) => {
-                        if !(ctx.pre_output || parsed_path.exists() && parsed_path.is_dir()) {
+                        if !(vctx.pre_output || parsed_path.exists() && parsed_path.is_dir()) {
                             Warnings::IncludeDirMissing(parsed_path.clone()).emit();
                         }
 
@@ -716,13 +716,13 @@ impl PrefixPaths for PartialDependency {
 impl Validate for PartialDependency {
     type Output = Dependency;
     type Error = Error;
-    fn validate(self, ctx: &ValidationContext) -> Result<Dependency> {
+    fn validate(self, vctx: &ValidationContext) -> Result<Dependency> {
         let target = self.target.unwrap_or(TargetSpec::Wildcard);
         let pass_targets = self
             .pass_targets
             .unwrap_or_default()
             .into_iter()
-            .map(|s| s.validate(ctx))
+            .map(|s| s.validate(vctx))
             .collect::<Result<Vec<_>>>()?;
         let version = self
             .version
@@ -735,11 +735,11 @@ impl Validate for PartialDependency {
                 })
             })
             .transpose()?;
-        if !ctx.pre_output {
+        if !vctx.pre_output {
             self.extra.iter().for_each(|(k, _)| {
                 Warnings::IgnoreUnknownField {
                     field: k.clone(),
-                    pkg: ctx.package_name.to_string(),
+                    pkg: vctx.package_name.to_string(),
                 }
                 .emit();
             });
@@ -752,8 +752,8 @@ impl Validate for PartialDependency {
             // my_dep: {version: "1.2.3"}
             // ```
             (None, None, None, Some(version), None) => {
-                if let Some(default_remote) = ctx.default_remote {
-                    let git_name = self.upstream_name.unwrap_or(ctx.package_name.to_string());
+                if let Some(default_remote) = vctx.default_remote {
+                    let git_name = self.upstream_name.unwrap_or(vctx.package_name.to_string());
                     Ok(Dependency::GitVersion {
                         target,
                         url: format!("{}/{}.git", default_remote.url, git_name),
@@ -771,8 +771,8 @@ impl Validate for PartialDependency {
             // my_dep: {version: "1.2.3", remote: "my_remote"}
             // ```
             (None, None, None, Some(version), Some(remote_name)) => {
-                if let Some(remote) = ctx.remotes.and_then(|r| r.get(&remote_name)) {
-                    let git_name = self.upstream_name.unwrap_or(ctx.package_name.to_string());
+                if let Some(remote) = vctx.remotes.and_then(|r| r.get(&remote_name)) {
+                    let git_name = self.upstream_name.unwrap_or(vctx.package_name.to_string());
                     Ok(Dependency::GitVersion {
                         target,
                         url: format!("{}/{}.git", remote.url, git_name),
@@ -782,7 +782,7 @@ impl Validate for PartialDependency {
                 } else {
                     Err(Error::new(format!(
                         "Remote `{remote_name}` not found for dependency `{}`.",
-                        ctx.package_name
+                        vctx.package_name
                     )))
                 }
             }
@@ -818,27 +818,27 @@ impl Validate for PartialDependency {
             }),
             (_, _, Some(_), Some(_), _) => Err(Error::new(format!(
                 "Dependency `{}` cannot specify both `version` and `rev` fields.",
-                ctx.package_name
+                vctx.package_name
             ))),
             (git, Some(_), rev, version, _)
                 if git.is_some() || rev.is_some() || version.is_some() =>
             {
                 Err(Error::new(format!(
                     "Dependency `{}` cannot simultaneously specify `path` with `git`, `rev`, or `version` fields.",
-                    ctx.package_name
+                    vctx.package_name
                 )))
             }
             (Some(_), _, None, None, _) => Err(Error::new(format!(
                 "Dependency `{}` with `git` must also specify `rev` or `version`.",
-                ctx.package_name
+                vctx.package_name
             ))),
             (None, None, None, None, _) => Err(Error::new(format!(
                 "Dependency `{}` must specify at least one of `path`, `git`, `rev`, or `version`.",
-                ctx.package_name
+                vctx.package_name
             ))),
             cfg => Err(Error::new(format!(
                 "Invalid configuration for dependency `{}`: {cfg:?}",
-                ctx.package_name
+                vctx.package_name
             ))),
         }
     }
@@ -905,7 +905,7 @@ impl From<Vec<PartialSourceFile>> for PartialSources {
 impl Validate for PartialSources {
     type Output = SourceFile;
     type Error = Error;
-    fn validate(self, ctx: &ValidationContext) -> Result<SourceFile> {
+    fn validate(self, vctx: &ValidationContext) -> Result<SourceFile> {
         match self {
             PartialSources {
                 target: None,
@@ -917,7 +917,7 @@ impl Validate for PartialSources {
                 vhd: None,
                 external_flists: None,
                 extra: _,
-            } => PartialSourceFile::SvFile(sv).validate(ctx),
+            } => PartialSourceFile::SvFile(sv).validate(vctx),
             PartialSources {
                 target: None,
                 include_dirs: None,
@@ -928,7 +928,7 @@ impl Validate for PartialSources {
                 vhd: None,
                 external_flists: None,
                 extra: _,
-            } => PartialSourceFile::VerilogFile(v).validate(ctx),
+            } => PartialSourceFile::VerilogFile(v).validate(vctx),
             PartialSources {
                 target: None,
                 include_dirs: None,
@@ -939,7 +939,7 @@ impl Validate for PartialSources {
                 vhd: Some(vhd),
                 external_flists: None,
                 extra: _,
-            } => PartialSourceFile::VhdlFile(vhd).validate(ctx),
+            } => PartialSourceFile::VhdlFile(vhd).validate(vctx),
             PartialSources {
                 target,
                 include_dirs,
@@ -1169,18 +1169,18 @@ impl Validate for PartialSources {
                 let defines = defines.unwrap_or_default();
                 let files: Result<Vec<_>> = post_glob_files
                     .into_iter()
-                    .map(|f| f.validate(ctx))
+                    .map(|f| f.validate(vctx))
                     .collect();
                 let files: Vec<SourceFile> = files?;
                 let files: Vec<SourceFile> = files.into_iter().collect();
-                if files.is_empty() && !ctx.pre_output {
-                    Warnings::NoFilesInSourceGroup(ctx.package_name.to_string()).emit();
+                if files.is_empty() && !vctx.pre_output {
+                    Warnings::NoFilesInSourceGroup(vctx.package_name.to_string()).emit();
                 }
-                if !ctx.pre_output {
+                if !vctx.pre_output {
                     extra.iter().for_each(|(k, _)| {
                         Warnings::IgnoreUnknownField {
                             field: k.clone(),
-                            pkg: ctx.package_name.to_string(),
+                            pkg: vctx.package_name.to_string(),
                         }
                         .emit();
                     });
@@ -1306,13 +1306,13 @@ impl<'de> Deserialize<'de> for PartialSourceFile {
 impl Validate for PartialSourceFile {
     type Output = SourceFile;
     type Error = Error;
-    fn validate(self, ctx: &ValidationContext) -> Result<SourceFile> {
+    fn validate(self, vctx: &ValidationContext) -> Result<SourceFile> {
         match self {
             PartialSourceFile::File(path) => Ok(SourceFile::File(PathBuf::from(path))),
             // PartialSourceFile::Group(srcs) => Ok(Some(SourceFile::Group(Box::new(
             //     srcs.validate(package_name, pre_output, suppress_warnings)?,
             // )))),
-            PartialSourceFile::Group(srcs) => Ok(srcs.validate(ctx)?),
+            PartialSourceFile::Group(srcs) => Ok(srcs.validate(vctx)?),
             PartialSourceFile::SvFile(path) => Ok(SourceFile::SvFile(env_path_from_string(path)?)),
             PartialSourceFile::VerilogFile(path) => {
                 Ok(SourceFile::VerilogFile(env_path_from_string(path)?))
@@ -1424,18 +1424,18 @@ impl PrefixPaths for PartialWorkspace {
 impl Validate for PartialWorkspace {
     type Output = Workspace;
     type Error = Error;
-    fn validate(self, ctx: &ValidationContext) -> Result<Workspace> {
+    fn validate(self, vctx: &ValidationContext) -> Result<Workspace> {
         let package_links: Result<IndexMap<_, _>> = self
             .package_links
             .unwrap_or_default()
             .iter()
             .map(|(k, v)| Ok((env_path_from_string(k.to_string())?, v.clone())))
             .collect();
-        if !ctx.pre_output {
+        if !vctx.pre_output {
             self.extra.iter().for_each(|(k, _)| {
                 Warnings::IgnoreUnknownField {
                     field: k.clone(),
-                    pkg: ctx.package_name.to_string(),
+                    pkg: vctx.package_name.to_string(),
                 }
                 .emit();
             });
@@ -1598,7 +1598,7 @@ impl Merge for PartialConfig {
 impl Validate for PartialConfig {
     type Output = Config;
     type Error = Error;
-    fn validate(self, ctx: &ValidationContext) -> Result<Config> {
+    fn validate(self, vctx: &ValidationContext) -> Result<Config> {
         Ok(Config {
             database: match self.database {
                 Some(db) => env_path_from_string(db)?,
@@ -1609,14 +1609,14 @@ impl Validate for PartialConfig {
                 None => return Err(Error::new("Git command or path to binary not configured")),
             },
             overrides: match self.overrides {
-                Some(d) => d.validate(ctx).map_err(|(key, cause)| {
+                Some(d) => d.validate(vctx).map_err(|(key, cause)| {
                     Error::chain(format!("In override `{}`:", key), cause)
                 })?,
                 None => IndexMap::new(),
             },
             plugins: match self.plugins {
                 Some(d) => d
-                    .validate(ctx)
+                    .validate(vctx)
                     .map_err(|(key, cause)| Error::chain(format!("In plugin `{}`:", key), cause))?,
                 None => IndexMap::new(),
             },
@@ -1731,7 +1731,7 @@ impl PrefixPaths for PartialVendorPackage {
 impl Validate for PartialVendorPackage {
     type Output = VendorPackage;
     type Error = Error;
-    fn validate(self, ctx: &ValidationContext) -> Result<VendorPackage> {
+    fn validate(self, vctx: &ValidationContext) -> Result<VendorPackage> {
         Ok(VendorPackage {
             name: match self.name {
                 Some(name) => name,
@@ -1742,7 +1742,7 @@ impl Validate for PartialVendorPackage {
                 None => return Err(Error::new("external import target dir missing")),
             },
             upstream: match self.upstream {
-                Some(upstream) => upstream.validate(ctx).map_err(|cause| {
+                Some(upstream) => upstream.validate(vctx).map_err(|cause| {
                     Error::chain("Unable to parse external import upstream", cause)
                 })?,
                 None => return Err(Error::new("external import upstream missing")),
@@ -1797,7 +1797,7 @@ pub struct PartialPassedTarget {
 impl Validate for PartialPassedTarget {
     type Output = PassedTarget;
     type Error = Error;
-    fn validate(self, _ctx: &ValidationContext) -> Result<PassedTarget> {
+    fn validate(self, _vctx: &ValidationContext) -> Result<PassedTarget> {
         Ok(PassedTarget {
             target: self.target.unwrap_or_default(),
             pass: match self.pass {
@@ -1847,7 +1847,7 @@ impl FromStr for RemoteConfig {
 impl Validate for RemoteConfig {
     type Output = RemoteConfig;
     type Error = Error;
-    fn validate(self, _ctx: &ValidationContext) -> Result<RemoteConfig> {
+    fn validate(self, _vctx: &ValidationContext) -> Result<RemoteConfig> {
         let mut normalized_url = self.url.trim().to_string();
 
         // Strip trailing slashes, to avoid double slashes when appending paths.
