@@ -15,7 +15,8 @@ set ROOT "{{ root }}"
     {% for tmp_arg in vcom_args %}{{ tmp_arg }} \
     {% endfor %}{#                                                                                              Add all vcom arguments
 #}{% endif %}{#
-#}{% for file in group.files %}"{{ file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
+#}{% for file in group.files %}{% if source_annotations %}{% if file.1 %}# {{ file.1 }}{#                       Add file comments, if present #}
+    {% endif %}{% endif %}"{{ file.0 | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
     {% endif %}{% endfor %}{#                                                                                   Add group's files
 #}{% if abort_on_error %}\
 }]} {return 1}{% endif %}
@@ -30,7 +31,8 @@ set ROOT "{{ root }}"
     {% endfor %}{#                                                                                              Add all defines
 #}{% for incdir in all_incdirs %}"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}" \
     {% endfor %}{#                                                                                              Add all include directories
-#}{% endif %}"{{ file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
+#}{% endif %}{% if source_annotations %}{% if file.1 %}# {{ file.1 }}{#                                         Add file comments, if present #}
+    {% endif %}{% endif %}"{{ file.0 | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
     {% endif %}{#                                                                                               Add all verilog files
 #}{% if loop.last %}{% if abort_on_error %} \
 }]} {return 1}{% endif %}
@@ -40,7 +42,8 @@ set ROOT "{{ root }}"
 #}vcom -2008 \{#                                                                                                Compile VHDL files with vcom #}
     {% for tmp_arg in vcom_args %}{{ tmp_arg }} \
     {% endfor %}{#                                                                                              Add all vcom arguments
-#}{% endif %}"{{ file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
+#}{% endif %}{% if source_annotations %}{% if file.1 %}# {{ file.1 }}{#                                         Add file comments, if present #}
+    {% endif %}{% endif %}"{{ file.0 | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
     {% endif %}{#                                                                                               Add all VHDL files
 #}{% if loop.last %}{% if abort_on_error %} \
 }]} {return 1}{% endif %}
