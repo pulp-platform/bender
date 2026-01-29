@@ -5,6 +5,8 @@ fn main() {
         .define("SLANG_INCLUDE_TOOLS", "OFF")
         .define("SLANG_INCLUDE_PYSLANG", "OFF")
         .define("BUILD_SHARED_LIBS", "OFF")
+        // Forces installation into 'lib' instead of 'lib64' on some systems.
+        .define("CMAKE_INSTALL_LIBDIR", "lib")
         // TODO(fischeti): Check whether mimalloc can/should be enabled again.
         .define("SLANG_USE_MIMALLOC", "OFF")
         // TODO(fischeti): `fmt` currently causes issues on my machine since there is a system-wide installation.
@@ -15,7 +17,9 @@ fn main() {
 
     // Configure Linker to find Slang static library
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
-    println!("cargo:rustc-link-lib=static=svLang");
+    // Note: Linux is case-sensitive, so we use lowercase here.
+    // On macOS, the library is called `svLang`, but the linker is case-insensitive there.
+    println!("cargo:rustc-link-lib=static=svlang");
     println!("cargo:rustc-link-lib=static=fmtd");
 
     // Compile the C++ Bridge
