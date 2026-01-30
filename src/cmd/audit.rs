@@ -121,7 +121,7 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
 
         // if conflicting:
         if conflicting {
-            audit_str.push_str(" has a \x1B[31;1mConflict:\x1B[m\t-> check parents\n\t");
+            audit_str.push_str(" has a \x1B[31;1mConflict\x1B[m:\t-> check parents\n\t");
         }
 
         // if path:
@@ -132,7 +132,7 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
         // if rev:
         if (current_version.is_none() || !version_req_exists) && current_revision.is_some() {
             audit_str.push_str(&format!(
-                "    uses a \x1B[31;1mHash:\x1B[m\t{}\n",
+                "    uses a \x1B[31;1mHash\x1B[m:\t{}\n",
                 current_revision_unwrapped
             ));
             if let Some(highest_version) = highest_version {
@@ -149,7 +149,7 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
                 if let Some(highest_version) = highest_version {
                     if *highest_version == *current_version && !args.only_update {
                         audit_str.push_str(&format!(
-                            "  is \x1B[32;1mUp-to-date:\x1B[m\t@ {}\n",
+                            "  is \x1B[32;1mUp-to-date\x1B[m:\t@ {}\n",
                             current_version_unwrapped
                         ));
                     }
@@ -163,7 +163,7 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
                 if let Some(max_compatible) = max_compatible {
                     if *max_compatible > *current_version {
                         audit_str.push_str(&format!(
-                            "can \x1B[32;1mAuto-update:\x1B[m\t{} -> {}\n",
+                            "can \x1B[32;1mAuto-update\x1B[m:\t{} -> {}\n",
                             current_version_unwrapped, max_compatible
                         ));
                     }
@@ -179,7 +179,7 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
                         && (max_compatible.is_none() || *max_compatible.unwrap() < *highest_version)
                     {
                         audit_str.push_str(&format!(
-                            "     can \x1B[33;1mUpdate:\x1B[m\t{} -> {}\n",
+                            "     can \x1B[33;1mUpdate\x1B[m:\t{} -> {}\n",
                             current_version_unwrapped, highest_version
                         ));
                     }
