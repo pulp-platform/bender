@@ -101,6 +101,9 @@ package:
   # By convention, authors should be listed in the form shown below.
   authors: ["John Doe <john@doe.si>"]
 
+  # A short description of the package. Optional.
+  description: "This is a magical chip"
+
 # Specify git remotes for dependencies. Optional.
 remotes:
   pulp:

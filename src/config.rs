@@ -85,6 +85,8 @@ pub struct Package {
     /// A list of package authors. Each author should be of the form `John Doe
     /// <john@doe.com>`.
     pub authors: Option<Vec<String>>,
+    /// A short description of the package.
+    pub description: Option<String>,
     #[serde(flatten)]
     extra: HashMap<String, Value>,
 }
