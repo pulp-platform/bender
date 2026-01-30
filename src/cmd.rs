@@ -19,6 +19,8 @@ pub mod init;
 pub mod packages;
 pub mod parents;
 pub mod path;
+#[cfg(feature = "slang")]
+pub mod pickle;
 pub mod script;
 pub mod snapshot;
 pub mod sources;
