@@ -135,7 +135,7 @@ dependencies:
 
   # Git revision dependency, passing a custom target.
   # (equivalent to `-t common_cells:cc_custom_target`).
-  common_cells: { rev: master, pass_targets: ["cc_custom_target"] }
+  common_cells: { version: "1.39", pass_targets: ["cc_custom_target"] }
 
   # Git version dependency, passing conditional targets to a dependency
   # (equivalent to `-t cva6:cv64a6_imafdcv_sv39` if target 64bit is set,
