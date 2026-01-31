@@ -14,8 +14,6 @@ fn main() {
         .define("BUILD_SHARED_LIBS", "OFF")
         // Forces installation into 'lib' instead of 'lib64' on some systems.
         .define("CMAKE_INSTALL_LIBDIR", "lib")
-        // TODO(fischeti): Check whether mimalloc can/should be enabled again.
-        .define("SLANG_USE_MIMALLOC", "OFF")
         // TODO(fischeti): `fmt` currently causes issues on my machine since there is a system-wide installation.
         .define("CMAKE_DISABLE_FIND_PACKAGE_fmt", "ON")
         // TODO(fischeti): Investigate how boost should be handled properly.
@@ -27,11 +25,13 @@ fn main() {
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
     println!("cargo:rustc-link-lib=static=svlang");
 
-    // Link the appropriate fmt library based on build profile
-    match build_profile.as_str() {
-        "debug" => println!("cargo:rustc-link-lib=static=fmtd"),
-        "release" => println!("cargo:rustc-link-lib=static=fmt"),
-        _ => unreachable!(),
+    // Link the additional libraries based on build profile
+    if build_profile == "debug" {
+        println!("cargo:rustc-link-lib=static=fmtd");
+        println!("cargo:rustc-link-lib=static=mimalloc-debug")
+    } else {
+        println!("cargo:rustc-link-lib=static=fmt");
+        println!("cargo:rustc-link-lib=static=mimalloc")
     }
 
     // Compile the C++ Bridge
@@ -51,11 +51,6 @@ fn main() {
         .include("vendor/slang/include")
         .include("vendor/slang/external")
         .include(dst.join("include"));
-
-    // TODO(fischeti): Check whether debug definitions are necessary.
-    if std::env::var("PROFILE").unwrap() == "debug" {
-        bridge_build.define("SLANG_DEBUG", "1");
-    }
 
     // Linux: we try static linking of libstdc++ to avoid issues on older distros.
     if target_os == "linux" {
