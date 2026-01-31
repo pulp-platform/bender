@@ -1,6 +1,13 @@
 fn main() {
-    // Build Slang with CMake into a static library
-    let dst = cmake::Config::new("vendor/slang")
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap();
+    let build_profile = std::env::var("PROFILE").unwrap();
+
+    // Create the configuration builder
+    let mut slang_lib = cmake::Config::new("vendor/slang");
+
+    // Apply common settings
+    slang_lib
         .define("SLANG_INCLUDE_TESTS", "OFF")
         .define("SLANG_INCLUDE_TOOLS", "OFF")
         .define("SLANG_INCLUDE_PYSLANG", "OFF")
@@ -18,14 +25,13 @@ fn main() {
 
     // Configure Linker to find Slang static library
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
-    // Note: Linux is case-sensitive, so we use lowercase here.
-    // On macOS, the library is called `svLang`, but the linker is case-insensitive there.
     println!("cargo:rustc-link-lib=static=svlang");
 
-    if std::env::var("PROFILE").unwrap() == "debug" {
-        println!("cargo:rustc-link-lib=static=fmtd");
-    } else {
-        println!("cargo:rustc-link-lib=static=fmt");
+    // Link the appropriate fmt library based on build profile
+    match build_profile.as_str() {
+        "debug" => println!("cargo:rustc-link-lib=static=fmtd"),
+        "release" => println!("cargo:rustc-link-lib=static=fmt"),
+        _ => unreachable!(),
     }
 
     // Compile the C++ Bridge
@@ -52,7 +58,7 @@ fn main() {
     }
 
     // Linux: we try static linking of libstdc++ to avoid issues on older distros.
-    if std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "linux" {
+    if target_os == "linux" {
         // Determine the C++ compiler to use. Respect the CXX environment variable if set.
         let compiler = std::env::var("CXX").unwrap_or_else(|_| "g++".to_string());
         // We search for the static libstdc++ file using g++
