@@ -21,7 +21,12 @@ fn main() {
     // Note: Linux is case-sensitive, so we use lowercase here.
     // On macOS, the library is called `svLang`, but the linker is case-insensitive there.
     println!("cargo:rustc-link-lib=static=svlang");
-    println!("cargo:rustc-link-lib=static=fmtd");
+
+    if std::env::var("PROFILE").unwrap() == "debug" {
+        println!("cargo:rustc-link-lib=static=fmtd");
+    } else {
+        println!("cargo:rustc-link-lib=static=fmt");
+    }
 
     // Compile the C++ Bridge
     let mut bridge_build = cxx_build::bridge("src/lib.rs");
