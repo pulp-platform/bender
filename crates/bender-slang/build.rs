@@ -17,21 +17,31 @@ fn main() {
         // TODO(fischeti): `fmt` currently causes issues on my machine since there is a system-wide installation.
         .define("CMAKE_DISABLE_FIND_PACKAGE_fmt", "ON")
         // TODO(fischeti): Investigate how boost should be handled properly.
-        .cxxflag("-DSLANG_BOOST_SINGLE_HEADER=1")
-        .static_crt(true)
-        .build();
+        .cxxflag("-DSLANG_BOOST_SINGLE_HEADER=1");
+
+    // Windows / MSVC specific flags
+    if target_env == "msvc" {
+        slang_lib.cxxflag("/EHsc").cxxflag("/utf-8");
+    }
+
+    // Build the slang library
+    let dst = slang_lib.build();
 
     // Configure Linker to find Slang static library
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
     println!("cargo:rustc-link-lib=static=svlang");
 
-    // Link the additional libraries based on build profile
-    if build_profile == "debug" {
-        println!("cargo:rustc-link-lib=static=fmtd");
-        println!("cargo:rustc-link-lib=static=mimalloc-debug")
-    } else {
-        println!("cargo:rustc-link-lib=static=fmt");
-        println!("cargo:rustc-link-lib=static=mimalloc")
+    // Link the additional libraries based on build profile and OS
+    match (build_profile.as_str(), target_env.as_str()) {
+        ("release", _) | (_, "msvc") => {
+            println!("cargo:rustc-link-lib=static=fmt");
+            println!("cargo:rustc-link-lib=static=mimalloc");
+        }
+        ("debug", _) => {
+            println!("cargo:rustc-link-lib=static=fmtd");
+            println!("cargo:rustc-link-lib=static=mimalloc-debug");
+        }
+        _ => unreachable!(),
     }
 
     // Compile the C++ Bridge
@@ -39,7 +49,6 @@ fn main() {
     bridge_build
         .file("cpp/slang_bridge.cpp")
         .flag_if_supported("-std=c++20")
-        .flag_if_supported("/std:c++20")
         // Static Linking Definition
         // Tells Slang headers not to look for DLL import/export symbols.
         .define("SLANG_STATIC_DEFINE", "1")
@@ -80,10 +89,13 @@ fn main() {
                 );
             }
         }
-    // Windows / MSVC: we force static linking of the CRT to avoid missing DLL issues
-    } else if std::env::var("CARGO_CFG_TARGET_ENV").unwrap() == "msvc" {
-        bridge_build.static_crt(true);
-    }
+    // Windows / MSVC: we set the appropriate flags for C++20 and exception handling.
+    } else if target_env == "msvc" {
+        bridge_build
+            .flag_if_supported("/std:c++20")
+            .flag("/EHsc")
+            .flag("/utf-8");
+    };
     // macOS: we leave the default dynamic linking of libc++ as is.
 
     bridge_build.compile("slang-bridge");
