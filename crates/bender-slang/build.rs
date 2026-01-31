@@ -14,10 +14,10 @@ fn main() {
         .define("BUILD_SHARED_LIBS", "OFF")
         // Forces installation into 'lib' instead of 'lib64' on some systems.
         .define("CMAKE_INSTALL_LIBDIR", "lib")
-        // TODO(fischeti): `fmt` currently causes issues on my machine since there is a system-wide installation.
+        // Disable finding system-installed packages, we want to fetch and build them from source.
         .define("CMAKE_DISABLE_FIND_PACKAGE_fmt", "ON")
-        // TODO(fischeti): Investigate how boost should be handled properly.
-        .cxxflag("-DSLANG_BOOST_SINGLE_HEADER=1");
+        .define("CMAKE_DISABLE_FIND_PACKAGE_mimalloc", "ON")
+        .define("CMAKE_DISABLE_FIND_PACKAGE_Boost", "ON");
 
     // Windows / MSVC specific flags
     if target_env == "msvc" {
@@ -49,14 +49,10 @@ fn main() {
     bridge_build
         .file("cpp/slang_bridge.cpp")
         .flag_if_supported("-std=c++20")
-        // Static Linking Definition
         // Tells Slang headers not to look for DLL import/export symbols.
         .define("SLANG_STATIC_DEFINE", "1")
-        // Boost Vendored Mode
-        // Tells Slang to use the local 'external/boost_*.hpp' files instead of system Boost.
-        // TODO(fischeti): Investigate how boost should be handled properly.
+        // Tells Slang to use vendor-provided instead of system-installed Boost header files.
         .define("SLANG_BOOST_SINGLE_HEADER", "1")
-        // Include Paths
         .include("vendor/slang/include")
         .include("vendor/slang/external")
         .include(dst.join("include"));
