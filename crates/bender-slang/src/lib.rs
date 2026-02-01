@@ -1,118 +1,106 @@
+// Copyright (c) 2025 ETH Zurich
+// Tim Fischer <fischeti@iis.ee.ethz.ch>
+
+use cxx::{SharedPtr, UniquePtr};
+
 pub use ffi::SlangPrintOpts;
 
 #[cxx::bridge]
 mod ffi {
-
     /// Options for the syntax printer
-    #[derive(Clone)]
+    #[derive(Clone, Copy)]
     struct SlangPrintOpts {
-        /// Whether to include preprocessor directives
         include_directives: bool,
-        /// Whether to expand include directives
         expand_includes: bool,
-        /// Whether to expand macros
         expand_macros: bool,
-        /// Whether to print comments
         include_comments: bool,
-        /// Whether to squash newlines
         squash_newlines: bool,
     }
 
     unsafe extern "C++" {
         include!("bender-slang/cpp/slang_bridge.h");
+        // Include Slang header to define SyntaxTree type for CXX
+        include!("slang/syntax/SyntaxTree.h");
 
-        fn pickle(
-            sources: Vec<String>,
-            include_dirs: Vec<String>,
-            defines: Vec<String>,
-            options: SlangPrintOpts,
-        ) -> Result<String>;
+        /// Opaque type for the Slang Driver wrapper
+        type SlangContext;
+
+        /// Opaque type for the Slang SyntaxTree
+        #[namespace = "slang::syntax"]
+        type SyntaxTree;
+
+        /// Create a new persistent context (owns the Driver)
+        fn new_slang_context() -> UniquePtr<SlangContext>;
+
+        // Methods on SlangContext
+        fn add_source(self: Pin<&mut SlangContext>, path: &str);
+        fn add_include(self: Pin<&mut SlangContext>, path: &str);
+        fn add_define(self: Pin<&mut SlangContext>, def: &str);
+
+        /// Parse all added sources. Returns true on success.
+        fn parse(self: Pin<&mut SlangContext>) -> Result<bool>;
+
+        /// Retrieves the number of parsed syntax trees
+        fn get_tree_count(self: &SlangContext) -> usize;
+
+        /// Retrieves a shared pointer to a specific syntax tree by index
+        fn get_tree(self: &SlangContext, index: usize) -> SharedPtr<SyntaxTree>;
+
+        /// Print a specific tree using the context's SourceManager
+        fn print_tree(self: &SlangContext, tree: &SyntaxTree, options: SlangPrintOpts) -> String;
     }
 }
 
-/// Main interface for Slang bindings
-pub struct Slang {
-    /// Source files to be pickled
-    sources: Vec<String>,
-    /// Include directories
-    include_dirs: Vec<String>,
-    /// Defines
-    defines: Vec<String>,
-    /// Print options
-    print_opts: ffi::SlangPrintOpts,
+/// A persistent Slang session
+pub struct SlangSession {
+    ctx: UniquePtr<ffi::SlangContext>,
 }
 
-/// Main interface for interfacing with Slang
-impl Slang {
+impl SlangSession {
+    /// Creates a new Slang session
     pub fn new() -> Self {
-        Slang {
-            sources: Vec::new(),
-            include_dirs: Vec::new(),
-            defines: Vec::new(),
-            print_opts: ffi::SlangPrintOpts {
-                include_directives: true,
-                expand_includes: true,
-                expand_macros: true,
-                include_comments: true,
-                squash_newlines: true,
-            },
+        Self {
+            ctx: ffi::new_slang_context(),
         }
     }
 
-    /// Adds source files to be pickled.
-    pub fn add_sources(&mut self, sources: Vec<String>) {
-        self.sources.extend(sources);
+    /// Adds a source file to be parsed
+    pub fn add_source(&mut self, path: &str) {
+        self.ctx.pin_mut().add_source(path);
     }
 
-    /// Adds source sources to be pickled, returning self for chaining.
-    pub fn with_sources(mut self, sources: Vec<String>) -> Self {
-        self.sources.extend(sources);
-        self
+    /// Adds an include directory
+    pub fn add_include(&mut self, path: &str) {
+        self.ctx.pin_mut().add_include(path);
     }
 
-    /// Adds include directories.
-    pub fn add_include_dirs(&mut self, dirs: Vec<String>) {
-        self.include_dirs.extend(dirs);
+    /// Adds a preprocessor define
+    pub fn add_define(&mut self, define: &str) {
+        self.ctx.pin_mut().add_define(define);
     }
 
-    /// Adds include directories, returning self for chaining.
-    pub fn with_include_dirs(mut self, dirs: Vec<String>) -> Self {
-        self.include_dirs.extend(dirs);
-        self
+    /// Parses all added source files into syntax trees
+    pub fn parse(&mut self) -> Result<bool, Box<dyn std::error::Error>> {
+        Ok(self.ctx.pin_mut().parse()?)
     }
 
-    /// Adds defines.
-    pub fn add_defines(&mut self, defines: Vec<String>) {
-        self.defines.extend(defines);
+    /// Returns the parsed syntax trees as a Rust vector
+    pub fn get_trees(&self) -> Vec<SharedPtr<ffi::SyntaxTree>> {
+        let count = self.ctx.get_tree_count();
+        let mut trees = Vec::with_capacity(count);
+        for i in 0..count {
+            trees.push(self.ctx.get_tree(i));
+        }
+        trees
     }
 
-    /// Adds defines, returning self for chaining.
-    pub fn with_defines(mut self, defines: Vec<String>) -> Self {
-        self.defines.extend(defines);
-        self
+    /// Returns an iterator over the parsed syntax trees
+    pub fn trees_iter(&self) -> impl Iterator<Item = SharedPtr<ffi::SyntaxTree>> + '_ {
+        (0..self.ctx.get_tree_count()).map(|i| self.ctx.get_tree(i))
     }
 
-    /// Sets print options.
-    pub fn set_print_options(&mut self, print_opts: ffi::SlangPrintOpts) {
-        self.print_opts = print_opts;
-    }
-
-    /// Sets print options, returning self for chaining.
-    pub fn with_print_options(mut self, print_opts: ffi::SlangPrintOpts) -> Self {
-        self.print_opts = print_opts;
-        self
-    }
-
-    /// Pickles files based on the provided configuration.
-    /// Returns the pickled content or an error if parsing/processing failed.
-    pub fn pickle(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // call the C++ function; errors are propagated as Rust Results
-        let result = ffi::pickle(
-            self.sources.clone(),
-            self.include_dirs.clone(),
-            self.defines.clone(),
-            self.print_opts.clone(),
-        )?;
-        Ok(result)
+    /// Prints a syntax tree with given printing options
+    pub fn print_tree(&self, tree: &ffi::SyntaxTree, opts: ffi::SlangPrintOpts) -> String {
+        self.ctx.print_tree(tree, opts)
     }
 }
