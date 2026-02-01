@@ -1,3 +1,6 @@
+// Copyright (c) 2025 ETH Zurich
+// Tim Fischer <fischeti@iis.ee.ethz.ch>
+
 fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap();
@@ -12,6 +15,7 @@ fn main() {
         .define("SLANG_INCLUDE_TOOLS", "OFF")
         .define("SLANG_INCLUDE_PYSLANG", "OFF")
         .define("BUILD_SHARED_LIBS", "OFF")
+        .define("SLANG_USE_MIMALLOC", "ON")
         // Forces installation into 'lib' instead of 'lib64' on some systems.
         .define("CMAKE_INSTALL_LIBDIR", "lib")
         // Disable finding system-installed packages, we want to fetch and build them from source.
@@ -53,6 +57,9 @@ fn main() {
         .define("SLANG_STATIC_DEFINE", "1")
         // Tells Slang to use vendor-provided instead of system-installed Boost header files.
         .define("SLANG_BOOST_SINGLE_HEADER", "1")
+        .define("SLANG_DEBUG", "")
+        .define("SLANG_USE_THREADS", "1")
+        .define("SLANG_USE_MIMALLOC", "1")
         .include("vendor/slang/include")
         .include("vendor/slang/external")
         .include(dst.join("include"));

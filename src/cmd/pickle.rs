@@ -5,7 +5,7 @@
 
 use clap::{ArgAction, Args};
 
-use bender_slang::{Slang, SlangPrintOpts};
+use bender_slang::{SlangPrintOpts, SlangSession};
 
 use crate::error::*;
 
@@ -54,26 +54,35 @@ pub struct PickleArgs {
 
 /// Execute the `pickle` subcommand.
 pub fn run(args: PickleArgs) -> Result<()> {
-    let slang = Slang::new()
-        .with_sources(args.files)
-        .with_include_dirs(args.include_dirs)
-        .with_defines(args.defines)
-        .with_print_options(SlangPrintOpts {
-            include_directives: args.include_directives,
-            expand_includes: args.expand_includes,
-            expand_macros: args.expand_macros,
-            include_comments: !args.strip_comments,
-            squash_newlines: args.strip_newlines,
-        });
-    match slang.pickle() {
-        Ok(pickled) => {
-            if let Some(output) = args.output {
-                std::fs::write(output, pickled).expect("Failed to write output file");
-            } else {
-                println!("{}", pickled);
-            };
-        }
-        Err(cause) => return Err(Error::new(format!("Cannot pickle files: {}", cause))),
+    let mut slang = SlangSession::new();
+
+    for file in args.files.iter() {
+        slang.add_source(file);
+    }
+
+    for include in args.include_dirs.iter() {
+        slang.add_include(include);
+    }
+
+    for define in args.defines.iter() {
+        slang.add_define(define);
+    }
+
+    slang
+        .parse()
+        .map_err(|cause| Error::new(format!("Cannot parse files: {}", cause)))?;
+
+    let print_opts = SlangPrintOpts {
+        include_directives: args.include_directives,
+        expand_includes: args.expand_includes,
+        expand_macros: args.expand_macros,
+        include_comments: !args.strip_comments,
+        squash_newlines: args.strip_newlines,
+    };
+
+    for tree in slang.trees_iter() {
+        let pickled = slang.print_tree(&tree, print_opts);
+        println!("{}", pickled);
     }
     Ok(())
 }
