@@ -5,15 +5,16 @@
 #include "rust/cxx.h"
 #include "slang/driver/Driver.h"
 #include "slang/syntax/SyntaxTree.h"
+
 #include <memory>
-#include <vector>
 #include <string>
+#include <vector>
 
 struct SlangPrintOpts; // Forward decl
 
 // The wrapper class exposed as "SlangContext" to Rust
 class SlangContext {
-public:
+  public:
     SlangContext();
 
     void add_source(rust::Str path);
@@ -25,9 +26,12 @@ public:
     size_t get_tree_count() const;
     std::shared_ptr<slang::syntax::SyntaxTree> get_tree(size_t index) const;
 
-    rust::String print_tree(const slang::syntax::SyntaxTree& tree, SlangPrintOpts options) const;
+    std::shared_ptr<slang::syntax::SyntaxTree> rename_tree(const std::shared_ptr<slang::syntax::SyntaxTree>,
+                                                           rust::Str prefix, rust::Str suffix) const;
 
-private:
+    rust::String print_tree(const std::shared_ptr<slang::syntax::SyntaxTree>, SlangPrintOpts options) const;
+
+  private:
     slang::driver::Driver driver;
 
     // We buffer args to pass to driver.parseCommandLine later

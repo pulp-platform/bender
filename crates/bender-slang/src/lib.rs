@@ -46,8 +46,20 @@ mod ffi {
         /// Retrieves a shared pointer to a specific syntax tree by index
         fn get_tree(self: &SlangContext, index: usize) -> SharedPtr<SyntaxTree>;
 
+        /// Rename names in the syntax tree with a given prefix and suffix
+        fn rename_tree(
+            self: &SlangContext,
+            tree: SharedPtr<SyntaxTree>,
+            prefix: &str,
+            suffix: &str,
+        ) -> SharedPtr<SyntaxTree>;
+
         /// Print a specific tree using the context's SourceManager
-        fn print_tree(self: &SlangContext, tree: &SyntaxTree, options: SlangPrintOpts) -> String;
+        fn print_tree(
+            self: &SlangContext,
+            tree: SharedPtr<SyntaxTree>,
+            options: SlangPrintOpts,
+        ) -> String;
     }
 }
 
@@ -99,8 +111,27 @@ impl SlangSession {
         (0..self.ctx.get_tree_count()).map(|i| self.ctx.get_tree(i))
     }
 
+    /// Renames names in the syntax tree with a given prefix and suffix
+    pub fn rename_tree(
+        &self,
+        tree: SharedPtr<ffi::SyntaxTree>,
+        prefix: Option<&str>,
+        suffix: Option<&str>,
+    ) -> SharedPtr<ffi::SyntaxTree> {
+        if prefix.is_none() && suffix.is_none() {
+            return tree;
+        }
+        let prefix = prefix.unwrap_or("");
+        let suffix = suffix.unwrap_or("");
+        self.ctx.rename_tree(tree, prefix, suffix)
+    }
+
     /// Prints a syntax tree with given printing options
-    pub fn print_tree(&self, tree: &ffi::SyntaxTree, opts: ffi::SlangPrintOpts) -> String {
+    pub fn print_tree(
+        &self,
+        tree: SharedPtr<ffi::SyntaxTree>,
+        opts: ffi::SlangPrintOpts,
+    ) -> String {
         self.ctx.print_tree(tree, opts)
     }
 }
