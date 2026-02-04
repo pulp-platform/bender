@@ -1,7 +1,9 @@
 // Copyright (c) 2025 ETH Zurich
 // Tim Fischer <fischeti@iis.ee.ethz.ch>
 
-#pragma once
+#ifndef BENDER_SLANG_BRIDGE_H
+#define BENDER_SLANG_BRIDGE_H
+
 #include "rust/cxx.h"
 #include "slang/driver/Driver.h"
 #include "slang/syntax/SyntaxTree.h"
@@ -41,3 +43,5 @@ class SlangContext {
 };
 
 std::unique_ptr<SlangContext> new_slang_context();
+
+#endif // BENDER_SLANG_BRIDGE_H
