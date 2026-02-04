@@ -31,6 +31,14 @@ pub struct PickleArgs {
     #[arg(short = 'D', long, action = ArgAction::Append)]
     defines: Vec<String>,
 
+    /// The prefix to add to all names
+    #[arg(long)]
+    prefix: Option<String>,
+
+    /// The suffix to add to all names
+    #[arg(long)]
+    suffix: Option<String>,
+
     /// Whether to include preprocessor directives
     #[arg(long, default_value_t = true, action = ArgAction::SetFalse, help_heading = "Print Options")]
     include_directives: bool,
@@ -81,7 +89,8 @@ pub fn run(args: PickleArgs) -> Result<()> {
     };
 
     for tree in slang.trees_iter() {
-        let pickled = slang.print_tree(&tree, print_opts);
+        let renamed_tree = slang.rename_tree(tree, args.prefix.as_deref(), args.suffix.as_deref());
+        let pickled = slang.print_tree(renamed_tree, print_opts);
         println!("{}", pickled);
     }
     Ok(())
