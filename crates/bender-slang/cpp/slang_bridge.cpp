@@ -10,6 +10,7 @@
 using namespace slang;
 using namespace slang::driver;
 using namespace slang::syntax;
+using namespace slang::parsing;
 
 using std::memcpy;
 using std::shared_ptr;
@@ -20,57 +21,39 @@ using std::vector;
 // Create a new SlangContext instance
 std::unique_ptr<SlangContext> new_slang_context() { return std::make_unique<SlangContext>(); }
 
-// Constructor: initialize driver with standard args
-SlangContext::SlangContext() { driver.addStandardArgs(); }
+SlangContext::SlangContext() {}
 
-// Add a source file path to the context
-void SlangContext::add_source(rust::Str path) { sources.emplace_back(std::string(path)); }
-
-// Add an include path to the context
-void SlangContext::add_include(rust::Str path) { includes.emplace_back(std::string(path)); }
-
-// Add a define to the context
-void SlangContext::add_define(rust::Str def) { defines.emplace_back(std::string(def)); }
-
-bool SlangContext::parse() {
-    vector<string> arg_strings;
-    arg_strings.push_back("slang_tool");
-
-    for (const auto& s : sources)
-        arg_strings.push_back(s);
-    for (const auto& i : includes) {
-        arg_strings.push_back("-I");
-        arg_strings.push_back(i);
+// Set the include paths for the preprocessor
+void SlangContext::set_includes(const rust::Vec<rust::String>& incs) {
+    ppOptions.additionalIncludePaths.clear();
+    for (const auto& inc : incs) {
+        ppOptions.additionalIncludePaths.emplace_back(std::string(inc));
     }
-    for (const auto& d : defines) {
-        arg_strings.push_back("-D");
-        arg_strings.push_back(d);
-    }
-
-    vector<const char*> c_args;
-    for (const auto& s : arg_strings)
-        c_args.push_back(s.c_str());
-
-    if (!driver.parseCommandLine(c_args.size(), c_args.data())) {
-        throw std::runtime_error("Failed to parse command line args");
-    }
-
-    if (!driver.processOptions()) {
-        throw std::runtime_error("Failed to process options");
-    }
-
-    bool ok = driver.parseAllSources();
-    // reportDiagnostics returns true if issues found, so we invert logic or check strictness
-    bool hasErrors = driver.reportDiagnostics(false);
-
-    return ok && !hasErrors;
 }
 
-// Get the number of syntax trees parsed by the driver
-size_t SlangContext::get_tree_count() const { return driver.syntaxTrees.size(); }
+// Sets the preprocessor defines
+void SlangContext::set_defines(const rust::Vec<rust::String>& defs) {
+    ppOptions.predefines.clear();
+    for (const auto& def : defs) {
+        ppOptions.predefines.emplace_back(std::string(def));
+    }
+}
 
-// Get the syntax tree at the specified index
-shared_ptr<SyntaxTree> SlangContext::get_tree(size_t index) const { return driver.syntaxTrees[index]; }
+// Parses the given file and returns a syntax tree, if successful
+std::shared_ptr<SyntaxTree> SlangContext::parse_file(rust::Str path) {
+    Bag options;
+    options.set(ppOptions);
+
+    auto result = SyntaxTree::fromFile(string_view(path.data(), path.size()), sourceManager, options);
+
+    if (!result) {
+        auto& err = result.error();
+        std::string msg = "System Error loading '" + std::string(err.second) + "': " + err.first.message();
+        throw std::runtime_error(msg);
+    }
+
+    return *result;
+}
 
 // Rewriter that adds prefix/suffix to module and instantiated hierarchy names
 class SuffixPrefixRewriter : public SyntaxRewriter<SuffixPrefixRewriter> {
@@ -134,24 +117,21 @@ class SuffixPrefixRewriter : public SyntaxRewriter<SuffixPrefixRewriter> {
     string_view suffix;
 };
 
-// Rename modules and instantiated hierarchy names in the given syntax tree
-shared_ptr<SyntaxTree> SlangContext::rename_tree(const shared_ptr<SyntaxTree> tree, rust::Str prefix,
-                                                 rust::Str suffix) const {
+// Transform the given syntax tree by renaming modules and instantiated hierarchy names with the specified prefix/suffix
+std::shared_ptr<SyntaxTree> rename(std::shared_ptr<SyntaxTree> tree, rust::Str prefix, rust::Str suffix) {
+    std::string_view p(prefix.data(), prefix.size());
+    std::string_view s(suffix.data(), suffix.size());
 
-    // Convert rust::Str to string_view and instantiate rewriter
-    string_view prefix_str(prefix.data(), prefix.size());
-    string_view suffix_str(suffix.data(), suffix.size());
-    SuffixPrefixRewriter rewriter(prefix_str, suffix_str);
-
-    // Apply the rewriter to the tree and return the transformed tree
+    // SuffixPrefixRewriter is defined in the .cpp file as before
+    SuffixPrefixRewriter rewriter(p, s);
     return rewriter.transform(tree);
 }
 
 // Print the given syntax tree with specified options
-rust::String SlangContext::print_tree(const shared_ptr<SyntaxTree> tree, SlangPrintOpts options) const {
+rust::String print_tree(const shared_ptr<SyntaxTree> tree, SlangPrintOpts options) {
 
     // Set up the printer with options
-    SyntaxPrinter printer(driver.sourceManager);
+    SyntaxPrinter printer(tree->sourceManager());
 
     printer.setIncludeDirectives(options.include_directives);
     printer.setExpandIncludes(options.expand_includes);

@@ -22,116 +22,87 @@ mod ffi {
         // Include Slang header to define SyntaxTree type for CXX
         include!("slang/syntax/SyntaxTree.h");
 
-        /// Opaque type for the Slang Driver wrapper
+        /// Opaque type for the Slang Context
         type SlangContext;
 
         /// Opaque type for the Slang SyntaxTree
         #[namespace = "slang::syntax"]
         type SyntaxTree;
 
-        /// Create a new persistent context (owns the Driver)
+        /// Create a new persistent context
         fn new_slang_context() -> UniquePtr<SlangContext>;
 
-        // Methods on SlangContext
-        fn add_source(self: Pin<&mut SlangContext>, path: &str);
-        fn add_include(self: Pin<&mut SlangContext>, path: &str);
-        fn add_define(self: Pin<&mut SlangContext>, def: &str);
+        /// Set the include directories
+        fn set_includes(self: Pin<&mut SlangContext>, includes: &Vec<String>);
+        /// Set the preprocessor defines
+        fn set_defines(self: Pin<&mut SlangContext>, defines: &Vec<String>);
 
-        /// Parse all added sources. Returns true on success.
-        fn parse(self: Pin<&mut SlangContext>) -> Result<bool>;
-
-        /// Retrieves the number of parsed syntax trees
-        fn get_tree_count(self: &SlangContext) -> usize;
-
-        /// Retrieves a shared pointer to a specific syntax tree by index
-        fn get_tree(self: &SlangContext, index: usize) -> SharedPtr<SyntaxTree>;
+        /// Parse all added sources. Returns a syntax tree on success, or an error message on failure.
+        fn parse_file(self: Pin<&mut SlangContext>, path: &str) -> Result<SharedPtr<SyntaxTree>>;
 
         /// Rename names in the syntax tree with a given prefix and suffix
-        fn rename_tree(
-            self: &SlangContext,
-            tree: SharedPtr<SyntaxTree>,
-            prefix: &str,
-            suffix: &str,
-        ) -> SharedPtr<SyntaxTree>;
+        fn rename(tree: SharedPtr<SyntaxTree>, prefix: &str, suffix: &str)
+        -> SharedPtr<SyntaxTree>;
 
-        /// Print a specific tree using the context's SourceManager
-        fn print_tree(
-            self: &SlangContext,
-            tree: SharedPtr<SyntaxTree>,
-            options: SlangPrintOpts,
-        ) -> String;
+        /// Print a specific tree
+        fn print_tree(tree: SharedPtr<SyntaxTree>, options: SlangPrintOpts) -> String;
     }
 }
 
-/// A persistent Slang session
-pub struct SlangSession {
-    ctx: UniquePtr<ffi::SlangContext>,
+/// Extension trait for SyntaxTree
+pub trait SyntaxTreeExt {
+    fn rename(&self, prefix: Option<&str>, suffix: Option<&str>) -> Self;
+    fn display(&self, options: SlangPrintOpts) -> String;
 }
 
-impl SlangSession {
-    /// Creates a new Slang session
-    pub fn new() -> Self {
-        Self {
-            ctx: ffi::new_slang_context(),
-        }
-    }
-
-    /// Adds a source file to be parsed
-    pub fn add_source(&mut self, path: &str) {
-        self.ctx.pin_mut().add_source(path);
-    }
-
-    /// Adds an include directory
-    pub fn add_include(&mut self, path: &str) {
-        self.ctx.pin_mut().add_include(path);
-    }
-
-    /// Adds a preprocessor define
-    pub fn add_define(&mut self, define: &str) {
-        self.ctx.pin_mut().add_define(define);
-    }
-
-    /// Parses all added source files into syntax trees
-    pub fn parse(&mut self) -> Result<bool, Box<dyn std::error::Error>> {
-        Ok(self.ctx.pin_mut().parse()?)
-    }
-
-    /// Returns the parsed syntax trees as a Rust vector
-    pub fn get_trees(&self) -> Vec<SharedPtr<ffi::SyntaxTree>> {
-        let count = self.ctx.get_tree_count();
-        let mut trees = Vec::with_capacity(count);
-        for i in 0..count {
-            trees.push(self.ctx.get_tree(i));
-        }
-        trees
-    }
-
-    /// Returns an iterator over the parsed syntax trees
-    pub fn trees_iter(&self) -> impl Iterator<Item = SharedPtr<ffi::SyntaxTree>> + '_ {
-        (0..self.ctx.get_tree_count()).map(|i| self.ctx.get_tree(i))
-    }
-
-    /// Renames names in the syntax tree with a given prefix and suffix
-    pub fn rename_tree(
-        &self,
-        tree: SharedPtr<ffi::SyntaxTree>,
-        prefix: Option<&str>,
-        suffix: Option<&str>,
-    ) -> SharedPtr<ffi::SyntaxTree> {
+impl SyntaxTreeExt for SharedPtr<ffi::SyntaxTree> {
+    /// Renames all names in the syntax tree with the given prefix and suffix
+    fn rename(&self, prefix: Option<&str>, suffix: Option<&str>) -> Self {
         if prefix.is_none() && suffix.is_none() {
-            return tree;
+            return self.clone();
         }
-        let prefix = prefix.unwrap_or("");
-        let suffix = suffix.unwrap_or("");
-        self.ctx.rename_tree(tree, prefix, suffix)
+        ffi::rename(self.clone(), prefix.unwrap_or(""), suffix.unwrap_or(""))
     }
 
-    /// Prints a syntax tree with given printing options
-    pub fn print_tree(
-        &self,
-        tree: SharedPtr<ffi::SyntaxTree>,
-        opts: ffi::SlangPrintOpts,
-    ) -> String {
-        self.ctx.print_tree(tree, opts)
+    /// Displays the syntax tree as a string with the given options
+    fn display(&self, options: SlangPrintOpts) -> String {
+        ffi::print_tree(self.clone(), options)
     }
+}
+
+/// Extension trait for SlangContext
+pub trait SlangContextExt {
+    fn set_includes(self, includes: &Vec<String>) -> Self;
+    fn set_defines(self, defines: &Vec<String>) -> Self;
+    fn parse(
+        &mut self,
+        path: &str,
+    ) -> Result<SharedPtr<ffi::SyntaxTree>, Box<dyn std::error::Error>>;
+}
+
+impl SlangContextExt for UniquePtr<ffi::SlangContext> {
+    /// Sets the include directories
+    fn set_includes(mut self, includes: &Vec<String>) -> Self {
+        self.pin_mut().set_includes(&includes);
+        self
+    }
+
+    /// Sets the preprocessor defines
+    fn set_defines(mut self, defines: &Vec<String>) -> Self {
+        self.pin_mut().set_defines(&defines);
+        self
+    }
+
+    /// Parses a source file and returns the syntax tree
+    fn parse(
+        &mut self,
+        path: &str,
+    ) -> Result<SharedPtr<ffi::SyntaxTree>, Box<dyn std::error::Error>> {
+        Ok(self.pin_mut().parse_file(path)?)
+    }
+}
+
+/// Creates a new Slang session
+pub fn new_session() -> UniquePtr<ffi::SlangContext> {
+    ffi::new_slang_context()
 }

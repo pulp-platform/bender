@@ -12,36 +12,27 @@
 #include <string>
 #include <vector>
 
-struct SlangPrintOpts; // Forward decl
+struct SlangPrintOpts;
 
-// The wrapper class exposed as "SlangContext" to Rust
 class SlangContext {
   public:
     SlangContext();
 
-    void add_source(rust::Str path);
-    void add_include(rust::Str path);
-    void add_define(rust::Str def);
+    void set_includes(const rust::Vec<rust::String>& includes);
+    void set_defines(const rust::Vec<rust::String>& defines);
 
-    bool parse();
-
-    size_t get_tree_count() const;
-    std::shared_ptr<slang::syntax::SyntaxTree> get_tree(size_t index) const;
-
-    std::shared_ptr<slang::syntax::SyntaxTree> rename_tree(const std::shared_ptr<slang::syntax::SyntaxTree>,
-                                                           rust::Str prefix, rust::Str suffix) const;
-
-    rust::String print_tree(const std::shared_ptr<slang::syntax::SyntaxTree>, SlangPrintOpts options) const;
+    std::shared_ptr<slang::syntax::SyntaxTree> parse_file(rust::Str path);
 
   private:
-    slang::driver::Driver driver;
-
-    // We buffer args to pass to driver.parseCommandLine later
-    std::vector<std::string> sources;
-    std::vector<std::string> includes;
-    std::vector<std::string> defines;
+    slang::SourceManager sourceManager;
+    slang::parsing::PreprocessorOptions ppOptions;
 };
 
 std::unique_ptr<SlangContext> new_slang_context();
+
+std::shared_ptr<slang::syntax::SyntaxTree> rename(std::shared_ptr<slang::syntax::SyntaxTree> tree, rust::Str prefix,
+                                                  rust::Str suffix);
+
+rust::String print_tree(std::shared_ptr<slang::syntax::SyntaxTree> tree, SlangPrintOpts options);
 
 #endif // BENDER_SLANG_BRIDGE_H

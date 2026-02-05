@@ -5,7 +5,7 @@
 
 use clap::{ArgAction, Args};
 
-use bender_slang::{SlangPrintOpts, SlangSession};
+use bender_slang::{SlangContextExt, SlangPrintOpts, SyntaxTreeExt};
 
 use crate::error::*;
 
@@ -62,24 +62,6 @@ pub struct PickleArgs {
 
 /// Execute the `pickle` subcommand.
 pub fn run(args: PickleArgs) -> Result<()> {
-    let mut slang = SlangSession::new();
-
-    for file in args.files.iter() {
-        slang.add_source(file);
-    }
-
-    for include in args.include_dirs.iter() {
-        slang.add_include(include);
-    }
-
-    for define in args.defines.iter() {
-        slang.add_define(define);
-    }
-
-    slang
-        .parse()
-        .map_err(|cause| Error::new(format!("Cannot parse files: {}", cause)))?;
-
     let print_opts = SlangPrintOpts {
         include_directives: args.include_directives,
         expand_includes: args.expand_includes,
@@ -88,10 +70,17 @@ pub fn run(args: PickleArgs) -> Result<()> {
         squash_newlines: args.strip_newlines,
     };
 
-    for tree in slang.trees_iter() {
-        let renamed_tree = slang.rename_tree(tree, args.prefix.as_deref(), args.suffix.as_deref());
-        let pickled = slang.print_tree(renamed_tree, print_opts);
-        println!("{}", pickled);
+    let mut slang = bender_slang::new_session()
+        .set_includes(&args.include_dirs)
+        .set_defines(&args.defines);
+
+    for source in &args.files {
+        let tree = slang
+            .parse(source)
+            .map_err(|cause| Error::new(format!("Cannot parse file {}: {}", source, cause)))?;
+        let renamed_tree = tree.rename(args.prefix.as_deref(), args.suffix.as_deref());
+        println!("{}", renamed_tree.display(print_opts));
     }
+
     Ok(())
 }
