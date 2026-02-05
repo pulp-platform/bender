@@ -1,0 +1,145 @@
+// Copyright (c) 2025 ETH Zurich
+// Tim Fischer <fischeti@iis.ee.ethz.ch>
+
+#include "slang_bridge.h"
+
+#include "bender-slang/src/lib.rs.h"
+#include "slang/syntax/SyntaxPrinter.h"
+#include "slang/syntax/SyntaxVisitor.h"
+
+using namespace slang;
+using namespace slang::driver;
+using namespace slang::syntax;
+using namespace slang::parsing;
+
+using std::memcpy;
+using std::shared_ptr;
+using std::string;
+using std::string_view;
+using std::vector;
+
+// Create a new SlangContext instance
+std::unique_ptr<SlangContext> new_slang_context() { return std::make_unique<SlangContext>(); }
+
+SlangContext::SlangContext() {}
+
+// Set the include paths for the preprocessor
+void SlangContext::set_includes(const rust::Vec<rust::String>& incs) {
+    ppOptions.additionalIncludePaths.clear();
+    for (const auto& inc : incs) {
+        ppOptions.additionalIncludePaths.emplace_back(std::string(inc));
+    }
+}
+
+// Sets the preprocessor defines
+void SlangContext::set_defines(const rust::Vec<rust::String>& defs) {
+    ppOptions.predefines.clear();
+    for (const auto& def : defs) {
+        ppOptions.predefines.emplace_back(std::string(def));
+    }
+}
+
+// Parses the given file and returns a syntax tree, if successful
+std::shared_ptr<SyntaxTree> SlangContext::parse_file(rust::Str path) {
+    Bag options;
+    options.set(ppOptions);
+
+    auto result = SyntaxTree::fromFile(string_view(path.data(), path.size()), sourceManager, options);
+
+    if (!result) {
+        auto& err = result.error();
+        std::string msg = "System Error loading '" + std::string(err.second) + "': " + err.first.message();
+        throw std::runtime_error(msg);
+    }
+
+    return *result;
+}
+
+// Rewriter that adds prefix/suffix to module and instantiated hierarchy names
+class SuffixPrefixRewriter : public SyntaxRewriter<SuffixPrefixRewriter> {
+  public:
+    SuffixPrefixRewriter(string_view prefix, string_view suffix) : prefix(prefix), suffix(suffix) {}
+
+    // Helper to allocate and build renamed string with prefix/suffix
+    string_view rename(string_view name) {
+        size_t len = prefix.size() + name.size() + suffix.size();
+        char* mem = (char*)alloc.allocate(len, 1);
+        memcpy(mem, prefix.data(), prefix.size());
+        memcpy(mem + prefix.size(), name.data(), name.size());
+        memcpy(mem + prefix.size() + name.size(), suffix.data(), suffix.size());
+        return string_view(mem, len);
+    }
+
+    // Renames "module foo;" -> "module <prefix>foo<suffix>;"
+    void handle(const ModuleDeclarationSyntax& node) {
+        if (node.header->name.isMissing())
+            return;
+
+        // Create a new name token
+        auto newName = rename(node.header->name.valueText());
+        auto newNameToken = makeId(newName, node.header->name.trivia());
+
+        // Clone the header and update the name
+        ModuleHeaderSyntax* newHeader = deepClone(*node.header, alloc);
+        newHeader->name = newNameToken;
+
+        // Replace the old header with the new one
+        replace(*node.header, *newHeader);
+
+        // Continue visiting child nodes
+        visitDefault(node);
+    }
+
+    // Renames "foo i_foo();" -> "<prefix>foo<suffix> i_foo();"
+    void handle(const HierarchyInstantiationSyntax& node) {
+        // Check to make sure we are dealing with an identifier
+        // and not a built-in type e.g. `initial foo();`
+        if (node.type.kind == parsing::TokenKind::Identifier) {
+
+            // Create a new name token
+            auto newName = rename(node.type.valueText());
+            auto newNameToken = makeId(newName);
+
+            // Clone the node and update the type token
+            HierarchyInstantiationSyntax* newNode = deepClone(node, alloc);
+            newNode->type = newNameToken;
+
+            // Replace the old node with the new one
+            replace(node, *newNode, true);
+        }
+
+        // Continue visiting child nodes
+        visitDefault(node);
+    }
+
+  private:
+    string_view prefix;
+    string_view suffix;
+};
+
+// Transform the given syntax tree by renaming modules and instantiated hierarchy names with the specified prefix/suffix
+std::shared_ptr<SyntaxTree> rename(std::shared_ptr<SyntaxTree> tree, rust::Str prefix, rust::Str suffix) {
+    std::string_view p(prefix.data(), prefix.size());
+    std::string_view s(suffix.data(), suffix.size());
+
+    // SuffixPrefixRewriter is defined in the .cpp file as before
+    SuffixPrefixRewriter rewriter(p, s);
+    return rewriter.transform(tree);
+}
+
+// Print the given syntax tree with specified options
+rust::String print_tree(const shared_ptr<SyntaxTree> tree, SlangPrintOpts options) {
+
+    // Set up the printer with options
+    SyntaxPrinter printer(tree->sourceManager());
+
+    printer.setIncludeDirectives(options.include_directives);
+    printer.setExpandIncludes(options.expand_includes);
+    printer.setExpandMacros(options.expand_macros);
+    printer.setSquashNewlines(options.squash_newlines);
+    printer.setIncludeComments(options.include_comments);
+
+    // Print the tree root and return as rust::String
+    printer.print(tree->root());
+    return rust::String(printer.str());
+}
