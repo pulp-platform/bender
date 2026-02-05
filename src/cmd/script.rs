@@ -4,7 +4,7 @@
 //! The `script` subcommand.
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{ArgAction, Args, Subcommand, ValueEnum};
 use indexmap::{IndexMap, IndexSet};
@@ -389,7 +389,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
 
 /// Subdivide the source files in a group.
 ///
-/// The function `cateogrize` is used to assign a category to each source file.
+/// The function `categorize` is used to assign a category to each source file.
 /// Files with the same category that appear after each other will be kept in
 /// the same source group. Files with different cateogries are split into
 /// separate groups.
@@ -453,10 +453,11 @@ fn emit_template(
 
     let mut all_defines = IndexMap::new();
     let mut all_incdirs = vec![];
-    let mut all_files = IndexSet::new();
+    let mut all_files: IndexSet<(&Path, _)> = IndexSet::new();
     let mut all_verilog = vec![];
     let mut all_vhdl = vec![];
     let mut unknown_files = vec![];
+    let mut all_override_files: IndexSet<(&Path, &str)> = IndexSet::new();
     for src in &srcs {
         all_defines.extend(
             src.defines
@@ -464,10 +465,19 @@ fn emit_template(
                 .map(|(k, &v)| (k.to_string(), v.map(String::from))),
         );
         all_incdirs.append(&mut src.clone().get_incdirs());
-        all_files.extend(src.files.iter().filter_map(|file| match file {
-            SourceFile::File(p, _) => Some((p.to_string_lossy().to_string(), None::<String>)),
-            SourceFile::Group(_) => None,
-        }));
+
+        // If override_files is set, source files are not automatically included, only to replace files with matching basenames.
+        if src.override_files {
+            all_override_files.extend(src.files.iter().filter_map(|file| match file {
+                SourceFile::File(p, _) => Some((*p, src.package.unwrap_or("None"))),
+                SourceFile::Group(_) => None,
+            }));
+        } else {
+            all_files.extend(src.files.iter().filter_map(|file| match file {
+                SourceFile::File(p, _) => Some((*p, None::<String>)),
+                SourceFile::Group(_) => None,
+            }));
+        }
     }
 
     add_defines(&mut all_defines, &args.define);
@@ -487,12 +497,49 @@ fn emit_template(
     };
     tera_context.insert("all_incdirs", &all_incdirs);
 
+    // replace files in all_files with override files
+    let override_map = all_override_files
+        .iter()
+        .map(|(f, pkg)| {
+            (
+                f.file_name()
+                    .and_then(std::ffi::OsStr::to_str)
+                    .unwrap_or(""),
+                (*f, pkg),
+            )
+        })
+        .collect::<IndexMap<_, _>>();
+    let all_files = all_files
+        .into_iter()
+        .map(|file| {
+            let basename = file
+                .0
+                .file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .unwrap_or("");
+            match override_map.get(&basename) {
+                Some((new_path, pkg)) => (
+                    new_path.to_string_lossy(),
+                    Some(format!(
+                        "OVERRIDDEN from {}: {}",
+                        pkg,
+                        file.0.to_string_lossy()
+                    )),
+                ),
+                None => (file.0.to_string_lossy(), file.1),
+            }
+        })
+        .collect::<IndexSet<_>>();
+
     if emit_sources {
         tera_context.insert("all_files", &all_files);
     }
 
     let mut split_srcs = vec![];
     for src in srcs {
+        if src.override_files {
+            continue;
+        }
         separate_files_in_group(
             src,
             |f| match f {
@@ -538,7 +585,23 @@ fn emit_template(
                     files: files
                         .iter()
                         .map(|f| match f {
-                            SourceFile::File(p, _) => (p.to_path_buf(), None),
+                            SourceFile::File(p, _) => {
+                                let basename = p
+                                    .file_name()
+                                    .and_then(std::ffi::OsStr::to_str)
+                                    .unwrap_or("");
+                                match override_map.get(&basename) {
+                                    Some((new_path, pkg)) => (
+                                        new_path.to_path_buf(),
+                                        Some(format!(
+                                            "OVERRIDDEN from {}: {}",
+                                            pkg,
+                                            p.to_string_lossy()
+                                        )),
+                                    ),
+                                    None => (p.to_path_buf(), None),
+                                }
+                            }
                             SourceFile::Group(_) => unreachable!(),
                         })
                         .collect(),

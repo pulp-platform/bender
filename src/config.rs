@@ -233,6 +233,8 @@ pub struct Sources {
     pub defines: IndexMap<String, Option<String>>,
     /// The source files.
     pub files: Vec<SourceFile>,
+    /// The files in this source will override other files.
+    pub override_files: bool,
 }
 
 impl PrefixPaths for Sources {
@@ -617,6 +619,7 @@ impl Validate for PartialManifest {
                     include_dirs: Vec::new(),
                     defines: IndexMap::new(),
                     files: vec![srcs.unwrap()],
+                    override_files: false,
                 }),
                 None => None,
             },
@@ -869,6 +872,8 @@ pub struct PartialSources {
     pub vhd: Option<String>,
     /// The list of external flists to include.
     pub external_flists: Option<Vec<String>>,
+    /// The files in this source will override other files.
+    pub override_files: Option<bool>,
     /// Unknown extra fields
     #[serde(flatten)]
     extra: HashMap<String, Value>,
@@ -922,6 +927,7 @@ impl Validate for PartialSources {
                 v: None,
                 vhd: None,
                 external_flists: None,
+                override_files: None,
                 extra: _,
             } => PartialSourceFile::SvFile(sv).validate(vctx),
             PartialSources {
@@ -933,6 +939,7 @@ impl Validate for PartialSources {
                 v: Some(v),
                 vhd: None,
                 external_flists: None,
+                override_files: None,
                 extra: _,
             } => PartialSourceFile::VerilogFile(v).validate(vctx),
             PartialSources {
@@ -944,6 +951,7 @@ impl Validate for PartialSources {
                 v: None,
                 vhd: Some(vhd),
                 external_flists: None,
+                override_files: None,
                 extra: _,
             } => PartialSourceFile::VhdlFile(vhd).validate(vctx),
             PartialSources {
@@ -955,6 +963,7 @@ impl Validate for PartialSources {
                 v: None,
                 vhd: None,
                 external_flists,
+                override_files,
                 extra,
             } => {
                 let external_flists: Result<Vec<_>> = external_flists
@@ -1196,6 +1205,7 @@ impl Validate for PartialSources {
                     include_dirs: include_dirs?,
                     defines,
                     files,
+                    override_files: override_files.is_some_and(|x| x),
                 })))
             }
             PartialSources {
@@ -1207,6 +1217,7 @@ impl Validate for PartialSources {
                 v: _v,
                 vhd: _vhd,
                 external_flists: None,
+                override_files: None,
                 extra: _,
             } => Err(Error::new(
                 "Only a single source with a single type is supported.",
