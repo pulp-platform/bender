@@ -390,6 +390,10 @@ pub enum Warnings {
     #[error("Path {} for dependency {} does not exist.", fmt_path!(path.display()), fmt_pkg!(pkg))]
     #[diagnostic(code(W32))]
     DepPathMissing { pkg: String, path: PathBuf },
+
+    #[error("Override files in {} does not support additional fields like include_dirs, defines, etc.", fmt_pkg!(.0))]
+    #[diagnostic(code(W33))]
+    OverrideFilesWithExtras(String),
 }
 
 #[cfg(test)]
