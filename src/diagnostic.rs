@@ -361,6 +361,10 @@ pub enum Warnings {
     )]
     LfsDisabled(String),
 
+    #[error("Override files in {} does not support additional fields like include_dirs, defines, etc.", fmt_pkg!(.0))]
+    #[diagnostic(code(W28))]
+    OverrideFilesWithExtras(String),
+
     #[error("File not added, ignoring: {cause}")]
     #[diagnostic(code(W30))]
     IgnoredPath { cause: String },
