@@ -386,8 +386,6 @@ impl<'ctx> SourceGroup<'ctx> {
 pub enum SourceType {
     /// A Verilog file.
     Verilog,
-    // /// A SystemVerilog file.
-    // SystemVerilog,
     /// A VHDL file.
     Vhdl,
     /// Unknown file type

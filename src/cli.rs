@@ -332,7 +332,7 @@ pub fn main() -> Result<()> {
         Commands::Snapshot(args) => cmd::snapshot::run(&sess, &args),
         Commands::Audit(args) => cmd::audit::run(&sess, &args),
         #[cfg(feature = "slang")]
-        Commands::Pickle(args) => cmd::pickle::run(args),
+        Commands::Pickle(args) => cmd::pickle::run(&sess, args),
         Commands::Plugin(args) => {
             let (plugin_name, plugin_args) = args
                 .split_first()
