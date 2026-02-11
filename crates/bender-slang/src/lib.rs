@@ -72,8 +72,8 @@ impl SyntaxTreeExt for SharedPtr<ffi::SyntaxTree> {
 
 /// Extension trait for SlangContext
 pub trait SlangContextExt {
-    fn set_includes(self, includes: &Vec<String>) -> Self;
-    fn set_defines(self, defines: &Vec<String>) -> Self;
+    fn set_includes(&mut self, includes: &Vec<String>) -> &mut Self;
+    fn set_defines(&mut self, defines: &Vec<String>) -> &mut Self;
     fn parse(
         &mut self,
         path: &str,
@@ -82,13 +82,13 @@ pub trait SlangContextExt {
 
 impl SlangContextExt for UniquePtr<ffi::SlangContext> {
     /// Sets the include directories
-    fn set_includes(mut self, includes: &Vec<String>) -> Self {
+    fn set_includes(&mut self, includes: &Vec<String>) -> &mut Self {
         self.pin_mut().set_includes(&includes);
         self
     }
 
     /// Sets the preprocessor defines
-    fn set_defines(mut self, defines: &Vec<String>) -> Self {
+    fn set_defines(&mut self, defines: &Vec<String>) -> &mut Self {
         self.pin_mut().set_defines(&defines);
         self
     }
