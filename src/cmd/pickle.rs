@@ -66,6 +66,10 @@ pub struct PickleArgs {
     #[arg(long, help_heading = "Slang Options")]
     suffix: Option<String>,
 
+    /// Names to exclude from renaming (modules, packages, interfaces)
+    #[arg(long, help_heading = "Slang Options")]
+    exclude_rename: Vec<String>,
+
     /// Whether to include preprocessor directives
     #[arg(long, default_value_t = true, action = ArgAction::SetFalse, help_heading = "Slang Options")]
     include_directives: bool,
@@ -197,7 +201,11 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
             let tree = slang.parse(file_path).map_err(|cause| {
                 Error::new(format!("Cannot parse file {}: {}", file_path, cause))
             })?;
-            let renamed_tree = tree.rename(args.prefix.as_deref(), args.suffix.as_deref());
+            let renamed_tree = tree.rename(
+                args.prefix.as_deref(),
+                args.suffix.as_deref(),
+                &args.exclude_rename,
+            );
             if args.ast_json {
                 // JSON Array Logic: Prepend comma if not the first item
                 if !first_item {
