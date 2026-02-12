@@ -325,6 +325,8 @@ sources:
       ...
     # Target specifier. Optional.
     target: <target specifier>
+    # Optional setting to override other files in any source that have the same file basename.
+    override_files: true
     # Recursive list of source files and groups:
     files:
       - <file or group 1>
@@ -383,6 +385,32 @@ Do not use `:` in your custom targets, as this is used to separate targets to ap
 Do not start the target name with `-`, as this is used to remove target application.
 
 [Relevant code](https://github.com/pulp-platform/bender/blob/master/src/target.rs)
+
+
+### Override Files
+If the `override_files` setting is applied to a source, then any files in that source will override other files that share the same basename. The overridden file will be removed from the output and replaced with the overriding file. For example, if `override_files` is applied to a source that has the file `src/core/pkg.sv`, then any other files that are also `pkg.sv` but in a different path will be removed and replaced with `src/core/pkg.sv`. If a file in an override files source does not override any other file, it will not be present in the output.
+
+
+#### Example:
+```yaml
+sources:
+  - files:
+      - src/core/pkg.sv
+      - src/core/alu.sv
+      - src/core/top.sv
+  - target: custom_pkg
+    override_files: true
+    files:
+      - src/custom/pkg.sv
+      - src/custom/adder.sv
+```
+If Bender is run with the `custom_pkg` target, the output files will be:
+
+```
+src/custom/pkg.sv
+src/core/alu.sv
+src/core/top.sv
+```
 
 ### Vendor
 
