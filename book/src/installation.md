@@ -17,3 +17,7 @@ To install Bender system-wide, you can simply copy the binary you have obtained 
 ### [ArchLinux ![aur-shield](https://img.shields.io/aur/version/bender)][aur-bender]
 
 Please extend this list through a PR if you know additional distributions.
+
+[aur-bender]: https://aur.archlinux.org/packages/bender
+[releases]: https://github.com/pulp-platform/bender/releases
+[rust-installation]: https://doc.rust-lang.org/book/ch01-01-installation.html
