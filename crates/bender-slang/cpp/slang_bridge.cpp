@@ -4,8 +4,10 @@
 #include "slang_bridge.h"
 
 #include "bender-slang/src/lib.rs.h"
+#include "slang/syntax/CSTSerializer.h"
 #include "slang/syntax/SyntaxPrinter.h"
 #include "slang/syntax/SyntaxVisitor.h"
+#include "slang/text/Json.h"
 
 using namespace slang;
 using namespace slang::driver;
@@ -142,4 +144,19 @@ rust::String print_tree(const shared_ptr<SyntaxTree> tree, SlangPrintOpts option
     // Print the tree root and return as rust::String
     printer.print(tree->root());
     return rust::String(printer.str());
+}
+
+// Dumps the AST/CST to a JSON string
+rust::String dump_tree_json(std::shared_ptr<SyntaxTree> tree) {
+    JsonWriter writer;
+    writer.setPrettyPrint(true);
+
+    // CSTSerializer is the class Slang uses to convert AST -> JSON
+    CSTSerializer serializer(writer);
+
+    // Serialize the specific tree root
+    serializer.serialize(*tree);
+
+    // Convert string_view to rust::String
+    return rust::String(std::string(writer.view()));
 }

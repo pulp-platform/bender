@@ -46,13 +46,19 @@ mod ffi {
 
         /// Print a specific tree
         fn print_tree(tree: SharedPtr<SyntaxTree>, options: SlangPrintOpts) -> String;
+
+        /// Dump the syntax tree as JSON for debugging purposes
+        fn dump_tree_json(tree: SharedPtr<SyntaxTree>) -> String;
     }
 }
 
 /// Extension trait for SyntaxTree
+// TODO(fischeti): Consider using a wrapper to implement traits like Debug and Display
+// instead of an extension trait. This would be more idiomatic in Rust.
 pub trait SyntaxTreeExt {
     fn rename(&self, prefix: Option<&str>, suffix: Option<&str>) -> Self;
     fn display(&self, options: SlangPrintOpts) -> String;
+    fn as_debug(&self) -> String;
 }
 
 impl SyntaxTreeExt for SharedPtr<ffi::SyntaxTree> {
@@ -67,6 +73,10 @@ impl SyntaxTreeExt for SharedPtr<ffi::SyntaxTree> {
     /// Displays the syntax tree as a string with the given options
     fn display(&self, options: SlangPrintOpts) -> String {
         ffi::print_tree(self.clone(), options)
+    }
+
+    fn as_debug(&self) -> String {
+        ffi::dump_tree_json(self.clone())
     }
 }
 

@@ -3,6 +3,9 @@
 
 //! The `pickle` subcommand.
 
+use std::fs::File;
+use std::io::{BufWriter, Write};
+
 use clap::{ArgAction, Args};
 use indexmap::IndexSet;
 use tokio::runtime::Runtime;
@@ -82,6 +85,10 @@ pub struct PickleArgs {
     /// Whether to strip newlines
     #[arg(long, default_value_t = false, action = ArgAction::SetTrue, help_heading = "Slang Options")]
     strip_newlines: bool,
+
+    /// Dump the syntax trees as JSON instead of the source code
+    #[arg(long, help_heading = "Slang Options")]
+    ast_json: bool,
 }
 
 /// Execute the `pickle` subcommand.
@@ -130,6 +137,23 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
         squash_newlines: args.strip_newlines,
     };
 
+    // Setup Output Writer, either to file or stdout
+    let raw_writer: Box<dyn Write> = match &args.output {
+        Some(path) => Box::new(
+            File::create(path)
+                .map_err(|e| Error::new(format!("Cannot create output file: {}", e)))?,
+        ),
+        None => Box::new(std::io::stdout()),
+    };
+    let mut writer = BufWriter::new(raw_writer);
+
+    // Start JSON Array if needed
+    if args.ast_json {
+        write!(writer, "[")?;
+    }
+
+    let mut first_item = true;
+
     for src_group in srcs {
         let mut slang = bender_slang::new_session();
 
@@ -174,8 +198,22 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
                 Error::new(format!("Cannot parse file {}: {}", file_path, cause))
             })?;
             let renamed_tree = tree.rename(args.prefix.as_deref(), args.suffix.as_deref());
-            println!("{}", renamed_tree.display(print_opts));
+            if args.ast_json {
+                // JSON Array Logic: Prepend comma if not the first item
+                if !first_item {
+                    write!(writer, ",")?;
+                }
+                write!(writer, "{}", renamed_tree.as_debug())?;
+                first_item = false;
+            } else {
+                write!(writer, "{}", renamed_tree.display(print_opts))?;
+            }
         }
+    }
+
+    // Close JSON Array
+    if args.ast_json {
+        writeln!(writer, "]")?;
     }
 
     Ok(())
