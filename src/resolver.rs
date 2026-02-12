@@ -991,16 +991,22 @@ impl<'ctx> DependencyResolver<'ctx> {
                         .map(|(a, b, c)| (a, (b, c)))
                         .collect::<IndexMap<DependencyRef, (usize, IndexSet<_>)>>();
                     // TODO: pick among possible sources.
-                    debugln!(
-                        "resolve: picking ref {} for `{}`",
-                        src_map.first().unwrap().0,
-                        dep.name
-                    );
-                    State::Picked(
-                        *src_map.first().unwrap().0,
-                        src_map.first().unwrap().1.0,
-                        src_map.into_iter().map(|(k, (_, ids))| (k, ids)).collect(),
-                    )
+                    match src_map.first() {
+                        Some(first) => {
+                            debugln!("resolve: picking ref {} for `{}`", first.0, dep.name);
+                            State::Picked(
+                                *first.0,
+                                first.1.0,
+                                src_map.into_iter().map(|(k, (_, ids))| (k, ids)).collect(),
+                            )
+                        }
+                        None => {
+                            return Err(Error::new(format!(
+                                "No versions available for `{}`. This may be due to a conflict in the dependency requirements.",
+                                dep.name
+                            )));
+                        }
+                    }
                 }
                 State::Picked(dref, id, map) => {
                     if !dep.sources[dref].is_path() && !map[dref].contains(id) {
