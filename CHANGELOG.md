@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+## 0.30.0 - 2026-02-12
 ### Added
 - Add warnings for nonexistent include directory and errors for missing path dependency (https://github.com/pulp-platform/bender/pull/229).
 - Add vlog-arg for synopsys scripts (https://github.com/pulp-platform/bender/pull/227).
