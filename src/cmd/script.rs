@@ -453,7 +453,7 @@ fn emit_template(
 
     let mut all_defines = IndexMap::new();
     let mut all_incdirs = vec![];
-    let mut all_files: IndexSet<(&Path, _)> = IndexSet::new();
+    let mut all_files = IndexSet::new();
     let mut all_verilog = vec![];
     let mut all_vhdl = vec![];
     let mut unknown_files = vec![];
@@ -518,15 +518,18 @@ fn emit_template(
                 .and_then(std::ffi::OsStr::to_str)
                 .unwrap_or("");
             match override_map.get(&basename) {
-                Some((new_path, pkg)) => (
-                    new_path.to_string_lossy(),
-                    Some(format!(
+                Some((new_path, pkg)) => FileEntry {
+                    file: new_path.to_path_buf(),
+                    comment: Some(format!(
                         "OVERRIDDEN from {}: {}",
                         pkg,
                         file.0.to_string_lossy()
                     )),
-                ),
-                None => (file.0.to_string_lossy(), file.1),
+                },
+                None => FileEntry {
+                    file: file.0.to_path_buf(),
+                    comment: file.1,
+                },
             }
         })
         .collect::<IndexSet<_>>();
@@ -591,15 +594,18 @@ fn emit_template(
                                     .and_then(std::ffi::OsStr::to_str)
                                     .unwrap_or("");
                                 match override_map.get(&basename) {
-                                    Some((new_path, pkg)) => (
-                                        new_path.to_path_buf(),
-                                        Some(format!(
+                                    Some((new_path, pkg)) => FileEntry {
+                                        file: new_path.to_path_buf(),
+                                        comment: Some(format!(
                                             "OVERRIDDEN from {}: {}",
                                             pkg,
                                             p.to_string_lossy()
                                         )),
-                                    ),
-                                    None => (p.to_path_buf(), None),
+                                    },
+                                    None => FileEntry {
+                                        file: p.to_path_buf(),
+                                        comment: None,
+                                    },
                                 }
                             }
                             SourceFile::Group(_) => unreachable!(),
@@ -643,7 +649,7 @@ fn emit_template(
     tera_context.insert("all_verilog", &all_verilog);
     tera_context.insert("all_vhdl", &all_vhdl);
     if !unknown_files.is_empty() && template.contains("file_type") {
-        Warnings::UnknownFileType(unknown_files).emit();
+        Warnings::UnknownFileType(unknown_files.iter().map(|x| x.file.clone()).collect()).emit();
     }
 
     tera_context.insert("source_annotations", &!args.no_source_annotations);
@@ -665,11 +671,17 @@ fn emit_template(
     Ok(())
 }
 
+#[derive(Debug, Serialize, Hash, Eq, PartialEq, Clone)]
+struct FileEntry {
+    file: PathBuf,
+    comment: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct TplSrcStruct {
     metadata: String,
     defines: IndexSet<(String, Option<String>)>,
     incdirs: IndexSet<PathBuf>,
-    files: IndexSet<(PathBuf, Option<String>)>,
+    files: IndexSet<FileEntry>,
     file_type: String,
 }

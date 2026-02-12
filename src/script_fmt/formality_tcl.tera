@@ -12,8 +12,8 @@ set search_path $search_path_initial
     } \
     {% else %} \
         {% endif %}{% endfor %}[list \
-    {% for file in group.files %}{% if source_annotations %}{% if file.1 %}{{ '    ' }}# {{ file.1 }}
-    {% endif %}{% endif %}{{ '    ' }}"{{ file.0 | replace(from=root, to='$ROOT') }}" \
+    {% for file in group.files %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \
     {% endfor %}]
 {% if abort_on_error %}}]} {return 1}{% endif %}
 {% endif %}{% endfor %}
@@ -26,15 +26,15 @@ set search_path $search_path_initial
     } \
     {% else %} \
         {% endif %}{% endfor %}[list \
-    {% endif %}{% if source_annotations %}{% if file.1 %}{{ '    ' }}# {{ file.1 }}
-    {% endif %}{% endif %}{{ '    ' }}"{{ file.0 | replace(from=root, to='$ROOT') }}" \
+    {% endif %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \
     {% if loop.last %}]
 {% if abort_on_error %}}]} {return 1}{% endif %}
 {% endif %}{% endfor %}
 {% for file in all_vhdl %}{% if loop.first %}{% if abort_on_error %}if {[catch { {% endif %}read_vhdl -r \
     [list \
-    {% endif %}{% if source_annotations %}{% if file.1 %}{{ '    ' }}# {{ file.1 }}
-    {% endif %}{% endif %}{{ '    ' }}"{{ file.0 | replace(from=root, to='$ROOT') }}" \
+    {% endif %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \
     {% if loop.last %}]
 {% if abort_on_error %}}]} {return 1}{% endif %}
 {% endif %}{% endfor %}

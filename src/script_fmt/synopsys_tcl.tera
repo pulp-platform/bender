@@ -24,8 +24,8 @@ set search_path $search_path_initial
     {% else %} \
         {% endif %}{% endfor %}[list \
     {% for file in group.files %}{#                                                                                 Add group's files
-#}{% if source_annotations %}{% if file.1 %}{{ '    ' }}# {{ file.1 }}
-{% endif %}{% endif %}{{ '    ' }}"{{ file.0 | replace(from=root, to='$ROOT') }}" \
+#}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
+{% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \
     {% endfor %}]
 {% if abort_on_error %}]} {return 1}{% endif %}
 {% endif %}{% endfor %}
@@ -46,8 +46,8 @@ set search_path $search_path_initial
     } \
     {% else %} \
         {% endif %}{% endfor %}[list \
-    {% endif %}{% if source_annotations %}{% if file.1 %}{{ '    ' }}# {{ file.1 }}
-    {% endif %}{% endif %}{{ '    ' }}"{{ file.0 | replace(from=root, to='$ROOT') }}" \{#                                        Add all verilog files #}
+    {% endif %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \{#                        Add all verilog files #}
     {% if loop.last %}]
 {% if abort_on_error %}]} {return 1}{% endif %}
 {% endif %}{% endfor %}
@@ -57,8 +57,8 @@ set search_path $search_path_initial
 {% for tmp_arg in vhdl_args %}{{ tmp_arg }} \
 {% endfor %}{#                                                                                                      Additional command arguments
 #}    [list \
-    {% endif %}{% if source_annotations %}{% if file.1 %}{{ '    ' }}# {{ file.1 }}
-    {% endif %}{% endif %}{{ '    ' }}"{{ file.0 | replace(from=root, to='$ROOT') }}" \{#                                        Add all VHDL files #}
+    {% endif %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \{#                        Add all VHDL files #}
     {% if loop.last %}]
 {% if abort_on_error %}]} {return 1}{% endif %}
 {% endif %}{% endfor %}

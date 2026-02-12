@@ -2,5 +2,5 @@
 {% for tmp_arg in vlt_args %}{{ tmp_arg }}
 {% endfor %}{% for define in group.defines %}+define+{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}
 {% endfor %}{% for incdir in group.incdirs %}+incdir+{{ incdir }}
-{% endfor %}{% for file in group.files %}{{ file.0 }}
+{% endfor %}{% for file in group.files %}{{ file.file }}
 {% endfor %}{% endif %}{% endfor %}
