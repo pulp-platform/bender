@@ -45,7 +45,7 @@ pub fn run(sess: &Session, args: &PathArgs) -> Result<()> {
     if args.checkout || !paths.iter().all(|p| p.exists()) {
         debugln!("main: obtain checkouts {:?}", ids);
         let rt = Runtime::new()?;
-        let checkouts = rt
+        let _checkouts = rt
             .block_on(join_all(
                 ids.iter()
                     .map(|&(_, id)| io.checkout(id, false, &[]))
@@ -53,7 +53,7 @@ pub fn run(sess: &Session, args: &PathArgs) -> Result<()> {
             ))
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
-        debugln!("main: checkouts {:#?}", checkouts);
+        debugln!("main: checkouts {:#?}", _checkouts);
     }
 
     // Print paths

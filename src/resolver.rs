@@ -148,15 +148,15 @@ impl<'ctx> DependencyResolver<'ctx> {
             &io,
         )?;
 
-        let mut iteration = 0;
+        let mut _iteration = 0;
         let mut any_changes = true;
         while any_changes {
             debugln!(
                 "resolve: iteration {} table {:#?}",
-                iteration,
+                _iteration,
                 TableDumper(&self.table)
             );
-            iteration += 1;
+            _iteration += 1;
 
             // Constraint all dependencies with state `Open` -> `Constrained`.
             self.init()?;
@@ -171,7 +171,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             // Close the dependency set.
             any_changes |= self.close(&rt, &io)?;
         }
-        debugln!("resolve: resolved after {} iterations", iteration);
+        debugln!("resolve: resolved after {} iterations", _iteration);
 
         // Convert the resolved dependencies into a lockfile.
         let sess = self.sess;
@@ -583,7 +583,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             map
         };
 
-        let src_cons_map = cons_map
+        let _src_cons_map = cons_map
             .iter()
             .map(|(name, cons)| {
                 (
@@ -599,7 +599,7 @@ impl<'ctx> DependencyResolver<'ctx> {
 
         debugln!(
             "resolve: gathered constraints {:#?}",
-            ConstraintsDumper(&src_cons_map)
+            ConstraintsDumper(&_src_cons_map)
         );
 
         // Impose the constraints on the dependencies.
@@ -991,16 +991,22 @@ impl<'ctx> DependencyResolver<'ctx> {
                         .map(|(a, b, c)| (a, (b, c)))
                         .collect::<IndexMap<DependencyRef, (usize, IndexSet<_>)>>();
                     // TODO: pick among possible sources.
-                    debugln!(
-                        "resolve: picking ref {} for `{}`",
-                        src_map.first().unwrap().0,
-                        dep.name
-                    );
-                    State::Picked(
-                        *src_map.first().unwrap().0,
-                        src_map.first().unwrap().1.0,
-                        src_map.into_iter().map(|(k, (_, ids))| (k, ids)).collect(),
-                    )
+                    match src_map.first() {
+                        Some(first) => {
+                            debugln!("resolve: picking ref {} for `{}`", first.0, dep.name);
+                            State::Picked(
+                                *first.0,
+                                first.1.0,
+                                src_map.into_iter().map(|(k, (_, ids))| (k, ids)).collect(),
+                            )
+                        }
+                        None => {
+                            return Err(Error::new(format!(
+                                "No versions available for `{}`. This may be due to a conflict in the dependency requirements.",
+                                dep.name
+                            )));
+                        }
+                    }
                 }
                 State::Picked(dref, id, map) => {
                     if !dep.sources[dref].is_path() && !map[dref].contains(id) {
@@ -1201,6 +1207,7 @@ impl State {
     }
 }
 
+#[allow(dead_code)]
 struct TableDumper<'a>(&'a IndexMap<&'a str, Dependency<'a>>);
 
 impl fmt::Debug for TableDumper<'_> {
@@ -1232,6 +1239,7 @@ impl fmt::Debug for TableDumper<'_> {
     }
 }
 
+#[allow(dead_code)]
 struct ConstraintsDumper<'a>(
     &'a IndexMap<&'a str, Vec<(&'a str, DependencyConstraint, DependencySource)>>,
 );
