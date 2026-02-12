@@ -361,6 +361,10 @@ pub enum Warnings {
     )]
     LfsDisabled(String),
 
+    #[error("File {} is not a Verilog file and will be ignored in the pickle output.", fmt_path!(.0.display()))]
+    #[diagnostic(code(W28))]
+    PickleNonVerilogFile(PathBuf),
+
     #[error("File not added, ignoring: {cause}")]
     #[diagnostic(code(W30))]
     IgnoredPath { cause: String },
