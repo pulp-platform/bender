@@ -73,6 +73,7 @@ class SuffixPrefixRewriter : public SyntaxRewriter<SuffixPrefixRewriter> {
     }
 
     // Renames "module foo;" -> "module <prefix>foo<suffix>;"
+    // Note: Handles packages and interfaces too.
     void handle(const ModuleDeclarationSyntax& node) {
         if (node.header->name.isMissing())
             return;
@@ -93,6 +94,7 @@ class SuffixPrefixRewriter : public SyntaxRewriter<SuffixPrefixRewriter> {
     }
 
     // Renames "foo i_foo();" -> "<prefix>foo<suffix> i_foo();"
+    // Note: Handles modules and interfaces.
     void handle(const HierarchyInstantiationSyntax& node) {
         // Check to make sure we are dealing with an identifier
         // and not a built-in type e.g. `initial foo();`
@@ -111,6 +113,66 @@ class SuffixPrefixRewriter : public SyntaxRewriter<SuffixPrefixRewriter> {
         }
 
         // Continue visiting child nodes
+        visitDefault(node);
+    }
+
+    // Renames "import foo;" -> "import <prefix>foo<suffix>;"
+    void handle(const PackageImportItemSyntax& node) {
+        if (node.package.isMissing())
+            return;
+
+        auto newName = rename(node.package.valueText());
+        auto newNameToken = makeId(newName, node.package.trivia());
+
+        PackageImportItemSyntax* newNode = deepClone(node, alloc);
+        newNode->package = newNameToken;
+
+        replace(node, *newNode);
+        visitDefault(node);
+    }
+
+    // Renames "virtual MyIntf foo;" -> "virtual <prefix>MyIntf<suffix> foo;"
+    void handle(const VirtualInterfaceTypeSyntax& node) {
+        if (node.name.isMissing())
+            return;
+
+        auto newName = rename(node.name.valueText());
+        auto newNameToken = makeId(newName, node.name.trivia());
+
+        VirtualInterfaceTypeSyntax* newNode = deepClone(node, alloc);
+        newNode->name = newNameToken;
+
+        replace(node, *newNode);
+        visitDefault(node);
+    }
+
+    // Renames "foo::bar" -> "<prefix>foo<suffix>::bar"
+    void handle(const ScopedNameSyntax& node) {
+        // Only rename if the left side is a simple identifier (e.g., a package name)
+        // We ignore nested calls or parameterized classes for now.
+        if (node.left->kind == SyntaxKind::IdentifierName) {
+            auto& leftNode = node.left->as<IdentifierNameSyntax>();
+            auto name = leftNode.identifier.valueText();
+
+            // Skip built-in keywords that look like scopes
+            if (name != "$unit" && name != "local" && name != "super" && name != "this") {
+                auto newName = rename(name);
+                auto newNameToken = makeId(newName, leftNode.identifier.trivia());
+
+                // Clone the left node and update identifier
+                IdentifierNameSyntax* newLeft = deepClone(leftNode, alloc);
+                newLeft->identifier = newNameToken;
+
+                // Clone the scoped node and attach new left
+                ScopedNameSyntax* newNode = deepClone(node, alloc);
+                newNode->left = newLeft;
+
+                replace(node, *newNode);
+            }
+        }
+
+        // Visit children to handle recursive scopes
+        // e.g., OuterPkg::InnerPkg::Item
         visitDefault(node);
     }
 
