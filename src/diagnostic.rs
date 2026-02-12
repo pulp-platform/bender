@@ -390,6 +390,10 @@ pub enum Warnings {
     #[error("Path {} for dependency {} does not exist.", fmt_path!(path.display()), fmt_pkg!(pkg))]
     #[diagnostic(code(W32))]
     DepPathMissing { pkg: String, path: PathBuf },
+
+    #[error("File {} is not a Verilog file and will be ignored in the pickle output.", fmt_path!(.0.display()))]
+    #[diagnostic(code(W33))]
+    PickleNonVerilogFile(PathBuf),
 }
 
 #[cfg(test)]
