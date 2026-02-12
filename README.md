@@ -283,7 +283,7 @@ All git tags of the form `vX.Y.Z` are considered a version of the package.
 
 [Relevant dependency resolution code](https://github.com/pulp-platform/bender/blob/master/src/resolver.rs)
 
-#### Git LFS Support
+##### Git LFS Support
 
 Bender detects if a repository requires Git LFS and if the `git-lfs` tool is installed on your system.
 
