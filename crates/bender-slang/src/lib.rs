@@ -10,8 +10,6 @@ mod ffi {
     /// Options for the syntax printer
     #[derive(Clone, Copy)]
     struct SlangPrintOpts {
-        include_directives: bool,
-        expand_includes: bool,
         expand_macros: bool,
         include_comments: bool,
         squash_newlines: bool,

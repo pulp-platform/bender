@@ -6,7 +6,7 @@
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
-use clap::{ArgAction, Args};
+use clap::Args;
 use indexmap::IndexSet;
 use tokio::runtime::Runtime;
 
@@ -20,49 +20,45 @@ use crate::target::TargetSet;
 
 use bender_slang::{SlangContextExt, SlangPrintOpts, SyntaxTreeExt};
 
-// TODO(fischeti): Clean up the arguments and options.
-// At the moment, they are just directly mirroring the Slang API.
-// for debugging purposes.
 /// Pickle files
 #[derive(Args, Debug)]
 pub struct PickleArgs {
-    /// Additional source files to pickle
+    /// Additional source files to pickle, which are not part of the manifest.
     files: Vec<String>,
 
     /// The output file (defaults to stdout)
-    // TODO(fischeti): Actually implement this.
     #[arg(short, long)]
     output: Option<String>,
 
     /// Only include sources that match the given target
-    #[arg(short, long, action = ArgAction::Append, global = true)]
+    #[arg(short, long)]
     pub target: Vec<String>,
 
     /// Specify package to show sources for
-    #[arg(short, long, action = ArgAction::Append, global = true)]
+    #[arg(short, long)]
     pub package: Vec<String>,
 
     /// Specify package to exclude from sources
-    #[arg(long, action = ArgAction::Append, global = true)]
+    #[arg(long)]
     pub exclude: Vec<String>,
 
     /// Exclude all dependencies, i.e. only top level or specified package(s)
-    #[arg(long, global = true)]
+    #[arg(long)]
     pub no_deps: bool,
 
-    /// Additional include directory
-    #[arg(short = 'I', action = ArgAction::Append)]
+    /// Additional include directory, which are not part of the manifest.
+    #[arg(short = 'I')]
     include_dir: Vec<String>,
 
-    /// Additional preprocessor definition
-    #[arg(short = 'D', action = ArgAction::Append)]
+    /// Additional preprocessor definition, which are not part of the manifest.
+    #[arg(short = 'D')]
     define: Vec<String>,
 
-    /// The prefix to add to all names
+    /// A prefix to add to all names (modules, packages, interfaces)
     #[arg(long, help_heading = "Slang Options")]
     prefix: Option<String>,
 
-    /// The suffix to add to all names
+    /// A suffix to add to all names (modules, packages, interfaces)
     #[arg(long, help_heading = "Slang Options")]
     suffix: Option<String>,
 
@@ -70,25 +66,17 @@ pub struct PickleArgs {
     #[arg(long, help_heading = "Slang Options")]
     exclude_rename: Vec<String>,
 
-    /// Whether to include preprocessor directives
-    #[arg(long, default_value_t = true, action = ArgAction::SetFalse, help_heading = "Slang Options")]
-    include_directives: bool,
-
-    /// Whether to expand include directives
-    #[arg(long, default_value_t = true, action = ArgAction::SetFalse, help_heading = "Slang Options")]
-    expand_includes: bool,
-
-    /// Whether to expand macros
-    #[arg(long, default_value_t = false, action = ArgAction::SetTrue, help_heading = "Slang Options")]
+    /// Expand macros in the output
+    #[arg(long, help_heading = "Slang Options")]
     expand_macros: bool,
 
-    /// Whether to strip comments
-    #[arg(long, default_value_t = false, action = ArgAction::SetTrue, help_heading = "Slang Options")]
+    /// Strip comments from the output
+    #[arg(long, help_heading = "Slang Options")]
     strip_comments: bool,
 
-    /// Whether to strip newlines
-    #[arg(long, default_value_t = false, action = ArgAction::SetTrue, help_heading = "Slang Options")]
-    strip_newlines: bool,
+    /// Squash newlines in the output
+    #[arg(long, help_heading = "Slang Options")]
+    squash_newlines: bool,
 
     /// Dump the syntax trees as JSON instead of the source code
     #[arg(long, help_heading = "Slang Options")]
@@ -134,11 +122,9 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
 
     let print_opts = SlangPrintOpts {
-        include_directives: args.include_directives,
-        expand_includes: args.expand_includes,
         expand_macros: args.expand_macros,
         include_comments: !args.strip_comments,
-        squash_newlines: args.strip_newlines,
+        squash_newlines: args.squash_newlines,
     };
 
     // Setup Output Writer, either to file or stdout
