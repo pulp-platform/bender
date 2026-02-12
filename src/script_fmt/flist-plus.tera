@@ -17,16 +17,16 @@
 #}// {{ file_group.metadata }}
 {% endif %}{#
 #}{% for file in file_group.files %}{#                                        loop over all files
-#}{% if source_annotations %}{% if file.1 %}{#                                add file-specific comment
-#}// {{ file.1 }}
+#}{% if source_annotations %}{% if file.comment %}{#                          add file-specific comment
+#}// {{ file.comment }}
 {% endif %}{% endif %}{% if relativize_path %}{#                              make path relative if necessary
-#}{% if file.0 is starting_with(root) %}{#                                    keep path unless it starts with common root
-#}{{ file.0 | replace(from=root, to='') | trim_start_matches(pat='/') }}
+#}{% if file.file is starting_with(root) %}{#                                 keep path unless it starts with common root
+#}{{ file.file | replace(from=root, to='') | trim_start_matches(pat='/') }}
 {% else %}{#
-#}{{ file.0 }}
+#}{{ file.file }}
 {% endif %}{#
 #}{% else %}{#
-#}{{ file.0 }}
+#}{{ file.file }}
 {% endif %}{#
 #}{% endfor %}{#
 #}{% endfor %}
