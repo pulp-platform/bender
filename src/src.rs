@@ -340,14 +340,13 @@ impl<'ctx> SourceGroup<'ctx> {
 }
 
 /// File types for a source file.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SourceType {
     /// A Verilog file.
     Verilog,
     /// A VHDL file.
     Vhdl,
-    /// Unknown file type
-    Unknown,
 }
 
 /// A source file.
@@ -356,7 +355,7 @@ pub enum SourceType {
 #[derive(Clone)]
 pub enum SourceFile<'ctx> {
     /// A file.
-    File(&'ctx Path, &'ctx Option<SourceType>),
+    File(&'ctx Path, Option<SourceType>),
     /// A group of files.
     Group(Box<SourceGroup<'ctx>>),
 }
@@ -380,12 +379,6 @@ impl<'ctx> fmt::Debug for SourceFile<'ctx> {
 impl<'ctx> From<SourceGroup<'ctx>> for SourceFile<'ctx> {
     fn from(group: SourceGroup<'ctx>) -> SourceFile<'ctx> {
         SourceFile::Group(Box::new(group))
-    }
-}
-
-impl<'ctx> From<&'ctx Path> for SourceFile<'ctx> {
-    fn from(path: &'ctx Path) -> SourceFile<'ctx> {
-        SourceFile::File(path, &None)
     }
 }
 

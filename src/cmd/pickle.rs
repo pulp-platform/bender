@@ -9,9 +9,10 @@ use tokio::runtime::Runtime;
 
 use crate::cmd::sources::get_passed_targets;
 use crate::config::{Validate, ValidationContext};
+use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
-use crate::src::SourceFile;
+use crate::src::{SourceFile, SourceType};
 use crate::target::TargetSet;
 
 use bender_slang::{SlangContextExt, SlangPrintOpts, SyntaxTreeExt};
@@ -156,12 +157,16 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
         slang.set_includes(&include_dirs).set_defines(&defines);
 
         // Collect file paths from the source group.
-        let file_paths = src_group.files.iter().filter_map(|source| {
-            match source {
-                // TODO(fischeti): Emit warnings for VHDL sources.
-                SourceFile::File(path, _) => path.to_str(),
-                _ => None, // Skip Group/Box/etc.
+        let file_paths = src_group.files.iter().filter_map(|source| match source {
+            SourceFile::File(path, Some(SourceType::Verilog)) => path.to_str(),
+            // Vhdl or unknown file types are not supported by Slang, so we emit a warning and skip them.
+            SourceFile::File(path, _) => {
+                Warnings::PickleNonVerilogFile(path.to_path_buf()).emit();
+                None
             }
+            // Groups should not exist at this point,
+            // as we have already flattened the sources.
+            _ => None,
         });
 
         for file_path in file_paths {
