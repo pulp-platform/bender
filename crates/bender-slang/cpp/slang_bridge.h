@@ -35,4 +35,6 @@ std::shared_ptr<slang::syntax::SyntaxTree> rename(std::shared_ptr<slang::syntax:
 
 rust::String print_tree(std::shared_ptr<slang::syntax::SyntaxTree> tree, SlangPrintOpts options);
 
+rust::String dump_tree_json(std::shared_ptr<slang::syntax::SyntaxTree> tree);
+
 #endif // BENDER_SLANG_BRIDGE_H
