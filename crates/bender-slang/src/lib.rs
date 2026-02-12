@@ -41,8 +41,12 @@ mod ffi {
         fn parse_file(self: Pin<&mut SlangContext>, path: &str) -> Result<SharedPtr<SyntaxTree>>;
 
         /// Rename names in the syntax tree with a given prefix and suffix
-        fn rename(tree: SharedPtr<SyntaxTree>, prefix: &str, suffix: &str)
-        -> SharedPtr<SyntaxTree>;
+        fn rename(
+            tree: SharedPtr<SyntaxTree>,
+            prefix: &str,
+            suffix: &str,
+            excludes: &Vec<String>,
+        ) -> SharedPtr<SyntaxTree>;
 
         /// Print a specific tree
         fn print_tree(tree: SharedPtr<SyntaxTree>, options: SlangPrintOpts) -> String;
@@ -56,18 +60,23 @@ mod ffi {
 // TODO(fischeti): Consider using a wrapper to implement traits like Debug and Display
 // instead of an extension trait. This would be more idiomatic in Rust.
 pub trait SyntaxTreeExt {
-    fn rename(&self, prefix: Option<&str>, suffix: Option<&str>) -> Self;
+    fn rename(&self, prefix: Option<&str>, suffix: Option<&str>, excludes: &Vec<String>) -> Self;
     fn display(&self, options: SlangPrintOpts) -> String;
     fn as_debug(&self) -> String;
 }
 
 impl SyntaxTreeExt for SharedPtr<ffi::SyntaxTree> {
     /// Renames all names in the syntax tree with the given prefix and suffix
-    fn rename(&self, prefix: Option<&str>, suffix: Option<&str>) -> Self {
+    fn rename(&self, prefix: Option<&str>, suffix: Option<&str>, excludes: &Vec<String>) -> Self {
         if prefix.is_none() && suffix.is_none() {
             return self.clone();
         }
-        ffi::rename(self.clone(), prefix.unwrap_or(""), suffix.unwrap_or(""))
+        ffi::rename(
+            self.clone(),
+            prefix.unwrap_or(""),
+            suffix.unwrap_or(""),
+            excludes,
+        )
     }
 
     /// Displays the syntax tree as a string with the given options

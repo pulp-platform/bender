@@ -31,7 +31,7 @@ class SlangContext {
 std::unique_ptr<SlangContext> new_slang_context();
 
 std::shared_ptr<slang::syntax::SyntaxTree> rename(std::shared_ptr<slang::syntax::SyntaxTree> tree, rust::Str prefix,
-                                                  rust::Str suffix);
+                                                  rust::Str suffix, const rust::Vec<rust::String>& excludes);
 
 rust::String print_tree(std::shared_ptr<slang::syntax::SyntaxTree> tree, SlangPrintOpts options);
 

@@ -9,6 +9,8 @@
 #include "slang/syntax/SyntaxVisitor.h"
 #include "slang/text/Json.h"
 
+#include <unordered_set>
+
 using namespace slang;
 using namespace slang::driver;
 using namespace slang::syntax;
@@ -60,10 +62,14 @@ std::shared_ptr<SyntaxTree> SlangContext::parse_file(rust::Str path) {
 // Rewriter that adds prefix/suffix to module and instantiated hierarchy names
 class SuffixPrefixRewriter : public SyntaxRewriter<SuffixPrefixRewriter> {
   public:
-    SuffixPrefixRewriter(string_view prefix, string_view suffix) : prefix(prefix), suffix(suffix) {}
+    SuffixPrefixRewriter(string_view prefix, string_view suffix, const std::unordered_set<std::string>& excludes)
+        : prefix(prefix), suffix(suffix), excludes(excludes) {}
 
     // Helper to allocate and build renamed string with prefix/suffix
     string_view rename(string_view name) {
+        if (excludes.count(std::string(name))) {
+            return name;
+        }
         size_t len = prefix.size() + name.size() + suffix.size();
         char* mem = (char*)alloc.allocate(len, 1);
         memcpy(mem, prefix.data(), prefix.size());
@@ -179,15 +185,22 @@ class SuffixPrefixRewriter : public SyntaxRewriter<SuffixPrefixRewriter> {
   private:
     string_view prefix;
     string_view suffix;
+    const std::unordered_set<std::string>& excludes;
 };
 
 // Transform the given syntax tree by renaming modules and instantiated hierarchy names with the specified prefix/suffix
-std::shared_ptr<SyntaxTree> rename(std::shared_ptr<SyntaxTree> tree, rust::Str prefix, rust::Str suffix) {
+std::shared_ptr<SyntaxTree> rename(std::shared_ptr<SyntaxTree> tree, rust::Str prefix, rust::Str suffix,
+                                   const rust::Vec<rust::String>& excludes) {
     std::string_view p(prefix.data(), prefix.size());
     std::string_view s(suffix.data(), suffix.size());
 
+    std::unordered_set<std::string> excludeSet;
+    for (const auto& e : excludes) {
+        excludeSet.insert(std::string(e));
+    }
+
     // SuffixPrefixRewriter is defined in the .cpp file as before
-    SuffixPrefixRewriter rewriter(p, s);
+    SuffixPrefixRewriter rewriter(p, s, excludeSet);
     return rewriter.transform(tree);
 }
 
