@@ -210,8 +210,8 @@ rust::String print_tree(const shared_ptr<SyntaxTree> tree, SlangPrintOpts option
     // Set up the printer with options
     SyntaxPrinter printer(tree->sourceManager());
 
-    printer.setIncludeDirectives(options.include_directives);
-    printer.setExpandIncludes(options.expand_includes);
+    printer.setIncludeDirectives(true);
+    printer.setExpandIncludes(true);
     printer.setExpandMacros(options.expand_macros);
     printer.setSquashNewlines(options.squash_newlines);
     printer.setIncludeComments(options.include_comments);
