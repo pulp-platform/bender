@@ -454,7 +454,6 @@ fn emit_template(
 ) -> Result<()> {
     tera_context.insert("HEADER_AUTOGEN", HEADER_AUTOGEN);
     tera_context.insert("root", sess.root);
-    tera_context.insert("root_package", &sess.manifest.package.name);
     // tera_context.insert("srcs", &srcs);
     tera_context.insert("abort_on_error", &!args.no_abort_on_error);
 
@@ -528,7 +527,6 @@ fn emit_template(
             },
             |src, ty, files| {
                 split_srcs.push(TplSrcStruct {
-                    name: src.package.map(|s| s.to_string()),
                     metadata: {
                         let package = src.package.unwrap_or("None");
                         let target = src.target.reduce().to_string();
@@ -620,7 +618,6 @@ fn emit_template(
 
 #[derive(Debug, Serialize)]
 struct TplSrcStruct {
-    name: Option<String>,
     metadata: String,
     defines: IndexSet<(String, Option<String>)>,
     incdirs: IndexSet<PathBuf>,
