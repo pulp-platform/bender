@@ -1,0 +1,13 @@
+# {{ HEADER_AUTOGEN }}
+{%- for group in srcs %}
+{% if source_annotations %}# {{ group.metadata }}{% endif %}
+{%- for incdir in group.incdirs %}
++incdir+{% if relativize_path and incdir is starting_with(root) %}{{ incdir | replace(from=root, to='$ROOT') }}{% else %}{{ incdir }}{% endif %}
+{%- endfor %}
+{%- for define in group.defines %}
++define+{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}
+{%- endfor %}
+{%- for file in group.files %}
+{% if relativize_path and file is starting_with(root) %}{{ file | replace(from=root, to='$ROOT') }}{% else %}{{ file }}{% endif %}
+{%- endfor %}
+{%- endfor %}

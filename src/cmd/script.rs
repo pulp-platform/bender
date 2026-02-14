@@ -34,6 +34,10 @@ pub struct ScriptArgs {
     #[arg(short = 'D', long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
     pub define: Vec<String>,
 
+    /// Add an include directory
+    #[arg(short = 'I', long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
+    pub incdir: Vec<String>,
+
     /// Remove source annotations from the generated script
     #[arg(long, help_heading = "General Script Options")]
     pub no_source_annotations: bool,
@@ -179,6 +183,12 @@ pub enum ScriptFormat {
         #[arg(long, action = ArgAction::Append, alias = "vcom-arg")]
         vcom_args: Vec<String>,
     },
+    /// Cadence Xcelium script
+    Xcelium {
+        /// Use relative paths
+        #[arg(long)]
+        relative_path: bool,
+    },
     /// Cadence Genus script
     Genus,
     /// Xilinx Vivado synthesis script
@@ -246,6 +256,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             ScriptFormat::Synopsys { .. } => vec!["synopsys", "synthesis"],
             ScriptFormat::Formality => vec!["synopsys", "synthesis", "formality"],
             ScriptFormat::Riviera { .. } => vec!["riviera", "simulation"],
+            ScriptFormat::Xcelium { .. } => vec!["xcelium", "simulation"],
             ScriptFormat::Genus => vec!["genus", "synthesis"],
             ScriptFormat::Vivado { .. } => concat(vivado_targets, &["synthesis"]),
             ScriptFormat::VivadoSim { .. } => concat(vivado_targets, &["simulation"]),
@@ -366,6 +377,10 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             tera_context.insert("vcom_args", vcom_args);
             include_str!("../script_fmt/riviera_tcl.tera")
         }
+        ScriptFormat::Xcelium { relative_path } => {
+            tera_context.insert("relativize_path", relative_path);
+            include_str!("../script_fmt/xcelium_f.tera")
+        }
         ScriptFormat::Genus => include_str!("../script_fmt/genus_tcl.tera"),
         ScriptFormat::Vivado { no_simset, only } | ScriptFormat::VivadoSim { no_simset, only } => {
             only_args = only.clone();
@@ -439,6 +454,7 @@ fn emit_template(
 ) -> Result<()> {
     tera_context.insert("HEADER_AUTOGEN", HEADER_AUTOGEN);
     tera_context.insert("root", sess.root);
+    tera_context.insert("root_package", &sess.manifest.package.name);
     // tera_context.insert("srcs", &srcs);
     tera_context.insert("abort_on_error", &!args.no_abort_on_error);
 
@@ -478,8 +494,13 @@ fn emit_template(
     tera_context.insert("all_defines", &all_defines);
 
     all_incdirs.sort();
+    let user_incdirs: Vec<PathBuf> = args.incdir.iter().map(PathBuf::from).collect();
     let all_incdirs: IndexSet<PathBuf> = if emit_incdirs {
-        all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
+        all_incdirs
+            .into_iter()
+            .map(|p| p.to_path_buf())
+            .chain(user_incdirs.iter().cloned())
+            .collect()
     } else {
         IndexSet::new()
     };
@@ -507,6 +528,7 @@ fn emit_template(
             },
             |src, ty, files| {
                 split_srcs.push(TplSrcStruct {
+                    name: src.package.map(|s| s.to_string()),
                     metadata: {
                         let package = src.package.unwrap_or("None");
                         let target = src.target.reduce().to_string();
@@ -530,6 +552,7 @@ fn emit_template(
                             .iter()
                             .map(|p| p.to_path_buf())
                             .collect::<IndexSet<_>>();
+                        incdirs.extend(user_incdirs.iter().cloned());
                         incdirs.sort();
                         incdirs
                     },
@@ -597,6 +620,7 @@ fn emit_template(
 
 #[derive(Debug, Serialize)]
 struct TplSrcStruct {
+    name: Option<String>,
     metadata: String,
     defines: IndexSet<(String, Option<String>)>,
     incdirs: IndexSet<PathBuf>,
