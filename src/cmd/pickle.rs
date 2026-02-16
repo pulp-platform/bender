@@ -5,9 +5,10 @@
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::path::Path;
 
 use clap::Args;
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use tokio::runtime::Runtime;
 
 use crate::cmd::sources::get_passed_targets;
@@ -15,7 +16,7 @@ use crate::config::{Validate, ValidationContext};
 use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
-use crate::src::{SourceFile, SourceType};
+use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::TargetSet;
 
 use bender_slang::SlangPrintOpts;
@@ -119,11 +120,43 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
         .unwrap_or_default();
 
     // Flatten and validate the sources.
-    let srcs = srcs
+    let mut srcs = srcs
         .flatten()
         .into_iter()
         .map(|f| f.validate(&ValidationContext::default()))
         .collect::<Result<Vec<_>>>()?;
+
+    if !args.files.is_empty() {
+        let include_dirs = args
+            .include_dir
+            .iter()
+            .map(|d| sess.intern_path(Path::new(d)))
+            .collect::<IndexSet<_>>();
+        let defines = args
+            .define
+            .iter()
+            .map(|d| {
+                let mut parts = d.splitn(2, '=');
+                let name = parts.next().unwrap_or_default().trim().to_string();
+                let value = parts
+                    .next()
+                    .map(|v| sess.intern_string(v.trim().to_string()));
+                (name, value)
+            })
+            .collect::<IndexMap<_, _>>();
+        let files = args
+            .files
+            .iter()
+            .map(|f| SourceFile::File(sess.intern_path(Path::new(f)), Some(SourceType::Verilog)))
+            .collect::<Vec<_>>();
+
+        srcs.push(SourceGroup {
+            include_dirs,
+            defines,
+            files,
+            ..SourceGroup::default()
+        });
+    }
 
     let print_opts = SlangPrintOpts {
         expand_macros: args.expand_macros,
