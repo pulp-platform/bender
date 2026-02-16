@@ -54,72 +54,99 @@ mod ffi {
     }
 }
 
-/// Extension trait for SyntaxTree
-// TODO(fischeti): Consider using a wrapper to implement traits like Debug and Display
-// instead of an extension trait. This would be more idiomatic in Rust.
-pub trait SyntaxTreeExt {
-    fn rename(&self, prefix: Option<&str>, suffix: Option<&str>, excludes: &Vec<String>) -> Self;
-    fn display(&self, options: SlangPrintOpts) -> String;
-    fn as_debug(&self) -> String;
+/// Wrapper around an opaque Slang syntax tree.
+pub struct SyntaxTree {
+    inner: SharedPtr<ffi::SyntaxTree>,
 }
 
-impl SyntaxTreeExt for SharedPtr<ffi::SyntaxTree> {
+impl Clone for SyntaxTree {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl SyntaxTree {
     /// Renames all names in the syntax tree with the given prefix and suffix
-    fn rename(&self, prefix: Option<&str>, suffix: Option<&str>, excludes: &Vec<String>) -> Self {
+    pub fn rename(&self, prefix: Option<&str>, suffix: Option<&str>, excludes: &Vec<String>) -> Self {
         if prefix.is_none() && suffix.is_none() {
             return self.clone();
         }
-        ffi::rename(
-            self.clone(),
-            prefix.unwrap_or(""),
-            suffix.unwrap_or(""),
-            excludes,
-        )
+        Self {
+            inner: ffi::rename(
+                self.inner.clone(),
+                prefix.unwrap_or(""),
+                suffix.unwrap_or(""),
+                excludes,
+            ),
+        }
     }
 
     /// Displays the syntax tree as a string with the given options
-    fn display(&self, options: SlangPrintOpts) -> String {
-        ffi::print_tree(self.clone(), options)
+    pub fn display(&self, options: SlangPrintOpts) -> String {
+        ffi::print_tree(self.inner.clone(), options)
     }
 
-    fn as_debug(&self) -> String {
-        ffi::dump_tree_json(self.clone())
+    pub fn as_debug(&self) -> String {
+        ffi::dump_tree_json(self.inner.clone())
     }
 }
 
-/// Extension trait for SlangContext
-pub trait SlangContextExt {
-    fn set_includes(&mut self, includes: &Vec<String>) -> &mut Self;
-    fn set_defines(&mut self, defines: &Vec<String>) -> &mut Self;
-    fn parse(
-        &mut self,
-        path: &str,
-    ) -> Result<SharedPtr<ffi::SyntaxTree>, Box<dyn std::error::Error>>;
+impl std::fmt::Display for SyntaxTree {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let options = SlangPrintOpts {
+            expand_macros: false,
+            include_comments: true,
+            squash_newlines: false,
+        };
+        f.write_str(&self.display(options))
+    }
 }
 
-impl SlangContextExt for UniquePtr<ffi::SlangContext> {
-    /// Sets the include directories
-    fn set_includes(&mut self, includes: &Vec<String>) -> &mut Self {
-        self.pin_mut().set_includes(&includes);
+impl std::fmt::Debug for SyntaxTree {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.as_debug())
+    }
+}
+
+/// Wrapper around an opaque Slang context.
+pub struct SlangContext {
+    inner: UniquePtr<ffi::SlangContext>,
+}
+
+impl SlangContext {
+    /// Creates a new Slang session.
+    pub fn new() -> Self {
+        Self {
+            inner: ffi::new_slang_context(),
+        }
+    }
+
+    /// Sets the include directories.
+    pub fn set_includes(&mut self, includes: &Vec<String>) -> &mut Self {
+        self.inner.pin_mut().set_includes(includes);
         self
     }
 
-    /// Sets the preprocessor defines
-    fn set_defines(&mut self, defines: &Vec<String>) -> &mut Self {
-        self.pin_mut().set_defines(&defines);
+    /// Sets the preprocessor defines.
+    pub fn set_defines(&mut self, defines: &Vec<String>) -> &mut Self {
+        self.inner.pin_mut().set_defines(defines);
         self
     }
 
-    /// Parses a source file and returns the syntax tree
-    fn parse(
+    /// Parses a source file and returns the syntax tree.
+    pub fn parse(
         &mut self,
         path: &str,
-    ) -> Result<SharedPtr<ffi::SyntaxTree>, Box<dyn std::error::Error>> {
-        Ok(self.pin_mut().parse_file(path)?)
+    ) -> Result<SyntaxTree, Box<dyn std::error::Error>> {
+        Ok(SyntaxTree {
+            inner: self.inner.pin_mut().parse_file(path)?,
+        })
     }
 }
 
 /// Creates a new Slang session
-pub fn new_session() -> UniquePtr<ffi::SlangContext> {
-    ffi::new_slang_context()
+pub fn new_session() -> SlangContext {
+    SlangContext::new()
 }
