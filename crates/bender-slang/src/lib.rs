@@ -2,8 +2,23 @@
 // Tim Fischer <fischeti@iis.ee.ethz.ch>
 
 use cxx::{SharedPtr, UniquePtr};
+use thiserror::Error;
 
 pub use ffi::SlangPrintOpts;
+
+pub type Result<T> = std::result::Result<T, SlangError>;
+
+#[derive(Debug, Error)]
+pub enum SlangError {
+    #[error("Failed to parse file: {message}")]
+    Parse { message: String },
+    #[error("Failed to parse files: {message}")]
+    ParseFiles { message: String },
+    #[error("Failed to trim files by top modules: {message}")]
+    TrimByTop { message: String },
+    #[error("Failed to access parsed syntax tree: {message}")]
+    TreeAccess { message: String },
+}
 
 #[cxx::bridge]
 mod ffi {
@@ -40,7 +55,10 @@ mod ffi {
         /// Parse all added sources. Returns a syntax tree on success, or an error message on failure.
         fn parse_file(self: Pin<&mut SlangContext>, path: &str) -> Result<SharedPtr<SyntaxTree>>;
         /// Parse multiple source files and return a batch of syntax trees.
-        fn parse_files(self: Pin<&mut SlangContext>, paths: &Vec<String>) -> Result<UniquePtr<SyntaxTrees>>;
+        fn parse_files(
+            self: Pin<&mut SlangContext>,
+            paths: &Vec<String>,
+        ) -> Result<UniquePtr<SyntaxTrees>>;
         /// Create an empty syntax-tree batch.
         fn new_syntax_trees() -> UniquePtr<SyntaxTrees>;
         /// Appends trees from src into dst.
@@ -83,7 +101,12 @@ impl Clone for SyntaxTree {
 
 impl SyntaxTree {
     /// Renames all names in the syntax tree with the given prefix and suffix
-    pub fn rename(&self, prefix: Option<&str>, suffix: Option<&str>, excludes: &Vec<String>) -> Self {
+    pub fn rename(
+        &self,
+        prefix: Option<&str>,
+        suffix: Option<&str>,
+        excludes: &Vec<String>,
+    ) -> Self {
         if prefix.is_none() && suffix.is_none() {
             return self.clone();
         }
@@ -146,13 +169,19 @@ impl SyntaxTrees {
     pub fn append_trees(&mut self, src: &SyntaxTrees) {
         ffi::append_trees(
             self.inner.pin_mut(),
-            src.inner.as_ref().expect("syntax trees pointer must be valid"),
+            src.inner
+                .as_ref()
+                .expect("syntax trees pointer must be valid"),
         );
     }
 
     /// Returns tree count in this batch.
     pub fn len(&self) -> usize {
-        ffi::tree_count(self.inner.as_ref().expect("syntax trees pointer must be valid"))
+        ffi::tree_count(
+            self.inner
+                .as_ref()
+                .expect("syntax trees pointer must be valid"),
+        )
     }
 
     /// Returns true if the batch contains no trees.
@@ -161,24 +190,31 @@ impl SyntaxTrees {
     }
 
     /// Returns indices reachable from top names.
-    pub fn reachable_indices(
-        &self,
-        tops: &Vec<String>,
-    ) -> Result<Vec<usize>, Box<dyn std::error::Error>> {
+    pub fn reachable_indices(&self, tops: &Vec<String>) -> Result<Vec<usize>> {
         let indices = ffi::reachable_tree_indices(
-            self.inner.as_ref().expect("syntax trees pointer must be valid"),
+            self.inner
+                .as_ref()
+                .expect("syntax trees pointer must be valid"),
             tops,
-        )?;
+        )
+        .map_err(|cause| SlangError::TrimByTop {
+            message: cause.to_string(),
+        })?;
         Ok(indices.into_iter().map(|i| i as usize).collect())
     }
 
     /// Returns a tree at the provided index.
-    pub fn tree_at(&self, index: usize) -> Result<SyntaxTree, Box<dyn std::error::Error>> {
+    pub fn tree_at(&self, index: usize) -> Result<SyntaxTree> {
         Ok(SyntaxTree {
             inner: ffi::tree_at(
-                self.inner.as_ref().expect("syntax trees pointer must be valid"),
+                self.inner
+                    .as_ref()
+                    .expect("syntax trees pointer must be valid"),
                 index,
-            )?,
+            )
+            .map_err(|cause| SlangError::TreeAccess {
+                message: cause.to_string(),
+            })?,
         })
     }
 }
@@ -204,22 +240,26 @@ impl SlangContext {
     }
 
     /// Parses a source file and returns the syntax tree.
-    pub fn parse(
-        &mut self,
-        path: &str,
-    ) -> Result<SyntaxTree, Box<dyn std::error::Error>> {
+    pub fn parse(&mut self, path: &str) -> Result<SyntaxTree> {
         Ok(SyntaxTree {
-            inner: self.inner.pin_mut().parse_file(path)?,
+            inner: self
+                .inner
+                .pin_mut()
+                .parse_file(path)
+                .map_err(|cause| SlangError::Parse {
+                    message: cause.to_string(),
+                })?,
         })
     }
 
     /// Parses multiple source files and returns a batch of syntax trees.
-    pub fn parse_files(
-        &mut self,
-        paths: &Vec<String>,
-    ) -> Result<SyntaxTrees, Box<dyn std::error::Error>> {
+    pub fn parse_files(&mut self, paths: &Vec<String>) -> Result<SyntaxTrees> {
         Ok(SyntaxTrees {
-            inner: self.inner.pin_mut().parse_files(paths)?,
+            inner: self.inner.pin_mut().parse_files(paths).map_err(|cause| {
+                SlangError::ParseFiles {
+                    message: cause.to_string(),
+                }
+            })?,
         })
     }
 }
