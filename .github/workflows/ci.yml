@@ -26,13 +26,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust}}
-          components: rustfmt
       - name: Build
         run: cargo build --all-features
       - name: Cargo Test
         run: cargo test --workspace --all-features
-      - name: Format (fix with `cargo fmt`)
-        run: cargo fmt -- --check
       - name: Run unit-tests
         run: tests/run_all.sh
         shell: bash

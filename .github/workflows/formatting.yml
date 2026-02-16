@@ -1,0 +1,35 @@
+name: formatting
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt
+      - name: Check Rust formatting
+        run: cargo fmt -- --check
+
+  clang-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Check C/C++ formatting
+        uses: DoozyX/clang-format-lint-action@v0.18
+        with:
+          source: "."
+          extensions: "h,hpp,c,cc,cpp,cxx"
+          exclude: "./crates/bender-slang/vendor"
