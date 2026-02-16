@@ -1,6 +1,37 @@
 // Copyright (c) 2025 ETH Zurich
 // Tim Fischer <fischeti@iis.ee.ethz.ch>
 
+#[cfg(unix)]
+// We create a symlink from the generated include directory to a stable location in the target directory
+// so that tools like clangd can find the headers without needing to know the exact OUT_DIR path.
+// This is purely for improving the development experience and is not necessary for the build itself.
+fn refresh_include_symlink(generated_include_dir: &std::path::Path) {
+    use std::ffi::OsStr;
+    use std::fs;
+    use std::os::unix::fs::symlink;
+    use std::path::PathBuf;
+
+    let Ok(out_dir) = std::env::var("OUT_DIR") else {
+        return;
+    };
+    let out_dir = PathBuf::from(out_dir);
+
+    let Some(target_root) = out_dir
+        .ancestors()
+        .find(|path| path.file_name() == Some(OsStr::new("target")))
+    else {
+        return;
+    };
+
+    let stable_link = target_root.join("slang-generated-include");
+    let _ = fs::remove_file(&stable_link);
+    let _ = fs::remove_dir_all(&stable_link);
+    let _ = symlink(generated_include_dir, &stable_link);
+}
+
+#[cfg(not(unix))]
+fn refresh_include_symlink(_generated_include_dir: &std::path::Path) {}
+
 fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap();
@@ -64,6 +95,11 @@ fn main() {
     let dst = slang_lib.build();
     let lib_dir = dst.join("lib");
 
+    // Create a symlink for the generated include directory
+    if target_os == "linux" || target_os == "macos" {
+        refresh_include_symlink(&dst.join("include"));
+    }
+
     // Configure Linker to find Slang static library
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!("cargo:rustc-link-lib=static=svlang");
@@ -100,7 +136,7 @@ fn main() {
         let compiler = std::env::var("CXX").unwrap_or_else(|_| "g++".to_string());
         // We search for the static libstdc++ file using g++
         let output = std::process::Command::new(&compiler)
-            .args(&["-print-file-name=libstdc++.a"])
+            .args(["-print-file-name=libstdc++.a"])
             .output()
             .expect("Failed to run g++");
 

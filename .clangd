@@ -1,0 +1,15 @@
+If:
+  PathMatch: (^|.*/)crates/bender-slang/cpp/.*\.(h|hpp|hh|c|cc|cpp|cxx)$
+CompileFlags:
+  Add:
+    - -std=c++20
+    - -fno-cxx-modules
+    - -I.
+    - -I../../../crates
+    - -I../vendor/slang/include
+    - -I../vendor/slang/external
+    - -I../../../target/slang-generated-include
+    - -I../../../target/cxxbridge
+    - -DSLANG_USE_MIMALLOC=1
+    - -DSLANG_USE_THREADS=1
+    - -DSLANG_BOOST_SINGLE_HEADER=1
