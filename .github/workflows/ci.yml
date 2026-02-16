@@ -47,9 +47,9 @@ jobs:
         with:
           toolchain: stable
       - name: Build
-        run: cargo build --all-features --release
+        run: cargo build --all-features
       - name: Cargo Test
-        run: cargo test --workspace --all-features --release
+        run: cargo test --workspace --all-features
       - name: Run unit-tests
         run: tests/run_all.sh
         shell: bash

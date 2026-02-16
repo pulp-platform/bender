@@ -5,6 +5,13 @@ fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap();
     let build_profile = std::env::var("PROFILE").unwrap();
+    let cmake_profile = match (target_env.as_str(), build_profile.as_str()) {
+        // Rust MSVC links against the release CRT;
+        // using C++ Debug CRT (/MDd) causes LNK2038 mismatches.
+        ("msvc", _) => "RelWithDebInfo",
+        (_, "debug") => "Debug",
+        _ => "Release",
+    };
 
     // Create the configuration builder
     let mut slang_lib = cmake::Config::new("vendor/slang");
@@ -20,7 +27,7 @@ fn main() {
     ];
 
     // Add debug define if in debug build
-    if build_profile == "debug" {
+    if build_profile == "debug" && !(target_env == "msvc") {
         common_cxx_defines.push(("SLANG_DEBUG", "1"));
         common_cxx_defines.push(("SLANG_ASSERT_ENABLED", "1"));
     };
@@ -41,7 +48,8 @@ fn main() {
         // Disable finding system-installed packages, we want to fetch and build them from source.
         .define("CMAKE_DISABLE_FIND_PACKAGE_fmt", "ON")
         .define("CMAKE_DISABLE_FIND_PACKAGE_mimalloc", "ON")
-        .define("CMAKE_DISABLE_FIND_PACKAGE_Boost", "ON");
+        .define("CMAKE_DISABLE_FIND_PACKAGE_Boost", "ON")
+        .profile(cmake_profile);
 
     // Apply common defines and flags
     for (def, value) in common_cxx_defines.iter() {
@@ -54,22 +62,24 @@ fn main() {
 
     // Build the slang library
     let dst = slang_lib.build();
+    let lib_dir = dst.join("lib");
 
     // Configure Linker to find Slang static library
-    println!("cargo:rustc-link-search=native={}/lib", dst.display());
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!("cargo:rustc-link-lib=static=svlang");
 
-    // Link the additional libraries based on build profile and OS
-    match (build_profile.as_str(), target_env.as_str()) {
-        ("release", _) | (_, "msvc") => {
-            println!("cargo:rustc-link-lib=static=fmt");
-            println!("cargo:rustc-link-lib=static=mimalloc");
-        }
-        ("debug", _) => {
-            println!("cargo:rustc-link-lib=static=fmtd");
-            println!("cargo:rustc-link-lib=static=mimalloc-debug");
-        }
-        _ => unreachable!(),
+    // Link the additional libraries based on build profile.
+    let (fmt_lib, mimalloc_lib) = match (target_env.as_str(), build_profile.as_str()) {
+        ("msvc", _) => ("fmt", "mimalloc"),
+        (_, "debug") => ("fmtd", "mimalloc-debug"),
+        _ => ("fmt", "mimalloc"),
+    };
+
+    println!("cargo:rustc-link-lib=static={fmt_lib}");
+    println!("cargo:rustc-link-lib=static={mimalloc_lib}");
+
+    if target_os == "windows" {
+        println!("cargo:rustc-link-lib=advapi32");
     }
 
     // Compile the C++ Bridge
