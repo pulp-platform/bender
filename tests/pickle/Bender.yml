@@ -7,6 +7,10 @@ sources:
     files:
       - src/common_pkg.sv
       - src/bus_intf.sv
+      - src/leaf.sv
+      - src/core.sv
+      - src/unused_leaf.sv
+      - src/unused_top.sv
 
   - target: top
     include_dirs:
