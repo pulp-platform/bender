@@ -4,3 +4,6 @@ target
 # Temporary test files
 tests/**/tmp
 tests/**/.bender
+
+# clangd
+.cache/clangd
