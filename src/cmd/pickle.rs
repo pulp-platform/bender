@@ -18,7 +18,7 @@ use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceType};
 use crate::target::TargetSet;
 
-use bender_slang::{SlangContextExt, SlangPrintOpts, SyntaxTreeExt};
+use bender_slang::SlangPrintOpts;
 
 /// Pickle files
 #[derive(Args, Debug)]
@@ -197,7 +197,7 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
                 if !first_item {
                     write!(writer, ",")?;
                 }
-                write!(writer, "{}", renamed_tree.as_debug())?;
+                write!(writer, "{:?}", renamed_tree)?;
                 first_item = false;
             } else {
                 write!(writer, "{}", renamed_tree.display(print_opts))?;
