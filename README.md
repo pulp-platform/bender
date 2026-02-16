@@ -58,6 +58,12 @@ cargo install bender
 ```
 If you need a specific version of Bender (e.g., `0.21.0`), append ` --version 0.21.0` to that command.
 
+To enable optional features (including the Slang-backed `pickle` command), install with:
+```sh
+cargo install bender --all-features
+```
+This may increase build time and additional build dependencies.
+
 To install Bender system-wide, you can simply copy the binary you have obtained from one of the above methods to one of the system directories on your `PATH`.  Even better, some Linux distributions have Bender in their repositories.  We are currently aware of:
 
 ### [ArchLinux ![aur-shield](https://img.shields.io/aur/version/bender)][aur-bender]
@@ -545,6 +551,30 @@ Supported formats:
 - `template_json`: The json struct used to render the [tera](https://keats.github.io/tera/docs/) template.
 
 Furthermore, similar flags to the `sources` command exist.
+
+### `pickle` --- Parse and rewrite SystemVerilog sources with Slang
+
+The `bender pickle` command parses SystemVerilog sources with Slang and prints the resulting source again. It supports optional renaming and trimming of unreachable files for specified top modules.
+
+This command is only available when Bender is built with Slang support (for example via `cargo install bender --all-features`).
+
+Useful options:
+- `--top <MODULE>`: Trim output to files reachable from one or more top modules.
+- `--prefix <PFX>` / `--suffix <SFX>`: Add a prefix and/or suffix to renamed symbols.
+- `--exclude-rename <NAME>`: Exclude specific symbols from renaming.
+- `--ast-json`: Emit AST JSON instead of source code.
+- `--expand-macros`, `--strip-comments`, `--squash-newlines`: Control output formatting.
+- `-I <DIR>`, `-D <DEFINE>`: Add extra include directories and preprocessor defines.
+
+Examples:
+
+```sh
+# Keep only files reachable from top module `top`.
+bender pickle --top my_top
+
+# Rename symbols, but keep selected names unchanged.
+bender pickle --top my_top --prefix p_ --suffix _s --exclude-rename my_top
+```
 
 
 ### `update` --- Re-resolve dependencies
