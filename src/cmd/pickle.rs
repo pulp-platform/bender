@@ -191,28 +191,19 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
             })
             .collect();
 
-        let group_trees = slang
-            .parse_files(&file_paths)
-            .map_err(|cause| Error::new(format!("Cannot parse source file set: {}", cause)))?;
+        let group_trees = slang.parse_files(&file_paths)?;
         parsed_trees.append_trees(&group_trees);
     }
 
     let reachable = if args.top.is_empty() {
         (0..parsed_trees.len()).collect::<Vec<usize>>()
     } else {
-        parsed_trees
-            .reachable_indices(&args.top)
-            .map_err(|cause| Error::new(format!("Cannot trim parsed trees by --top: {}", cause)))?
+        parsed_trees.reachable_indices(&args.top)?
     };
 
     let mut first_item = true;
     for idx in reachable {
-        let tree = parsed_trees.tree_at(idx).map_err(|cause| {
-            Error::new(format!(
-                "Cannot access parsed tree at index {}: {}",
-                idx, cause
-            ))
-        })?;
+        let tree = parsed_trees.tree_at(idx)?;
         let renamed_tree = tree.rename(
             args.prefix.as_deref(),
             args.suffix.as_deref(),
