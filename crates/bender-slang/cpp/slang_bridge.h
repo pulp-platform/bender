@@ -5,6 +5,8 @@
 #define BENDER_SLANG_BRIDGE_H
 
 #include "rust/cxx.h"
+#include "slang/diagnostics/DiagnosticEngine.h"
+#include "slang/diagnostics/TextDiagnosticClient.h"
 #include "slang/driver/Driver.h"
 #include "slang/syntax/SyntaxTree.h"
 
@@ -26,6 +28,8 @@ class SlangContext {
   private:
     slang::SourceManager sourceManager;
     slang::parsing::PreprocessorOptions ppOptions;
+    slang::DiagnosticEngine diagEngine;
+    std::shared_ptr<slang::TextDiagnosticClient> diagClient;
 };
 
 std::unique_ptr<SlangContext> new_slang_context();

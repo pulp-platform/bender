@@ -4,11 +4,14 @@
 #include "slang_bridge.h"
 
 #include "bender-slang/src/lib.rs.h"
+#include "slang/diagnostics/DiagnosticEngine.h"
+#include "slang/diagnostics/TextDiagnosticClient.h"
 #include "slang/syntax/CSTSerializer.h"
 #include "slang/syntax/SyntaxPrinter.h"
 #include "slang/syntax/SyntaxVisitor.h"
 #include "slang/text/Json.h"
 
+#include <stdexcept>
 #include <unordered_set>
 
 using namespace slang;
@@ -25,7 +28,9 @@ using std::vector;
 // Create a new SlangContext instance
 std::unique_ptr<SlangContext> new_slang_context() { return std::make_unique<SlangContext>(); }
 
-SlangContext::SlangContext() {}
+SlangContext::SlangContext() : diagEngine(sourceManager), diagClient(std::make_shared<TextDiagnosticClient>()) {
+    diagEngine.addClient(diagClient);
+}
 
 // Set the include paths for the preprocessor
 void SlangContext::set_includes(const rust::Vec<rust::String>& incs) {
@@ -45,10 +50,11 @@ void SlangContext::set_defines(const rust::Vec<rust::String>& defs) {
 
 // Parses the given file and returns a syntax tree, if successful
 std::shared_ptr<SyntaxTree> SlangContext::parse_file(rust::Str path) {
+    string_view pathView(path.data(), path.size());
     Bag options;
     options.set(ppOptions);
 
-    auto result = SyntaxTree::fromFile(string_view(path.data(), path.size()), sourceManager, options);
+    auto result = SyntaxTree::fromFile(pathView, sourceManager, options);
 
     if (!result) {
         auto& err = result.error();
@@ -56,7 +62,25 @@ std::shared_ptr<SyntaxTree> SlangContext::parse_file(rust::Str path) {
         throw std::runtime_error(msg);
     }
 
-    return *result;
+    auto tree = *result;
+    diagClient->clear();
+    diagEngine.clearIncludeStack();
+
+    bool hasErrors = false;
+    for (const auto& diag : tree->diagnostics()) {
+        hasErrors |= diag.isError();
+        diagEngine.issue(diag);
+    }
+
+    if (hasErrors) {
+        std::string rendered = diagClient->getString();
+        if (rendered.empty()) {
+            rendered = "Failed to parse '" + std::string(pathView) + "'.";
+        }
+        throw std::runtime_error(rendered);
+    }
+
+    return tree;
 }
 
 // Rewriter that adds prefix/suffix to module and instantiated hierarchy names
