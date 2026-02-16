@@ -147,6 +147,23 @@ mod tests {
     }
 
     #[test]
+    fn pickle_rename_renames_scoped_instantiation_params() {
+        let renamed = run_pickle(&[
+            "--target",
+            "top",
+            "--prefix",
+            "p_",
+            "--suffix",
+            "_s",
+            "--expand-macros",
+        ]);
+
+        // Scoped values used in module parameter overrides must also be renamed.
+        assert!(renamed.contains(".DefaultState(p_common_pkg_s::Error)"));
+        assert!(!renamed.contains(".DefaultState(common_pkg::Error)"));
+    }
+
+    #[test]
     fn pickle_rename_renames_named_end_label() {
         let renamed = run_pickle(&["--prefix", "p_", "--suffix", "_s", "--expand-macros"]);
 
