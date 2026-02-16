@@ -7,6 +7,8 @@ module top (
     input logic rst_n
 );
 
+    core u_core();
+
     // Interface Instantiation
     bus_intf #(.WIDTH(DATA_WIDTH)) axi_bus (
         .clk(clk)
