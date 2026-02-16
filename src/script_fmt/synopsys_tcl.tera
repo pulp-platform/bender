@@ -2,7 +2,7 @@
 set ROOT "{{ root }}"
 set search_path_initial $search_path
 {% if compilation_mode == 'separate' %}{#                                                                           Individual block for each source file group
-#}{% for group in srcs %}{% if source_annotations %}
+#}{% for group in srcs %}{% if group.file_type != '' %}{% if source_annotations %}
 # {{ group.metadata }}{% endif %}
 set search_path $search_path_initial
 {% for incdir in group.incdirs %}{#                                                                                 Add group's include directories
@@ -27,7 +27,7 @@ set search_path $search_path_initial
 #}{{ '    ' }}"{{ file | replace(from=root, to='$ROOT') }}" \
     {% endfor %}]
 {% if abort_on_error %}]} {return 1}{% endif %}
-{% endfor %}
+{% endif %}{% endfor %}
 {% else %}{# compilation_mode == 'common' #}{#                                                                      Common block for all files
 #}{% for file in all_verilog %}{#                                                                                   Loop over verilog files
 #}{% if loop.first %}set search_path $search_path_initial
