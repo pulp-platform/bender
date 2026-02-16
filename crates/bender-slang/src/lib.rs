@@ -167,21 +167,12 @@ impl SyntaxTrees {
 
     /// Appends all trees from src into self.
     pub fn append_trees(&mut self, src: &SyntaxTrees) {
-        ffi::append_trees(
-            self.inner.pin_mut(),
-            src.inner
-                .as_ref()
-                .expect("syntax trees pointer must be valid"),
-        );
+        ffi::append_trees(self.inner.pin_mut(), src.inner.as_ref().unwrap());
     }
 
     /// Returns tree count in this batch.
     pub fn len(&self) -> usize {
-        ffi::tree_count(
-            self.inner
-                .as_ref()
-                .expect("syntax trees pointer must be valid"),
-        )
+        ffi::tree_count(self.inner.as_ref().unwrap())
     }
 
     /// Returns true if the batch contains no trees.
@@ -191,29 +182,22 @@ impl SyntaxTrees {
 
     /// Returns indices reachable from top names.
     pub fn reachable_indices(&self, tops: &Vec<String>) -> Result<Vec<usize>> {
-        let indices = ffi::reachable_tree_indices(
-            self.inner
-                .as_ref()
-                .expect("syntax trees pointer must be valid"),
-            tops,
-        )
-        .map_err(|cause| SlangError::TrimByTop {
-            message: cause.to_string(),
-        })?;
+        let indices =
+            ffi::reachable_tree_indices(self.inner.as_ref().unwrap(), tops).map_err(|cause| {
+                SlangError::TrimByTop {
+                    message: cause.to_string(),
+                }
+            })?;
         Ok(indices.into_iter().map(|i| i as usize).collect())
     }
 
     /// Returns a tree at the provided index.
     pub fn tree_at(&self, index: usize) -> Result<SyntaxTree> {
         Ok(SyntaxTree {
-            inner: ffi::tree_at(
-                self.inner
-                    .as_ref()
-                    .expect("syntax trees pointer must be valid"),
-                index,
-            )
-            .map_err(|cause| SlangError::TreeAccess {
-                message: cause.to_string(),
+            inner: ffi::tree_at(self.inner.as_ref().unwrap(), index).map_err(|cause| {
+                SlangError::TreeAccess {
+                    message: cause.to_string(),
+                }
             })?,
         })
     }
