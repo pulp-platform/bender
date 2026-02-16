@@ -11,7 +11,9 @@
 #include "slang/syntax/SyntaxVisitor.h"
 #include "slang/text/Json.h"
 
+#include <functional>
 #include <stdexcept>
+#include <unordered_map>
 #include <unordered_set>
 
 using namespace slang;
@@ -81,6 +83,15 @@ std::shared_ptr<SyntaxTree> SlangContext::parse_file(rust::Str path) {
     }
 
     return tree;
+}
+
+std::unique_ptr<SyntaxTrees> SlangContext::parse_files(const rust::Vec<rust::String>& paths) {
+    auto out = std::make_unique<SyntaxTrees>();
+    out->trees.reserve(paths.size());
+    for (const auto& path : paths) {
+        out->trees.push_back(parse_file(path));
+    }
+    return out;
 }
 
 // Rewriter that adds prefix/suffix to module and instantiated hierarchy names
@@ -258,4 +269,87 @@ rust::String dump_tree_json(std::shared_ptr<SyntaxTree> tree) {
 
     // Convert string_view to rust::String
     return rust::String(std::string(writer.view()));
+}
+
+std::unique_ptr<SyntaxTrees> new_syntax_trees() { return std::make_unique<SyntaxTrees>(); }
+
+void append_trees(SyntaxTrees& dst, const SyntaxTrees& src) {
+    dst.trees.reserve(dst.trees.size() + src.trees.size());
+    for (const auto& tree : src.trees) {
+        dst.trees.push_back(tree);
+    }
+}
+
+rust::Vec<std::uint32_t> reachable_tree_indices(const SyntaxTrees& trees, const rust::Vec<rust::String>& tops) {
+    const auto& treeVec = trees.trees;
+
+    // Build a mapping from declared symbol names to the index of the tree that declares them
+    std::unordered_map<std::string_view, size_t> nameToTreeIndex;
+    for (size_t i = 0; i < treeVec.size(); ++i) {
+        const auto& metadata = treeVec[i]->getMetadata();
+        for (auto name : metadata.getDeclaredSymbols()) {
+            nameToTreeIndex.emplace(name, i);
+        }
+    }
+
+    // Build a dependency graph where each tree points to the trees that declare symbols it references
+    std::vector<std::vector<size_t>> deps(treeVec.size());
+    for (size_t i = 0; i < treeVec.size(); ++i) {
+        const auto& metadata = treeVec[i]->getMetadata();
+        std::unordered_set<size_t> seen;
+        for (auto ref : metadata.getReferencedSymbols()) {
+            auto it = nameToTreeIndex.find(ref);
+            // Avoid duplicate dependencies in case of multiple references to the same symbol
+            if (it != nameToTreeIndex.end() && seen.insert(it->second).second) {
+                deps[i].push_back(it->second);
+            }
+        }
+    }
+
+    // Map the top module names to their corresponding tree indices
+    std::vector<size_t> startIndices;
+    startIndices.reserve(tops.size());
+    for (const auto& top : tops) {
+        std::string_view name(top.data(), top.size());
+        auto it = nameToTreeIndex.find(name);
+        if (it == nameToTreeIndex.end()) {
+            throw std::runtime_error("Top module not found in any parsed source file: " + std::string(name));
+        } else {
+            startIndices.push_back(it->second);
+        }
+    }
+
+    // Perform a DFS from the top modules to find all reachable trees
+    std::vector<bool> reachable(treeVec.size(), false);
+    std::function<void(size_t)> dfs = [&](size_t index) {
+        if (reachable[index]) {
+            return;
+        }
+        reachable[index] = true;
+        for (auto dep : deps[index]) {
+            dfs(dep);
+        }
+    };
+
+    for (auto start : startIndices) {
+        dfs(start);
+    }
+
+    // Collect the indices of reachable trees and return as rust::Vec
+    rust::Vec<std::uint32_t> result;
+    for (size_t i = 0; i < reachable.size(); ++i) {
+        if (reachable[i]) {
+            result.push_back(static_cast<std::uint32_t>(i));
+        }
+    }
+    return result;
+}
+
+std::size_t tree_count(const SyntaxTrees& trees) { return trees.trees.size(); }
+
+std::shared_ptr<SyntaxTree> tree_at(const SyntaxTrees& trees, std::size_t index) {
+    if (index >= trees.trees.size()) {
+        throw std::runtime_error("Tree index out of bounds.");
+    }
+    return trees.trees[index];
 }
