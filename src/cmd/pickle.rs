@@ -54,6 +54,10 @@ pub struct PickleArgs {
     #[arg(short = 'D')]
     define: Vec<String>,
 
+    /// One or more top-level modules used to trim unreachable parsed files.
+    #[arg(long, help_heading = "Slang Options")]
+    top: Vec<String>,
+
     /// A prefix to add to all names (modules, packages, interfaces)
     #[arg(long, help_heading = "Slang Options")]
     prefix: Option<String>,
@@ -142,11 +146,9 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
         write!(writer, "[")?;
     }
 
-    let mut first_item = true;
-
+    let mut parsed_trees = bender_slang::SyntaxTrees::new();
+    let mut slang = bender_slang::new_session();
     for src_group in srcs {
-        let mut slang = bender_slang::new_session();
-
         // Collect include directories and defines from the source group and command line arguments.
         let include_dirs: Vec<String> = src_group
             .include_dirs
@@ -171,37 +173,60 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
         slang.set_includes(&include_dirs).set_defines(&defines);
 
         // Collect file paths from the source group.
-        let file_paths = src_group.files.iter().filter_map(|source| match source {
-            SourceFile::File(path, Some(SourceType::Verilog)) => path.to_str(),
-            // Vhdl or unknown file types are not supported by Slang, so we emit a warning and skip them.
-            SourceFile::File(path, _) => {
-                Warnings::PickleNonVerilogFile(path.to_path_buf()).emit();
-                None
-            }
-            // Groups should not exist at this point,
-            // as we have already flattened the sources.
-            _ => None,
-        });
-
-        for file_path in file_paths {
-            let tree = slang.parse(file_path).map_err(|cause| {
-                Error::new(format!("Cannot parse file {}: {}", file_path, cause))
-            })?;
-            let renamed_tree = tree.rename(
-                args.prefix.as_deref(),
-                args.suffix.as_deref(),
-                &args.exclude_rename,
-            );
-            if args.ast_json {
-                // JSON Array Logic: Prepend comma if not the first item
-                if !first_item {
-                    write!(writer, ",")?;
+        let file_paths: Vec<String> = src_group
+            .files
+            .iter()
+            .filter_map(|source| match source {
+                SourceFile::File(path, Some(SourceType::Verilog)) => {
+                    Some(path.to_string_lossy().into_owned())
                 }
-                write!(writer, "{:?}", renamed_tree)?;
-                first_item = false;
-            } else {
-                write!(writer, "{}", renamed_tree.display(print_opts))?;
+                // Vhdl or unknown file types are not supported by Slang, so we emit a warning and skip them.
+                SourceFile::File(path, _) => {
+                    Warnings::PickleNonVerilogFile(path.to_path_buf()).emit();
+                    None
+                }
+                // Groups should not exist at this point,
+                // as we have already flattened the sources.
+                _ => None,
+            })
+            .collect();
+
+        let group_trees = slang
+            .parse_files(&file_paths)
+            .map_err(|cause| Error::new(format!("Cannot parse source file set: {}", cause)))?;
+        parsed_trees.append_trees(&group_trees);
+    }
+
+    let reachable = if args.top.is_empty() {
+        (0..parsed_trees.len()).collect::<Vec<usize>>()
+    } else {
+        parsed_trees
+            .reachable_indices(&args.top)
+            .map_err(|cause| Error::new(format!("Cannot trim parsed trees by --top: {}", cause)))?
+    };
+
+    let mut first_item = true;
+    for idx in reachable {
+        let tree = parsed_trees.tree_at(idx).map_err(|cause| {
+            Error::new(format!(
+                "Cannot access parsed tree at index {}: {}",
+                idx, cause
+            ))
+        })?;
+        let renamed_tree = tree.rename(
+            args.prefix.as_deref(),
+            args.suffix.as_deref(),
+            &args.exclude_rename,
+        );
+        if args.ast_json {
+            // JSON Array Logic: Prepend comma if not the first item
+            if !first_item {
+                write!(writer, ",")?;
             }
+            write!(writer, "{:?}", renamed_tree)?;
+            first_item = false;
+        } else {
+            write!(writer, "{}", renamed_tree.display(print_opts))?;
         }
     }
 
