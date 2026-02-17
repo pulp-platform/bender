@@ -25,6 +25,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust}}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-test-${{ runner.os }}-${{ matrix.rust }}
+          cache-workspace-crates: "true"
       - name: Build
         run: cargo build --all-features
       - name: Cargo Test
@@ -42,6 +46,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-test-windows-${{ runner.os }}-stable
+          cache-workspace-crates: "true"
       - name: Build
         run: cargo build --all-features
       - name: Cargo Test
@@ -59,6 +67,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-test-macos-${{ runner.os }}-stable
+          cache-workspace-crates: "true"
       - name: Build
         run: cargo build --all-features
       - name: Cargo Test
@@ -84,6 +96,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-release-build-${{ runner.os }}-stable
+          cache-workspace-crates: "true"
       - name: Build (release)
         run: cargo build --release --all-features
 
@@ -98,6 +114,10 @@ jobs:
         with:
           toolchain: stable
           components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-clippy-${{ runner.os }}-stable
+          cache-workspace-crates: "true"
       - run: cargo clippy --all-features
 
   unused-deps:
@@ -108,6 +128,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-unused-deps-${{ runner.os }}-stable
+          cache-workspace-crates: "true"
       - name: Install machete
         run: cargo install cargo-machete
       - name: Check for unused dependencies
