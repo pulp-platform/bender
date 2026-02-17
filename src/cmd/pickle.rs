@@ -19,7 +19,7 @@ use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::TargetSet;
 
-use bender_slang::SlangPrintOpts;
+use bender_slang::{SlangContext, SlangPrintOpts, SyntaxTrees};
 
 /// Pickle files
 #[derive(Args, Debug)]
@@ -179,8 +179,8 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
         write!(writer, "[")?;
     }
 
-    let mut parsed_trees = bender_slang::SyntaxTrees::new();
-    let mut slang = bender_slang::new_session();
+    let mut parsed_trees = SyntaxTrees::new();
+    let mut slang = SlangContext::new();
     for src_group in srcs {
         // Collect include directories and defines from the source group and command line arguments.
         let include_dirs: Vec<String> = src_group
