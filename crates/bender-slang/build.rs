@@ -27,7 +27,7 @@ fn main() {
     ];
 
     // Add debug define if in debug build
-    if build_profile == "debug" && !(target_env == "msvc") {
+    if build_profile == "debug" && (target_env != "msvc") {
         common_cxx_defines.push(("SLANG_DEBUG", "1"));
         common_cxx_defines.push(("SLANG_ASSERT_ENABLED", "1"));
     };

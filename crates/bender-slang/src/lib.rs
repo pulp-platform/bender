@@ -203,6 +203,12 @@ impl SyntaxTrees {
     }
 }
 
+impl Default for SyntaxTrees {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SlangContext {
     /// Creates a new Slang session.
     pub fn new() -> Self {
@@ -248,7 +254,8 @@ impl SlangContext {
     }
 }
 
-/// Creates a new Slang session
-pub fn new_session() -> SlangContext {
-    SlangContext::new()
+impl Default for SlangContext {
+    fn default() -> Self {
+        Self::new()
+    }
 }
