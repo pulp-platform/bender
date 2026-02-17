@@ -67,6 +67,26 @@ jobs:
         run: tests/run_all.sh
         shell: bash
 
+  release-build:
+    name: Release Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Build (release)
+        run: cargo build --release --all-features
+
   clippy_check:
     name: Clippy
     runs-on: ubuntu-latest
