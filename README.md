@@ -52,6 +52,12 @@ curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf
 ```
 The command downloads and executes a script that detects your distribution and downloads the appropriate `bender` binary of the latest release to your current directory.  If you need a specific version of Bender (e.g., `0.21.0`), append ` -s -- 0.21.0` to that command.  Alternatively, you can manually download a precompiled binary from [our Releases on GitHub][releases].
 
+As an alternative binary installer path, we are migrating releases to [`cargo-dist`](https://github.com/axodotdev/cargo-dist). If you already use [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall), you can install via:
+```sh
+cargo binstall bender
+```
+For now, both approaches are supported.
+
 If you prefer building your own binary, you need to [install Rust][rust-installation].  You can then build and install Bender for the current user with the following command:
 ```sh
 cargo install bender
