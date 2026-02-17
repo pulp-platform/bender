@@ -492,10 +492,14 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     /// If `fetch_ref` is provided, a specific ref (e.g. a commit hash not on
     /// any branch) is fetched and a temporary tag is created so that
     /// `rev-list --all` can discover it.
+    /// `force_fetch` controls fetching behavior:
+    /// - `None`: use manifest modification time check (default)
+    /// - `Some(true)`: force a fetch regardless of modification time
+    /// - `Some(false)`: skip fetching regardless of modification time
     pub async fn dependency_versions(
         &'io self,
         dep_id: DependencyRef,
-        force_fetch: bool,
+        force_fetch: Option<bool>,
         fetch_ref: Option<&str>,
     ) -> Result<DependencyVersions<'ctx>> {
         self.sess.stats.num_calls_dependency_versions.increment();
@@ -549,7 +553,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         &'io self,
         name: &str,
         url: &str,
-        force_fetch: bool,
+        force_fetch: Option<bool>,
         fetch_ref: Option<&str>,
     ) -> Result<Git<'ctx>> {
         // TODO: Make the assembled future shared and keep it in a lookup table.
@@ -632,7 +636,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         } else {
             // Update if the manifest has been modified since the last fetch.
             let db_mtime = try_modification_time(db_dir.join("FETCH_HEAD"));
-            if (self.sess.manifest_mtime < db_mtime && !force_fetch) || self.sess.local_only {
+            let skip_fetch = match force_fetch {
+                Some(true) => false,
+                Some(false) => true,
+                None => self.sess.manifest_mtime < db_mtime,
+            };
+            if skip_fetch || self.sess.local_only {
                 debugln!("sess: skipping fetch of {:?}", db_dir);
                 return Ok(git);
             }
@@ -901,7 +910,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     );
                     if current == revision {
                         CheckoutState::Clean
-                    } else if let Ok(db) = self.git_database(name, url, false, None).await {
+                    } else if let Ok(db) = self.git_database(name, url, Some(false), None).await {
                         if let Ok(remote) = local_git.clone().remote_url("origin").await {
                             if remote == db.path.to_str().unwrap() {
                                 CheckoutState::ToCheckout
@@ -969,7 +978,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             let tag_name_0 = format!("bender-tmp-{}", revision).clone();
             let tag_name_1 = tag_name_0.clone();
             let tag_name_2 = tag_name_0.clone();
-            let git = self.git_database(name, url, false, Some(revision)).await?;
+            let git = self
+                .git_database(name, url, Some(false), Some(revision))
+                .await?;
             match git
                 .clone()
                 .spawn_with(
@@ -1387,7 +1398,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             (DepSrc::Git(url), DepVer::Git(rev)) => {
                 let dep_name = self.sess.intern_string(dep.name.as_str());
-                let db = self.git_database(&dep.name, url, false, None).await?;
+                let db = self.git_database(&dep.name, url, Some(false), None).await?;
                 let entries = db.clone().list_files(rev, Some("Bender.yml")).await?;
                 let data = match entries.into_iter().next() {
                     None => Ok(None),
