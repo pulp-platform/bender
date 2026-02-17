@@ -10,7 +10,7 @@ setup_design -defines { \
     {% endif %}+define+{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %}
 
 {% else %} \
-    {% endif %}{% endfor %}{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if source_annotations %}# {{ group.metadata }}
+    {% endif %}{% endfor %}{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if group.file_type != '' %}{% if source_annotations %}# {{ group.metadata }}
 {% endif %}{% if abort_on_error %}if {[catch { {% endif %}add_input_file \
     {% if group.file_type == 'verilog' %}-format SystemVerilog2012 \
     {% for incdir in group.incdirs %}{% if loop.first %}-search_path { \
@@ -24,7 +24,7 @@ setup_design -defines { \
         {% endif %}{% endfor %}} \
 {% if abort_on_error %}}]} {return 1}
 {% endif %}
-{% endfor %}
+{% endif %}{% endfor %}
 {% else %}{# compilation_mode == 'common' #}{% for file in all_verilog %}{% if loop.first %}{% if abort_on_error %}if {[catch { {% endif %}add_input_file \
     -format SystemVerilog2012 \
     {% for incdir in all_incdirs %}{% if loop.first %}-search_path { \

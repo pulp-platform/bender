@@ -5,7 +5,7 @@ if [ info exists search_path ] {
     set search_path_initial {}
 }
 set ROOT "{{ root }}"
-{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if source_annotations %}
+{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if group.file_type != '' %}{% if source_annotations %}
 # {{ group.metadata }}{% endif %}
 set search_path $search_path_initial
 {% for incdir in group.incdirs %}lappend search_path "{{ incdir | replace(from=root, to='$ROOT') }}"
@@ -20,7 +20,7 @@ set search_path $search_path_initial
         {% endif %}{% endfor %}[list \
     {% for file in group.files %}{{ '    ' }}"{{ file | replace(from=root, to='$ROOT') }}" \
     {% endfor %}]
-{% endfor %}
+{% endif %}{% endfor %}
 {% else %}{# compilation_mode == 'common' #}{% for file in all_verilog %}{% if loop.first %}set search_path $search_path_initial
 {% for incdir in all_incdirs %}lappend search_path "$ROOT{{ incdir | replace(from=root, to='') }}"
 {% endfor %}

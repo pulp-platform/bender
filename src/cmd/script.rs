@@ -14,6 +14,7 @@ use tokio::runtime::Runtime;
 
 use crate::cmd::sources::get_passed_targets;
 use crate::config::{Validate, ValidationContext};
+use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup, SourceType};
@@ -455,6 +456,7 @@ fn emit_template(
     let mut all_files = IndexSet::new();
     let mut all_verilog = vec![];
     let mut all_vhdl = vec![];
+    let mut unknown_files = vec![];
     for src in &srcs {
         all_defines.extend(
             src.defines
@@ -557,7 +559,9 @@ fn emit_template(
             "vhdl" => {
                 all_vhdl.append(&mut src.files.clone().into_iter().collect());
             }
-            _ => {}
+            _ => {
+                unknown_files.append(&mut src.files.clone().into_iter().collect());
+            }
         }
     }
     let split_srcs = if emit_sources { split_srcs } else { vec![] };
@@ -575,6 +579,9 @@ fn emit_template(
     };
     tera_context.insert("all_verilog", &all_verilog);
     tera_context.insert("all_vhdl", &all_vhdl);
+    if !unknown_files.is_empty() && template.contains("file_type") {
+        Warnings::UnknownFileType(unknown_files).emit();
+    }
 
     tera_context.insert("source_annotations", &!args.no_source_annotations);
     tera_context.insert("compilation_mode", &args.compilation_mode);

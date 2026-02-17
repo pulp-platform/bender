@@ -361,6 +361,15 @@ pub enum Warnings {
     )]
     LfsDisabled(String),
 
+    #[error("{} with unknown type:\n{}", if .0.len() == 1 { "File" } else { "Files" }, .0.iter().map(|p| format!("  - {}", fmt_path!(p.display()))).collect::<Vec<_>>().join("\n"))]
+    #[diagnostic(
+        code(W28),
+        help(
+            "Known file extensions are: .sv, .v, .vp (Verilog) and .vhd, .vhdl (VHDL).\nTo indicate a file type for unknown file extensions, use `sv:`, `v:`, or `vhd:` when listing the file."
+        )
+    )]
+    UnknownFileType(Vec<PathBuf>),
+
     #[error("File not added, ignoring: {cause}")]
     #[diagnostic(code(W30))]
     IgnoredPath { cause: String },

@@ -4,7 +4,7 @@
 set -e
 {% endif %}
 ROOT="{{ root }}"
-{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if source_annotations %}
+{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if group.file_type != '' %}{% if source_annotations %}
 # {{ group.metadata }}{% endif %}
 {% if group.file_type == 'verilog' %}{{ vlogan_bin }} -sverilog \
     -full64 \
@@ -15,7 +15,7 @@ ROOT="{{ root }}"
     {% for tmp_arg in vhdlan_args %}{{ tmp_arg }} \
     {% endfor %}{% endif %}{% for file in group.files %}"{{ file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
     {% endif %}{% endfor %}
-{% endfor %}
+{% endif %}{% endfor %}
 {% else %}{# compilation_mode == 'common' #}{% for file in all_verilog %}{% if loop.first %}{{ vlogan_bin }} -sverilog \
     -full64 \
     {% for tmp_arg in vlogan_args %}{{ tmp_arg }} \

@@ -1,7 +1,7 @@
 # {{ HEADER_AUTOGEN }}
 set ROOT "{{ root }}"
 {% if compilation_mode == 'separate' %}{#                                                                       Individual block for each source file group
-#}{% for group in srcs %}
+#}{% for group in srcs %}{% if group.file_type != '' %}{#                                                       Only compile groups with a file type #}
 {% if source_annotations %}# {{ group.metadata }}{#                                                             Add metadata #}
 {% endif %}{% if abort_on_error %}if {[catch { {% endif %}{#                                                    Catch errors immediately
 #}{% if group.file_type == 'verilog' %}vlog -incr -sv \{#                                                       Compile verilog (& systemverilog) files with vlog -sv #}
@@ -19,7 +19,7 @@ set ROOT "{{ root }}"
     {% endif %}{% endfor %}{#                                                                                   Add group's files
 #}{% if abort_on_error %}\
 }]} {return 1}{% endif %}
-{% endfor %}{#
+{% endif %}{% endfor %}{#
 #}{% else %}{# compilation_mode == 'common' #}{#                                                                Common block for all files
 #}{% for file in all_verilog %}{% if loop.first %}{#                                                            Loop over verilog files
 #}{% if abort_on_error %}if {[catch { {% endif %}{#                                                             Catch errors immediately
