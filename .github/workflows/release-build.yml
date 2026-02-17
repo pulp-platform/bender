@@ -1,0 +1,59 @@
+name: release-build
+
+# Verify that a release build succeeds on all platforms that cargo-dist will
+# target.  Runs on every push to master (and can be triggered manually) so
+# that compatibility issues or platform-specific build failures are
+# caught before tagging a release.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-build:
+    name: Release Build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container || '' }}
+    strategy:
+      fail-fast: false
+      # Mirror the release matrix from dist-workspace.toml exactly, including
+      # the manylinux containers, so CI catches compatibility issues early.
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-22.04
+            container: quay.io/pypa/manylinux_2_28_x86_64
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04-arm
+            container: quay.io/pypa/manylinux_2_28_aarch64
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Install Rust non-interactively if not already installed
+        if: ${{ matrix.container }}
+        run: |
+          if ! command -v cargo > /dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+        if: ${{ !matrix.container }}
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-build-${{ matrix.target }}
+          cache-workspace-crates: "true"
+      - name: Build (release)
+        run: cargo build --release --all-features
