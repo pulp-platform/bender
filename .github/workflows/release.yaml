@@ -4,6 +4,12 @@ on:
   release:
     types: [created]
   workflow_dispatch:
+    inputs:
+      publish_assets:
+        description: "Upload release assets"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   release_amd64:
@@ -61,7 +67,9 @@ jobs:
         platform:
           - linux/amd64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - name: OS Build
         run: |
           export full_tgtname=${{ matrix.os }}
@@ -85,6 +93,7 @@ jobs:
           .github/scripts/package.sh $platform $tgtname;
         shell: bash
       - name: Upload Release Asset
+        if: ${{ github.event_name == 'release' || inputs.publish_assets }}
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.release.tag_name }}
@@ -106,7 +115,9 @@ jobs:
         platform:
           - linux/arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - name: OS Build
         run: |
           export full_tgtname=${{ matrix.os }}
@@ -130,6 +141,7 @@ jobs:
           .github/scripts/package.sh $platform $tgtname;
         shell: bash
       - name: Upload Release Asset
+        if: ${{ github.event_name == 'release' || inputs.publish_assets }}
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.release.tag_name }}
@@ -141,7 +153,9 @@ jobs:
     # Use container that supports old GLIBC versions and (hopefully) many linux OSs
     # container: quay.io/pypa/manylinux2014_x86_64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - name: Setup Dockerfile
         run: |
           touch Dockerfile
@@ -175,6 +189,7 @@ jobs:
         run: .github/scripts/package.sh amd64
         shell: bash
       - name: Upload Release Asset
+        if: ${{ github.event_name == 'release' || inputs.publish_assets }}
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.release.tag_name }}
@@ -186,7 +201,9 @@ jobs:
     # Use container that supports old GLIBC versions and (hopefully) many linux OSs
     # container: quay.io/pypa/manylinux2014_aarch64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - name: Setup Dockerfile
         run: |
           touch Dockerfile
@@ -220,6 +237,7 @@ jobs:
         run: .github/scripts/package.sh arm64
         shell: bash
       - name: Upload Release Asset
+        if: ${{ github.event_name == 'release' || inputs.publish_assets }}
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.release.tag_name }}
@@ -229,7 +247,9 @@ jobs:
   release-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - name: Install Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
@@ -256,6 +276,7 @@ jobs:
         run: |
           gtar -czf $ARTIFACT_PATHNAME -C "./target/universal2-apple-darwin/release" --owner=0 --group=0 bender
       - name: Upload Release Asset
+        if: ${{ github.event_name == 'release' || inputs.publish_assets }}
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.release.tag_name }}
@@ -265,13 +286,15 @@ jobs:
   release-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
       - name: Build
-        run: cargo build --release
+        run: cargo build --release --all-features
       - name: Get Artifact Name
         shell: bash
         run: |
@@ -289,6 +312,7 @@ jobs:
           cp target/release/bender.exe .
           & 'C:\Program Files\Git\usr\bin\tar.exe' czf $Env:ARTIFACT_PATHNAME --owner=0 --group=0 bender.exe
       - name: Upload Release Asset
+        if: ${{ github.event_name == 'release' || inputs.publish_assets }}
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.release.tag_name }}
