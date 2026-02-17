@@ -46,7 +46,10 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
             .clone()
             .iter()
             .map(|&pkg| async move {
-                futures::join!(async { *pkg }, io_ref.dependency_versions(*pkg, args.fetch))
+                futures::join!(
+                    async { *pkg },
+                    io_ref.dependency_versions(*pkg, args.fetch, None)
+                )
             })
             .collect::<Vec<_>>();
         join_all(futures).await

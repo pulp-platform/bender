@@ -5,7 +5,7 @@
 
 #![deny(missing_docs)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::Write as _;
 use std::fs;
@@ -47,6 +47,8 @@ pub struct DependencyResolver<'ctx> {
     locked: IndexMap<&'ctx str, (DependencyConstraint, DependencyRef, Option<&'ctx str>, bool)>,
     /// A helpful map
     src_ref_map: IndexMap<DependencySource, DependencyRef>,
+    /// Set of dependency dependency/hash combinations that have already been refetched (to avoid retrying).
+    refetched: HashSet<(DependencyRef, Option<String>)>,
 }
 
 impl<'ctx> DependencyResolver<'ctx> {
@@ -60,6 +62,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             checked_out: IndexMap::new(),
             locked: IndexMap::new(),
             src_ref_map: IndexMap::new(),
+            refetched: HashSet::new(),
         }
     }
 
@@ -163,7 +166,7 @@ impl<'ctx> DependencyResolver<'ctx> {
 
             // Go through each dependency's versions and apply the constraints
             // imposed by the others.
-            self.mark()?;
+            self.mark(&rt, &io)?;
 
             // Pick a version for each dependency.
             any_changes = self.pick()?;
@@ -295,7 +298,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         let versions: Vec<_> = ids
             .iter()
             .map(|&id| async move {
-                io.dependency_versions(id, false)
+                io.dependency_versions(id, false, None)
                     .await
                     .map(move |v| (id, v))
             })
@@ -453,7 +456,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 async move {
                     Ok::<(_, _), Error>((
                         dep.to_string(),
-                        (hash, io.dependency_versions(src, false).await?, src),
+                        (hash, io.dependency_versions(src, false, None).await?, src),
                     ))
                 }
             })))
@@ -539,7 +542,7 @@ impl<'ctx> DependencyResolver<'ctx> {
     }
 
     /// Apply constraints to each dependency's versions.
-    fn mark(&mut self) -> Result<()> {
+    fn mark(&mut self, rt: &Runtime, io: &SessionIo<'ctx, 'ctx>) -> Result<()> {
         use std::iter::once;
 
         // Gather the constraints from the available manifests. Group them by
@@ -608,7 +611,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             for (_, con, dsrc) in &cons {
                 debugln!("resolve: impose `{}` at `{}` on `{}`", con, dsrc, name);
                 let table_item = table.get_mut(name).unwrap();
-                self.impose_dep(name, con, dsrc, table_item, &cons)?;
+                self.impose_dep(con, dsrc, table_item, &cons, rt, io)?;
             }
         }
         self.table = table;
@@ -618,43 +621,115 @@ impl<'ctx> DependencyResolver<'ctx> {
 
     fn impose_dep(
         &mut self,
-        name: &'ctx str,
         con: &DependencyConstraint,
         con_src: &DependencyRef,
         dep: &mut Dependency<'ctx>,
         all_cons: &[(&str, DependencyConstraint, DependencyRef)],
+        rt: &Runtime,
+        io: &SessionIo<'ctx, 'ctx>,
     ) -> Result<()> {
         let con_indices: IndexMap<DependencyRef, IndexSet<usize>> = dep
             .sources
-            .iter()
+            .iter_mut()
             .map(|(id, src)| {
-                match self.req_indices(name, con, src) {
-                    Ok(v) => {
-                        // TODO attempt refetch (if not already done)
-                        if v.is_empty() && id == con_src {
-                            let additional_str = if let DependencyConstraint::Version(__) = con {
-                                " Ensure git tags are formatted as `vX.Y.Z`.".to_string()
-                            } else {
-                                "".to_string()
-                            };
-                            return Err(Error::new(format!(
-                                "Dependency `{}` from `{}` cannot satisfy requirement `{}`.{} You may need to run update with --fetch.",
-                                name,
-                                self.sess.dependency_source(*id),
-                                con,
-                                additional_str
-                            )));
+                // Attempt refetch (if not already fetched)
+                // - If req_indices returns empty, we first refetch plainly
+                // - If still empty, we refetch the specific revision, if it is a revision
+                // - then we return an error only if the dep src matches.
+                let indices_list = self.req_indices(dep.name, con, src);
+                let indices_list = if id == con_src {
+                    match indices_list {
+                        Err(e) => {
+                            Warnings::IgnoringError(
+                                dep.name.to_string(),
+                                self.sess.dependency_source(*con_src).to_string(),
+                                e.to_string(),
+                            )
+                            .emit();
+                            IndexSet::new()
                         }
-                        Ok((*id, v))
+                        Ok(v) => v,
                     }
-                    Err(e) => {
-                        if id == con_src {
-                            return Err(e);
+                } else {
+                    indices_list?
+                };
+                if indices_list.is_empty() {
+                    if !self.refetched.contains(&(*id, None)) {
+                        // attempt plain refetch
+                        self.refetched.insert((*id, None));
+                        if let Ok(new_versions) =
+                            rt.block_on(io.dependency_versions(*id, true, None))
+                        {
+                            src.versions = new_versions;
                         }
-                        Warnings::IgnoringError(name.to_string(), self.sess.dependency_source(*con_src).to_string(), e.to_string()).emit();
-                        Ok((*id, IndexSet::new()))
                     }
+                } else {
+                    return Ok((*id, indices_list));
                 }
+                let indices_list = self.req_indices(dep.name, con, src);
+                let indices_list = if id == con_src {
+                    match indices_list {
+                        Err(e) => {
+                            Warnings::IgnoringError(
+                                dep.name.to_string(),
+                                self.sess.dependency_source(*con_src).to_string(),
+                                e.to_string(),
+                            )
+                            .emit();
+                            IndexSet::new()
+                        }
+                        Ok(v) => v,
+                    }
+                } else {
+                    indices_list?
+                };
+                if indices_list.is_empty() {
+                    if let DependencyConstraint::Revision(rev) = con {
+                        if !self.refetched.contains(&(*id, Some(rev.clone()))) {
+                            // attempt refetch with rev
+                            self.refetched.insert((*id, Some(rev.clone())));
+                            if let Ok(new_versions) =
+                                rt.block_on(io.dependency_versions(*id, true, Some(rev.as_str())))
+                            {
+                                src.versions = new_versions;
+                            }
+                        }
+                    }
+                } else {
+                    return Ok((*id, indices_list));
+                }
+                let indices_list = self.req_indices(dep.name, con, src);
+                let indices_list = if id == con_src {
+                    match indices_list {
+                        Err(e) => {
+                            Warnings::IgnoringError(
+                                dep.name.to_string(),
+                                self.sess.dependency_source(*con_src).to_string(),
+                                e.to_string(),
+                            )
+                            .emit();
+                            IndexSet::new()
+                        }
+                        Ok(v) => v,
+                    }
+                } else {
+                    indices_list?
+                };
+                if indices_list.is_empty() && id == con_src {
+                    let additional_str = if let DependencyConstraint::Version(__) = con {
+                        " Ensure git tags are formatted as `vX.Y.Z`.".to_string()
+                    } else {
+                        "".to_string()
+                    };
+                    return Err(Error::new(format!(
+                        "Dependency `{}` from `{}` cannot satisfy requirement `{}`.{}",
+                        dep.name,
+                        self.sess.dependency_source(*id),
+                        con,
+                        additional_str
+                    )));
+                }
+                Ok((*id, indices_list))
             })
             .collect::<Result<_>>()?;
 
@@ -683,7 +758,8 @@ impl<'ctx> DependencyResolver<'ctx> {
                 Ok(is) => {
                     *ids = is;
                     if ids.values().all(|v| v.is_empty()) {
-                        let decision = self.ask_for_decision(dep.name, all_cons, &dep.sources)?;
+                        let decision =
+                            self.ask_for_decision(dep.name, all_cons, &mut dep.sources, rt, io)?;
                         ids.insert(decision.0, decision.1);
                     }
                     Ok(())
@@ -696,7 +772,9 @@ impl<'ctx> DependencyResolver<'ctx> {
         &mut self,
         name: &'ctx str,
         all_cons: &[(&str, DependencyConstraint, DependencyRef)],
-        sources: &IndexMap<DependencyRef, DependencyReference<'ctx>>,
+        sources: &mut IndexMap<DependencyRef, DependencyReference<'ctx>>,
+        rt: &Runtime,
+        io: &SessionIo<'ctx, 'ctx>,
     ) -> Result<(DependencyRef, IndexSet<usize>)> {
         let mut msg = format!(
             "Dependency requirements conflict with each other on dependency {}.\n",
@@ -846,9 +924,47 @@ impl<'ctx> DependencyResolver<'ctx> {
                     break Ok((decision.0.clone(), *decision.1));
                 }?
             };
-            match self.req_indices(name, &decision.0, sources.get(&decision.1).unwrap()) {
-                Ok(v) => Ok((decision.1, v)),
-                Err(e) => Err(e),
+            let indices = self.req_indices(name, &decision.0, sources.get(&decision.1).unwrap());
+            match indices {
+                Ok(ref v) if !v.is_empty() => Ok((decision.1, v.clone())),
+                _ => {
+                    // The chosen revision may not be fetched yet. Attempt a
+                    // single refetch for the specific ref before giving up.
+                    let fetch_ref = match &decision.0 {
+                        DependencyConstraint::Revision(rev) => Some(rev.clone()),
+                        _ => None,
+                    };
+                    if fetch_ref.is_some()
+                        && !self.refetched.contains(&(decision.1, fetch_ref.clone()))
+                    {
+                        self.refetched.insert((decision.1, fetch_ref.clone()));
+                        debugln!(
+                            "resolve: attempting refetch for `{}` with ref {:?} after decision",
+                            name,
+                            fetch_ref
+                        );
+                        let refetched_versions = rt.block_on(io.dependency_versions(
+                            decision.1,
+                            true,
+                            fetch_ref.as_deref(),
+                        ));
+                        if let Ok(new_versions) = refetched_versions {
+                            sources.get_mut(&decision.1).unwrap().versions = new_versions;
+                            match self.req_indices(
+                                name,
+                                &decision.0,
+                                sources.get(&decision.1).unwrap(),
+                            ) {
+                                Ok(v) if !v.is_empty() => return Ok((decision.1, v)),
+                                _ => {}
+                            }
+                        }
+                    }
+                    match indices {
+                        Ok(v) => Ok((decision.1, v)),
+                        Err(e) => Err(e),
+                    }
+                }
             }
         } else {
             Err(Error::new(msg))

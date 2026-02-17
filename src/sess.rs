@@ -487,10 +487,15 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     }
 
     /// Determine the available versions for a dependency.
+    ///
+    /// If `fetch_ref` is provided, a specific ref (e.g. a commit hash not on
+    /// any branch) is fetched and a temporary tag is created so that
+    /// `rev-list --all` can discover it.
     pub async fn dependency_versions(
         &'io self,
         dep_id: DependencyRef,
         force_fetch: bool,
+        fetch_ref: Option<&str>,
     ) -> Result<DependencyVersions<'ctx>> {
         self.sess.stats.num_calls_dependency_versions.increment();
         let dep = self.sess.dependency(dep_id);
@@ -500,7 +505,34 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             DependencySource::Path(_) => Ok(DependencyVersions::Path),
             DependencySource::Git(ref url) => {
-                let db = self.git_database(&dep.name, url, force_fetch, None).await?;
+                let db = self
+                    .git_database(&dep.name, url, force_fetch, fetch_ref)
+                    .await?;
+                // If a specific revision was requested, create a temporary tag
+                // so that `rev-list --all` can discover it (it only walks
+                // commits reachable from refs).
+                if let Some(rev) = fetch_ref {
+                    let tag_name = format!("bender-tmp-{}", rev);
+                    let rev_owned = rev.to_string();
+                    let _ = db
+                        .clone()
+                        .spawn_with(
+                            move |c| {
+                                c.arg("tag")
+                                    .arg(&tag_name)
+                                    .arg(&rev_owned)
+                                    .arg("--force")
+                                    .arg("--no-sign")
+                            },
+                            None,
+                        )
+                        .await;
+                    // Invalidate cached versions so they are recomputed.
+                    self.git_versions
+                        .lock()
+                        .unwrap()
+                        .shift_remove(&db.path.to_path_buf());
+                }
                 self.git_versions_func(db)
                     .await
                     .map(DependencyVersions::Git)
@@ -991,6 +1023,30 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         .await
                 }
             }?;
+            // Check if the revision is reachable from any upstream branch or
+            // tag (excluding synthetic bender-tmp-* tags). If not, warn that
+            // the commit may have been removed by a force-push.
+            let revision_owned = revision.to_string();
+            if let Ok(ref_output) = git
+                .clone()
+                .spawn_with(
+                    move |c| {
+                        c.arg("for-each-ref")
+                            .arg("--contains")
+                            .arg(&revision_owned)
+                            .arg("--format=%(refname)")
+                            .arg("refs/remotes/origin/")
+                            .arg("refs/tags/")
+                    },
+                    None,
+                )
+                .await
+            {
+                let is_tracked = ref_output.lines().any(|line| !line.contains("bender-tmp-"));
+                if !is_tracked {
+                    Warnings::RevisionNotOnUpstream(revision.to_string(), name.to_string()).emit();
+                }
+            }
             if clear == CheckoutState::ToClone {
                 let pb = Some(ProgressHandler::new(
                     self.sess.multiprogress.clone(),
