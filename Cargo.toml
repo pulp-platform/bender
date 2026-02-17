@@ -16,6 +16,10 @@ rust-version = "1.87.0"
 [workspace]
 members = ["crates/bender-slang"]
 
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
 [dependencies]
 bender-slang = { path = "crates/bender-slang", optional = true}
 

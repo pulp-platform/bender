@@ -1,0 +1,37 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.31.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Whether to install an updater program
+install-updater = false
+# Whether to pass --all-features to cargo build
+all-features = true
+# Which actions to run on pull requests
+pr-run-mode = "upload"
+# Link dynamic CRT on windows
+# TODO(fischeti): eventually switch to static CRT, if slang builds with it.
+msvc-crt-static = false
+
+[dist.github-custom-runners]
+# Use a slighly newer macOS runner for aarch64,
+# since the default one (macos-14) uses Clang/LLVM 15.0.0.
+# slang requires at least Clang/LLVM 17.0.0, which is available on macos-15.
+aarch64-apple-darwin = "macos-15"
+# Make sure that the minimum supported glibc version is 2.28 on Linux.
+[dist.github-custom-runners.x86_64-unknown-linux-gnu]
+runner = "ubuntu-22.04"
+container = "quay.io/pypa/manylinux_2_28_x86_64"
+[dist.github-custom-runners.aarch64-unknown-linux-gnu]
+runner = "ubuntu-22.04-arm"
+container = "quay.io/pypa/manylinux_2_28_aarch64"
