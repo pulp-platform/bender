@@ -294,14 +294,14 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
             }
             semver::Op::Caret => {
                 let max_caret = match (comp.minor, comp.patch) {
-                    (None, _) if comp.major > 0 => Version {
+                    (_, _) if comp.major > 0 => Version {
                         major: comp.major + 1,
                         minor: 0,
                         patch: 0,
                         pre: semver::Prerelease::EMPTY,
                         build: semver::BuildMetadata::EMPTY,
                     },
-                    (Some(minor), None) if minor > 0 => Version {
+                    (Some(minor), _) if minor > 0 => Version {
                         major: comp.major,
                         minor: minor + 1,
                         patch: 0,
