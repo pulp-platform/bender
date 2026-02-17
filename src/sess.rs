@@ -145,13 +145,13 @@ impl<'ctx> Session<'ctx> {
         &self,
         name: &str,
         cfg: &config::Dependency,
-        calling_package: &str,
+        _calling_package: &str,
     ) -> DependencyRef {
         debugln!(
             "sess: load dependency `{}` as {:?} for package `{}`",
             name,
             cfg,
-            calling_package
+            _calling_package
         );
         let src = DependencySource::from(cfg);
         self.deps
@@ -952,10 +952,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .await
             {
                 Ok(r) => Ok(r),
-                Err(cause) => {
+                Err(_cause) => {
                     debugln!(
                         "checkout_git: failed to tag commit {:?}, attempting fetch.",
-                        cause
+                        _cause
                     );
                     let pb = Some(ProgressHandler::new(
                         self.sess.multiprogress.clone(),

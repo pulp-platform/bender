@@ -45,9 +45,7 @@ macro_rules! stageln {
 #[macro_export]
 #[cfg(not(debug_assertions))]
 macro_rules! debugln {
-    ($fmt:expr $(, $arg:expr)* $(,)?) => { $(let _ = $arg;)* }
-    // create an unused binding here so the compiler does not complain
-    // about the arguments to debugln! not being used in release builds.
+    ($($arg:tt)*) => {};
 }
 
 /// Emit a diagnostic message.
