@@ -1023,6 +1023,30 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         .await
                 }
             }?;
+            // Check if the revision is reachable from any upstream branch or
+            // tag (excluding synthetic bender-tmp-* tags). If not, warn that
+            // the commit may have been removed by a force-push.
+            let revision_owned = revision.to_string();
+            if let Ok(ref_output) = git
+                .clone()
+                .spawn_with(
+                    move |c| {
+                        c.arg("for-each-ref")
+                            .arg("--contains")
+                            .arg(&revision_owned)
+                            .arg("--format=%(refname)")
+                            .arg("refs/remotes/origin/")
+                            .arg("refs/tags/")
+                    },
+                    None,
+                )
+                .await
+            {
+                let is_tracked = ref_output.lines().any(|line| !line.contains("bender-tmp-"));
+                if !is_tracked {
+                    Warnings::RevisionNotOnUpstream(revision.to_string(), name.to_string()).emit();
+                }
+            }
             if clear == CheckoutState::ToClone {
                 let pb = Some(ProgressHandler::new(
                     self.sess.multiprogress.clone(),

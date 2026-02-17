@@ -370,6 +370,15 @@ pub enum Warnings {
     )]
     UnknownFileType(Vec<PathBuf>),
 
+    #[error("Revision {} for dependency {} is not on any upstream branch or tag.", fmt_version!(.0), fmt_pkg!(.1))]
+    #[diagnostic(
+        code(W29),
+        help(
+            "The commit may have been removed from the remote by a force-push. Consider updating to a tracked version or revision, or add a tag or branch to ensure the commit does not get removed."
+        )
+    )]
+    RevisionNotOnUpstream(String, String),
+
     #[error("File not added, ignoring: {cause}")]
     #[diagnostic(code(W30))]
     IgnoredPath { cause: String },
