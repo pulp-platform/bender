@@ -300,6 +300,11 @@ impl<'ctx> DependencyResolver<'ctx> {
             .filter(|(_, (_, _, _, is_locked))| *is_locked)
             .map(|(&name, _)| name)
             .collect();
+        let fetched_names: IndexSet<&str> = names
+            .keys()
+            .filter(|name| !locked_names.contains(*name))
+            .copied()
+            .collect();
         let versions: Vec<_> = names
             .iter()
             .map(|(&name, &id)| {
@@ -317,6 +322,13 @@ impl<'ctx> DependencyResolver<'ctx> {
             .collect::<Result<Vec<_>>>()?
             .into_iter()
             .collect::<IndexMap<_, _>>();
+
+        // Record fetched deps so refetch attempts in mark/pick can skip them.
+        for (&name, &id) in &names {
+            if fetched_names.contains(name) {
+                self.refetched.insert((id, None));
+            }
+        }
         // debugln!("resolve: versions {:#?}", versions);
 
         // Register the versions.
