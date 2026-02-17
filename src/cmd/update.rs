@@ -42,6 +42,10 @@ pub struct UpdateArgs {
     /// Update requested dependencies recursively, i.e., including their dependencies
     #[arg(long, requires = "dep")]
     pub recursive: bool,
+
+    /// Only resolve new dependencies, keeping all existing ones locked
+    #[arg(long, conflicts_with = "dep")]
+    pub new_only: bool,
 }
 
 /// Execute the `update` subcommand.
@@ -67,7 +71,9 @@ pub fn run<'ctx>(
     let mut requested = match args.dep.as_ref() {
         Some(deps) => deps.iter().cloned().collect(),
         None => {
-            keep_locked = IndexSet::new();
+            if !args.new_only {
+                keep_locked = IndexSet::new();
+            }
             IndexSet::new()
         }
     };
