@@ -27,8 +27,7 @@ using std::string;
 using std::string_view;
 using std::vector;
 
-// Create a new SlangContext instance
-std::unique_ptr<SlangContext> new_slang_context() { return std::make_unique<SlangContext>(); }
+std::unique_ptr<SlangSession> new_slang_session() { return std::make_unique<SlangSession>(); }
 
 SlangContext::SlangContext() : diagEngine(sourceManager), diagClient(std::make_shared<TextDiagnosticClient>()) {
     diagEngine.addClient(diagClient);
@@ -36,62 +35,76 @@ SlangContext::SlangContext() : diagEngine(sourceManager), diagClient(std::make_s
 
 // Set the include paths for the preprocessor
 void SlangContext::set_includes(const rust::Vec<rust::String>& incs) {
-    ppOptions.additionalIncludePaths.clear();
     for (const auto& inc : incs) {
-        ppOptions.additionalIncludePaths.emplace_back(std::string(inc));
+        std::string incStr(inc.data(), inc.size());
+        if (auto ec = sourceManager.addUserDirectories(incStr); ec) {
+            throw std::runtime_error("Failed to add include directory '" + incStr + "': " + ec.message());
+        }
     }
 }
 
 // Sets the preprocessor defines
 void SlangContext::set_defines(const rust::Vec<rust::String>& defs) {
-    ppOptions.predefines.clear();
+    ppOptions.predefines.reserve(defs.size());
     for (const auto& def : defs) {
-        ppOptions.predefines.emplace_back(std::string(def));
+        ppOptions.predefines.emplace_back(def.data(), def.size());
     }
 }
 
-// Parses the given file and returns a syntax tree, if successful
-std::shared_ptr<SyntaxTree> SlangContext::parse_file(rust::Str path) {
-    string_view pathView(path.data(), path.size());
+std::vector<std::shared_ptr<SyntaxTree>> SlangContext::parse_files(const rust::Vec<rust::String>& paths) {
     Bag options;
     options.set(ppOptions);
 
-    auto result = SyntaxTree::fromFile(pathView, sourceManager, options);
+    std::vector<std::shared_ptr<SyntaxTree>> out;
+    out.reserve(paths.size());
 
-    if (!result) {
-        auto& err = result.error();
-        std::string msg = "System Error loading '" + std::string(err.second) + "': " + err.first.message();
-        throw std::runtime_error(msg);
-    }
+    for (const auto& path : paths) {
+        string_view pathView(path.data(), path.size());
+        auto result = SyntaxTree::fromFile(pathView, sourceManager, options);
 
-    auto tree = *result;
-    diagClient->clear();
-    diagEngine.clearIncludeStack();
-
-    bool hasErrors = false;
-    for (const auto& diag : tree->diagnostics()) {
-        hasErrors |= diag.isError();
-        diagEngine.issue(diag);
-    }
-
-    if (hasErrors) {
-        std::string rendered = diagClient->getString();
-        if (rendered.empty()) {
-            rendered = "Failed to parse '" + std::string(pathView) + "'.";
+        if (!result) {
+            auto& err = result.error();
+            std::string msg = "System Error loading '" + std::string(err.second) + "': " + err.first.message();
+            throw std::runtime_error(msg);
         }
-        throw std::runtime_error(rendered);
+
+        auto tree = *result;
+        diagClient->clear();
+        diagEngine.clearIncludeStack();
+
+        bool hasErrors = false;
+        for (const auto& diag : tree->diagnostics()) {
+            hasErrors |= diag.isError();
+            diagEngine.issue(diag);
+        }
+
+        if (hasErrors) {
+            std::string rendered = diagClient->getString();
+            if (rendered.empty()) {
+                rendered = "Failed to parse '" + std::string(pathView) + "'.";
+            }
+            throw std::runtime_error(rendered);
+        }
+
+        out.push_back(tree);
     }
 
-    return tree;
+    return out;
 }
 
-std::unique_ptr<SyntaxTrees> SlangContext::parse_files(const rust::Vec<rust::String>& paths) {
-    auto out = std::make_unique<SyntaxTrees>();
-    out->trees.reserve(paths.size());
-    for (const auto& path : paths) {
-        out->trees.push_back(parse_file(path));
+void SlangSession::parse_group(const rust::Vec<rust::String>& files, const rust::Vec<rust::String>& includes,
+                               const rust::Vec<rust::String>& defines) {
+    auto ctx = std::make_unique<SlangContext>();
+    ctx->set_includes(includes);
+    ctx->set_defines(defines);
+
+    auto parsed = ctx->parse_files(files);
+    allTrees.reserve(allTrees.size() + parsed.size());
+    for (const auto& tree : parsed) {
+        allTrees.push_back(tree);
     }
-    return out;
+
+    contexts.push_back(std::move(ctx));
 }
 
 // Rewriter that adds prefix/suffix to module and instantiated hierarchy names
@@ -271,17 +284,8 @@ rust::String dump_tree_json(std::shared_ptr<SyntaxTree> tree) {
     return rust::String(std::string(writer.view()));
 }
 
-std::unique_ptr<SyntaxTrees> new_syntax_trees() { return std::make_unique<SyntaxTrees>(); }
-
-void append_trees(SyntaxTrees& dst, const SyntaxTrees& src) {
-    dst.trees.reserve(dst.trees.size() + src.trees.size());
-    for (const auto& tree : src.trees) {
-        dst.trees.push_back(tree);
-    }
-}
-
-rust::Vec<std::uint32_t> reachable_tree_indices(const SyntaxTrees& trees, const rust::Vec<rust::String>& tops) {
-    const auto& treeVec = trees.trees;
+rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, const rust::Vec<rust::String>& tops) {
+    const auto& treeVec = session.trees();
 
     // Build a mapping from declared symbol names to the index of the tree that declares them
     std::unordered_map<std::string_view, size_t> nameToTreeIndex;
@@ -345,11 +349,11 @@ rust::Vec<std::uint32_t> reachable_tree_indices(const SyntaxTrees& trees, const 
     return result;
 }
 
-std::size_t tree_count(const SyntaxTrees& trees) { return trees.trees.size(); }
+std::size_t tree_count(const SlangSession& session) { return session.trees().size(); }
 
-std::shared_ptr<SyntaxTree> tree_at(const SyntaxTrees& trees, std::size_t index) {
-    if (index >= trees.trees.size()) {
+std::shared_ptr<SyntaxTree> tree_at(const SlangSession& session, std::size_t index) {
+    if (index >= session.trees().size()) {
         throw std::runtime_error("Tree index out of bounds.");
     }
-    return trees.trees[index];
+    return session.trees()[index];
 }
