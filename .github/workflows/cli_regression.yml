@@ -8,35 +8,41 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
       - name: Run CLI Regression
-        run: cargo test --test cli_regression -- --ignored
+        run: cargo test --all-features --test cli_regression -- --ignored
         env:
           BENDER_TEST_GOLDEN_BRANCH: ${{ github.base_ref }}
 
   test-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
       - name: Run CLI Regression
-        run: cargo test --test cli_regression -- --ignored
+        run: cargo test --all-features --test cli_regression -- --ignored
         env:
           BENDER_TEST_GOLDEN_BRANCH: ${{ github.base_ref }}
 
   test-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
       - name: Run CLI Regression
-        run: cargo test --test cli_regression -- --ignored
+        run: cargo test --all-features --test cli_regression -- --ignored
         env:
           BENDER_TEST_GOLDEN_BRANCH: ${{ github.base_ref }}
