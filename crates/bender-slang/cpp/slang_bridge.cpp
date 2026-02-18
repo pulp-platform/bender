@@ -4,8 +4,6 @@
 #include "slang_bridge.h"
 
 #include "bender-slang/src/lib.rs.h"
-#include "slang/diagnostics/DiagnosticEngine.h"
-#include "slang/diagnostics/TextDiagnosticClient.h"
 #include "slang/syntax/CSTSerializer.h"
 #include "slang/syntax/SyntaxPrinter.h"
 #include "slang/syntax/SyntaxVisitor.h"
@@ -17,7 +15,6 @@
 #include <unordered_set>
 
 using namespace slang;
-using namespace slang::driver;
 using namespace slang::syntax;
 using namespace slang::parsing;
 
