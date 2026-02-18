@@ -19,7 +19,7 @@ use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::TargetSet;
 
-use bender_slang::{SlangContext, SlangPrintOpts, SyntaxTrees};
+use bender_slang::{SlangPrintOpts, SlangSession};
 
 /// Pickle files
 #[derive(Args, Debug)]
@@ -179,16 +179,17 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
         write!(writer, "[")?;
     }
 
-    let mut parsed_trees = SyntaxTrees::new();
-    let mut slang = SlangContext::new();
+    let mut session = SlangSession::new();
     for src_group in srcs {
-        // Collect include directories and defines from the source group and command line arguments.
+        // Collect include directories from the source group and command line arguments.
         let include_dirs: Vec<String> = src_group
             .include_dirs
             .iter()
             .chain(src_group.export_incdirs.values().flatten())
             .map(|path| path.to_string_lossy().into_owned())
             .chain(args.include_dir.iter().cloned())
+            .collect::<IndexSet<_>>()
+            .into_iter()
             .collect();
 
         // Collect defines from the source group and command line arguments.
@@ -200,10 +201,9 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
                 None => def.to_string(),
             })
             .chain(args.define.iter().cloned())
+            .collect::<IndexSet<_>>()
+            .into_iter()
             .collect();
-
-        // Set the include directories and defines in the Slang session.
-        slang.set_includes(&include_dirs).set_defines(&defines);
 
         // Collect file paths from the source group.
         let file_paths: Vec<String> = src_group
@@ -224,19 +224,17 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
             })
             .collect();
 
-        let group_trees = slang.parse_files(&file_paths)?;
-        parsed_trees.append_trees(&group_trees);
+        session.parse_group(&file_paths, &include_dirs, &defines)?;
     }
 
-    let reachable = if args.top.is_empty() {
-        (0..parsed_trees.len()).collect::<Vec<usize>>()
+    let trees = if args.top.is_empty() {
+        session.all_trees()?
     } else {
-        parsed_trees.reachable_indices(&args.top)?
+        session.reachable_trees(&args.top)?
     };
 
     let mut first_item = true;
-    for idx in reachable {
-        let tree = parsed_trees.tree_at(idx)?;
+    for tree in trees {
         let renamed_tree = tree.rename(
             args.prefix.as_deref(),
             args.suffix.as_deref(),
