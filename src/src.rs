@@ -16,6 +16,7 @@ use serde::{Serialize, Serializer};
 
 use crate::config::{Validate, ValidationContext};
 use crate::diagnostic::{Diagnostics, Warnings};
+use crate::err;
 use crate::error::Error;
 use crate::target::{TargetSet, TargetSpec};
 use semver;
@@ -409,10 +410,10 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                     }
                     Ok(SourceFile::File(path, ty))
                 } else {
-                    Err(Error::new(format!(
+                    Err(err!(
                         "[E31] File {} doesn't exist",
                         env_path_buf.to_string_lossy()
-                    )))
+                    ))
                 }
             }
             SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate(vctx)?))),

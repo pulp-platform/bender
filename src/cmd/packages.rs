@@ -7,6 +7,7 @@ use std::io::Write;
 
 use clap::Args;
 use indexmap::IndexSet;
+use miette::IntoDiagnostic as _;
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
@@ -46,7 +47,7 @@ pub struct PackagesArgs {
 /// Execute the `packages` subcommand.
 pub fn run(sess: &Session, args: &PackagesArgs) -> Result<()> {
     if args.targets {
-        let rt = Runtime::new()?;
+        let rt = Runtime::new().into_diagnostic()?;
         let io = SessionIo::new(sess);
         let srcs = rt.block_on(io.sources(false, &[]))?;
         let mut target_str = String::from("");

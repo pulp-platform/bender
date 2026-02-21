@@ -8,6 +8,7 @@ use std::io::Write;
 
 use clap::Args;
 use futures::future::join_all;
+use miette::IntoDiagnostic as _;
 use semver::VersionReq;
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
@@ -34,7 +35,7 @@ pub struct AuditArgs {
 
 /// Execute the `audit` subcommand.
 pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
-    let rt = Runtime::new()?;
+    let rt = Runtime::new().into_diagnostic()?;
     let io = SessionIo::new(sess);
 
     let binding = sess.packages().clone();

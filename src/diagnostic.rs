@@ -133,7 +133,21 @@ impl ReportHandler for DiagnosticRenderer {
         // We collect all footer lines into a vector.
         let mut annotations: Vec<String> = Vec::new();
 
-        // First, we write the help message(s) if any
+        let mut cause = std::error::Error::source(diagnostic);
+        while let Some(current_cause) = cause {
+            annotations.push(format!(
+                "{} {}",
+                fmt_with_style!("caused by:", Style::new().bold()),
+                fmt_dim!(
+                    current_cause
+                        .to_string()
+                        .replace("\x1b[0m", "\x1b[0m\x1b[2m")
+                )
+            ));
+            cause = current_cause.source();
+        }
+
+        // Then, we write the help message(s) if any
         if let Some(help) = diagnostic.help() {
             let help_str = help.to_string();
             for line in help_str.lines() {
@@ -558,5 +572,16 @@ mod tests {
         let report = format!("{:?}", miette::Report::new(warn));
         let help_count = report.matches("help:").count();
         assert_eq!(help_count, 2);
+    }
+
+    #[test]
+    fn test_stderr_contains_caused_by_chain() {
+        setup_diagnostics();
+        let report = format!(
+            "{:?}",
+            miette::miette!("root cause").wrap_err("outer context")
+        );
+        assert!(report.contains("outer context"));
+        assert!(report.contains("caused by: root cause"));
     }
 }

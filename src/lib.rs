@@ -13,3 +13,5 @@ pub mod sess;
 pub mod src;
 pub mod target;
 pub mod util;
+
+pub use miette::{bail, ensure, miette as err};

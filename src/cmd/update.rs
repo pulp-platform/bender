@@ -14,6 +14,7 @@ use crate::cmd;
 use crate::config::{Locked, LockedPackage};
 use crate::debugln;
 use crate::diagnostic::Warnings;
+use crate::ensure;
 use crate::error::*;
 use crate::lockfile::*;
 use crate::resolver::DependencyResolver;
@@ -79,12 +80,12 @@ pub fn run<'ctx>(
     };
 
     for dep in requested.iter() {
-        if !keep_locked.contains(&dep) {
-            return Err(Error::new(format!(
-                "Dependency {} is not present, cannot update {}.",
-                dep, dep
-            )));
-        }
+        ensure!(
+            keep_locked.contains(&dep),
+            help = "Check the dependency name or run `bender update` without selecting specific dependencies.",
+            "Dependency `{}` is not present and cannot be updated.",
+            dep
+        );
     }
 
     // Unlock dependencies recursively
@@ -114,13 +115,11 @@ pub fn run_plain<'ctx>(
     existing: Option<&'ctx Locked>,
     keep_locked: IndexSet<&'ctx String>,
 ) -> Result<(Locked, Vec<String>)> {
-    if sess.manifest.frozen {
-        return Err(Error::new(format!(
-            "Refusing to update dependencies because the package is frozen.
-            Remove the `frozen: true` from {:?} to proceed; there be dragons.",
-            sess.root.join("Bender.yml")
-        )));
-    }
+    ensure!(
+        !sess.manifest.frozen,
+        help = "Remove `frozen: true` from `Bender.yml` to proceed.",
+        "Refusing to update dependencies because the package is frozen."
+    );
     debugln!(
         "main: lockfile {:?} outdated",
         sess.root.join("Bender.lock")

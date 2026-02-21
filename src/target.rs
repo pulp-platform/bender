@@ -14,9 +14,11 @@ use std::fmt;
 use std::str::FromStr;
 
 use indexmap::IndexSet;
+use miette::Context as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::*;
+use crate::{bail, err};
 
 /// A target specification.
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Default, Hash)]
@@ -77,12 +79,7 @@ impl FromStr for TargetSpec {
             partial: None,
             next,
         };
-        parse(&mut lexer).map_err(|cause| {
-            Error::chain(
-                format!("Syntax error in target specification `{}`.", s),
-                cause,
-            )
-        })
+        parse(&mut lexer).wrap_err_with(|| format!("Syntax error in target specification `{}`.", s))
     }
 }
 
@@ -233,7 +230,7 @@ where
                 Some(')') => return Some(Ok(TargetToken::RParen)),
                 Some(',') => return Some(Ok(TargetToken::Comma)),
                 Some(c) if c.is_whitespace() => (),
-                Some(c) => return Some(Err(Error::new(format!("Invalid character `{}`.", c)))),
+                Some(c) => return Some(Err(err!("Invalid character `{}`.", c))),
                 None => return None,
             }
         }
@@ -255,10 +252,10 @@ where
         }
         Some(Ok(TargetToken::Ident(name))) => {
             if name.contains(':') {
-                return Err(Error::new("Targets names cannot contain colons (`:`)."));
+                bail!("Targets names cannot contain colons (`:`).");
             }
             if name.starts_with('-') {
-                return Err(Error::new("Target names cannot start with a hyphen (`-`)."));
+                bail!("Target names cannot start with a hyphen (`-`).");
             }
             TargetSpec::Name(name)
         }
@@ -296,23 +293,21 @@ where
     match lexer.next() {
         Some(Ok(ref tkn)) if tkn == &token => Ok(()),
         Some(Err(e)) => Err(e),
-        _ => Err(Error::new(msg)),
+        _ => Err(err!("{}", msg)),
     }
 }
 
 fn parse_wrong<R>(wrong: Option<Result<TargetToken>>) -> Result<R> {
     match wrong {
-        Some(Ok(TargetToken::All)) => Err(Error::new("Unexpected `all` keyword.")),
-        Some(Ok(TargetToken::Any)) => Err(Error::new("Unexpected `any` keyword.")),
-        Some(Ok(TargetToken::Not)) => Err(Error::new("Unexpected `not` keyword.")),
-        Some(Ok(TargetToken::Ident(name))) => {
-            Err(Error::new(format!("Unexpected identifier `{}`.", name)))
-        }
-        Some(Ok(TargetToken::LParen)) => Err(Error::new("Unexpected `(`.")),
-        Some(Ok(TargetToken::RParen)) => Err(Error::new("Unexpected `)`.")),
-        Some(Ok(TargetToken::Comma)) => Err(Error::new("Unexpected `,`.")),
+        Some(Ok(TargetToken::All)) => Err(err!("Unexpected `all` keyword.")),
+        Some(Ok(TargetToken::Any)) => Err(err!("Unexpected `any` keyword.")),
+        Some(Ok(TargetToken::Not)) => Err(err!("Unexpected `not` keyword.")),
+        Some(Ok(TargetToken::Ident(name))) => Err(err!("Unexpected identifier `{}`.", name)),
+        Some(Ok(TargetToken::LParen)) => Err(err!("Unexpected `(`.")),
+        Some(Ok(TargetToken::RParen)) => Err(err!("Unexpected `)`.")),
+        Some(Ok(TargetToken::Comma)) => Err(err!("Unexpected `,`.")),
         Some(Err(e)) => Err(e),
-        None => Err(Error::new("Unexpected end of string.")),
+        None => Err(err!("Unexpected end of string.")),
     }
 }
 

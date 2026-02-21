@@ -17,6 +17,7 @@ use std::process::Command as SysCommand;
 use futures::future::join_all;
 use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools;
+use miette::IntoDiagnostic as _;
 use semver::{Version, VersionReq};
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
@@ -31,6 +32,7 @@ use crate::sess::{
 };
 use crate::target::TargetSpec;
 use crate::util::{version_req_bottom_bound, version_req_top_bound};
+use crate::{bail, err};
 use crate::{fmt_path, fmt_pkg, fmt_version};
 
 /// A dependency resolver.
@@ -73,7 +75,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         ignore_checkout: bool,
         keep_locked: IndexSet<&'ctx String>,
     ) -> Result<Locked> {
-        let rt = Runtime::new()?;
+        let rt = Runtime::new().into_diagnostic()?;
         let io = SessionIo::new(self.sess);
 
         // Load the dependencies in the lockfile.
@@ -116,7 +118,8 @@ impl<'ctx> DependencyResolver<'ctx> {
                             .arg("status")
                             .arg("--porcelain")
                             .current_dir(dir.as_ref().unwrap().path())
-                            .output()?
+                            .output()
+                            .into_diagnostic()?
                             .stdout
                             .is_empty())
                         {
@@ -202,10 +205,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                         }
                     }
                     DependencyVersions::Registry(ref _rv) => {
-                        return Err(Error::new(format!(
+                        bail!(
                             "Registry dependencies such as `{}` not yet supported.",
                             name
-                        )));
+                        );
                     }
                     DependencyVersions::Git(ref gv) => {
                         let url = match sess_src {
@@ -334,18 +337,20 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Register the versions.
         for (name, id) in names {
             if name == self.sess.manifest.package.name {
-                return Err(Error::new(format!(
+                bail!(
                     "Please ensure no packages with same name as top package\n\
                     \tCurrently {} is called in {}",
-                    name, calling_package
-                )));
+                    name,
+                    calling_package
+                );
             }
             if name == calling_package {
-                return Err(Error::new(format!(
+                bail!(
                     "Please ensure no packages with same name as calling package\n\
                     \tCurrently {} is called in {}",
-                    name, calling_package
-                )));
+                    name,
+                    calling_package
+                );
             }
             self.register_dependency(name, id, versions[&id].clone());
         }
@@ -543,10 +548,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                 let ids: IndexSet<usize> = match src.versions {
                     DependencyVersions::Path => (0..1).collect(),
                     DependencyVersions::Registry(ref _rv) => {
-                        return Err(Error::new(format!(
+                        bail!(
                             "Resolution of registry dependency `{}` not yet implemented",
                             dep.name
-                        )));
+                        );
                     }
                     DependencyVersions::Git(ref gv) => (0..gv.revs.len()).collect(),
                 };
@@ -747,13 +752,13 @@ impl<'ctx> DependencyResolver<'ctx> {
                     } else {
                         "".to_string()
                     };
-                    return Err(Error::new(format!(
+                    bail!(
                         "Dependency `{}` from `{}` cannot satisfy requirement `{}`.{}",
                         dep.name,
                         self.sess.dependency_source(*id),
                         con,
                         additional_str
-                    )));
+                    );
                 }
                 Ok((*id, indices_list))
             })
@@ -926,10 +931,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                     let mut buffer = String::new();
                     io::stdin().read_line(&mut buffer).unwrap();
                     if buffer.starts_with('\n') {
-                        break Err(Error::new(format!(
+                        break Err(err!(
                             "Dependency requirements conflict with each other on dependency `{}`. Manual resolution aborted.\n",
                             name
-                        )));
+                        ));
                     }
                     let choice = match buffer.trim().parse::<usize>() {
                         Ok(u) => u,
@@ -993,7 +998,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 }
             }
         } else {
-            Err(Error::new(msg))
+            Err(err!(msg))
         }
     }
 
@@ -1062,25 +1067,27 @@ impl<'ctx> DependencyResolver<'ctx> {
                 revs.sort();
                 Ok(revs)
             }
-            (DepCon::Version(_con), DepVer::Registry(_rv)) => Err(Error::new(format!(
+            (DepCon::Version(_con), DepVer::Registry(_rv)) => Err(err!(
                 "Constraints on registry dependency `{}` not implemented",
                 name
-            ))),
+            )),
 
             // Handle the error cases.
             // TODO: These need to improve a lot!
-            (con, &DepVer::Git(..)) => Err(Error::new(format!(
+            (con, &DepVer::Git(..)) => Err(err!(
                 "Requirement `{}` cannot be applied to git dependency `{}`",
-                con, name
-            ))),
-            (con, &DepVer::Registry(..)) => Err(Error::new(format!(
+                con,
+                name
+            )),
+            (con, &DepVer::Registry(..)) => Err(err!(
                 "Requirement `{}` cannot be applied to registry dependency `{}`",
-                con, name
-            ))),
-            (_, &DepVer::Path) => Err(Error::new(format!(
+                con,
+                name
+            )),
+            (_, &DepVer::Path) => Err(err!(
                 "`{}` is not declared as a path dependency everywhere.",
                 name
-            ))),
+            )),
         }
     }
 
@@ -1121,10 +1128,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                                     )),
                                 })
                             }
-                            DependencyVersions::Registry(..) => Err(Error::new(format!(
+                            DependencyVersions::Registry(..) => Err(err!(
                                 "Version picking for registry dependency `{}` not yet implemented",
                                 dep.name
-                            ))),
+                            )),
                         })
                         .collect::<Result<Vec<Option<(DependencyRef, usize, IndexSet<_>)>>>>()?;
                     let src_map = src_map
@@ -1143,10 +1150,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                             )
                         }
                         None => {
-                            return Err(Error::new(format!(
+                            bail!(
                                 "No versions available for `{}`. This may be due to a conflict in the dependency requirements.",
                                 dep.name
-                            )));
+                            );
                         }
                     }
                 }
