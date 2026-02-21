@@ -11,6 +11,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use futures::TryFutureExt;
+use miette::{Context as _, IntoDiagnostic as _};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
@@ -18,6 +19,7 @@ use walkdir::WalkDir;
 
 use crate::progress::{ProgressHandler, monitor_stderr};
 
+use crate::err;
 use crate::error::*;
 
 /// A git repository.
@@ -87,18 +89,19 @@ impl<'ctx> Git<'ctx> {
         log::info!("git: {:?} in {:?}", cmd, self.path);
 
         // Spawn the child process
-        let mut child = cmd.spawn().map_err(|cause| {
-            if cause
-                .to_string()
-                .to_lowercase()
-                .contains("too many open files")
-            {
-                eprintln!("Please consider increasing your `ulimit -n`...");
-                Error::chain("Failed to spawn child process.", cause)
-            } else {
-                Error::chain("Failed to spawn child process.", cause)
-            }
-        })?;
+        let mut child = cmd
+            .spawn()
+            .inspect_err(|cause| {
+                if cause
+                    .to_string()
+                    .to_lowercase()
+                    .contains("too many open files")
+                {
+                    eprintln!("Please consider increasing your `ulimit -n`...");
+                }
+            })
+            .into_diagnostic()
+            .wrap_err("Failed to spawn child process.")?;
 
         // Setup Streaming for Stderr (Progress + Error Collection)
         // We need to capture stderr in case the command fails, so we collect it while parsing.
@@ -115,7 +118,11 @@ impl<'ctx> Git<'ctx> {
         if let Some(mut stdout) = child.stdout.take() {
             // We just read all of stdout.
             if let Err(e) = stdout.read_to_end(&mut stdout_buffer).await {
-                return Err(Error::chain("Failed to read stdout", e));
+                return Err(Err::<(), _>(e)
+                    .into_diagnostic()
+                    .wrap_err("Failed to read stdout")
+                    .unwrap_err()
+                    .into());
             }
         }
 
@@ -123,7 +130,8 @@ impl<'ctx> Git<'ctx> {
         let status = child
             .wait()
             .await
-            .map_err(|e| Error::chain("Failed to wait on child", e))?;
+            .into_diagnostic()
+            .wrap_err("Failed to wait on child")?;
 
         // Join the stderr task to get the error log
         let collected_stderr = stderr_handle
@@ -135,15 +143,15 @@ impl<'ctx> Git<'ctx> {
 
         // Process the output based on success and check flag
         if status.success() || !check {
-            String::from_utf8(stdout_buffer).map_err(|cause| {
-                Error::chain(
+            String::from_utf8(stdout_buffer)
+                .into_diagnostic()
+                .wrap_err_with(|| {
                     format!(
                         "Output of git command ({:?}) in directory {:?} is not valid UTF-8.",
                         cmd, self.path
-                    ),
-                    cause,
-                )
-            })
+                    )
+                })
+                .map_err(Error::from)
         } else {
             let mut msg = format!("Git command ({:?}) in directory {:?}", cmd, self.path);
             match status.code() {
@@ -157,7 +165,7 @@ impl<'ctx> Git<'ctx> {
                 msg.push_str(&collected_stderr);
             }
 
-            Err(Error::new(msg))
+            Err(err!(msg))
         }
     }
 
@@ -201,7 +209,11 @@ impl<'ctx> Git<'ctx> {
         let mut cmd = Command::new(self.git);
         cmd.current_dir(self.path);
         f(&mut cmd);
-        cmd.spawn()?.wait().await?;
+        cmd.spawn()
+            .into_diagnostic()?
+            .wait()
+            .await
+            .into_diagnostic()?;
         Ok(())
     }
 
@@ -232,7 +244,8 @@ impl<'ctx> Git<'ctx> {
             }))
         })
         .await
-        .map_err(|cause| Error::chain("Failed to join blocking task", cause))?
+        .into_diagnostic()
+        .wrap_err("Failed to join blocking task")?
     }
 
     /// Fetch the tags and refs of a remote.

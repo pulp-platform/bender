@@ -21,6 +21,7 @@ use serde::ser::{Serialize, Serializer};
 /// Re-export owo_colors for use in macros.
 pub use owo_colors::{OwoColorize, Stream, Style};
 
+use crate::bail;
 use crate::error::*;
 
 /// A type that cannot be materialized.
@@ -344,10 +345,7 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
                         build: semver::BuildMetadata::EMPTY,
                     },
                     _ => {
-                        return Err(Error::new(format!(
-                            "Cannot extract top bound from version requirement: {}",
-                            req
-                        )));
+                        bail!("Cannot extract top bound from version requirement: {req}");
                     }
                 };
                 if top_bound > max_caret {
@@ -377,10 +375,7 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
                 }
             }
             _ => {
-                return Err(Error::new(format!(
-                    "Cannot extract top bound from version requirement: {}",
-                    req
-                )));
+                bail!("Cannot extract top bound from version requirement: {req}");
             }
         }
     }
@@ -444,10 +439,7 @@ pub fn version_req_bottom_bound(req: &VersionReq) -> Result<Option<Version>> {
                 // No lower bound
             }
             _ => {
-                return Err(Error::new(format!(
-                    "Cannot extract bottom bound from version requirement: {}",
-                    req
-                )));
+                bail!("Cannot extract bottom bound from version requirement: {req}");
             }
         }
     }

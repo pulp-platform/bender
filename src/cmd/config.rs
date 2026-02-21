@@ -6,6 +6,7 @@
 use std;
 use std::io::Write;
 
+use miette::{Context as _, IntoDiagnostic as _};
 use serde_json;
 
 use crate::error::*;
@@ -19,5 +20,7 @@ pub fn run(sess: &Session) -> Result<()> {
         serde_json::to_writer_pretty(handle, sess.config)
     };
     let _ = writeln!(std::io::stdout(),);
-    result.map_err(|cause| Error::chain("Failed to serialize configuration.", cause))
+    result
+        .into_diagnostic()
+        .wrap_err("Failed to serialize configuration.")
 }
