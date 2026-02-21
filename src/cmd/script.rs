@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use clap::{ArgAction, Args, Subcommand, ValueEnum};
 use indexmap::{IndexMap, IndexSet};
+use miette::{Context as _, IntoDiagnostic as _};
 use serde::Serialize;
 use tera::{Context, Tera};
 use tokio::runtime::Runtime;
@@ -596,7 +597,8 @@ fn emit_template(
         "{}",
         Tera::default()
             .render_str(template, &tera_context)
-            .map_err(|e| { Error::chain("Failed to render template.", e) })?
+            .into_diagnostic()
+            .wrap_err("Failed to render template.")?
     );
 
     Ok(())

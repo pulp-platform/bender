@@ -316,10 +316,10 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
                         build: semver::BuildMetadata::EMPTY,
                     },
                     _ => {
-                        return Err(Error::new(format!(
+                        crate::bail!(
                             "Cannot extract top bound from version requirement: {}",
                             req
-                        )));
+                        );
                     }
                 };
                 if top_bound > max_caret {
@@ -349,10 +349,10 @@ pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
                 }
             }
             _ => {
-                return Err(Error::new(format!(
+                crate::bail!(
                     "Cannot extract top bound from version requirement: {}",
                     req
-                )));
+                );
             }
         }
     }
@@ -416,10 +416,10 @@ pub fn version_req_bottom_bound(req: &VersionReq) -> Result<Option<Version>> {
                 // No lower bound
             }
             _ => {
-                return Err(Error::new(format!(
+                crate::bail!(
                     "Cannot extract bottom bound from version requirement: {}",
                     req
-                )));
+                );
             }
         }
     }

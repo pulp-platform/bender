@@ -407,10 +407,10 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                     }
                     Ok(SourceFile::File(path, ty))
                 } else {
-                    Err(Error::new(format!(
+                    Err(crate::err!(
                         "[E31] File {} doesn't exist",
                         env_path_buf.to_string_lossy()
-                    )))
+                    ))
                 }
             }
             SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate(vctx)?))),

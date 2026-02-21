@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use clap::{ArgAction, Args};
 use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools;
+use miette::{Context as _, IntoDiagnostic as _};
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 use walkdir::{DirEntry, WalkDir};
@@ -53,9 +54,11 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
     let bender_generate_flag = "Created by bender from the available manifest file.";
     let vendor_string = args.fuse_vendor.as_deref().unwrap_or("");
     let version_string = match &args.fuse_version {
-        Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
-            Error::chain(format!("Unable to parse version {}.", version), cause)
-        })?),
+        Some(version) => Some(
+            semver::Version::parse(version)
+                .into_diagnostic()
+                .wrap_err_with(|| format!("Unable to parse version {}.", version))?,
+        ),
         None => None,
     };
     let name = &sess.manifest.package.name;
@@ -70,7 +73,7 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
                 version_string.clone(),
             )
             .flatten()),
-        None => Err(Error::new("Error in loading sources")),
+        None => Err(crate::err!("Error in loading sources")),
     }?;
 
     let core_path = &sess.root.join(format!("{}.core", name));
@@ -81,10 +84,10 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
     };
 
     if !file_str.contains(bender_generate_flag) {
-        Err(Error::new(format!(
+        Err(crate::err!(
             "{}.core already exists, please delete to generate.",
             name
-        )))?
+        ))?
     }
 
     let fuse_depend_string = sess
@@ -129,9 +132,9 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
         &args.license,
     )?;
 
-    fs::write(core_path, fuse_str).map_err(|cause| {
-        Error::chain(format!("Unable to write corefile for {:?}.", &name), cause)
-    })?;
+    fs::write(core_path, fuse_str)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Unable to write corefile for {:?}.", &name))?;
 
     if fuse_depend_string.len() > 1 {
         Warnings::DependStringMaybeWrong.emit();
@@ -145,9 +148,11 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
     let bender_generate_flag = "Created by bender from the available manifest file.";
     let vendor_string = args.fuse_vendor.as_deref().unwrap_or("");
     let version_string = match &args.fuse_version {
-        Some(version) => Some(semver::Version::parse(version).map_err(|cause| {
-            Error::chain(format!("Unable to parse version {}.", version), cause)
-        })?),
+        Some(version) => Some(
+            semver::Version::parse(version)
+                .into_diagnostic()
+                .wrap_err_with(|| format!("Unable to parse version {}.", version))?,
+        ),
         None => None,
     };
 
@@ -174,9 +179,8 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
         .iter()
         .map(|(pkg, dir)| {
             let paths = fs::read_dir(dir)
-                .map_err(|err| {
-                    Error::chain(format!("Unable to read package directory {:?}", dir), err)
-                })?
+                .into_diagnostic()
+                .wrap_err_with(|| format!("Unable to read package directory {:?}", dir))?
                 .filter(|path| {
                     path.as_ref().unwrap().path().extension() == Some(OsStr::new("core"))
                 })
@@ -328,9 +332,9 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
             &args.license,
         )?;
 
-        fs::write(&generate_files[pkg], fuse_str).map_err(|cause| {
-            Error::chain(format!("Unable to write corefile for {:?}.", &pkg), cause)
-        })?;
+        fs::write(&generate_files[pkg], fuse_str)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("Unable to write corefile for {:?}.", &pkg))?;
     }
 
     Ok(())
@@ -474,28 +478,26 @@ fn get_fuse_file_str(
     fuse_str.push('\n');
     fuse_str.push_str(
         &serde_yaml_ng::to_string(&fuse_pkg)
-            .map_err(|err| Error::chain("Failed to serialize.", err))?,
+            .into_diagnostic()
+            .wrap_err("Failed to serialize.")?,
     );
     Ok(fuse_str)
 }
 
 fn parse_fuse_file(file_str: String, filename: String) -> Result<FuseSoCCAPI2> {
     serde_yaml_ng::from_value({
-        let mut value = serde_yaml_ng::from_str::<Value>(&file_str).map_err(|cause| {
-            Error::chain(
-                format!("Unable to parse core file to value {:?}.", &filename),
-                cause,
-            )
-        })?;
-        value.apply_merge().map_err(|cause| {
-            Error::chain(
-                format!("Unable to apply merge to file {:?}.", &filename),
-                cause,
-            )
-        })?;
+        let mut value = serde_yaml_ng::from_str::<Value>(&file_str)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("Unable to parse core file to value {:?}.", &filename))?;
+        value
+            .apply_merge()
+            .into_diagnostic()
+            .wrap_err_with(|| format!("Unable to apply merge to file {:?}.", &filename))?;
         value
     })
-    .map_err(|cause| Error::chain(format!("Unable to parse core file {:?}.", &filename), cause))
+    .into_diagnostic()
+    .wrap_err_with(|| format!("Unable to parse core file {:?}.", &filename))
+    .map_err(Into::into)
 }
 
 fn get_fuse_depend_string(

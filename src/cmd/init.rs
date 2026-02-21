@@ -47,7 +47,7 @@ pub fn run() -> Result<()> {
 
     // Create Bender.yml
     if Path::new("Bender.yml").exists() {
-        return Err(Error::new("Bender.yml already exists"));
+        crate::bail!("Bender.yml already exists");
     }
 
     let mut file = File::create("Bender.yml")?;

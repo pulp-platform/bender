@@ -5,9 +5,9 @@
 
 use std;
 use std::fmt;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use miette::Diagnostic;
 use owo_colors::Style;
 
 pub static ENABLE_DEBUG: AtomicBool = AtomicBool::new(false);

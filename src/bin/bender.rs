@@ -3,7 +3,8 @@
 
 fn main() {
     if let Err(e) = bender::cli::main() {
-        bender::errorln!("{}", e);
+        let report = miette::Report::new(e);
+        bender::errorln!("{report:?}");
         std::process::exit(1);
     }
 }
