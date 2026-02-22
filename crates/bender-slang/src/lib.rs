@@ -150,7 +150,7 @@ impl SlangSession {
         defines: &[String],
     ) -> Result<Vec<usize>> {
         let files_vec = files.to_vec();
-        let includes_vec = includes.to_vec();
+        let includes_vec = normalize_include_dirs(includes)?;
         let defines_vec = defines.to_vec();
 
         let start = self.tree_count();
@@ -219,4 +219,24 @@ impl Default for SlangSession {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[cfg(windows)]
+fn normalize_include_dirs(includes: &[String]) -> Result<Vec<String>> {
+    let mut out = Vec::with_capacity(includes.len());
+    for include in includes {
+        let canonical = dunce::canonicalize(include).map_err(|cause| SlangError::ParseGroup {
+            message: format!(
+                "Failed to canonicalize include directory '{}': {}",
+                include, cause
+            ),
+        })?;
+        out.push(canonical.to_string_lossy().into_owned());
+    }
+    Ok(out)
+}
+
+#[cfg(not(windows))]
+fn normalize_include_dirs(includes: &[String]) -> Result<Vec<String>> {
+    Ok(includes.to_vec())
 }
