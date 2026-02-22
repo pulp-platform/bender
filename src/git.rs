@@ -6,12 +6,13 @@
 #![deny(missing_docs)]
 
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
 use futures::TryFutureExt;
-use miette::{Context as _, IntoDiagnostic as _};
+use miette::{Context as _, Diagnostic, IntoDiagnostic as _};
+use thiserror::Error;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
@@ -22,6 +23,29 @@ use crate::progress::{ProgressHandler, monitor_stderr};
 use crate::debugln;
 use crate::err;
 use crate::error::*;
+
+#[derive(Debug, Error, Diagnostic)]
+enum GitSpawnError {
+    #[error("Failed to spawn git command `{}` in directory {:?}.", .0, .1)]
+    Spawn(String, PathBuf, #[source] std::io::Error),
+    #[error("Failed to spawn git command `{}` in directory {:?}.", .0, .1)]
+    #[diagnostic(help("Please consider increasing your `ulimit -n`."))]
+    TooManyOpenFiles(String, PathBuf, #[source] std::io::Error),
+}
+
+fn format_command(cmd: &Command) -> String {
+    let std_cmd = cmd.as_std();
+    let program = std_cmd.get_program().to_string_lossy();
+    let args = std_cmd
+        .get_args()
+        .map(|arg| arg.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    if args.is_empty() {
+        program.to_string()
+    } else {
+        format!("{program} {}", args.join(" "))
+    }
+}
 
 /// A git repository.
 ///
@@ -68,7 +92,6 @@ impl<'ctx> Git<'ctx> {
     ///
     /// If `check` is false, the stdout will be returned regardless of the
     /// command's exit code.
-    #[allow(clippy::format_push_string)]
     pub async fn spawn(
         self,
         mut cmd: Command,
@@ -76,7 +99,12 @@ impl<'ctx> Git<'ctx> {
         pb: Option<ProgressHandler>,
     ) -> Result<String> {
         // Acquire the throttle semaphore
-        let permit = self.throttle.clone().acquire_owned().await.unwrap();
+        let permit = self
+            .throttle
+            .clone()
+            .acquire_owned()
+            .await
+            .into_diagnostic()?;
 
         // Configure pipes for streaming
         cmd.stdout(Stdio::piped());
@@ -86,27 +114,37 @@ impl<'ctx> Git<'ctx> {
         // This ensures git fails immediately with a specific error message
         // instead of hanging indefinitely if auth is missing.
         cmd.env("GIT_TERMINAL_PROMPT", "0");
+        let command = format_command(&cmd);
 
         // Spawn the child process
-        let mut child = cmd
-            .spawn()
-            .inspect_err(|cause| {
-                if cause
-                    .to_string()
-                    .to_lowercase()
-                    .contains("too many open files")
-                {
-                    eprintln!("Please consider increasing your `ulimit -n`...");
-                }
-            })
-            .into_diagnostic()
-            .wrap_err("Failed to spawn child process.")?;
+        let mut child = cmd.spawn().map_err(|cause| {
+            if cause
+                .to_string()
+                .to_lowercase()
+                .contains("too many open files")
+            {
+                Error::from(GitSpawnError::TooManyOpenFiles(
+                    command.clone(),
+                    self.path.to_path_buf(),
+                    cause,
+                ))
+            } else {
+                Error::from(GitSpawnError::Spawn(
+                    command.clone(),
+                    self.path.to_path_buf(),
+                    cause,
+                ))
+            }
+        })?;
 
         debugln!("git: {:?} in {:?}", cmd, self.path);
 
         // Setup Streaming for Stderr (Progress + Error Collection)
         // We need to capture stderr in case the command fails, so we collect it while parsing.
-        let stderr = child.stderr.take().unwrap();
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| err!("Failed to capture git stderr",))?;
 
         // Spawn a background task to handle stderr so it doesn't block
         let stderr_handle = tokio::spawn(async move {
@@ -116,28 +154,20 @@ impl<'ctx> Git<'ctx> {
 
         // Read Stdout (for the success return value)
         let mut stdout_buffer = Vec::new();
-        if let Some(mut stdout) = child.stdout.take() {
-            // We just read all of stdout.
-            if let Err(e) = stdout.read_to_end(&mut stdout_buffer).await {
-                return Err(Err::<(), _>(e)
-                    .into_diagnostic()
-                    .wrap_err("Failed to read stdout")
-                    .unwrap_err()
-                    .into());
-            }
-        }
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| err!("Failed to capture git stdout.",))?;
+        stdout
+            .read_to_end(&mut stdout_buffer)
+            .await
+            .into_diagnostic()?;
 
         // Wait for child process to finish
-        let status = child
-            .wait()
-            .await
-            .into_diagnostic()
-            .wrap_err("Failed to wait on child")?;
+        let status = child.wait().await.into_diagnostic()?;
 
         // Join the stderr task to get the error log
-        let collected_stderr = stderr_handle
-            .await
-            .unwrap_or_else(|_| String::from("<internal error reading stderr>"));
+        let collected_stderr = stderr_handle.await.into_diagnostic()?;
 
         // We can release the throttle here since we're done with the process
         drop(permit);
@@ -146,27 +176,19 @@ impl<'ctx> Git<'ctx> {
         if status.success() || !check {
             String::from_utf8(stdout_buffer)
                 .into_diagnostic()
-                .wrap_err_with(|| {
-                    format!(
-                        "Output of git command ({:?}) in directory {:?} is not valid UTF-8.",
-                        cmd, self.path
-                    )
-                })
-                .map_err(Error::from)
+                .wrap_err("Output of git command is not valid UTF-8.")
         } else {
-            let mut msg = format!("Git command ({:?}) in directory {:?}", cmd, self.path);
-            match status.code() {
-                Some(code) => msg.push_str(&format!(" failed with exit code {}", code)),
-                None => msg.push_str(" failed"),
+            let exit = match status.code() {
+                Some(code) => format!("exit code {}", code),
+                None => String::from("unknown exit status"),
             };
-
-            // Use the stderr we collected in the background task
-            if !collected_stderr.is_empty() {
-                msg.push_str(":\n\n");
-                msg.push_str(&collected_stderr);
-            }
-
-            Err(err!(msg))
+            Err(err!(
+                help = format!("git failed with stderr output:\n{}", collected_stderr),
+                "Git command `{}` failed in directory {:?} with {}.",
+                command,
+                self.path,
+                exit
+            ))
         }
     }
 
@@ -245,8 +267,7 @@ impl<'ctx> Git<'ctx> {
             }))
         })
         .await
-        .into_diagnostic()
-        .wrap_err("Failed to join blocking task")?
+        .into_diagnostic()?
     }
 
     /// Fetch the tags and refs of a remote.
