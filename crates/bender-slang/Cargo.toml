@@ -7,6 +7,9 @@ edition = "2024"
 cxx = "1.0.194"
 thiserror = "2.0.12"
 
+[target.'cfg(windows)'.dependencies]
+dunce = "1.0.4"
+
 [build-dependencies]
 cmake = "0.1.57"
 cxx-build = "1.0.194"
