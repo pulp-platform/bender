@@ -236,7 +236,7 @@ fn normalize_include_dirs(includes: &[String]) -> Result<Vec<String>> {
     Ok(out)
 }
 
-#[cfg(not(windows))]
+#[cfg(unix)]
 fn normalize_include_dirs(includes: &[String]) -> Result<Vec<String>> {
     Ok(includes.to_vec())
 }
