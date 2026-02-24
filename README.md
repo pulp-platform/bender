@@ -566,6 +566,13 @@ Useful options:
 - `--expand-macros`, `--strip-comments`, `--squash-newlines`: Control output formatting.
 - `-I <DIR>`, `-D <DEFINE>`: Add extra include directories and preprocessor defines.
 
+Furthermore, similar flags to the `sources` and `script` command exist:
+
+- `-t`/`--target`: Enable specific targets.
+- `-p`/`--package`: Specify package to show sources for.
+- `-e`/`--exclude`: Specify package to exclude from sources.
+- `-n`/`--no-deps`: Exclude all dependencies, i.e. only top level or specified package(s).
+
 Examples:
 
 ```sh
