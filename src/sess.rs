@@ -452,6 +452,7 @@ impl<'ctx> Session<'ctx> {
             files,
             dependencies,
             version,
+            override_files: sources.override_files,
         }
     }
 

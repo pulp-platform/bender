@@ -41,6 +41,8 @@ pub struct SourceGroup<'ctx> {
     pub dependencies: IndexSet<String>,
     /// Version information of the package
     pub version: Option<semver::Version>,
+    /// This group will override files in previous packages
+    pub override_files: bool,
 }
 
 impl<'ctx> Validate for SourceGroup<'ctx> {
