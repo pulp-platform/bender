@@ -290,17 +290,30 @@ impl<'ctx> DependencyResolver<'ctx> {
                 tmp
             })
             .collect();
-        let ids: IndexSet<DependencyRef> = names.iter().map(|(_, &id)| id).collect();
         // debugln!("resolve: dep names {:?}", names);
-        // debugln!("resolve: dep ids {:?}", ids);
 
         // Determine the available versions for the dependencies.
-        let versions: Vec<_> = ids
+        // Skip fetching for dependencies that are locked.
+        let locked_names: IndexSet<&str> = self
+            .locked
             .iter()
-            .map(|&id| async move {
-                io.dependency_versions(id, false, None)
-                    .await
-                    .map(move |v| (id, v))
+            .filter(|(_, (_, _, _, is_locked))| *is_locked)
+            .map(|(&name, _)| name)
+            .collect();
+        let fetched_names: IndexSet<&str> = names
+            .keys()
+            .filter(|name| !locked_names.contains(*name))
+            .copied()
+            .collect();
+        let versions: Vec<_> = names
+            .iter()
+            .map(|(&name, &id)| {
+                let skip = locked_names.contains(name);
+                async move {
+                    io.dependency_versions(id, if skip { Some(false) } else { None }, None)
+                        .await
+                        .map(move |v| (id, v))
+                }
             })
             .collect();
         let versions: IndexMap<_, _> = rt
@@ -309,6 +322,13 @@ impl<'ctx> DependencyResolver<'ctx> {
             .collect::<Result<Vec<_>>>()?
             .into_iter()
             .collect::<IndexMap<_, _>>();
+
+        // Record fetched deps so refetch attempts in mark/pick can skip them.
+        for (&name, &id) in &names {
+            if fetched_names.contains(name) {
+                self.refetched.insert((id, None));
+            }
+        }
         // debugln!("resolve: versions {:#?}", versions);
 
         // Register the versions.
@@ -456,7 +476,11 @@ impl<'ctx> DependencyResolver<'ctx> {
                 async move {
                     Ok::<(_, _), Error>((
                         dep.to_string(),
-                        (hash, io.dependency_versions(src, false, None).await?, src),
+                        (
+                            hash,
+                            io.dependency_versions(src, Some(false), None).await?,
+                            src,
+                        ),
                     ))
                 }
             })))
@@ -658,7 +682,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                         // attempt plain refetch
                         self.refetched.insert((*id, None));
                         if let Ok(new_versions) =
-                            rt.block_on(io.dependency_versions(*id, true, None))
+                            rt.block_on(io.dependency_versions(*id, Some(true), None))
                         {
                             src.versions = new_versions;
                         }
@@ -688,9 +712,11 @@ impl<'ctx> DependencyResolver<'ctx> {
                         if !self.refetched.contains(&(*id, Some(rev.clone()))) {
                             // attempt refetch with rev
                             self.refetched.insert((*id, Some(rev.clone())));
-                            if let Ok(new_versions) =
-                                rt.block_on(io.dependency_versions(*id, true, Some(rev.as_str())))
-                            {
+                            if let Ok(new_versions) = rt.block_on(io.dependency_versions(
+                                *id,
+                                Some(true),
+                                Some(rev.as_str()),
+                            )) {
                                 src.versions = new_versions;
                             }
                         }
@@ -945,7 +971,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                         );
                         let refetched_versions = rt.block_on(io.dependency_versions(
                             decision.1,
-                            true,
+                            Some(true),
                             fetch_ref.as_deref(),
                         ));
                         if let Ok(new_versions) = refetched_versions {
