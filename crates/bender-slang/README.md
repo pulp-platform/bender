@@ -1,6 +1,6 @@
 # bender-slang
 
-`bender-slang` provides the C++ bridge between `bender` and the vendored [Slang](https://github.com/MikePopoloski/slang) parser infrastructure.
+`bender-slang` provides the C++ bridge between `bender` and the [Slang](https://github.com/MikePopoloski/slang) parser infrastructure, included as a submodule.
 
 It is used by Bender's optional Slang-backed features, most notably the `pickle` command.
 
