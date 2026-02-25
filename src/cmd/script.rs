@@ -35,9 +35,9 @@ pub struct ScriptArgs {
     #[arg(short = 'D', long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
     pub define: Vec<String>,
 
-    /// Remove source annotations from the generated script
+    /// Include source annotations in the generated script
     #[arg(long, global = true, help_heading = "General Script Options")]
-    pub no_source_annotations: bool,
+    pub source_annotations: bool,
 
     /// Specify package to show sources for
     #[arg(short, long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
@@ -652,7 +652,7 @@ fn emit_template(
         Warnings::UnknownFileType(unknown_files.iter().map(|x| x.file.clone()).collect()).emit();
     }
 
-    tera_context.insert("source_annotations", &!args.no_source_annotations);
+    tera_context.insert("source_annotations", &args.source_annotations);
     tera_context.insert("compilation_mode", &args.compilation_mode);
 
     if template == "json" {
