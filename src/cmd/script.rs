@@ -35,6 +35,10 @@ pub struct ScriptArgs {
     #[arg(short = 'D', long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
     pub define: Vec<String>,
 
+    /// Add an include directory
+    #[arg(short = 'I', long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
+    pub incdir: Vec<String>,
+
     /// Remove source annotations from the generated script
     #[arg(long, global = true, help_heading = "General Script Options")]
     pub no_source_annotations: bool,
@@ -180,6 +184,12 @@ pub enum ScriptFormat {
         #[arg(long, action = ArgAction::Append, alias = "vcom-arg")]
         vcom_args: Vec<String>,
     },
+    /// Cadence Xcelium script
+    Xcelium {
+        /// Use relative paths
+        #[arg(long)]
+        relative_path: bool,
+    },
     /// Cadence Genus script
     Genus,
     /// Xilinx Vivado synthesis script
@@ -247,6 +257,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             ScriptFormat::Synopsys { .. } => vec!["synopsys", "synthesis"],
             ScriptFormat::Formality => vec!["synopsys", "synthesis", "formality"],
             ScriptFormat::Riviera { .. } => vec!["riviera", "simulation"],
+            ScriptFormat::Xcelium { .. } => vec!["xcelium", "simulation"],
             ScriptFormat::Genus => vec!["genus", "synthesis"],
             ScriptFormat::Vivado { .. } => concat(vivado_targets, &["synthesis"]),
             ScriptFormat::VivadoSim { .. } => concat(vivado_targets, &["simulation"]),
@@ -366,6 +377,10 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             tera_context.insert("vlog_args", vlog_args);
             tera_context.insert("vcom_args", vcom_args);
             include_str!("../script_fmt/riviera_tcl.tera")
+        }
+        ScriptFormat::Xcelium { relative_path } => {
+            tera_context.insert("relativize_path", relative_path);
+            include_str!("../script_fmt/xcelium_f.tera")
         }
         ScriptFormat::Genus => include_str!("../script_fmt/genus_tcl.tera"),
         ScriptFormat::Vivado { no_simset, only } | ScriptFormat::VivadoSim { no_simset, only } => {
@@ -490,8 +505,13 @@ fn emit_template(
     tera_context.insert("all_defines", &all_defines);
 
     all_incdirs.sort();
+    let user_incdirs: Vec<PathBuf> = args.incdir.iter().map(PathBuf::from).collect();
     let all_incdirs: IndexSet<PathBuf> = if emit_incdirs {
-        all_incdirs.into_iter().map(|p| p.to_path_buf()).collect()
+        all_incdirs
+            .into_iter()
+            .map(|p| p.to_path_buf())
+            .chain(user_incdirs.iter().cloned())
+            .collect()
     } else {
         IndexSet::new()
     };
@@ -582,6 +602,7 @@ fn emit_template(
                             .iter()
                             .map(|p| p.to_path_buf())
                             .collect::<IndexSet<_>>();
+                        incdirs.extend(user_incdirs.iter().cloned());
                         incdirs.sort();
                         incdirs
                     },
