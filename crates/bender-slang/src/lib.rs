@@ -18,6 +18,14 @@ pub enum SlangError {
     TrimByTop { message: String },
     #[error("Failed to access parsed syntax tree: {message}")]
     TreeAccess { message: String },
+    #[error("Failed to rewrite syntax trees: {message}")]
+    Rewrite { message: String },
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RenameStats {
+    pub renamed_declarations: u64,
+    pub renamed_references: u64,
 }
 
 #[cxx::bridge]
@@ -40,6 +48,7 @@ mod ffi {
         /// Opaque type for the Slang syntax tree.
         #[namespace = "slang::syntax"]
         type SyntaxTree;
+        type SyntaxTreeRewriter;
 
         fn new_slang_session() -> UniquePtr<SlangSession>;
 
@@ -56,12 +65,18 @@ mod ffi {
 
         fn tree_at(session: &SlangSession, index: usize) -> Result<SharedPtr<SyntaxTree>>;
 
-        fn rename(
+        fn new_syntax_tree_rewriter() -> UniquePtr<SyntaxTreeRewriter>;
+        fn reset_rename_map(self: Pin<&mut SyntaxTreeRewriter>);
+        fn register_declarations(self: Pin<&mut SyntaxTreeRewriter>, tree: SharedPtr<SyntaxTree>);
+        fn set_prefix(self: Pin<&mut SyntaxTreeRewriter>, prefix: &str);
+        fn set_suffix(self: Pin<&mut SyntaxTreeRewriter>, suffix: &str);
+        fn set_excludes(self: Pin<&mut SyntaxTreeRewriter>, excludes: Vec<String>);
+        fn rewrite_tree(
+            self: Pin<&mut SyntaxTreeRewriter>,
             tree: SharedPtr<SyntaxTree>,
-            prefix: &str,
-            suffix: &str,
-            excludes: &Vec<String>,
         ) -> SharedPtr<SyntaxTree>;
+        fn renamed_declarations(rewriter: &SyntaxTreeRewriter) -> u64;
+        fn renamed_references(rewriter: &SyntaxTreeRewriter) -> u64;
 
         fn print_tree(tree: SharedPtr<SyntaxTree>, options: SlangPrintOpts) -> String;
 
@@ -80,6 +95,10 @@ pub struct SyntaxTree<'a> {
     _session: PhantomData<&'a SlangSession>,
 }
 
+pub struct SyntaxTreeRewriter {
+    inner: UniquePtr<ffi::SyntaxTreeRewriter>,
+}
+
 impl<'a> Clone for SyntaxTree<'a> {
     fn clone(&self) -> Self {
         Self {
@@ -90,23 +109,6 @@ impl<'a> Clone for SyntaxTree<'a> {
 }
 
 impl<'a> SyntaxTree<'a> {
-    /// Renames all names in the syntax tree with the given prefix and suffix.
-    pub fn rename(&self, prefix: Option<&str>, suffix: Option<&str>, excludes: &[String]) -> Self {
-        if prefix.is_none() && suffix.is_none() {
-            return self.clone();
-        }
-        let excludes = excludes.to_vec();
-        Self {
-            inner: ffi::rename(
-                self.inner.clone(),
-                prefix.unwrap_or(""),
-                suffix.unwrap_or(""),
-                &excludes,
-            ),
-            _session: PhantomData,
-        }
-    }
-
     /// Displays the syntax tree as a string with the given options.
     pub fn display(&self, options: SlangPrintOpts) -> String {
         ffi::print_tree(self.inner.clone(), options)
@@ -216,6 +218,58 @@ impl SlangSession {
 }
 
 impl Default for SlangSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SyntaxTreeRewriter {
+    pub fn new() -> Self {
+        Self {
+            inner: ffi::new_syntax_tree_rewriter(),
+        }
+    }
+
+    pub fn set_prefix(&mut self, prefix: impl Into<String>) {
+        let prefix = prefix.into();
+        self.inner.pin_mut().set_prefix(&prefix);
+    }
+
+    pub fn set_suffix(&mut self, suffix: impl Into<String>) {
+        let suffix = suffix.into();
+        self.inner.pin_mut().set_suffix(&suffix);
+    }
+
+    pub fn set_excludes(&mut self, excludes: Vec<String>) {
+        self.inner.pin_mut().set_excludes(excludes);
+    }
+
+    pub fn build_rename_map(&mut self, trees: &[SyntaxTree<'_>]) {
+        self.inner.pin_mut().reset_rename_map();
+        for tree in trees {
+            self.inner
+                .pin_mut()
+                .register_declarations(tree.inner.clone());
+        }
+    }
+
+    pub fn rewrite_tree<'a>(&mut self, tree: &SyntaxTree<'a>) -> SyntaxTree<'a> {
+        SyntaxTree {
+            inner: self.inner.pin_mut().rewrite_tree(tree.inner.clone()),
+            _session: PhantomData,
+        }
+    }
+
+    pub fn stats(&self) -> RenameStats {
+        let rewriter = self.inner.as_ref().unwrap();
+        RenameStats {
+            renamed_declarations: ffi::renamed_declarations(rewriter),
+            renamed_references: ffi::renamed_references(rewriter),
+        }
+    }
+}
+
+impl Default for SyntaxTreeRewriter {
     fn default() -> Self {
         Self::new()
     }
