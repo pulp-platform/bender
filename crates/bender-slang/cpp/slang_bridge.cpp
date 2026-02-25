@@ -21,13 +21,13 @@ using namespace slang::driver;
 using namespace slang::syntax;
 using namespace slang::parsing;
 
-using std::memcpy;
 using std::shared_ptr;
 using std::string;
 using std::string_view;
 using std::vector;
 
 std::unique_ptr<SlangSession> new_slang_session() { return std::make_unique<SlangSession>(); }
+std::unique_ptr<SyntaxTreeRewriter> new_syntax_tree_rewriter() { return std::make_unique<SyntaxTreeRewriter>(); }
 
 SlangContext::SlangContext() : diagEngine(sourceManager), diagClient(std::make_shared<TextDiagnosticClient>()) {
     diagEngine.addClient(diagClient);
@@ -107,149 +107,189 @@ void SlangSession::parse_group(const rust::Vec<rust::String>& files, const rust:
     contexts.push_back(std::move(ctx));
 }
 
-// Rewriter that adds prefix/suffix to module and instantiated hierarchy names
-class SuffixPrefixRewriter : public SyntaxRewriter<SuffixPrefixRewriter> {
+class DeclarationCollector : public SyntaxVisitor<DeclarationCollector> {
   public:
-    SuffixPrefixRewriter(string_view prefix, string_view suffix, const std::unordered_set<std::string>& excludes)
-        : prefix(prefix), suffix(suffix), excludes(excludes) {}
+    explicit DeclarationCollector(std::unordered_set<std::string>& names) : names(names) {}
 
-    // Helper to allocate and build renamed string with prefix/suffix
-    string_view rename(string_view name) {
-        if (excludes.count(std::string(name))) {
-            return name;
+    void handle(const ModuleDeclarationSyntax& node) {
+        if (!node.header->name.isMissing()) {
+            names.insert(std::string(node.header->name.valueText()));
         }
-        size_t len = prefix.size() + name.size() + suffix.size();
-        char* mem = (char*)alloc.allocate(len, 1);
-        memcpy(mem, prefix.data(), prefix.size());
-        memcpy(mem + prefix.size(), name.data(), name.size());
-        memcpy(mem + prefix.size() + name.size(), suffix.data(), suffix.size());
-        return string_view(mem, len);
+        visitDefault(node);
     }
 
-    // Renames "module foo;" -> "module <prefix>foo<suffix>;"
-    // Note: Handles packages and interfaces too.
+  private:
+    std::unordered_set<std::string>& names;
+};
+
+// Rewriter that renames declarations and references only if their declaration exists
+// in the precomputed renameMap.
+class MappedRewriter : public SyntaxRewriter<MappedRewriter> {
+  public:
+    MappedRewriter(const std::unordered_map<std::string, std::string>& renameMap, std::uint64_t& declRenamed,
+                   std::uint64_t& refRenamed)
+        : renameMap(renameMap), declRenamed(declRenamed), refRenamed(refRenamed) {}
+
+    string_view mapped_name(string_view name) {
+        auto it = renameMap.find(std::string(name));
+        if (it == renameMap.end()) {
+            return {};
+        }
+        return string_view(it->second);
+    }
+
     void handle(const ModuleDeclarationSyntax& node) {
         if (node.header->name.isMissing())
             return;
 
-        // Create a new name token
-        auto newName = rename(node.header->name.valueText());
+        auto newName = mapped_name(node.header->name.valueText());
+        if (newName.empty()) {
+            visitDefault(node);
+            return;
+        }
+
         auto newNameToken = makeId(newName, node.header->name.trivia());
 
-        // Clone the header and update the name
         ModuleHeaderSyntax* newHeader = deepClone(*node.header, alloc);
         newHeader->name = newNameToken;
 
-        // Replace the old header with the new one
         replace(*node.header, *newHeader);
-
-        // Continue visiting child nodes
+        declRenamed++;
         visitDefault(node);
     }
 
-    // Renames "foo i_foo();" -> "<prefix>foo<suffix> i_foo();"
-    // Note: Handles modules and interfaces.
     void handle(const HierarchyInstantiationSyntax& node) {
-        // Check to make sure we are dealing with an identifier
-        // and not a built-in type e.g. `initial foo();`
         if (node.type.kind == parsing::TokenKind::Identifier) {
+            auto newName = mapped_name(node.type.valueText());
+            if (!newName.empty()) {
+                auto newNameToken = makeId(newName, node.type.trivia());
 
-            // Create a new name token
-            auto newName = rename(node.type.valueText());
-            auto newNameToken = makeId(newName);
+                HierarchyInstantiationSyntax* newNode = deepClone(node, alloc);
+                newNode->type = newNameToken;
 
-            // Clone the node and update the type token
-            HierarchyInstantiationSyntax* newNode = deepClone(node, alloc);
-            newNode->type = newNameToken;
-
-            // Replace the old node with the new one
-            replace(node, *newNode, true);
+                replace(node, *newNode, true);
+                refRenamed++;
+            }
         }
 
-        // Continue visiting child nodes
         visitDefault(node);
     }
 
-    // Renames "import foo;" -> "import <prefix>foo<suffix>;"
     void handle(const PackageImportItemSyntax& node) {
         if (node.package.isMissing())
             return;
 
-        auto newName = rename(node.package.valueText());
+        auto newName = mapped_name(node.package.valueText());
+        if (newName.empty()) {
+            visitDefault(node);
+            return;
+        }
         auto newNameToken = makeId(newName, node.package.trivia());
 
         PackageImportItemSyntax* newNode = deepClone(node, alloc);
         newNode->package = newNameToken;
 
         replace(node, *newNode);
+        refRenamed++;
         visitDefault(node);
     }
 
-    // Renames "virtual MyIntf foo;" -> "virtual <prefix>MyIntf<suffix> foo;"
     void handle(const VirtualInterfaceTypeSyntax& node) {
         if (node.name.isMissing())
             return;
 
-        auto newName = rename(node.name.valueText());
+        auto newName = mapped_name(node.name.valueText());
+        if (newName.empty()) {
+            visitDefault(node);
+            return;
+        }
         auto newNameToken = makeId(newName, node.name.trivia());
 
         VirtualInterfaceTypeSyntax* newNode = deepClone(node, alloc);
         newNode->name = newNameToken;
 
         replace(node, *newNode);
+        refRenamed++;
         visitDefault(node);
     }
 
-    // Renames "foo::bar" -> "<prefix>foo<suffix>::bar"
     void handle(const ScopedNameSyntax& node) {
-        // Only rename if the left side is a simple identifier (e.g., a package name)
-        // We ignore nested calls or parameterized classes for now.
         if (node.left->kind == SyntaxKind::IdentifierName) {
             auto& leftNode = node.left->as<IdentifierNameSyntax>();
             auto name = leftNode.identifier.valueText();
 
-            // Skip built-in keywords that look like scopes
             if (name != "$unit" && name != "local" && name != "super" && name != "this") {
-                auto newName = rename(name);
-                auto newNameToken = makeId(newName, leftNode.identifier.trivia());
+                auto newName = mapped_name(name);
+                if (!newName.empty()) {
+                    auto newNameToken = makeId(newName, leftNode.identifier.trivia());
 
-                // Clone the left node and update identifier
-                IdentifierNameSyntax* newLeft = deepClone(leftNode, alloc);
-                newLeft->identifier = newNameToken;
+                    IdentifierNameSyntax* newLeft = deepClone(leftNode, alloc);
+                    newLeft->identifier = newNameToken;
 
-                // Clone the scoped node and attach new left
-                ScopedNameSyntax* newNode = deepClone(node, alloc);
-                newNode->left = newLeft;
+                    ScopedNameSyntax* newNode = deepClone(node, alloc);
+                    newNode->left = newLeft;
 
-                replace(node, *newNode);
+                    replace(node, *newNode);
+                    refRenamed++;
+                }
             }
         }
 
-        // Visit children to handle recursive scopes
-        // e.g., OuterPkg::InnerPkg::Item
         visitDefault(node);
     }
 
   private:
-    string_view prefix;
-    string_view suffix;
-    const std::unordered_set<std::string>& excludes;
+    const std::unordered_map<std::string, std::string>& renameMap;
+    std::uint64_t& declRenamed;
+    std::uint64_t& refRenamed;
 };
 
-// Transform the given syntax tree by renaming modules and instantiated hierarchy names with the specified prefix/suffix
-std::shared_ptr<SyntaxTree> rename(std::shared_ptr<SyntaxTree> tree, rust::Str prefix, rust::Str suffix,
-                                   const rust::Vec<rust::String>& excludes) {
-    std::string_view p(prefix.data(), prefix.size());
-    std::string_view s(suffix.data(), suffix.size());
+void SyntaxTreeRewriter::reset_rename_map() {
+    renameMap.clear();
+    renamedDeclarations = 0;
+    renamedReferences = 0;
+}
 
-    std::unordered_set<std::string> excludeSet;
-    for (const auto& e : excludes) {
-        excludeSet.insert(std::string(e));
+void SyntaxTreeRewriter::set_prefix(rust::Str value) { prefix = std::string(value.data(), value.size()); }
+
+void SyntaxTreeRewriter::set_suffix(rust::Str value) { suffix = std::string(value.data(), value.size()); }
+
+void SyntaxTreeRewriter::set_excludes(const rust::Vec<rust::String> values) {
+    excludes.clear();
+    for (const auto& value : values) {
+        excludes.insert(std::string(value));
+    }
+}
+
+void SyntaxTreeRewriter::register_declarations(std::shared_ptr<SyntaxTree> tree) {
+    if (prefix.empty() && suffix.empty()) {
+        return;
     }
 
-    // SuffixPrefixRewriter is defined in the .cpp file as before
-    SuffixPrefixRewriter rewriter(p, s, excludeSet);
-    return rewriter.transform(tree);
+    std::unordered_set<std::string> declaredNames;
+    DeclarationCollector collector(declaredNames);
+    collector.visit(tree->root());
+
+    for (const auto& name : declaredNames) {
+        if (excludes.count(name)) {
+            continue;
+        }
+        renameMap.insert_or_assign(name, prefix + name + suffix);
+    }
+}
+
+std::shared_ptr<SyntaxTree> SyntaxTreeRewriter::rewrite_tree(std::shared_ptr<SyntaxTree> tree) {
+    if (renameMap.empty()) {
+        return tree;
+    }
+
+    std::uint64_t declRenamed = 0;
+    std::uint64_t refRenamed = 0;
+    MappedRewriter rewriter(renameMap, declRenamed, refRenamed);
+    auto transformed = rewriter.transform(tree);
+    renamedDeclarations += declRenamed;
+    renamedReferences += refRenamed;
+    return transformed;
 }
 
 // Print the given syntax tree with specified options
@@ -357,3 +397,7 @@ std::shared_ptr<SyntaxTree> tree_at(const SlangSession& session, std::size_t ind
     }
     return session.trees()[index];
 }
+
+std::uint64_t renamed_declarations(const SyntaxTreeRewriter& rewriter) { return rewriter.renamed_declarations(); }
+
+std::uint64_t renamed_references(const SyntaxTreeRewriter& rewriter) { return rewriter.renamed_references(); }

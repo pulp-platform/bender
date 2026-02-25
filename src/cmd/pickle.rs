@@ -19,7 +19,7 @@ use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::TargetSet;
 
-use bender_slang::{SlangPrintOpts, SlangSession};
+use bender_slang::{SlangPrintOpts, SlangSession, SyntaxTreeRewriter};
 
 /// Pickle files
 #[derive(Args, Debug)]
@@ -233,13 +233,15 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
         session.reachable_trees(&args.top)?
     };
 
+    let mut rewriter = SyntaxTreeRewriter::new();
+    rewriter.set_prefix(args.prefix.unwrap_or_default());
+    rewriter.set_suffix(args.suffix.unwrap_or_default());
+    rewriter.set_excludes(args.exclude_rename);
+    rewriter.build_rename_map(&trees);
+
     let mut first_item = true;
     for tree in trees {
-        let renamed_tree = tree.rename(
-            args.prefix.as_deref(),
-            args.suffix.as_deref(),
-            &args.exclude_rename,
-        );
+        let renamed_tree = rewriter.rewrite_tree(&tree);
         if args.ast_json {
             // JSON Array Logic: Prepend comma if not the first item
             if !first_item {
