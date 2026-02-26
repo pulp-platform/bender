@@ -368,7 +368,7 @@ fn get_fuse_file_str(
                             files: {
                                 get_fileset_files(file_pkg, pkg_manifest_paths[pkg].clone())
                                     .into_iter()
-                                    .chain(file_pkg.include_dirs.iter().flat_map(|incdir| {
+                                    .chain(file_pkg.include_dirs.iter().flat_map(|(_, incdir)| {
                                         get_include_files(
                                             &incdir.to_path_buf(),
                                             pkg_manifest_paths[pkg].clone(),

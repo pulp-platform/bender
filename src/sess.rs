@@ -10,7 +10,6 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::io::IsTerminal;
 use std::io::Write;
-use std::iter::FromIterator;
 use std::mem::swap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
@@ -403,8 +402,11 @@ impl<'ctx> Session<'ctx> {
         dependency_export_includes: IndexMap<String, Vec<(TargetSpec, &'ctx Path)>>,
         version: Option<Version>,
     ) -> SourceGroup<'ctx> {
-        let include_dirs: IndexSet<&Path> =
-            IndexSet::from_iter(sources.include_dirs.iter().map(|d| self.intern_path(d)));
+        let include_dirs: Vec<(TargetSpec, &Path)> = sources
+            .include_dirs
+            .iter()
+            .map(|(trgt, d)| (trgt.clone(), self.intern_path(d)))
+            .collect();
         let defines = sources
             .defines
             .iter()

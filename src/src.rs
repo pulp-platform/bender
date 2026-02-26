@@ -29,8 +29,8 @@ pub struct SourceGroup<'ctx> {
     pub independent: bool,
     /// The targets for which the sources should be considered.
     pub target: TargetSpec,
-    /// The directories to search for include files.
-    pub include_dirs: IndexSet<&'ctx Path>,
+    /// The directories to search for include files, with their target specs.
+    pub include_dirs: Vec<(TargetSpec, &'ctx Path)>,
     /// The directories exported by dependent package for include files, with their target specs.
     pub export_incdirs: IndexMap<String, Vec<(TargetSpec, &'ctx Path)>>,
     /// The preprocessor definitions.
@@ -58,13 +58,13 @@ impl<'ctx> Validate for SourceGroup<'ctx> {
             include_dirs: self
                 .include_dirs
                 .into_iter()
-                .map(|p| {
+                .map(|(trgt, p)| {
                     if !p.exists() || !p.is_dir() {
                         Warnings::IncludeDirMissing(p.to_path_buf()).emit();
                     }
-                    Ok(p)
+                    Ok((trgt, p))
                 })
-                .collect::<Result<IndexSet<_>, Error>>()?,
+                .collect::<Result<Vec<_>, Error>>()?,
             export_incdirs: self
                 .export_incdirs
                 .into_iter()
@@ -141,6 +141,13 @@ impl<'ctx> SourceGroup<'ctx> {
                 ref other => Some(other.clone()),
             })
             .collect();
+        let include_dirs = self
+            .include_dirs
+            .iter()
+            .filter(|(trgt, _)| trgt.matches(&all_targets))
+            .cloned()
+            .collect();
+
         let mut target_defs = all_targets
             .into_iter()
             .map(|t| "TARGET_".to_owned() + &t.to_uppercase())
@@ -167,6 +174,7 @@ impl<'ctx> SourceGroup<'ctx> {
 
         Some(
             SourceGroup {
+                include_dirs,
                 defines: defines.clone(),
                 export_incdirs,
                 files,
@@ -285,6 +293,7 @@ impl<'ctx> SourceGroup<'ctx> {
         let incdirs = self
             .include_dirs
             .into_iter()
+            .map(|(_, path)| path)
             .chain(
                 self.export_incdirs
                     .into_iter()
@@ -338,14 +347,12 @@ impl<'ctx> SourceGroup<'ctx> {
                             .map(|&i| i.clone())
                             .collect(),
                     );
-                    grp.include_dirs = IndexSet::<&Path>::from_iter(
-                        self.include_dirs
-                            .iter()
-                            .cloned()
-                            .chain(grp.include_dirs.into_iter()),
-                    )
-                    .into_iter()
-                    .collect();
+                    grp.include_dirs = self
+                        .include_dirs
+                        .iter()
+                        .cloned()
+                        .chain(grp.include_dirs.into_iter())
+                        .collect();
                     grp.defines = self
                         .defines
                         .iter()
