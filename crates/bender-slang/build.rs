@@ -85,7 +85,10 @@ fn main() {
     // Compile the C++ Bridge
     let mut bridge_build = cxx_build::bridge("src/lib.rs");
     bridge_build
-        .file("cpp/slang_bridge.cpp")
+        .file("cpp/session.cpp")
+        .file("cpp/rewriter.cpp")
+        .file("cpp/print.cpp")
+        .file("cpp/analysis.cpp")
         .flag_if_supported("-std=c++20")
         .include("vendor/slang/include")
         .include("vendor/slang/external")
@@ -132,6 +135,9 @@ fn main() {
     bridge_build.compile("slang-bridge");
 
     println!("cargo:rerun-if-changed=src/lib.rs");
-    println!("cargo:rerun-if-changed=cpp/slang_bridge.cpp");
     println!("cargo:rerun-if-changed=cpp/slang_bridge.h");
+    println!("cargo:rerun-if-changed=cpp/session.cpp");
+    println!("cargo:rerun-if-changed=cpp/rewriter.cpp");
+    println!("cargo:rerun-if-changed=cpp/print.cpp");
+    println!("cargo:rerun-if-changed=cpp/analysis.cpp");
 }
