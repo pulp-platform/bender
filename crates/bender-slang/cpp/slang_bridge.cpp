@@ -122,8 +122,8 @@ class DeclarationCollector : public SyntaxVisitor<DeclarationCollector> {
     std::unordered_set<std::string>& names;
 };
 
-// Rewriter that renames declarations and references only if their declaration exists
-// in the precomputed renameMap.
+// Rewriter that renames declarations and references only if their declaration
+// exists in the precomputed renameMap.
 class MappedRewriter : public SyntaxRewriter<MappedRewriter> {
   public:
     MappedRewriter(const std::unordered_map<std::string, std::string>& renameMap, std::uint64_t& declRenamed,
@@ -148,7 +148,7 @@ class MappedRewriter : public SyntaxRewriter<MappedRewriter> {
             return;
         }
 
-        auto newNameToken = makeId(newName, node.header->name.trivia());
+        auto newNameToken = node.header->name.withRawText(alloc, newName);
 
         ModuleHeaderSyntax* newHeader = deepClone(*node.header, alloc);
         newHeader->name = newNameToken;
@@ -162,7 +162,7 @@ class MappedRewriter : public SyntaxRewriter<MappedRewriter> {
         if (node.type.kind == parsing::TokenKind::Identifier) {
             auto newName = mapped_name(node.type.valueText());
             if (!newName.empty()) {
-                auto newNameToken = makeId(newName, node.type.trivia());
+                auto newNameToken = node.type.withRawText(alloc, newName);
 
                 HierarchyInstantiationSyntax* newNode = deepClone(node, alloc);
                 newNode->type = newNameToken;
@@ -184,7 +184,7 @@ class MappedRewriter : public SyntaxRewriter<MappedRewriter> {
             visitDefault(node);
             return;
         }
-        auto newNameToken = makeId(newName, node.package.trivia());
+        auto newNameToken = node.package.withRawText(alloc, newName);
 
         PackageImportItemSyntax* newNode = deepClone(node, alloc);
         newNode->package = newNameToken;
@@ -203,7 +203,7 @@ class MappedRewriter : public SyntaxRewriter<MappedRewriter> {
             visitDefault(node);
             return;
         }
-        auto newNameToken = makeId(newName, node.name.trivia());
+        auto newNameToken = node.name.withRawText(alloc, newName);
 
         VirtualInterfaceTypeSyntax* newNode = deepClone(node, alloc);
         newNode->name = newNameToken;
@@ -221,7 +221,7 @@ class MappedRewriter : public SyntaxRewriter<MappedRewriter> {
             if (name != "$unit" && name != "local" && name != "super" && name != "this") {
                 auto newName = mapped_name(name);
                 if (!newName.empty()) {
-                    auto newNameToken = makeId(newName, leftNode.identifier.trivia());
+                    auto newNameToken = leftNode.identifier.withRawText(alloc, newName);
 
                     IdentifierNameSyntax* newLeft = deepClone(leftNode, alloc);
                     newLeft->identifier = newNameToken;
@@ -298,7 +298,7 @@ rust::String print_tree(const shared_ptr<SyntaxTree> tree, SlangPrintOpts option
     // Set up the printer with options
     SyntaxPrinter printer(tree->sourceManager());
 
-    printer.setIncludeDirectives(true);
+    printer.setIncludeDirectives(options.include_directives);
     printer.setExpandIncludes(true);
     printer.setExpandMacros(options.expand_macros);
     printer.setSquashNewlines(options.squash_newlines);
@@ -327,7 +327,8 @@ rust::String dump_tree_json(std::shared_ptr<SyntaxTree> tree) {
 rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, const rust::Vec<rust::String>& tops) {
     const auto& treeVec = session.trees();
 
-    // Build a mapping from declared symbol names to the index of the tree that declares them
+    // Build a mapping from declared symbol names to the index of the tree that
+    // declares them
     std::unordered_map<std::string_view, size_t> nameToTreeIndex;
     for (size_t i = 0; i < treeVec.size(); ++i) {
         const auto& metadata = treeVec[i]->getMetadata();
@@ -336,14 +337,16 @@ rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, con
         }
     }
 
-    // Build a dependency graph where each tree points to the trees that declare symbols it references
+    // Build a dependency graph where each tree points to the trees that declare
+    // symbols it references
     std::vector<std::vector<size_t>> deps(treeVec.size());
     for (size_t i = 0; i < treeVec.size(); ++i) {
         const auto& metadata = treeVec[i]->getMetadata();
         std::unordered_set<size_t> seen;
         for (auto ref : metadata.getReferencedSymbols()) {
             auto it = nameToTreeIndex.find(ref);
-            // Avoid duplicate dependencies in case of multiple references to the same symbol
+            // Avoid duplicate dependencies in case of multiple references to the same
+            // symbol
             if (it != nameToTreeIndex.end() && seen.insert(it->second).second) {
                 deps[i].push_back(it->second);
             }

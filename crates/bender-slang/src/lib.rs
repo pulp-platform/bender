@@ -34,6 +34,7 @@ mod ffi {
     #[derive(Clone, Copy)]
     struct SlangPrintOpts {
         expand_macros: bool,
+        include_directives: bool,
         include_comments: bool,
         squash_newlines: bool,
     }
@@ -124,6 +125,7 @@ impl std::fmt::Display for SyntaxTree<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let options = SlangPrintOpts {
             expand_macros: false,
+            include_directives: true,
             include_comments: true,
             squash_newlines: false,
         };
