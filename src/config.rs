@@ -232,8 +232,8 @@ pub struct Sources {
     pub target: TargetSpec,
     /// The directories to search for include files, with their target specs.
     pub include_dirs: Vec<(TargetSpec, PathBuf)>,
-    /// The preprocessor definitions.
-    pub defines: IndexMap<String, Option<String>>,
+    /// The preprocessor definitions, with their target specs.
+    pub defines: IndexMap<String, (TargetSpec, Option<String>)>,
     /// The source files.
     pub files: Vec<SourceFile>,
     /// The files in this source will override other files.
@@ -918,6 +918,46 @@ impl Validate for PartialIncludeDir {
     }
 }
 
+/// A partial filtered preprocessor define
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct PartialDefine {
+    /// The target spec for which the define applies
+    pub target: Option<TargetSpec>,
+    /// The define value (None for valueless defines)
+    pub value: Option<String>,
+    /// Unknown extra fields
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+impl FromStr for PartialDefine {
+    type Err = Void;
+    fn from_str(s: &str) -> std::result::Result<Self, Void> {
+        Ok(PartialDefine {
+            target: None,
+            value: Some(s.into()),
+            extra: HashMap::new(),
+        })
+    }
+}
+
+impl Validate for PartialDefine {
+    type Output = (TargetSpec, Option<String>);
+    type Error = Error;
+    fn validate(self, vctx: &ValidationContext) -> Result<(TargetSpec, Option<String>)> {
+        if !vctx.pre_output {
+            self.extra.iter().for_each(|(k, _)| {
+                Warnings::IgnoreUnknownField {
+                    field: k.clone(),
+                    pkg: vctx.package_name.to_string(),
+                }
+                .emit();
+            });
+        }
+        Ok((self.target.unwrap_or(TargetSpec::Wildcard), self.value))
+    }
+}
+
 /// A partial group of source files.
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct PartialSources {
@@ -926,7 +966,7 @@ pub struct PartialSources {
     /// The directories to search for include files.
     pub include_dirs: Option<Vec<StringOrStruct<PartialIncludeDir>>>,
     /// The preprocessor definitions.
-    pub defines: Option<IndexMap<String, Option<String>>>,
+    pub defines: Option<IndexMap<String, Option<StringOrStruct<PartialDefine>>>>,
     /// The source file paths.
     pub files: Option<Vec<PartialSourceFile>>,
     /// A sv file.
@@ -1139,7 +1179,10 @@ impl Validate for PartialSources {
                                         if let Some(eq_idx) = file.find("=") {
                                             (
                                                 file[..eq_idx].to_string(),
-                                                Some(file[eq_idx + 1..].to_string()),
+                                                Some(StringOrStruct(PartialDefine {
+                                                    value: Some(file[eq_idx + 1..].to_string()),
+                                                    ..Default::default()
+                                                })),
                                             )
                                         } else {
                                             (file.to_string(), None)
@@ -1251,7 +1294,18 @@ impl Validate for PartialSources {
                     })
                     .collect::<Result<Vec<_>>>()?;
 
-                let defines = defines.unwrap_or_default();
+                let defines: IndexMap<String, (TargetSpec, Option<String>)> = defines
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(name, partial)| {
+                        let (trgt, value) = if let Some(partial) = partial {
+                            partial.validate(vctx)?
+                        } else {
+                            (TargetSpec::Wildcard, None)
+                        };
+                        Ok((name, (trgt, value)))
+                    })
+                    .collect::<Result<_>>()?;
                 let files: Result<Vec<_>> = post_glob_files
                     .into_iter()
                     .map(|f| f.validate(vctx))

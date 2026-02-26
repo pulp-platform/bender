@@ -33,8 +33,8 @@ pub struct SourceGroup<'ctx> {
     pub include_dirs: Vec<(TargetSpec, &'ctx Path)>,
     /// The directories exported by dependent package for include files, with their target specs.
     pub export_incdirs: IndexMap<String, Vec<(TargetSpec, &'ctx Path)>>,
-    /// The preprocessor definitions.
-    pub defines: IndexMap<String, Option<&'ctx str>>,
+    /// The preprocessor definitions, with their target specs.
+    pub defines: IndexMap<String, (TargetSpec, Option<&'ctx str>)>,
     /// The files in this group.
     pub files: Vec<SourceFile<'ctx>>,
     /// Package dependencies of this source group
@@ -148,14 +148,23 @@ impl<'ctx> SourceGroup<'ctx> {
             .cloned()
             .collect();
 
+        let mut defines: IndexMap<String, (TargetSpec, Option<&str>)> = self
+            .defines
+            .iter()
+            .filter(|(_, (trgt, _))| trgt.matches(&all_targets))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         let mut target_defs = all_targets
             .into_iter()
             .map(|t| "TARGET_".to_owned() + &t.to_uppercase())
             .collect::<IndexSet<_>>();
         target_defs.sort();
-        let mut defines: IndexMap<String, Option<&str>> = self.defines.clone();
         if self.package.is_some() {
-            defines.extend(target_defs.into_iter().map(|t| (t, None)));
+            defines.extend(
+                target_defs
+                    .into_iter()
+                    .map(|t| (t, (TargetSpec::Wildcard, None))),
+            );
         }
 
         let export_incdirs = self
@@ -356,7 +365,7 @@ impl<'ctx> SourceGroup<'ctx> {
                     grp.defines = self
                         .defines
                         .iter()
-                        .map(|(k, v)| (k.clone(), *v))
+                        .map(|(k, v)| (k.clone(), v.clone()))
                         .chain(grp.defines.into_iter())
                         .collect();
                     grp.flatten_into(into);
@@ -422,7 +431,11 @@ impl<'ctx> From<SourceGroup<'ctx>> for FilteredSourceGroup<'ctx> {
             package: group.package,
             independent: group.independent,
             include_dirs,
-            defines: group.defines,
+            defines: group
+                .defines
+                .into_iter()
+                .map(|(def, (_trgt, val))| (def, val))
+                .collect(),
             files: group
                 .files
                 .into_iter()

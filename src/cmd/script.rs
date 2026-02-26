@@ -462,7 +462,7 @@ fn emit_template(
         all_defines.extend(
             src.defines
                 .iter()
-                .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+                .map(|(k, (_, v))| (k.to_string(), v.map(String::from))),
         );
         all_incdirs.extend(src.clone().get_incdirs());
 
@@ -561,7 +561,7 @@ fn emit_template(
                         local_defines.extend(
                             src.defines
                                 .iter()
-                                .map(|(k, &v)| (k.to_string(), v.map(String::from))),
+                                .map(|(k, (_, v))| (k.to_string(), v.map(String::from))),
                         );
 
                         add_defines(&mut local_defines, &args.define);

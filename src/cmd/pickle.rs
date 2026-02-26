@@ -141,7 +141,7 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
                 let value = parts
                     .next()
                     .map(|v| sess.intern_string(v.trim().to_string()));
-                (name, value)
+                (name, (TargetSpec::Wildcard, value))
             })
             .collect::<IndexMap<_, _>>();
         let files = args
@@ -182,7 +182,7 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
         let defines: Vec<String> = src_group
             .defines
             .iter()
-            .map(|(def, value)| match value {
+            .map(|(def, (_, value))| match value {
                 Some(v) => format!("{def}={v}"),
                 None => def.to_string(),
             })
