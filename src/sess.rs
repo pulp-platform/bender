@@ -28,8 +28,9 @@ use futures::TryFutureExt;
 use futures::future::join_all;
 use indexmap::{IndexMap, IndexSet};
 use indicatif::MultiProgress;
-use miette::{Context as _, IntoDiagnostic as _};
+use miette::{Context as _, Diagnostic, IntoDiagnostic as _};
 use semver::Version;
+use thiserror::Error;
 use tokio::sync::Semaphore;
 use typed_arena::Arena;
 
@@ -44,6 +45,33 @@ use crate::src::SourceGroup;
 use crate::target::TargetSpec;
 use crate::util::try_modification_time;
 use crate::{bail, ensure, err};
+
+#[derive(Debug, Error, Diagnostic)]
+pub(crate) enum SessionErrors {
+    #[error("Failed to checkout commit {} for {} given in Bender.lock.", .0, .1)]
+    #[diagnostic(help(
+        "Check that the revision exists in the remote repository or run `bender update`."
+    ))]
+    LockedRevisionCheckout(
+        String,
+        String,
+        #[source] Box<dyn std::error::Error + Send + Sync + 'static>,
+    ),
+    #[error("Failed to {} git database.", .0)]
+    #[diagnostic(help(
+        "Please ensure the url is correct and you have access to the repository. {}",
+        if *.1 {
+            "\nEnsure your SSH keys are set up correctly."
+        } else {
+            ""
+        }
+    ))]
+    GitDatabaseAccess(
+        &'static str,
+        bool,
+        #[source] Box<dyn std::error::Error + Send + Sync + 'static>,
+    ),
+}
 
 /// A session on the command line.
 ///
@@ -207,7 +235,8 @@ impl<'ctx> Session<'ctx> {
                         .map(|name| match names.get(name) {
                             Some(id) => Ok(*id),
                             None => Err(err!(
-                                "Failed to match dependency {}, please run `bender update`!",
+                                help = "Please run `bender update`",
+                                "Failed to match dependency {}",
                                 name
                             )),
                         })
@@ -231,8 +260,8 @@ impl<'ctx> Session<'ctx> {
             for name in self.manifest.dependencies.keys() {
                 if !(names.contains_key(name)) {
                     bail!(
-                        "`Bender.yml` contains dependency `{}` but `Bender.lock` does not.\n\
-                        \tYou may need to run `bender update`.",
+                        help = "You may need to run `bender update`",
+                        "`Bender.yml` contains dependency `{}` but `Bender.lock` does not",
                         name
                     );
                 }
@@ -262,8 +291,8 @@ impl<'ctx> Session<'ctx> {
                         pend_str.push(self.dependency_name(*element));
                     }
                     bail!(
-                        "a cyclical dependency was discovered, likely relates to one of {:?}.\n\
-                        \tPlease ensure no dependency loops.",
+                        help = "Please ensure no dependency loops",
+                        "A cyclical dependency was discovered, likely relates to one of {:?}",
                         pend_str
                     );
                 }
@@ -589,7 +618,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         if !db_dir.join("config").exists() {
             ensure!(
                 !self.sess.local_only,
-                help = "Re-run without `--local` to fetch missing git dependencies, or provide a local path dependency.",
+                help = "Re-run without `--local`, or provide a local path dependency.",
                 "Cannot initialize git dependency while `--local` is enabled."
             );
             // Initialize.
@@ -617,13 +646,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     }
                 })
                 .await
-                .inspect_err(move |_| {
-                    Warnings::GitInitFailed {
-                        is_ssh: url.contains("git@"),
-                    }
-                    .emit();
+                .map_err(move |cause| {
+                    Error::from(SessionErrors::GitDatabaseAccess(
+                        "initialize",
+                        url.contains("git@"),
+                        cause.into(),
+                    ))
                 })
-                .wrap_err_with(|| format!("Failed to initialize git database in {:?}.", db_dir))
                 .map(move |_| git)
         } else {
             // Update if the manifest has been modified since the last fetch.
@@ -654,13 +683,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     }
                 })
                 .await
-                .inspect_err(move |_| {
-                    Warnings::GitInitFailed {
-                        is_ssh: url.contains("git@"),
-                    }
-                    .emit();
+                .map_err(move |cause| {
+                    Error::from(SessionErrors::GitDatabaseAccess(
+                        "update",
+                        url.contains("git@"),
+                        cause.into(),
+                    ))
                 })
-                .wrap_err_with(|| format!("Failed to update git database in {:?}.", db_dir))
                 .map(move |_| git)
         }
     }
@@ -996,8 +1025,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     git.clone()
                         .spawn_with(move |c| c.arg("fetch").arg("--all").arg("--progress"), pb)
                         .await?;
-                    let result = git
-                        .clone()
+                    git.clone()
                         .spawn_with(
                             move |c| {
                                 c.arg("tag")
@@ -1008,16 +1036,14 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             },
                             None,
                         )
-                        .await;
-                    if result.is_err() {
-                        Warnings::RevisionNotFound(revision.to_string(), name.to_string()).emit();
-                    }
-                    result.wrap_err_with(|| {
-                        format!(
-                            "Failed to checkout commit {} for {} given in Bender.lock.\n",
-                            revision, name
-                        )
-                    })
+                        .await
+                        .map_err(|cause| {
+                            Error::from(SessionErrors::LockedRevisionCheckout(
+                                revision.to_string(),
+                                name.to_string(),
+                                cause.into(),
+                            ))
+                        })
                 }
             }?;
             // Check if the revision is reachable from any upstream branch or

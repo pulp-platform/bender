@@ -17,6 +17,7 @@ use crate::config;
 use crate::config::{Locked, LockedSource};
 use crate::diagnostic::Warnings;
 use crate::error::*;
+use crate::infoln;
 use crate::sess::{DependencyRef, DependencySource, Session, SessionIo};
 use crate::{debugln, fmt_path, fmt_pkg, stageln};
 
@@ -42,13 +43,14 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
         match &sess.config.overrides[dep] {
             config::Dependency::Path { path: p, .. } => {
                 bail!(
-                    "Dependency `{}` already has a path override at\n\t{}\n\tPlease check Bender.local or .bender.yml",
+                    help = "Please check `Bender.local` or `.bender.yml`.",
+                    "Dependency `{}` already has a path override at {}",
                     dep,
                     p.to_str().unwrap()
                 );
             }
             _ => {
-                eprintln!("A non-path override is already present, proceeding anyways");
+                infoln!("A non-path override is already present, proceeding anyways");
             }
         }
     }
@@ -188,11 +190,11 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
         }
         std::fs::write(local_path.clone(), new_str)
             .into_diagnostic()
-            .wrap_err_with(|| format!("Writing new Bender.local failed at {:?}.", local_path))?;
+            .wrap_err("Writing new Bender.local failed ")?;
     } else {
         std::fs::write(local_path.clone(), format!("overrides:\n{}", dep_str))
             .into_diagnostic()
-            .wrap_err_with(|| format!("Writing new Bender.local failed at {:?}.", local_path))?;
+            .wrap_err("Writing new Bender.local failed ")?;
     };
 
     eprintln!("{} dependency added to Bender.local", dep);

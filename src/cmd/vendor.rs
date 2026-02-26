@@ -22,7 +22,7 @@ use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::git::Git;
 use crate::progress::{GitProgressOps, ProgressHandler};
-use crate::sess::{DependencySource, Session};
+use crate::sess::{DependencySource, Session, SessionErrors};
 use crate::{bail, ensure};
 use crate::{fmt_path, fmt_pkg, stageln};
 
@@ -109,15 +109,16 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                         GitProgressOps::Clone,
                         vendor_package.name.as_str(),
                     );
-                    git.clone().spawn_with(|c| c.arg("clone").arg(url).arg("."), Some(pb))
-                    .await
-                    .inspect_err(move |_| {
-                        Warnings::GitInitFailed {
-                            is_ssh: url.contains("git@"),
-                        }
-                        .emit();
-                    })
-                    .wrap_err_with(|| format!("Failed to initialize git database in {:?}.", tmp_path))?;
+                    git.clone()
+                        .spawn_with(|c| c.arg("clone").arg(url).arg("."), Some(pb))
+                        .await
+                        .map_err(move |cause| {
+                            Error::from(SessionErrors::GitDatabaseAccess(
+                                "initialize",
+                                url.contains("git@"),
+                                cause.into(),
+                            ))
+                        })?;
                     let rev_hash = if let config::Dependency::GitRevision { ref rev, .. } =
                         vendor_package.upstream
                     {
@@ -512,7 +513,8 @@ pub fn diff(
         .prefix_paths(vendor_package.target_dir.as_ref())?;
     if !&link_to.exists() {
         bail!(
-            "Could not find {}. Did you run bender vendor init?",
+            help = "Did you run `bender vendor init`",
+            "Could not find {}",
             link_to.to_str().unwrap()
         );
     }
