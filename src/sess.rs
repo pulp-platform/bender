@@ -410,7 +410,12 @@ impl<'ctx> Session<'ctx> {
         let defines = sources
             .defines
             .iter()
-            .map(|(k, v)| (k.clone(), v.as_ref().map(|v| self.intern_string(v))))
+            .map(|(k, (trgt, v))| {
+                (
+                    k.clone(),
+                    (trgt.clone(), v.as_ref().map(|v| self.intern_string(v))),
+                )
+            })
             .collect();
         let files = sources
             .files
