@@ -60,11 +60,11 @@ pub struct PickleArgs {
     top: Vec<String>,
 
     /// A prefix to add to all names (modules, packages, interfaces)
-    #[arg(long, help_heading = "Slang Options")]
+    #[arg(long, help_heading = "Slang Options", requires = "expand_macros")]
     prefix: Option<String>,
 
     /// A suffix to add to all names (modules, packages, interfaces)
-    #[arg(long, help_heading = "Slang Options")]
+    #[arg(long, help_heading = "Slang Options", requires = "expand_macros")]
     suffix: Option<String>,
 
     /// Names to exclude from renaming (modules, packages, interfaces)
@@ -160,6 +160,7 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
 
     let print_opts = SlangPrintOpts {
         expand_macros: args.expand_macros,
+        include_directives: !args.expand_macros,
         include_comments: !args.strip_comments,
         squash_newlines: args.squash_newlines,
     };
