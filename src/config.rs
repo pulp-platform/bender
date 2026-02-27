@@ -26,7 +26,7 @@ use serde_yaml_ng::Value;
 #[cfg(unix)]
 use subst;
 
-use crate::diagnostic::{Diagnostics, Warnings};
+use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::target::TargetSpec;
 use crate::util::*;
@@ -638,20 +638,10 @@ impl Validate for PartialManifest {
             export_include_dirs: exp_inc_dirs
                 .into_iter()
                 .filter_map(|(trgt, path)| {
-                    match env_path_from_string(&path.display().to_string()) {
-                        Ok(parsed_path) => Some(Ok((trgt.clone(), parsed_path))),
-                        Err(cause) => {
-                            if Diagnostics::is_suppressed("E30") {
-                                Warnings::IgnoredPath {
-                                    cause: cause.to_string(),
-                                }
-                                .emit();
-                                None
-                            } else {
-                                Some(Err(err!("[E30] {}", cause)))
-                            }
-                        }
+                    if !(vctx.pre_output || path.exists() && path.is_dir()) {
+                        Warnings::IncludeDirMissing(path.clone()).emit();
                     }
+                    Some(Ok((trgt, path)))
                 })
                 .collect::<Result<Vec<_>>>()?,
             plugins,
@@ -1070,15 +1060,10 @@ impl Validate for PartialSources {
                     .filter_map(|path| match env_path_from_string(path) {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
-                            if Diagnostics::is_suppressed("E30") {
-                                Warnings::IgnoredPath {
-                                    cause: cause.to_string(),
-                                }
-                                .emit();
-                                None
-                            } else {
-                                Some(Err(err!("[E30] {}", cause)))
-                            }
+                            let warning = Warnings::IgnoredPath {
+                                cause: cause.to_string(),
+                            };
+                            warning.emit_or_error().err().map(Err)
                         }
                     })
                     .collect();
@@ -1220,15 +1205,10 @@ impl Validate for PartialSources {
                                         _ => unreachable!(),
                                     },
                                     Err(cause) => {
-                                        if Diagnostics::is_suppressed("E30") {
-                                            Warnings::IgnoredPath {
-                                                cause: cause.to_string(),
-                                            }
-                                            .emit();
-                                            None
-                                        } else {
-                                            Some(Err(err!("[E30] {}", cause)))
-                                        }
+                                        let warning = Warnings::IgnoredPath {
+                                            cause: cause.to_string(),
+                                        };
+                                        warning.emit_or_error().err().map(Err)
                                     }
                                 }
                             }
@@ -1267,15 +1247,10 @@ impl Validate for PartialSources {
                     .filter_map(|entry| match entry.0.validate(vctx) {
                         Ok(validated) => Some(Ok(validated)),
                         Err(cause) => {
-                            if Diagnostics::is_suppressed("E30") {
-                                Warnings::IgnoredPath {
-                                    cause: cause.to_string(),
-                                }
-                                .emit();
-                                None
-                            } else {
-                                Some(Err(err!("[E30] {}", cause)))
-                            }
+                            let warning = Warnings::IgnoredPath {
+                                cause: cause.to_string(),
+                            };
+                            warning.emit_or_error().err().map(Err)
                         }
                     })
                     .collect::<Result<Vec<_>>>()?;
