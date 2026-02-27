@@ -4,8 +4,11 @@ on:
   push:
     branches: [master]
   pull_request:
-    branches: [master]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -26,13 +29,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust}}
-          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-test-${{ runner.os }}-${{ matrix.rust }}
+          cache-workspace-crates: "true"
       - name: Build
         run: cargo build --all-features
       - name: Cargo Test
         run: cargo test --workspace --all-features
-      - name: Format (fix with `cargo fmt`)
-        run: cargo fmt -- --check
       - name: Run unit-tests
         run: tests/run_all.sh
         shell: bash
@@ -46,6 +50,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-test-windows-${{ runner.os }}-stable
+          cache-workspace-crates: "true"
       - name: Build
         run: cargo build --all-features
       - name: Cargo Test
@@ -63,6 +71,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-test-macos-${{ runner.os }}-stable
+          cache-workspace-crates: "true"
       - name: Build
         run: cargo build --all-features
       - name: Cargo Test
@@ -70,6 +82,30 @@ jobs:
       - name: Run unit-tests
         run: tests/run_all.sh
         shell: bash
+
+  release-build:
+    name: Release Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-release-build-${{ runner.os }}-stable
+          cache-workspace-crates: "true"
+      - name: Build (release)
+        run: cargo build --release --all-features
 
   clippy_check:
     name: Clippy
@@ -82,6 +118,10 @@ jobs:
         with:
           toolchain: stable
           components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-clippy-${{ runner.os }}-stable
+          cache-workspace-crates: "true"
       - run: cargo clippy --all-features
 
   unused-deps:
@@ -92,6 +132,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-unused-deps-${{ runner.os }}-stable
+          cache-workspace-crates: "true"
       - name: Install machete
         run: cargo install cargo-machete
       - name: Check for unused dependencies
