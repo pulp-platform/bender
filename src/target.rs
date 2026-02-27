@@ -17,7 +17,7 @@ use indexmap::IndexSet;
 use miette::Context as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::error::*;
+use crate::{Error, Result};
 use crate::{bail, err};
 
 /// A target specification.

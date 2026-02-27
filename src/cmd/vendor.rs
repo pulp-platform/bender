@@ -19,10 +19,10 @@ use tokio::runtime::Runtime;
 use crate::config;
 use crate::config::PrefixPaths;
 use crate::diagnostic::Warnings;
-use crate::error::*;
 use crate::git::Git;
 use crate::progress::{GitProgressOps, ProgressHandler};
 use crate::sess::{DependencySource, Session, SessionErrors};
+use crate::{Error, Result};
 use crate::{bail, ensure};
 use crate::{fmt_path, fmt_pkg, stageln};
 

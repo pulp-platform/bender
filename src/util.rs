@@ -21,8 +21,8 @@ use serde::ser::{Serialize, Serializer};
 /// Re-export owo_colors for use in macros.
 pub use owo_colors::{OwoColorize, Stream, Style};
 
+use crate::Result;
 use crate::bail;
-use crate::error::*;
 
 /// A type that cannot be materialized.
 #[derive(Debug)]

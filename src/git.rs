@@ -21,7 +21,7 @@ use walkdir::WalkDir;
 use crate::progress::{ProgressHandler, monitor_stderr};
 
 use crate::err;
-use crate::error::*;
+use crate::{Error, Result};
 
 #[derive(Debug, Error, Diagnostic)]
 enum GitSpawnError {
