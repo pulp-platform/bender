@@ -8,14 +8,15 @@ use std::path::{Path, PathBuf};
 
 use clap::{ArgAction, Args, Subcommand, ValueEnum};
 use indexmap::{IndexMap, IndexSet};
+use miette::{Context as _, IntoDiagnostic as _};
 use serde::Serialize;
 use tera::{Context, Tera};
 use tokio::runtime::Runtime;
 
+use crate::Result;
 use crate::cmd::sources::get_passed_targets;
 use crate::config::{Validate, ValidationContext};
 use crate::diagnostic::Warnings;
-use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::TargetSet;
@@ -228,7 +229,7 @@ where
 
 /// Execute the `script` subcommand.
 pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
-    let rt = Runtime::new()?;
+    let rt = Runtime::new().into_diagnostic()?;
     let io = SessionIo::new(sess);
     let mut srcs = rt.block_on(io.sources(false, &[]))?;
 
@@ -380,7 +381,9 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             include_str!("../script_fmt/vivado_tcl.tera")
         }
         ScriptFormat::Precision => include_str!("../script_fmt/precision_tcl.tera"),
-        ScriptFormat::Template { template } => &std::fs::read_to_string(template)?,
+        ScriptFormat::Template { template } => {
+            &std::fs::read_to_string(template).into_diagnostic()?
+        }
         ScriptFormat::TemplateJson => JSON,
     };
 
@@ -665,7 +668,8 @@ fn emit_template(
         "{}",
         Tera::default()
             .render_str(template, &tera_context)
-            .map_err(|e| { Error::chain("Failed to render template.", e) })?
+            .into_diagnostic()
+            .wrap_err("Failed to render template.")?
     );
 
     Ok(())

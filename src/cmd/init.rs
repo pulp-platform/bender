@@ -10,12 +10,15 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Command as SysCommand;
 
-use crate::error::*;
+use miette::IntoDiagnostic as _;
+
+use crate::Result;
+use crate::bail;
 
 /// Execute the `init` subcommand.
 pub fn run() -> Result<()> {
     // Get working directory name
-    let binding = current_dir()?;
+    let binding = current_dir().into_diagnostic()?;
     let cwd = binding
         .as_path()
         .file_name()
@@ -27,7 +30,8 @@ pub fn run() -> Result<()> {
     let name = String::from_utf8(
         SysCommand::new("git")
             .args(["config", "user.name"])
-            .output()?
+            .output()
+            .into_diagnostic()?
             .stdout,
     )
     .unwrap_or("Your Name".to_string());
@@ -37,7 +41,8 @@ pub fn run() -> Result<()> {
     let email = String::from_utf8(
         SysCommand::new("git")
             .args(["config", "user.email"])
-            .output()?
+            .output()
+            .into_diagnostic()?
             .stdout,
     )
     .unwrap_or("you@example.com".to_string());
@@ -47,10 +52,10 @@ pub fn run() -> Result<()> {
 
     // Create Bender.yml
     if Path::new("Bender.yml").exists() {
-        return Err(Error::new("Bender.yml already exists"));
+        bail!("Bender.yml already exists");
     }
 
-    let mut file = File::create("Bender.yml")?;
+    let mut file = File::create("Bender.yml").into_diagnostic()?;
 
     writeln!(
         file,
@@ -71,7 +76,8 @@ sources:
   # levels 1 and 0, etc. Files within a level are ordered alphabetically.
   # Level 0",
         cwd, name, email
-    )?;
+    )
+    .into_diagnostic()?;
 
     Ok(())
 }

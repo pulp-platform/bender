@@ -19,16 +19,18 @@ use std::str::FromStr;
 
 use glob::glob;
 use indexmap::IndexMap;
+use miette::{Context as _, IntoDiagnostic as _};
 use semver;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_yaml_ng::Value;
 #[cfg(unix)]
 use subst;
 
-use crate::diagnostic::{Diagnostics, Warnings};
-use crate::error::*;
+use crate::diagnostic::Warnings;
 use crate::target::TargetSpec;
 use crate::util::*;
+use crate::{Error, Result};
+use crate::{bail, err};
 
 /// A package manifest.
 ///
@@ -502,17 +504,14 @@ impl Validate for PartialManifest {
                 }
                 p
             }
-            None => return Err(Error::new("Missing package information.")),
+            None => bail!("Missing package information."),
         };
 
-        let remotes = self
+        let remotes: Option<IndexMap<String, RemoteConfig>> = self
             .remotes
             .map(|r| {
                 r.validate(vctx).map_err(|(key, cause)| {
-                    Error::chain(
-                        format!("In remote `{key}` of package `{}`:", pkg.name),
-                        cause,
-                    )
+                    cause.wrap_err(format!("In remote `{key}` of package `{}`.", pkg.name))
                 })
             })
             .transpose()?;
@@ -532,9 +531,7 @@ impl Validate for PartialManifest {
                     [remote] => Some(*remote),
                     // Multiple default remotes. Not allowed.
                     _ => {
-                        return Err(Error::new(
-                            "Multiple remotes marked as default. Only one allowed.",
-                        ));
+                        bail!("Multiple remotes marked as default. Only one allowed.",);
                     }
                 }
             }
@@ -558,11 +555,8 @@ impl Validate for PartialManifest {
                         default_remote,
                     };
 
-                    let validated = v.validate(&dep_vctx).map_err(|cause| {
-                        Error::chain(
-                            format!("In dependency `{dep_name}` of package `{}`:", pkg.name),
-                            cause,
-                        )
+                    let validated = v.validate(&dep_vctx).wrap_err_with(|| {
+                        format!("In dependency `{dep_name}` of package `{}`.", pkg.name)
                     })?;
 
                     Ok((dep_name, validated))
@@ -571,9 +565,10 @@ impl Validate for PartialManifest {
             None => IndexMap::new(),
         };
         let srcs = match self.sources {
-            Some(s) => Some(s.validate(vctx).map_err(|cause| {
-                Error::chain(format!("In source list of package `{}`:", pkg.name), cause)
-            })?),
+            Some(s) => Some(
+                s.validate(vctx)
+                    .wrap_err_with(|| format!("In source list of package `{}`.", pkg.name))?,
+            ),
             None => None,
         };
         let exp_inc_dirs = self.export_include_dirs.unwrap_or_default();
@@ -586,15 +581,13 @@ impl Validate for PartialManifest {
         };
         let frozen = self.frozen.unwrap_or(false);
         let workspace = match self.workspace {
-            Some(w) => w
-                .validate(vctx)
-                .map_err(|cause| Error::chain("In workspace configuration:", cause))?,
+            Some(w) => w.validate(vctx).wrap_err("In workspace configuration.")?,
             None => Workspace::default(),
         };
         let vendor_package = match self.vendor_package {
             Some(vend) => vend
                 .validate(vctx)
-                .map_err(|cause| Error::chain("Unable to parse vendor_package", cause))?,
+                .wrap_err("Unable to parse vendor_package.")?,
             None => Vec::new(),
         };
         if !vctx.pre_output {
@@ -634,15 +627,10 @@ impl Validate for PartialManifest {
                         Some(Ok(parsed_path))
                     }
                     Err(cause) => {
-                        if Diagnostics::is_suppressed("E30") {
-                            Warnings::IgnoredPath {
-                                cause: cause.to_string(),
-                            }
-                            .emit();
-                            None
-                        } else {
-                            Some(Err(Error::chain("[E30]", cause)))
-                        }
+                        let warning = Warnings::IgnoredPath {
+                            cause: cause.to_string(),
+                        };
+                        warning.emit_or_error().err().map(Err)
                     }
                 })
                 .collect::<Result<Vec<_>>>()?,
@@ -732,12 +720,11 @@ impl Validate for PartialDependency {
         let version = self
             .version
             .map(|v| {
-                semver::VersionReq::parse(&v).map_err(|cause| {
-                    Error::chain(
-                        format!("\"{}\" is not a valid semantic version requirement.", v),
-                        cause,
-                    )
-                })
+                semver::VersionReq::parse(&v)
+                    .into_diagnostic()
+                    .wrap_err_with(|| {
+                        format!("\"{}\" is not a valid semantic version requirement.", v)
+                    })
             })
             .transpose()?;
         if !vctx.pre_output {
@@ -766,7 +753,7 @@ impl Validate for PartialDependency {
                         pass_targets,
                     })
                 } else {
-                    Err(Error::new(
+                    Err(err!(
                         "A dependency with only a `version` field requires a default remote to be set.",
                     ))
                 }
@@ -785,10 +772,10 @@ impl Validate for PartialDependency {
                         pass_targets,
                     })
                 } else {
-                    Err(Error::new(format!(
+                    Err(err!(
                         "Remote `{remote_name}` not found for dependency `{}`.",
                         vctx.package_name
-                    )))
+                    ))
                 }
             }
             // Git dependencies with explicit git and version, e.g.:
@@ -821,34 +808,34 @@ impl Validate for PartialDependency {
                 path: env_path_from_string(path)?,
                 pass_targets,
             }),
-            (_, _, Some(_), Some(_), _) => Err(Error::new(format!(
+            (_, _, Some(_), Some(_), _) => Err(err!(
                 "Dependency `{}` cannot specify both `version` and `rev` fields.",
                 vctx.package_name
-            ))),
+            )),
             (git, Some(_), rev, version, _)
                 if git.is_some() || rev.is_some() || version.is_some() =>
             {
-                Err(Error::new(format!(
+                Err(err!(
                     "Dependency `{}` cannot simultaneously specify `path` with `git`, `rev`, or `version` fields.",
                     vctx.package_name
-                )))
+                ))
             }
-            (Some(_), _, None, None, _) => Err(Error::new(format!(
+            (Some(_), _, None, None, _) => Err(err!(
                 "Dependency `{}` with `git` must also specify `rev` or `version`.",
                 vctx.package_name
-            ))),
-            (None, None, None, None, _) => Err(Error::new(format!(
+            )),
+            (None, None, None, None, _) => Err(err!(
                 "Dependency `{}` must specify at least one of `path`, `git`, `rev`, or `version`.",
                 vctx.package_name
-            ))),
-            (Some(_), _, _, _, Some(_)) => Err(Error::new(format!(
+            )),
+            (Some(_), _, _, _, Some(_)) => Err(err!(
                 "Dependency `{}` cannot simultaneously specify `git` and `remote`",
                 vctx.package_name
-            ))),
-            cfg => Err(Error::new(format!(
+            )),
+            cfg => Err(err!(
                 "Invalid configuration for dependency `{}`: {cfg:?}",
                 vctx.package_name
-            ))),
+            )),
         }
     }
 }
@@ -973,15 +960,10 @@ impl Validate for PartialSources {
                     .filter_map(|path| match env_path_from_string(path.to_string()) {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
-                            if Diagnostics::is_suppressed("E30") {
-                                Warnings::IgnoredPath {
-                                    cause: cause.to_string(),
-                                }
-                                .emit();
-                                None
-                            } else {
-                                Some(Err(Error::chain("[E30]", cause)))
-                            }
+                            let warning = Warnings::IgnoredPath {
+                                cause: cause.to_string(),
+                            };
+                            warning.emit_or_error().err().map(Err)
                         }
                     })
                     .collect();
@@ -989,21 +971,15 @@ impl Validate for PartialSources {
                 let external_flist_list: Result<Vec<(PathBuf, Vec<String>)>> = external_flists?
                     .into_iter()
                     .map(|filename| {
-                        let file = File::open(&filename).map_err(|cause| {
-                            Error::chain(
-                                format!("Unable to open external flist file {:?}", filename),
-                                cause,
-                            )
+                        let file = File::open(&filename).into_diagnostic().wrap_err_with(|| {
+                            format!("Unable to open external flist file {:?}", filename)
                         })?;
                         let reader = BufReader::new(file);
                         let lines: Vec<String> = reader
                             .lines()
                             .map(|line| {
-                                line.map_err(|cause| {
-                                    Error::chain(
-                                        format!("Error reading external flist file {:?}", filename),
-                                        cause,
-                                    )
+                                line.into_diagnostic().wrap_err_with(|| {
+                                    format!("Error reading external flist file {:?}", filename)
                                 })
                             })
                             .collect::<Result<Vec<String>>>()?;
@@ -1121,15 +1097,10 @@ impl Validate for PartialSources {
                                         _ => unreachable!(),
                                     },
                                     Err(cause) => {
-                                        if Diagnostics::is_suppressed("E30") {
-                                            Warnings::IgnoredPath {
-                                                cause: cause.to_string(),
-                                            }
-                                            .emit();
-                                            None
-                                        } else {
-                                            Some(Err(Error::chain("[E30]", cause)))
-                                        }
+                                        let warning = Warnings::IgnoredPath {
+                                            cause: cause.to_string(),
+                                        };
+                                        warning.emit_or_error().err().map(Err)
                                     }
                                 }
                             }
@@ -1168,15 +1139,10 @@ impl Validate for PartialSources {
                     .filter_map(|path| match env_path_from_string(path.to_string()) {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
-                            if Diagnostics::is_suppressed("E30") {
-                                Warnings::IgnoredPath {
-                                    cause: cause.to_string(),
-                                }
-                                .emit();
-                                None
-                            } else {
-                                Some(Err(Error::chain("[E30]", cause)))
-                            }
+                            let warning = Warnings::IgnoredPath {
+                                cause: cause.to_string(),
+                            };
+                            warning.emit_or_error().err().map(Err)
                         }
                     })
                     .collect::<Result<Vec<_>>>()?;
@@ -1223,10 +1189,10 @@ impl Validate for PartialSources {
                 external_flists: None,
                 override_files: None,
                 extra: _,
-            } => Err(Error::new(
+            } => Err(err!(
                 "Only a single source with a single type is supported.",
             )),
-            _ => Err(Error::new(
+            _ => Err(err!(
                 "Do not mix `sv`, `v`, or `vhd` with `files`, `target`, `include_dirs`, and `defines`.",
             )),
         }
@@ -1370,15 +1336,14 @@ impl GlobFile for PartialSourceFile {
             | PartialSourceFile::VhdlFile(ref path) => {
                 // Check if glob patterns used
                 if path.contains("*") || path.contains("?") {
-                    let glob_matches = glob(path).map_err(|cause| {
-                        Error::chain(format!("Invalid glob pattern for {:?}", path), cause)
-                    })?;
+                    let glob_matches = glob(path)
+                        .into_diagnostic()
+                        .wrap_err_with(|| format!("Invalid glob pattern for {:?}", path))?;
                     let out = glob_matches
                         .map(|glob_match| {
                             let file_str = glob_match
-                                .map_err(|cause| {
-                                    Error::chain(format!("Glob match failed for {:?}", path), cause)
-                                })?
+                                .into_diagnostic()
+                                .wrap_err_with(|| format!("Glob match failed for {:?}", path))?
                                 .to_str()
                                 .unwrap()
                                 .to_string();
@@ -1623,22 +1588,22 @@ impl Validate for PartialConfig {
         Ok(Config {
             database: match self.database {
                 Some(db) => env_path_from_string(db)?,
-                None => return Err(Error::new("Database directory not configured")),
+                None => bail!("Database directory not configured"),
             },
             git: match self.git {
                 Some(git) => git,
-                None => return Err(Error::new("Git command or path to binary not configured")),
+                None => bail!("Git command or path to binary not configured"),
             },
             overrides: match self.overrides {
-                Some(d) => d.validate(vctx).map_err(|(key, cause)| {
-                    Error::chain(format!("In override `{}`:", key), cause)
-                })?,
+                Some(d) => d
+                    .validate(vctx)
+                    .map_err(|(key, cause)| cause.wrap_err(format!("In override `{key}`.")))?,
                 None => IndexMap::new(),
             },
             plugins: match self.plugins {
                 Some(d) => d
                     .validate(vctx)
-                    .map_err(|(key, cause)| Error::chain(format!("In plugin `{}`:", key), cause))?,
+                    .map_err(|(key, cause)| cause.wrap_err(format!("In plugin `{key}`.")))?,
                 None => IndexMap::new(),
             },
             git_throttle: self.git_throttle,
@@ -1756,17 +1721,17 @@ impl Validate for PartialVendorPackage {
         Ok(VendorPackage {
             name: match self.name {
                 Some(name) => name,
-                None => return Err(Error::new("external import name missing")),
+                None => bail!("external import name missing"),
             },
             target_dir: match self.target_dir {
                 Some(target_dir) => env_path_from_string(target_dir)?,
-                None => return Err(Error::new("external import target dir missing")),
+                None => bail!("external import target dir missing"),
             },
             upstream: match self.upstream {
-                Some(upstream) => upstream.validate(vctx).map_err(|cause| {
-                    Error::chain("Unable to parse external import upstream", cause)
-                })?,
-                None => return Err(Error::new("external import upstream missing")),
+                Some(upstream) => upstream
+                    .validate(vctx)
+                    .wrap_err("Unable to parse external import upstream.")?,
+                None => bail!("external import upstream missing"),
             },
             mapping: self.mapping.unwrap_or_default(),
             patch_dir: match self.patch_dir {
@@ -1823,7 +1788,7 @@ impl Validate for PartialPassedTarget {
             target: self.target.unwrap_or_default(),
             pass: match self.pass {
                 Some(p) => p.to_lowercase(),
-                None => return Err(Error::new("passed target missing pass value")),
+                None => bail!("passed target missing pass value"),
             },
         })
     }
@@ -1878,10 +1843,10 @@ impl Validate for RemoteConfig {
             }
             1 => raw_url.to_string(),
             _ => {
-                return Err(Error::new(format!(
+                bail!(
                     "Remote URL '{}' contains multiple '{{}}' placeholders. Only one is allowed.",
                     raw_url
-                )));
+                );
             }
         };
 
@@ -1931,12 +1896,9 @@ pub enum LockedSource {
 
 #[cfg(unix)]
 fn env_string_from_string(path_str: String) -> Result<String> {
-    subst::substitute(&path_str, &subst::Env).map_err(|cause| {
-        Error::chain(
-            format!("Unable to substitute with env: {}", path_str),
-            cause,
-        )
-    })
+    subst::substitute(&path_str, &subst::Env)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Unable to substitute with env: {}", path_str))
 }
 
 #[cfg(windows)]
