@@ -10,7 +10,6 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::io::IsTerminal;
 use std::io::Write;
-use std::iter::FromIterator;
 use std::mem::swap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
@@ -400,11 +399,14 @@ impl<'ctx> Session<'ctx> {
         sources: &'ctx config::Sources,
         package: Option<&'ctx str>,
         dependencies: IndexSet<String>,
-        dependency_export_includes: IndexMap<String, IndexSet<&'ctx Path>>,
+        dependency_export_includes: IndexMap<String, Vec<(TargetSpec, &'ctx Path)>>,
         version: Option<Version>,
     ) -> SourceGroup<'ctx> {
-        let include_dirs: IndexSet<&Path> =
-            IndexSet::from_iter(sources.include_dirs.iter().map(|d| self.intern_path(d)));
+        let include_dirs: Vec<(TargetSpec, &Path)> = sources
+            .include_dirs
+            .iter()
+            .map(|(trgt, d)| (trgt.clone(), self.intern_path(d)))
+            .collect();
         let defines = sources
             .defines
             .iter()
@@ -1564,7 +1566,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         use std::iter::once;
 
         // Create IndexMap of the export_include_dirs for each package
-        let mut all_export_include_dirs: IndexMap<String, IndexSet<&Path>> = IndexMap::new();
+        let mut all_export_include_dirs: IndexMap<String, Vec<(TargetSpec, &Path)>> =
+            IndexMap::new();
         let tmp_export_include_dirs: Vec<IndexMap<String, _>> = ranks
             .clone()
             .into_iter()
@@ -1577,7 +1580,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     .map(|m| {
                         (
                             m.package.name.clone(),
-                            m.export_include_dirs.iter().map(PathBuf::as_path).collect(),
+                            m.export_include_dirs
+                                .iter()
+                                .map(|(trgt, path)| (trgt.clone(), path.as_path()))
+                                .collect(),
                         )
                     })
                     .collect()
@@ -1601,17 +1607,22 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     .filter_map(|m| {
                         m.sources.as_ref().map(|s| {
                             // Collect include dirs from export_include_dirs of package and direct dependencies
-                            let mut export_include_dirs: IndexMap<String, IndexSet<&Path>> =
-                                IndexMap::new();
+                            let mut export_include_dirs: IndexMap<
+                                String,
+                                Vec<(TargetSpec, &Path)>,
+                            > = IndexMap::new();
                             export_include_dirs.insert(
                                 m.package.name.clone(),
-                                m.export_include_dirs.iter().map(PathBuf::as_path).collect(),
+                                m.export_include_dirs
+                                    .iter()
+                                    .map(|(trgt, path)| (trgt.clone(), path.as_path()))
+                                    .collect(),
                             );
                             if !m.dependencies.is_empty() {
                                 for i in m.dependencies.keys() {
                                     if !all_export_include_dirs.contains_key(i) {
                                         Warnings::ExportDirNameIssue(i.clone()).emit();
-                                        export_include_dirs.insert(i.to_string(), IndexSet::new());
+                                        export_include_dirs.insert(i.to_string(), Vec::new());
                                     } else {
                                         export_include_dirs.insert(
                                             i.to_string(),

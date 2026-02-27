@@ -171,6 +171,9 @@ sources:
   - include_dirs:
       - src/include
       - src/stuff/include
+      # Include directories can be additionally filtered with targets
+      - target: core_target
+        dir: core_target/include
     defines:
       # Define without a value.
       EXCLUDE_MAGIC: ~
@@ -197,10 +200,14 @@ sources:
 
 # A list of include directories which should implicitly be added to source
 # file groups of packages that have the current package as a dependency.
+# Export include directories are also added to the current package.
 # Optional.
 export_include_dirs:
   - include
   - uvm/magic/include
+  # Include directories can be filtered with targets
+  - target: target
+    dir: target/include
 
 # Additional workspace configuration. Optional.
 workspace:
