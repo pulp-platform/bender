@@ -10,12 +10,12 @@ use clap::Args;
 use indexmap::IndexSet;
 use tabwriter::TabWriter;
 
+use crate::Result;
 use crate::cmd;
 use crate::config::{Locked, LockedPackage};
 use crate::debugln;
 use crate::diagnostic::Warnings;
 use crate::ensure;
-use crate::error::*;
 use crate::lockfile::*;
 use crate::resolver::DependencyResolver;
 use crate::sess::Session;

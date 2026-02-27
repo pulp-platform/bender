@@ -12,8 +12,8 @@ use std::process::Command as SysCommand;
 
 use miette::IntoDiagnostic as _;
 
+use crate::Result;
 use crate::bail;
-use crate::error::*;
 
 /// Execute the `init` subcommand.
 pub fn run() -> Result<()> {

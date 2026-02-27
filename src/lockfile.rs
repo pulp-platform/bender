@@ -6,9 +6,9 @@ use std::path::Path;
 
 use miette::{Context as _, IntoDiagnostic as _};
 
+use crate::Result;
 use crate::config::{Locked, LockedPackage, LockedSource, PrefixPaths};
 use crate::debugln;
-use crate::error::*;
 
 /// Read a lock file.
 pub fn read_lockfile(path: &Path, root_dir: &Path) -> Result<Locked> {

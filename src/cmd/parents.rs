@@ -12,8 +12,8 @@ use miette::IntoDiagnostic as _;
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
+use crate::Result;
 use crate::config::Dependency;
-use crate::error::*;
 use crate::sess::{DependencyConstraint, DependencySource};
 use crate::sess::{Session, SessionIo};
 use crate::{fmt_path, fmt_version};

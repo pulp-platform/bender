@@ -14,9 +14,9 @@ use std::path::Path;
 use indexmap::{IndexMap, IndexSet};
 use serde::{Serialize, Serializer};
 
+use crate::Error;
 use crate::config::{Validate, ValidationContext};
 use crate::diagnostic::Warnings;
-use crate::error::Error;
 use crate::target::{TargetSet, TargetSpec};
 use semver;
 
@@ -48,7 +48,7 @@ pub struct SourceGroup<'ctx> {
 impl<'ctx> Validate for SourceGroup<'ctx> {
     type Output = SourceGroup<'ctx>;
     type Error = Error;
-    fn validate(self, vctx: &ValidationContext) -> crate::error::Result<SourceGroup<'ctx>> {
+    fn validate(self, vctx: &ValidationContext) -> crate::Result<SourceGroup<'ctx>> {
         Ok(SourceGroup {
             files: self
                 .files

@@ -13,10 +13,10 @@ use serde::Serialize;
 use tera::{Context, Tera};
 use tokio::runtime::Runtime;
 
+use crate::Result;
 use crate::cmd::sources::get_passed_targets;
 use crate::config::{Validate, ValidationContext};
 use crate::diagnostic::Warnings;
-use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::TargetSet;

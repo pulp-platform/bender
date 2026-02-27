@@ -21,13 +21,13 @@ use miette::{Context as _, IntoDiagnostic as _};
 use serde_yaml_ng;
 use tokio::runtime::Runtime;
 
+use crate::Result;
 use crate::cmd;
 use crate::cmd::fusesoc::FusesocArgs;
 use crate::config::{
     Config, Manifest, Merge, PartialConfig, PrefixPaths, Validate, ValidationContext,
 };
-use crate::diagnostic::{Diagnostics, Warnings};
-use crate::error::*;
+use crate::diagnostic::{Diagnostics, ENABLE_DEBUG, Warnings};
 use crate::lockfile::*;
 use crate::sess::{Session, SessionArenas, SessionIo};
 use crate::{bail, err};

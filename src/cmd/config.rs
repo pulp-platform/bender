@@ -9,7 +9,7 @@ use std::io::Write;
 use miette::{Context as _, IntoDiagnostic as _};
 use serde_json;
 
-use crate::error::*;
+use crate::Result;
 use crate::sess::Session;
 
 /// Execute the `config` subcommand.

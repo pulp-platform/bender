@@ -20,9 +20,9 @@ use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 use walkdir::{DirEntry, WalkDir};
 
+use crate::Result;
 use crate::diagnostic::Warnings;
 use crate::err;
-use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup};
 use crate::target::TargetSet;

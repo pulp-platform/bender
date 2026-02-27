@@ -11,12 +11,12 @@ use indexmap::IndexMap;
 use miette::{Context as _, IntoDiagnostic as _};
 use tokio::runtime::Runtime;
 
+use crate::Result;
 use crate::bail;
 use crate::cli::{remove_symlink_dir, symlink_dir};
 use crate::config;
 use crate::config::{Locked, LockedSource};
 use crate::diagnostic::Warnings;
-use crate::error::*;
 use crate::infoln;
 use crate::sess::{DependencyRef, DependencySource, Session, SessionIo};
 use crate::{debugln, fmt_path, fmt_pkg, stageln};

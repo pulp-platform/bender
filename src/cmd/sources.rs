@@ -14,8 +14,8 @@ use miette::{Context as _, IntoDiagnostic as _};
 use serde_json;
 use tokio::runtime::Runtime;
 
+use crate::Result;
 use crate::config::{Dependency, Validate, ValidationContext};
-use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::target::{TargetSet, TargetSpec};
 

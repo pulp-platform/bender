@@ -4,6 +4,7 @@
 use std::collections::HashSet;
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Mutex, OnceLock};
 
 use indicatif::MultiProgress;
@@ -14,6 +15,51 @@ use thiserror::Error;
 use crate::{fmt_dim, fmt_field, fmt_path, fmt_pkg, fmt_version, fmt_with_style};
 
 static GLOBAL_DIAGNOSTICS: OnceLock<Diagnostics> = OnceLock::new();
+pub static ENABLE_DEBUG: AtomicBool = AtomicBool::new(false);
+
+/// Emit a diagnostic message.
+#[macro_export]
+macro_rules! diagnostic {
+    ($prefix:expr; $($arg:tt)*) => {
+        $crate::diagnostic::Diagnostics::eprintln(&format!("{:>14} {}", $prefix, format!($($arg)*)))
+    }
+}
+
+/// Print an error.
+#[macro_export]
+macro_rules! errorln {
+    ($($arg:tt)*) => { $crate::diagnostic!($crate::fmt_with_style!("Error", owo_colors::Style::new().red().bold()); $($arg)*); }
+}
+
+/// Print an informational note.
+#[macro_export]
+macro_rules! infoln {
+    ($($arg:tt)*) => { $crate::diagnostic!($crate::fmt_with_style!("Info", owo_colors::Style::new().white().bold()); $($arg)*); }
+}
+
+/// Print debug information. Omitted in release builds.
+#[macro_export]
+#[cfg(debug_assertions)]
+macro_rules! debugln {
+    ($($arg:tt)*) => {
+        if $crate::diagnostic::ENABLE_DEBUG.load(std::sync::atomic::Ordering::Relaxed) {
+            $crate::diagnostic!($crate::fmt_with_style!("Debug", owo_colors::Style::new().blue().bold()); $($arg)*);
+        }
+    }
+}
+
+/// Print debug information. Omitted in release builds.
+#[macro_export]
+#[cfg(not(debug_assertions))]
+macro_rules! debugln {
+    ($($arg:tt)*) => {};
+}
+
+/// Format and print stage progress.
+#[macro_export]
+macro_rules! stageln {
+    ($stage_name:expr, $($arg:tt)*) => { $crate::diagnostic!($crate::fmt_with_style!($stage_name, owo_colors::Style::new().green().bold()); $($arg)*); }
+}
 
 /// A diagnostics manager that handles warnings (and errors).
 #[derive(Debug)]

@@ -7,7 +7,7 @@ use clap::Args;
 use miette::IntoDiagnostic as _;
 use tokio::runtime::Runtime;
 
-use crate::error::*;
+use crate::Result;
 use crate::fmt_dim;
 use crate::infoln;
 use crate::sess::{Session, SessionIo};

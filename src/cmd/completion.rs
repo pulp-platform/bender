@@ -5,7 +5,7 @@
 
 use std::io;
 
-use crate::error::*;
+use crate::Result;
 use clap::{Args, Command};
 use clap_complete::{Shell, generate};
 

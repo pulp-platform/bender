@@ -25,13 +25,13 @@ use tokio::runtime::Runtime;
 use crate::config::{self, Locked, LockedPackage, LockedSource, Manifest};
 use crate::debugln;
 use crate::diagnostic::Warnings;
-use crate::error::*;
 use crate::sess::{
     DependencyConstraint, DependencyRef, DependencySource, DependencyVersion, DependencyVersions,
     Session, SessionIo,
 };
 use crate::target::TargetSpec;
 use crate::util::{version_req_bottom_bound, version_req_top_bound};
+use crate::{Error, Result};
 use crate::{bail, err};
 use crate::{fmt_path, fmt_pkg, fmt_version};
 

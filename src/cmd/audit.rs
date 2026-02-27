@@ -13,8 +13,8 @@ use semver::VersionReq;
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
+use crate::Result;
 use crate::cmd::parents::get_parent_array;
-use crate::error::*;
 use crate::sess::{DependencyVersions, Session, SessionIo};
 
 /// Get information about version conflicts and possible updates.

@@ -27,9 +27,9 @@ use serde_yaml_ng::Value;
 use subst;
 
 use crate::diagnostic::Warnings;
-use crate::error::*;
 use crate::target::TargetSpec;
 use crate::util::*;
+use crate::{Error, Result};
 use crate::{bail, err};
 
 /// A package manifest.

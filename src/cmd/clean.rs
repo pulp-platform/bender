@@ -6,7 +6,7 @@ use std::path::Path;
 use miette::{Context as _, IntoDiagnostic as _};
 use std::fs;
 
-use crate::error::*;
+use crate::Result;
 use crate::infoln;
 use crate::sess::Session;
 
