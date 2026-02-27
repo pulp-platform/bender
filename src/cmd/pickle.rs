@@ -221,7 +221,7 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
                 }
                 // Groups should not exist at this point,
                 // as we have already flattened the sources.
-                _ => None,
+                _ => unreachable!(),
             })
             .collect();
 
