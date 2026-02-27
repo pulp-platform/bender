@@ -15,8 +15,7 @@ use indexmap::{IndexMap, IndexSet};
 use serde::{Serialize, Serializer};
 
 use crate::config::{Validate, ValidationContext};
-use crate::diagnostic::{Diagnostics, Warnings};
-use crate::err;
+use crate::diagnostic::Warnings;
 use crate::error::Error;
 use crate::target::{TargetSet, TargetSpec};
 use semver;
@@ -401,19 +400,14 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                 let env_path_buf =
                     crate::config::env_path_from_string(path.to_string_lossy().to_string())?;
                 let exists = env_path_buf.exists() && env_path_buf.is_file();
-                if exists || Diagnostics::is_suppressed("E31") {
-                    if !exists {
-                        Warnings::FileMissing {
-                            path: env_path_buf.clone(),
-                        }
-                        .emit();
-                    }
+                if exists {
                     Ok(SourceFile::File(path, ty))
                 } else {
-                    Err(err!(
-                        "[E31] File {} doesn't exist",
-                        env_path_buf.to_string_lossy()
-                    ))
+                    Warnings::FileMissing {
+                        path: env_path_buf.clone(),
+                    }
+                    .emit_or_error()?;
+                    Ok(SourceFile::File(path, ty))
                 }
             }
             SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate(vctx)?))),

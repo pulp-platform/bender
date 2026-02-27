@@ -1373,24 +1373,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Err(e) => Err(e),
                     }
                 } else {
-                    if !(Diagnostics::is_suppressed("E32")) {
-                        if let DepSrc::Path(ref path) = dep.source {
-                            if !path.exists() {
-                                if Diagnostics::is_suppressed("E32") {
-                                    Warnings::DepPathMissing {
-                                        pkg: dep.name.clone(),
-                                        path: path.to_path_buf(),
-                                    }
-                                    .emit();
-                                } else {
-                                    bail!(
-                                        "[E32] Path {:?} for dependency {:?} does not exist.",
-                                        path,
-                                        dep.name
-                                    );
-                                }
-                            }
+                    if !path.exists() {
+                        Warnings::DepPathMissing {
+                            pkg: dep.name.clone(),
+                            path: path.to_path_buf(),
                         }
+                        .emit_or_error()?;
                     }
                     Warnings::ManifestNotFound {
                         pkg: dep.name.clone(),

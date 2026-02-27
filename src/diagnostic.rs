@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
 use indicatif::MultiProgress;
-use miette::{Diagnostic, ReportHandler};
+use miette::{Diagnostic, MietteDiagnostic, ReportHandler, Severity};
 use owo_colors::Style;
 use thiserror::Error;
 
@@ -105,6 +105,34 @@ impl Warnings {
         // Prepare and emit the report
         let report = miette::Report::new(self.clone());
         Diagnostics::eprintln(&format!("{report:?}"));
+    }
+
+    /// Checks if the warning is suppressed as an error. If so, it emits the warning.
+    /// Otherwise, it returns the warning as an error.
+    pub fn emit_or_error(self) -> miette::Result<()> {
+        let warning_code = self
+            .code()
+            .expect("All warning diagnostics must define a code")
+            .to_string();
+        let error_code = format!(
+            "E{}",
+            warning_code
+                .strip_prefix('W')
+                .expect("Warning code must start with `W`")
+        );
+        if Diagnostics::is_suppressed(&error_code) {
+            self.emit();
+            Ok(())
+        } else {
+            // Construct a dynamic diagnostic with the same message, help, but with the error code and severity.
+            let mut err = MietteDiagnostic::new(self.to_string())
+                .with_code(error_code)
+                .with_severity(Severity::Error);
+            if let Some(help) = self.help().map(|h| h.to_string()) {
+                err = err.with_help(help);
+            }
+            Err(err.into())
+        }
     }
 }
 
