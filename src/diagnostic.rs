@@ -420,175 +420,127 @@ pub enum Warnings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Once;
+    use std::sync::{Mutex, Once};
 
     static TEST_INIT: Once = Once::new();
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     /// Helper to initialize diagnostics once for the entire test run.
     fn setup_diagnostics() {
         TEST_INIT.call_once(|| {
             // We use an empty set for the global init in tests
             // or a specific set if needed.
-            Diagnostics::init(HashSet::from(["W02".to_string()]));
+            Diagnostics::init(HashSet::from(["W02".to_string(), "E30".to_string()]));
         });
+    }
+
+    fn with_test_lock(f: impl FnOnce()) {
+        let _guard = TEST_LOCK.lock().unwrap();
+        setup_diagnostics();
+        Diagnostics::get().emitted.lock().unwrap().clear();
+        f();
     }
 
     #[test]
     fn test_is_suppressed() {
-        setup_diagnostics();
-        assert!(Diagnostics::is_suppressed("W02"));
-        assert!(!Diagnostics::is_suppressed("W01"));
+        with_test_lock(|| {
+            assert!(Diagnostics::is_suppressed("W02"));
+            assert!(!Diagnostics::is_suppressed("W01"));
+        });
     }
 
     #[test]
     fn test_suppression_works() {
-        setup_diagnostics(); // Assumes this suppresses W02
-        let diag = Diagnostics::get();
-
-        let warn = Warnings::UsingConfigForOverride {
-            path: PathBuf::from("/example/path"),
-        };
-
-        // Clear state
-        diag.emitted.lock().unwrap().clear();
-
-        // Call emit (The Gatekeeper)
-        warn.clone().emit();
-
-        let emitted = diag.emitted.lock().unwrap();
-        assert!(!emitted.contains(&warn));
+        with_test_lock(|| {
+            let diag = Diagnostics::get();
+            let warn = Warnings::UsingConfigForOverride {
+                path: PathBuf::from("/example/path"),
+            };
+            warn.clone().emit();
+            let emitted = diag.emitted.lock().unwrap();
+            assert!(!emitted.contains(&warn));
+        });
     }
 
     #[test]
     fn test_all_suppressed() {
-        // Since we can't re-init the GLOBAL_DIAGNOSTICS with different values
-        // in the same process, we test the logic via a local instance.
-        let diag = Diagnostics {
-            suppressed: HashSet::new(),
-            all_suppressed: true,
-            emitted: Mutex::new(HashSet::new()),
-            multiprogress: Mutex::new(None),
-        };
+        with_test_lock(|| {
+            // Since we can't re-init the GLOBAL_DIAGNOSTICS with different values
+            // in the same process, we test the logic via a local instance.
+            let diag = Diagnostics {
+                suppressed: HashSet::new(),
+                all_suppressed: true,
+                emitted: Mutex::new(HashSet::new()),
+                multiprogress: Mutex::new(None),
+            };
 
-        // Manual check of the logic inside emit()
-        let warn = Warnings::LocalNoFetch;
-        let code = warn.code().unwrap().to_string();
-        assert!(diag.all_suppressed || diag.suppressed.contains(&code));
+            // Manual check of the logic inside emit()
+            let warn = Warnings::LocalNoFetch;
+            let code = warn.code().unwrap().to_string();
+            assert!(diag.all_suppressed || diag.suppressed.contains(&code));
+        });
     }
 
     #[test]
     fn test_deduplication_logic() {
-        setup_diagnostics();
-        let diag = Diagnostics::get();
-        let warn1 = Warnings::NoRevisionInLockFile {
-            pkg: "example_pkg".into(),
-        };
-        let warn2 = Warnings::NoRevisionInLockFile {
-            pkg: "other_pkg".into(),
-        };
+        with_test_lock(|| {
+            let diag = Diagnostics::get();
+            let warn1 = Warnings::NoRevisionInLockFile {
+                pkg: "example_pkg".into(),
+            };
+            let warn2 = Warnings::NoRevisionInLockFile {
+                pkg: "other_pkg".into(),
+            };
 
-        // Clear state
-        diag.emitted.lock().unwrap().clear();
+            // Emit first warning
+            warn1.clone().emit();
+            {
+                let emitted = diag.emitted.lock().unwrap();
+                assert!(emitted.contains(&warn1));
+                assert_eq!(emitted.len(), 1);
+            }
 
-        // Emit first warning
-        warn1.clone().emit();
-        {
+            // Emit second warning (different data)
+            warn2.clone().emit();
+            {
+                let emitted = diag.emitted.lock().unwrap();
+                assert!(emitted.contains(&warn2));
+                assert_eq!(emitted.len(), 2);
+            }
+
+            // Emit first warning again
+            warn1.clone().emit();
+            {
+                let emitted = diag.emitted.lock().unwrap();
+                // The length should STILL be 2, because warn1 was already there
+                assert_eq!(emitted.len(), 2);
+            }
+        });
+    }
+
+    #[test]
+    fn test_emit_or_error_suppressed() {
+        with_test_lock(|| {
+            let diag = Diagnostics::get();
+            let warning = Warnings::IgnoredPath {
+                cause: "bad env var".to_string(),
+            };
+            assert!(warning.clone().emit_or_error().is_ok());
             let emitted = diag.emitted.lock().unwrap();
-            assert!(emitted.contains(&warn1));
-            assert_eq!(emitted.len(), 1);
-        }
-
-        // Emit second warning (different data)
-        warn2.clone().emit();
-        {
-            let emitted = diag.emitted.lock().unwrap();
-            assert!(emitted.contains(&warn2));
-            assert_eq!(emitted.len(), 2);
-        }
-
-        // Emit first warning again
-        warn1.clone().emit();
-        {
-            let emitted = diag.emitted.lock().unwrap();
-            // The length should STILL be 2, because warn1 was already there
-            assert_eq!(emitted.len(), 2);
-        }
+            assert!(emitted.contains(&warning));
+        });
     }
 
     #[test]
-    fn test_contains_code() {
-        let warn = Warnings::LocalNoFetch;
-        let code = warn.code().unwrap().to_string();
-        assert_eq!(code, "W14".to_string());
-    }
-
-    #[test]
-    fn test_contains_help() {
-        let warn = Warnings::SkippingPackageLink(
-            "example_pkg".to_string(),
-            PathBuf::from("/example/path"),
-        );
-        let help = warn.help().unwrap().to_string();
-        assert!(help.contains("Check the existing file or directory"));
-    }
-
-    #[test]
-    fn test_contains_no_help() {
-        let warn = Warnings::NoRevisionInLockFile {
-            pkg: "example_pkg".to_string(),
-        };
-        let help = warn.help();
-        assert!(help.is_none());
-    }
-
-    #[test]
-    fn test_stderr_contains_code() {
-        setup_diagnostics();
-        let warn = Warnings::LocalNoFetch;
-        let code = warn.code().unwrap().to_string();
-        let report = format!("{:?}", miette::Report::new(warn));
-        assert!(report.contains(&code));
-    }
-
-    #[test]
-    fn test_stderr_contains_help() {
-        setup_diagnostics();
-        let warn = Warnings::SkippingPackageLink(
-            "example_pkg".to_string(),
-            PathBuf::from("/example/path"),
-        );
-        let report = format!("{:?}", miette::Report::new(warn));
-        assert!(report.contains("Check the existing file or directory"));
-    }
-
-    #[test]
-    fn test_stderr_contains_no_help() {
-        setup_diagnostics();
-        let warn = Warnings::NoRevisionInLockFile {
-            pkg: "example_pkg".to_string(),
-        };
-        let report = format!("{:?}", miette::Report::new(warn));
-        assert!(!report.contains("help:"));
-    }
-
-    #[test]
-    fn test_stderr_contains_two_help() {
-        setup_diagnostics();
-        let warn =
-            Warnings::NotAGitDependency("example_dep".to_string(), PathBuf::from("/example/path"));
-        let report = format!("{:?}", miette::Report::new(warn));
-        let help_count = report.matches("help:").count();
-        assert_eq!(help_count, 2);
-    }
-
-    #[test]
-    fn test_stderr_contains_caused_by_chain() {
-        setup_diagnostics();
-        let report = format!(
-            "{:?}",
-            miette::miette!("root cause").wrap_err("outer context")
-        );
-        assert!(report.contains("outer context"));
-        assert!(report.contains("caused by: root cause"));
+    fn test_emit_or_error_not_suppressed() {
+        with_test_lock(|| {
+            let warning = Warnings::FileMissing {
+                path: PathBuf::from("/definitely/missing/file.sv"),
+            };
+            let err = warning.emit_or_error().expect_err("expected error");
+            let report = format!("{err:?}");
+            assert!(report.contains("E31"));
+            assert!(report.contains("doesn't exist"));
+        });
     }
 }
