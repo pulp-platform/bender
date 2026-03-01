@@ -1,0 +1,6 @@
+[target.x86_64-unknown-linux-gnu]
+linker = "/usr/pack/gcc-14.2.0-af/bin/gcc"
+
+[env]
+CC = "/usr/pack/gcc-14.2.0-af/bin/gcc"
+CXX = "/usr/pack/gcc-14.2.0-af/bin/g++"

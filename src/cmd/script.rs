@@ -546,15 +546,7 @@ fn emit_template(
         separate_files_in_group(
             src,
             |f| match f {
-                SourceFile::File(p, fmt) => match fmt {
-                    Some(SourceType::Verilog) => Some(SourceType::Verilog),
-                    Some(SourceType::Vhdl) => Some(SourceType::Vhdl),
-                    _ => match p.extension().and_then(std::ffi::OsStr::to_str) {
-                        Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
-                        Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
-                        _ => Some(SourceType::Unknown),
-                    },
-                },
+                SourceFile::File(_, fmt) => *fmt,
                 _ => None,
             },
             |src, ty, files| {
@@ -611,21 +603,17 @@ fn emit_template(
                             SourceFile::Group(_) => unreachable!(),
                         })
                         .collect(),
-                    file_type: match ty {
-                        SourceType::Verilog => "verilog".to_string(),
-                        SourceType::Vhdl => "vhdl".to_string(),
-                        SourceType::Unknown => "".to_string(),
-                    },
+                    file_type: Some(ty),
                 });
             },
         );
     }
     for src in &split_srcs {
-        match src.file_type.as_str() {
-            "verilog" => {
+        match src.file_type {
+            Some(SourceType::Verilog) => {
                 all_verilog.append(&mut src.files.clone().into_iter().collect());
             }
-            "vhdl" => {
+            Some(SourceType::Vhdl) => {
                 all_vhdl.append(&mut src.files.clone().into_iter().collect());
             }
             _ => {
@@ -683,5 +671,5 @@ struct TplSrcStruct {
     defines: IndexSet<(String, Option<String>)>,
     incdirs: IndexSet<PathBuf>,
     files: IndexSet<FileEntry>,
-    file_type: String,
+    file_type: Option<SourceType>,
 }

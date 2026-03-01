@@ -414,17 +414,26 @@ impl<'ctx> Session<'ctx> {
             .files
             .iter()
             .map(|file| match *file {
-                config::SourceFile::File(ref path) => (path as &Path).into(),
+                config::SourceFile::File(ref path) => {
+                    let ty = match path.extension().and_then(std::ffi::OsStr::to_str) {
+                        Some("sv") | Some("v") | Some("vp") | Some("svh") => {
+                            Some(crate::src::SourceType::Verilog)
+                        }
+                        Some("vhd") | Some("vhdl") => Some(crate::src::SourceType::Vhdl),
+                        _ => None,
+                    };
+                    crate::src::SourceFile::File(path as &Path, ty)
+                }
                 config::SourceFile::SvFile(ref path) => crate::src::SourceFile::File(
                     path as &Path,
-                    &Some(crate::src::SourceType::Verilog),
+                    Some(crate::src::SourceType::Verilog),
                 ),
                 config::SourceFile::VerilogFile(ref path) => crate::src::SourceFile::File(
                     path as &Path,
-                    &Some(crate::src::SourceType::Verilog),
+                    Some(crate::src::SourceType::Verilog),
                 ),
                 config::SourceFile::VhdlFile(ref path) => {
-                    crate::src::SourceFile::File(path as &Path, &Some(crate::src::SourceType::Vhdl))
+                    crate::src::SourceFile::File(path as &Path, Some(crate::src::SourceType::Vhdl))
                 }
                 config::SourceFile::Group(ref group) => self
                     .load_sources(

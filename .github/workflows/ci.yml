@@ -20,15 +20,17 @@ jobs:
           - 1.87.0 # minimum supported version
     continue-on-error: ${{ matrix.rust == 'nightly' }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust}}
           components: rustfmt
       - name: Build
-        run: cargo build
+        run: cargo build --all-features
       - name: Cargo Test
-        run: cargo test --all
+        run: cargo test --workspace --all-features
       - name: Format (fix with `cargo fmt`)
         run: cargo fmt -- --check
       - name: Run unit-tests
@@ -38,14 +40,16 @@ jobs:
   test-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
       - name: Build
-        run: cargo build
+        run: cargo build --all-features
       - name: Cargo Test
-        run: cargo test --all
+        run: cargo test --workspace --all-features
       - name: Run unit-tests
         run: tests/run_all.sh
         shell: bash
@@ -53,14 +57,16 @@ jobs:
   test-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
       - name: Build
-        run: cargo build
+        run: cargo build --all-features
       - name: Cargo Test
-        run: cargo test --all
+        run: cargo test --workspace --all-features
       - name: Run unit-tests
         run: tests/run_all.sh
         shell: bash
@@ -69,7 +75,9 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
@@ -80,7 +88,7 @@ jobs:
     name: Unused Dependencies
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable

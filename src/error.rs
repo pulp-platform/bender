@@ -145,3 +145,10 @@ impl From<std::io::Error> for Error {
         Error::chain("Cannot startup runtime.".to_string(), err)
     }
 }
+
+#[cfg(feature = "slang")]
+impl From<bender_slang::SlangError> for Error {
+    fn from(err: bender_slang::SlangError) -> Error {
+        Error::chain("Slang error:", err)
+    }
+}

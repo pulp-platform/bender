@@ -394,6 +394,10 @@ pub enum Warnings {
     #[error("Override files in {} does not support additional fields like include_dirs, defines, etc.", fmt_pkg!(.0))]
     #[diagnostic(code(W33))]
     OverrideFilesWithExtras(String),
+
+    #[error("File {} is not a Verilog file and will be ignored in the pickle output.", fmt_path!(.0.display()))]
+    #[diagnostic(code(W34))]
+    PickleNonVerilogFile(PathBuf),
 }
 
 #[cfg(test)]
