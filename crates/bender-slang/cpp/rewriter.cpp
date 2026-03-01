@@ -49,7 +49,7 @@ class MappedRewriter : public SyntaxRewriter<MappedRewriter> {
         return string_view(it->second);
     }
 
-    // e.g.: "module top;" -> "module p_top_s;".
+    // e.g.: "module top;" -> "module p_top_s;" and "endmodule : top" -> "endmodule : p_top_s".
     void handle(const ModuleDeclarationSyntax& node) {
         if (node.header->name.isMissing())
             return;
@@ -67,6 +67,15 @@ class MappedRewriter : public SyntaxRewriter<MappedRewriter> {
 
         replace(*node.header, *newHeader);
         declRenamed++;
+
+        // Also rename the end label if present (e.g., `endmodule : module_name`).
+        if (node.blockName && !node.blockName->name.isMissing()) {
+            auto newBlockNameToken = node.blockName->name.withRawText(alloc, newName);
+            NamedBlockClauseSyntax* newBlockName = deepClone(*node.blockName, alloc);
+            newBlockName->name = newBlockNameToken;
+            replace(*node.blockName, *newBlockName);
+        }
+
         visitDefault(node);
     }
 
