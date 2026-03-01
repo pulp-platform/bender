@@ -1,0 +1,20 @@
+package:
+  name: pickle_repo
+
+sources:
+  - defines:
+      ENABLE_LOGGING: 1
+    files:
+      - src/common_pkg.sv
+      - src/bus_intf.sv
+      - src/leaf.sv
+      - src/core.sv
+      - src/unused_leaf.sv
+      - src/unused_top.sv
+      - src/named_end.sv
+
+  - target: top
+    include_dirs:
+      - include
+    files:
+      - src/top.sv

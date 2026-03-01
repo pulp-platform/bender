@@ -1,6 +1,9 @@
-.*
-!/.ci/
-!.git*
-!.travis.yml
-/target
-/tests/tmp
+# Cargo build files
+target
+
+# Temporary test files
+tests/**/tmp
+tests/**/.bender
+
+# clangd
+.cache/clangd

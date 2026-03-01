@@ -161,5 +161,8 @@ regression_tests! {
     packages:                       &["packages"],
     packages_graph:                 &["packages", "--graph"],
     packages_flat:                  &["packages", "--flat"],
+    // Enable once the golden binary is built with `slang` support.
+    // pickle_basic:                   &["pickle", "--target", "top"],
+    // pickle_top_trim:                &["pickle", "--target", "top", "--top", "top"],
 
 }

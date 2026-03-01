@@ -1,0 +1,18 @@
+---
+Language:        Cpp
+BasedOnStyle:    LLVM
+
+# 4 spaces everywhere
+IndentWidth:     4
+TabWidth:        4
+UseTab:          Never
+ContinuationIndentWidth: 4
+
+# Modern C++ style
+Standard:        c++20
+ColumnLimit:     120
+PointerAlignment: Left
+
+# Organize includes
+SortIncludes:    true
+IncludeBlocks:   Regroup
