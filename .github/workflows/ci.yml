@@ -12,68 +12,30 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }}, Rust ${{ matrix.rust }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.rust == 'nightly' }}
     strategy:
       fail-fast: false
       matrix:
-        rust:
-          - stable
-          - beta
-          - nightly
-          - 1.87.0 # minimum supported version
-    continue-on-error: ${{ matrix.rust == 'nightly' }}
+        # Linux runs the full Rust version matrix; Windows and macOS test stable only.
+        os: [ubuntu-latest]
+        rust: [stable, beta, nightly, "1.87.0"]
+        include:
+          - os: windows-latest
+            rust: stable
+          - os: macos-latest
+            rust: stable
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ matrix.rust}}
+          toolchain: ${{ matrix.rust }}
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-test-${{ runner.os }}-${{ matrix.rust }}
-          cache-workspace-crates: "true"
-      - name: Build
-        run: cargo build --all-features
-      - name: Cargo Test
-        run: cargo test --workspace --all-features
-      - name: Run unit-tests
-        run: tests/run_all.sh
-        shell: bash
-
-  test-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci-test-windows-${{ runner.os }}-stable
-          cache-workspace-crates: "true"
-      - name: Build
-        run: cargo build --all-features
-      - name: Cargo Test
-        run: cargo test --workspace --all-features
-      - name: Run unit-tests
-        run: tests/run_all.sh
-        shell: bash
-
-  test-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci-test-macos-${{ runner.os }}-stable
+          shared-key: ci-test-${{ matrix.os }}-${{ matrix.rust }}
           cache-workspace-crates: "true"
       - name: Build
         run: cargo build --all-features
