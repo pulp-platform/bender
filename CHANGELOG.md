@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
+## 0.31.0 - 2026-03-03
+### Fixed
+- Fix panic for untracked dependencies on update (https://github.com/pulp-platform/bender/pull/269).
+- Fix scripts for unknown file types in manifest (https://github.com/pulp-platform/bender/pull/270).
+- Fix upper bound for caret version requirements (https://github.com/pulp-platform/bender/pull/273).
+- Fix dependency fetching on update for unfetched versions/revisions (https://github.com/pulp-platform/bender/pull/274).
+- Fix `vendor init` patch application (https://github.com/pulp-platform/bender/pull/284).
+
+### Added
+- Add warning for untracked revision used for a dependency (https://github.com/pulp-platform/bender/pull/274).
+- Add `--new-only` flag to `update` to only update dependencies which are not yet fetched (https://github.com/pulp-platform/bender/pull/275).
+- Add ability to override files with same name (https://github.com/pulp-platform/bender/pull/267).
+- Add target filtering for include directories (https://github.com/pulp-platform/bender/pull/281).
+
+### Changed
+- Adjust script template json to support per-file comments (https://github.com/pulp-platform/bender/pull/267).
+- Only fetch needed dependencies (https://github.com/pulp-platform/bender/pull/276).
+- `script`: Invert source-annotations polarity, disabling by default (https://github.com/pulp-platform/bender/pull/280).
+
 ## 0.30.0 - 2026-02-12
 ### Added
 - Add warnings for nonexistent include directory and errors for missing path dependency (https://github.com/pulp-platform/bender/pull/229).
