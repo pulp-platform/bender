@@ -17,7 +17,7 @@ use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup, SourceType};
-use crate::target::TargetSet;
+use crate::target::{TargetSet, TargetSpec};
 
 use bender_slang::{SlangPrintOpts, SlangSession, SyntaxTreeRewriter};
 
@@ -130,8 +130,8 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
         let include_dirs = args
             .include_dir
             .iter()
-            .map(|d| sess.intern_path(Path::new(d)))
-            .collect::<IndexSet<_>>();
+            .map(|d| (TargetSpec::Wildcard, sess.intern_path(Path::new(d))))
+            .collect();
         let defines = args
             .define
             .iter()
@@ -172,7 +172,7 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
             .include_dirs
             .iter()
             .chain(src_group.export_incdirs.values().flatten())
-            .map(|path| path.to_string_lossy().into_owned())
+            .map(|(_, path)| path.to_string_lossy().into_owned())
             .chain(args.include_dir.iter().cloned())
             .collect::<IndexSet<_>>()
             .into_iter()
