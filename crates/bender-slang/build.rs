@@ -94,36 +94,6 @@ fn main() {
         .include("vendor/slang/external")
         .include(dst.join("include"));
 
-    // Linux: we try static linking of libstdc++ to avoid issues on older distros.
-    if target_os == "linux" {
-        // Determine the C++ compiler to use. Respect the CXX environment variable if set.
-        let compiler = std::env::var("CXX").unwrap_or_else(|_| "g++".to_string());
-        // We search for the static libstdc++ file using g++
-        let output = std::process::Command::new(&compiler)
-            .args(&["-print-file-name=libstdc++.a"])
-            .output()
-            .expect("Failed to run g++");
-
-        if output.status.success() {
-            let path_str = std::str::from_utf8(&output.stdout).unwrap().trim();
-            let path = std::path::Path::new(path_str);
-
-            if path.is_absolute() && path.exists() {
-                if let Some(parent) = path.parent() {
-                    // Add the directory containing libstdc++.a to the link search path
-                    println!("cargo:rustc-link-search=native={}", parent.display());
-                }
-
-                bridge_build.cpp_set_stdlib(None);
-                println!("cargo:rustc-link-lib=static=stdc++");
-            } else {
-                println!(
-                    "cargo:warning=Could not find static libstdc++.a, falling back to dynamic linking"
-                );
-            }
-        }
-    }
-
     // Apply common defines and flags to the bridge build as well
     for (def, value) in common_cxx_defines.iter() {
         bridge_build.define(def, *value);
