@@ -353,7 +353,7 @@ pub fn init(
         )
     })?;
 
-    if no_patch {
+    if !no_patch {
         apply_patches(
             rt,
             git.clone(),
