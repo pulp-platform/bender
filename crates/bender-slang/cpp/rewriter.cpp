@@ -13,48 +13,44 @@ using namespace slang::parsing;
 
 using std::string_view;
 
+namespace {
+// Returns true for language-defined scoped roots that must never be renamed.
+bool is_reserved_scope_root(string_view name) {
+    return name == "$unit" || name == "local" || name == "super" || name == "this";
+}
+} // namespace
+
 std::unique_ptr<SyntaxTreeRewriter> new_syntax_tree_rewriter() { return std::make_unique<SyntaxTreeRewriter>(); }
 
-// A syntax visitor that collects the names of all declared modules/interfaces/packages in a syntax tree.
-class DeclarationCollector : public SyntaxVisitor<DeclarationCollector> {
+// Pass 1: collects declarations and renames declaration sites.
+class DeclarationRewriter : public SyntaxRewriter<DeclarationRewriter> {
   public:
-    explicit DeclarationCollector(std::unordered_set<std::string>& names) : names(names) {}
+    DeclarationRewriter(std::unordered_map<std::string, std::string>& renameMap, const std::string& prefix,
+                        const std::string& suffix, const std::unordered_set<std::string>& excludes,
+                        std::uint64_t& declRenamed)
+        : renameMap(renameMap), prefix(prefix), suffix(suffix), excludes(excludes), declRenamed(declRenamed) {}
 
-    void handle(const ModuleDeclarationSyntax& node) {
-        if (!node.header->name.isMissing()) {
-            names.insert(std::string(node.header->name.valueText()));
-        }
-        visitDefault(node);
-    }
-
-  private:
-    std::unordered_set<std::string>& names;
-};
-
-// Rewriter that renames declarations and references only if their declaration
-// exists in the precomputed renameMap.
-class MappedRewriter : public SyntaxRewriter<MappedRewriter> {
-  public:
-    MappedRewriter(const std::unordered_map<std::string, std::string>& renameMap, std::uint64_t& declRenamed,
-                   std::uint64_t& refRenamed)
-        : renameMap(renameMap), declRenamed(declRenamed), refRenamed(refRenamed) {}
-
-    // Returns the mapped name for the given name if it exists in the renameMap,
-    // or an empty string_view otherwise.
-    string_view mapped_name(string_view name) {
-        auto it = renameMap.find(std::string(name));
-        if (it == renameMap.end()) {
+    string_view declaration_name(string_view name) {
+        if (prefix.empty() && suffix.empty()) {
             return {};
         }
+        if (excludes.count(std::string(name))) {
+            return {};
+        }
+
+        auto [it, inserted] = renameMap.try_emplace(std::string(name), prefix + std::string(name) + suffix);
+        (void)inserted;
         return string_view(it->second);
     }
 
     // e.g.: "module top;" -> "module p_top_s;" and "endmodule : top" -> "endmodule : p_top_s".
     void handle(const ModuleDeclarationSyntax& node) {
-        if (node.header->name.isMissing())
+        if (node.header->name.isMissing()) {
+            visitDefault(node);
             return;
+        }
 
-        auto newName = mapped_name(node.header->name.valueText());
+        auto newName = declaration_name(node.header->name.valueText());
         if (newName.empty()) {
             visitDefault(node);
             return;
@@ -79,28 +75,77 @@ class MappedRewriter : public SyntaxRewriter<MappedRewriter> {
         visitDefault(node);
     }
 
-    // e.g.: "core u_core();" -> "p_core_s u_core();".
-    void handle(const HierarchyInstantiationSyntax& node) {
-        if (node.type.kind == TokenKind::Identifier) {
-            auto newName = mapped_name(node.type.valueText());
-            if (!newName.empty()) {
-                auto newNameToken = node.type.withRawText(alloc, newName);
+  private:
+    std::unordered_map<std::string, std::string>& renameMap;
+    const std::string& prefix;
+    const std::string& suffix;
+    const std::unordered_set<std::string>& excludes;
+    std::uint64_t& declRenamed;
+};
 
-                HierarchyInstantiationSyntax* newNode = deepClone(node, alloc);
-                newNode->type = newNameToken;
+// Pass 2: rewrites references based on the map built in pass 1.
+// Internally this is split into:
+//  - 2a structural references (instantiations / imports / virtual interfaces)
+//  - 2b scoped-name references
+class ReferenceRewriter : public SyntaxRewriter<ReferenceRewriter> {
+  public:
+    ReferenceRewriter(const std::unordered_map<std::string, std::string>& renameMap, std::uint64_t& refRenamed)
+        : renameMap(renameMap), refRenamed(refRenamed) {}
 
-                replace(node, *newNode, true);
-                refRenamed++;
-            }
+    string_view mapped_name(string_view name) const {
+        auto it = renameMap.find(std::string(name));
+        if (it == renameMap.end()) {
+            return {};
+        }
+        return string_view(it->second);
+    }
+
+    // Returns the mapped replacement for the left side of a scoped name
+    // (e.g. common_pkg in common_pkg::state_t), or empty if not renamable.
+    string_view mapped_scoped_left_name(const ScopedNameSyntax& node) const {
+        if (node.left->kind != SyntaxKind::IdentifierName) {
+            return {};
         }
 
-        visitDefault(node);
+        auto& leftNode = node.left->as<IdentifierNameSyntax>();
+        auto name = leftNode.identifier.valueText();
+        if (is_reserved_scope_root(name)) {
+            return {};
+        }
+        return mapped_name(name);
+    }
+
+    // e.g.: "core u_core();" -> "p_core_s u_core();".
+    void handle(const HierarchyInstantiationSyntax& node) {
+        if (node.type.kind != TokenKind::Identifier) {
+            visitDefault(node);
+            return;
+        }
+
+        auto newName = mapped_name(node.type.valueText());
+        if (newName.empty()) {
+            visitDefault(node);
+            return;
+        }
+
+        auto newNameToken = node.type.withRawText(alloc, newName);
+        HierarchyInstantiationSyntax* newNode = deepClone(node, alloc);
+        newNode->type = newNameToken;
+
+        // Preserve scoped renames in overridden parameters of this
+        // instantiation, which would otherwise be shadowed by replacing
+        // the whole instantiation node.
+        rewrite_scoped_names_inplace(*newNode);
+
+        replace(node, *newNode);
+        refRenamed++;
     }
 
     // e.g.: "import common_pkg::*;" -> "import p_common_pkg_s::*;".
     void handle(const PackageImportItemSyntax& node) {
-        if (node.package.isMissing())
+        if (node.package.isMissing()) {
             return;
+        }
 
         auto newName = mapped_name(node.package.valueText());
         if (newName.empty()) {
@@ -114,13 +159,13 @@ class MappedRewriter : public SyntaxRewriter<MappedRewriter> {
 
         replace(node, *newNode);
         refRenamed++;
-        visitDefault(node);
     }
 
     // e.g.: "virtual bus_intf v_if;" -> "virtual p_bus_intf_s v_if;".
     void handle(const VirtualInterfaceTypeSyntax& node) {
-        if (node.name.isMissing())
+        if (node.name.isMissing()) {
             return;
+        }
 
         auto newName = mapped_name(node.name.valueText());
         if (newName.empty()) {
@@ -134,46 +179,59 @@ class MappedRewriter : public SyntaxRewriter<MappedRewriter> {
 
         replace(node, *newNode);
         refRenamed++;
-        visitDefault(node);
     }
 
     // e.g.: "common_pkg::state_t" -> "p_common_pkg_s::state_t".
     void handle(const ScopedNameSyntax& node) {
-        if (node.left->kind == SyntaxKind::IdentifierName) {
-            auto& leftNode = node.left->as<IdentifierNameSyntax>();
-            auto name = leftNode.identifier.valueText();
-
-            if (name != "$unit" && name != "local" && name != "super" && name != "this") {
-                auto newName = mapped_name(name);
-                if (!newName.empty()) {
-                    auto newNameToken = leftNode.identifier.withRawText(alloc, newName);
-
-                    IdentifierNameSyntax* newLeft = deepClone(leftNode, alloc);
-                    newLeft->identifier = newNameToken;
-
-                    ScopedNameSyntax* newNode = deepClone(node, alloc);
-                    newNode->left = newLeft;
-
-                    replace(node, *newNode);
-                    refRenamed++;
-                }
-            }
+        auto newName = mapped_scoped_left_name(node);
+        if (newName.empty()) {
+            visitDefault(node);
+            return;
         }
 
-        visitDefault(node);
+        auto& leftNode = node.left->as<IdentifierNameSyntax>();
+        auto newNameToken = leftNode.identifier.withRawText(alloc, newName);
+
+        IdentifierNameSyntax* newLeft = deepClone(leftNode, alloc);
+        newLeft->identifier = newNameToken;
+
+        ScopedNameSyntax* newNode = deepClone(node, alloc);
+        newNode->left = newLeft;
+
+        replace(node, *newNode);
+        refRenamed++;
     }
 
   private:
+    // Rewrites only the left identifier of a scoped name in-place if mapped.
+    void rewrite_scoped_name_left(ScopedNameSyntax& node) {
+        auto newName = mapped_scoped_left_name(node);
+        if (newName.empty()) {
+            return;
+        }
+
+        auto& leftNode = node.left->as<IdentifierNameSyntax>();
+        leftNode.identifier = leftNode.identifier.withRawText(alloc, newName);
+        refRenamed++;
+    }
+
+    // Walks a subtree and rewrites all scoped-name left identifiers in-place.
+    // Used on cloned instantiation subtrees before replacing the parent node.
+    void rewrite_scoped_names_inplace(SyntaxNode& root) {
+        if (auto* scoped = root.as_if<ScopedNameSyntax>()) {
+            rewrite_scoped_name_left(*scoped);
+        }
+
+        for (size_t i = 0; i < root.getChildCount(); i++) {
+            if (auto* child = root.childNode(i)) {
+                rewrite_scoped_names_inplace(*child);
+            }
+        }
+    }
+
     const std::unordered_map<std::string, std::string>& renameMap;
-    std::uint64_t& declRenamed;
     std::uint64_t& refRenamed;
 };
-
-void SyntaxTreeRewriter::reset_rename_map() {
-    renameMap.clear();
-    renamedDeclarations = 0;
-    renamedReferences = 0;
-}
 
 void SyntaxTreeRewriter::set_prefix(rust::Str value) { prefix = std::string(value.data(), value.size()); }
 
@@ -186,38 +244,28 @@ void SyntaxTreeRewriter::set_excludes(const rust::Vec<rust::String> values) {
     }
 }
 
-// Registers all declarations in the given syntax tree by adding entries to the renameMap.
-void SyntaxTreeRewriter::register_declarations(std::shared_ptr<SyntaxTree> tree) {
+// Pass 1: collect declaration names and rename declaration sites.
+std::shared_ptr<SyntaxTree> SyntaxTreeRewriter::rewrite_declarations(std::shared_ptr<SyntaxTree> tree) {
     if (prefix.empty() && suffix.empty()) {
-        return;
-    }
-
-    // Collect all declared symbol names in the tree.
-    std::unordered_set<std::string> declaredNames;
-    DeclarationCollector collector(declaredNames);
-    collector.visit(tree->root());
-
-    // Populate the renameMap with new names for all collected declarations,
-    // except those in the excludes set.
-    for (const auto& name : declaredNames) {
-        if (excludes.count(name)) {
-            continue;
-        }
-        renameMap.insert_or_assign(name, prefix + name + suffix);
-    }
-}
-
-// Rewrites the given syntax tree by renaming declarations and references according to the renameMap.
-std::shared_ptr<SyntaxTree> SyntaxTreeRewriter::rewrite_tree(std::shared_ptr<SyntaxTree> tree) {
-    if (renameMap.empty()) {
         return tree;
     }
 
     std::uint64_t declRenamed = 0;
-    std::uint64_t refRenamed = 0;
-    MappedRewriter rewriter(renameMap, declRenamed, refRenamed);
+    DeclarationRewriter rewriter(renameMap, prefix, suffix, excludes, declRenamed);
     auto transformed = rewriter.transform(tree);
     renamedDeclarations += declRenamed;
+    return transformed;
+}
+
+// Pass 2: rename references using the map built in pass 1.
+std::shared_ptr<SyntaxTree> SyntaxTreeRewriter::rewrite_references(std::shared_ptr<SyntaxTree> tree) {
+    if (renameMap.empty()) {
+        return tree;
+    }
+
+    std::uint64_t refRenamed = 0;
+    ReferenceRewriter rewriter(renameMap, refRenamed);
+    auto transformed = rewriter.transform(tree);
     renamedReferences += refRenamed;
     return transformed;
 }

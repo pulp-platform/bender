@@ -50,13 +50,12 @@ class SlangSession {
 
 class SyntaxTreeRewriter {
   public:
-    void reset_rename_map();
-    void register_declarations(std::shared_ptr<slang::syntax::SyntaxTree> tree);
     void set_prefix(rust::Str prefix);
     void set_suffix(rust::Str suffix);
     void set_excludes(const rust::Vec<rust::String> excludes);
 
-    std::shared_ptr<slang::syntax::SyntaxTree> rewrite_tree(std::shared_ptr<slang::syntax::SyntaxTree> tree);
+    std::shared_ptr<slang::syntax::SyntaxTree> rewrite_declarations(std::shared_ptr<slang::syntax::SyntaxTree> tree);
+    std::shared_ptr<slang::syntax::SyntaxTree> rewrite_references(std::shared_ptr<slang::syntax::SyntaxTree> tree);
 
     std::uint64_t renamed_declarations() const { return renamedDeclarations; }
     std::uint64_t renamed_references() const { return renamedReferences; }

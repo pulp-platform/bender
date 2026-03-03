@@ -67,12 +67,14 @@ mod ffi {
         fn tree_at(session: &SlangSession, index: usize) -> Result<SharedPtr<SyntaxTree>>;
 
         fn new_syntax_tree_rewriter() -> UniquePtr<SyntaxTreeRewriter>;
-        fn reset_rename_map(self: Pin<&mut SyntaxTreeRewriter>);
-        fn register_declarations(self: Pin<&mut SyntaxTreeRewriter>, tree: SharedPtr<SyntaxTree>);
-        fn set_prefix(self: Pin<&mut SyntaxTreeRewriter>, prefix: &str);
         fn set_suffix(self: Pin<&mut SyntaxTreeRewriter>, suffix: &str);
         fn set_excludes(self: Pin<&mut SyntaxTreeRewriter>, excludes: Vec<String>);
-        fn rewrite_tree(
+        fn rewrite_declarations(
+            self: Pin<&mut SyntaxTreeRewriter>,
+            tree: SharedPtr<SyntaxTree>,
+        ) -> SharedPtr<SyntaxTree>;
+        fn set_prefix(self: Pin<&mut SyntaxTreeRewriter>, prefix: &str);
+        fn rewrite_references(
             self: Pin<&mut SyntaxTreeRewriter>,
             tree: SharedPtr<SyntaxTree>,
         ) -> SharedPtr<SyntaxTree>;
@@ -246,18 +248,19 @@ impl SyntaxTreeRewriter {
         self.inner.pin_mut().set_excludes(excludes);
     }
 
-    pub fn build_rename_map(&mut self, trees: &[SyntaxTree<'_>]) {
-        self.inner.pin_mut().reset_rename_map();
-        for tree in trees {
-            self.inner
+    pub fn rewrite_declarations<'a>(&mut self, tree: &SyntaxTree<'a>) -> SyntaxTree<'a> {
+        SyntaxTree {
+            inner: self
+                .inner
                 .pin_mut()
-                .register_declarations(tree.inner.clone());
+                .rewrite_declarations(tree.inner.clone()),
+            _session: PhantomData,
         }
     }
 
-    pub fn rewrite_tree<'a>(&mut self, tree: &SyntaxTree<'a>) -> SyntaxTree<'a> {
+    pub fn rewrite_references<'a>(&mut self, tree: &SyntaxTree<'a>) -> SyntaxTree<'a> {
         SyntaxTree {
-            inner: self.inner.pin_mut().rewrite_tree(tree.inner.clone()),
+            inner: self.inner.pin_mut().rewrite_references(tree.inner.clone()),
             _session: PhantomData,
         }
     }

@@ -165,21 +165,6 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
         squash_newlines: args.squash_newlines,
     };
 
-    // Setup Output Writer, either to file or stdout
-    let raw_writer: Box<dyn Write> = match &args.output {
-        Some(path) => Box::new(
-            File::create(path)
-                .map_err(|e| Error::new(format!("Cannot create output file: {}", e)))?,
-        ),
-        None => Box::new(std::io::stdout()),
-    };
-    let mut writer = BufWriter::new(raw_writer);
-
-    // Start JSON Array if needed
-    if args.ast_json {
-        write!(writer, "[")?;
-    }
-
     let mut session = SlangSession::new();
     for src_group in srcs {
         // Collect include directories from the source group and command line arguments.
@@ -238,20 +223,45 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
     rewriter.set_prefix(args.prefix.unwrap_or_default());
     rewriter.set_suffix(args.suffix.unwrap_or_default());
     rewriter.set_excludes(args.exclude_rename);
-    rewriter.build_rename_map(&trees);
+
+    // Pass 1: build rename map across all trees.
+    let trees: Vec<_> = trees
+        .iter()
+        .map(|tree| rewriter.rewrite_declarations(tree))
+        .collect();
+
+    // Pass 2: rewrite declarations and references using the complete map.
+    let trees: Vec<_> = trees
+        .iter()
+        .map(|tree| rewriter.rewrite_references(tree))
+        .collect();
+
+    // Setup Output Writer, either to file or stdout
+    let raw_writer: Box<dyn Write> = match &args.output {
+        Some(path) => Box::new(
+            File::create(path)
+                .map_err(|e| Error::new(format!("Cannot create output file: {}", e)))?,
+        ),
+        None => Box::new(std::io::stdout()),
+    };
+    let mut writer = BufWriter::new(raw_writer);
+
+    // Start JSON Array if needed
+    if args.ast_json {
+        write!(writer, "[")?;
+    }
 
     let mut first_item = true;
     for tree in trees {
-        let renamed_tree = rewriter.rewrite_tree(&tree);
         if args.ast_json {
             // JSON Array Logic: Prepend comma if not the first item
             if !first_item {
                 write!(writer, ",")?;
             }
-            write!(writer, "{:?}", renamed_tree)?;
+            write!(writer, "{:?}", tree)?;
             first_item = false;
         } else {
-            write!(writer, "{}", renamed_tree.display(print_opts))?;
+            write!(writer, "{}", tree.display(print_opts))?;
         }
     }
 
