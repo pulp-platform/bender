@@ -452,7 +452,7 @@ fn emit_template(
     tera_context.insert("global_defines", &global_defines);
 
     let mut all_defines = IndexMap::new();
-    let mut all_incdirs = vec![];
+    let mut all_incdirs = IndexSet::new();
     let mut all_files = IndexSet::new();
     let mut all_verilog = vec![];
     let mut all_vhdl = vec![];
@@ -464,7 +464,7 @@ fn emit_template(
                 .iter()
                 .map(|(k, &v)| (k.to_string(), v.map(String::from))),
         );
-        all_incdirs.append(&mut src.clone().get_incdirs());
+        all_incdirs.extend(src.clone().get_incdirs());
 
         // If override_files is set, source files are not automatically included, only to replace files with matching basenames.
         if src.override_files {

@@ -42,7 +42,7 @@ pub struct Manifest {
     /// The source files.
     pub sources: Option<Sources>,
     /// The include directories exported to dependent packages.
-    pub export_include_dirs: Vec<PathBuf>,
+    pub export_include_dirs: Vec<(TargetSpec, PathBuf)>,
     /// The plugin binaries.
     pub plugins: IndexMap<String, PathBuf>,
     /// Whether the dependencies of the manifest are frozen.
@@ -65,7 +65,10 @@ impl PrefixPaths for Manifest {
             export_include_dirs: self
                 .export_include_dirs
                 .into_iter()
-                .map(|src| src.prefix_paths(prefix))
+                .map(|(trgt, src)| {
+                    let prefixed = src.prefix_paths(prefix)?;
+                    Ok((trgt, prefixed))
+                })
                 .collect::<Result<_>>()?,
             plugins: self.plugins.prefix_paths(prefix)?,
             workspace: self.workspace.prefix_paths(prefix)?,
@@ -227,8 +230,8 @@ impl Serialize for Dependency {
 pub struct Sources {
     /// The targets for which the sources should be considered.
     pub target: TargetSpec,
-    /// The directories to search for include files.
-    pub include_dirs: Vec<PathBuf>,
+    /// The directories to search for include files, with their target specs.
+    pub include_dirs: Vec<(TargetSpec, PathBuf)>,
     /// The preprocessor definitions.
     pub defines: IndexMap<String, Option<String>>,
     /// The source files.
@@ -240,7 +243,14 @@ pub struct Sources {
 impl PrefixPaths for Sources {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         Ok(Sources {
-            include_dirs: self.include_dirs.prefix_paths(prefix)?,
+            include_dirs: self
+                .include_dirs
+                .into_iter()
+                .map(|(trgt, dir)| {
+                    let prefixed = dir.prefix_paths(prefix)?;
+                    Ok((trgt, prefixed))
+                })
+                .collect::<Result<_>>()?,
             files: self.files.prefix_paths(prefix)?,
             ..self
         })
@@ -434,7 +444,7 @@ pub struct PartialManifest {
     /// The source files.
     pub sources: Option<SeqOrStruct<PartialSources, PartialSourceFile>>,
     /// The include directories exported to dependent packages.
-    pub export_include_dirs: Option<Vec<String>>,
+    pub export_include_dirs: Option<Vec<StringOrStruct<PartialIncludeDir>>>,
     /// The plugin binaries.
     pub plugins: Option<IndexMap<String, String>>,
     /// Whether the dependencies of the manifest are frozen.
@@ -576,7 +586,16 @@ impl Validate for PartialManifest {
             })?),
             None => None,
         };
-        let exp_inc_dirs = self.export_include_dirs.unwrap_or_default();
+        let exp_inc_dirs = self
+            .export_include_dirs
+            .unwrap_or_default()
+            .validate(vctx)
+            .map_err(|cause| {
+                Error::chain(
+                    format!("In export_include_dirs of package `{}`:", pkg.name),
+                    cause,
+                )
+            })?;
         let plugins = match self.plugins {
             Some(s) => s
                 .iter()
@@ -624,27 +643,23 @@ impl Validate for PartialManifest {
                 None => None,
             },
             export_include_dirs: exp_inc_dirs
-                .iter()
-                .filter_map(|path| match env_path_from_string(path.to_string()) {
-                    Ok(parsed_path) => {
-                        if !(vctx.pre_output || parsed_path.exists() && parsed_path.is_dir()) {
-                            Warnings::IncludeDirMissing(parsed_path.clone()).emit();
-                        }
-
-                        Some(Ok(parsed_path))
-                    }
-                    Err(cause) => {
-                        if Diagnostics::is_suppressed("E30") {
-                            Warnings::IgnoredPath {
-                                cause: cause.to_string(),
+                .into_iter()
+                .filter_map(
+                    |(trgt, path)| match env_path_from_string(path.display().to_string()) {
+                        Ok(parsed_path) => Some(Ok((trgt.clone(), parsed_path))),
+                        Err(cause) => {
+                            if Diagnostics::is_suppressed("E30") {
+                                Warnings::IgnoredPath {
+                                    cause: cause.to_string(),
+                                }
+                                .emit();
+                                None
+                            } else {
+                                Some(Err(Error::chain("[E30]", cause)))
                             }
-                            .emit();
-                            None
-                        } else {
-                            Some(Err(Error::chain("[E30]", cause)))
                         }
-                    }
-                })
+                    },
+                )
                 .collect::<Result<Vec<_>>>()?,
             plugins,
             frozen,
@@ -853,13 +868,63 @@ impl Validate for PartialDependency {
     }
 }
 
+/// A partial filtered include directory (used for both source group and export include dirs)
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PartialIncludeDir {
+    /// The target spec for which the include dir applies
+    pub target: Option<TargetSpec>,
+    /// The include directory path
+    pub dir: String,
+    /// Unknown extra fields
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+}
+
+impl FromStr for PartialIncludeDir {
+    type Err = Void;
+    fn from_str(s: &str) -> std::result::Result<Self, Void> {
+        Ok(PartialIncludeDir {
+            target: None,
+            dir: s.into(),
+            extra: HashMap::new(),
+        })
+    }
+}
+
+impl PrefixPaths for PartialIncludeDir {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        Ok(PartialIncludeDir {
+            dir: self.dir.prefix_paths(prefix)?,
+            ..self
+        })
+    }
+}
+
+impl Validate for PartialIncludeDir {
+    type Output = (TargetSpec, PathBuf);
+    type Error = Error;
+    fn validate(self, vctx: &ValidationContext) -> Result<(TargetSpec, PathBuf)> {
+        let dir = env_path_from_string(self.dir)?;
+        if !vctx.pre_output {
+            self.extra.iter().for_each(|(k, _)| {
+                Warnings::IgnoreUnknownField {
+                    field: k.clone(),
+                    pkg: vctx.package_name.to_string(),
+                }
+                .emit();
+            });
+        }
+        Ok((self.target.unwrap_or(TargetSpec::Wildcard), dir))
+    }
+}
+
 /// A partial group of source files.
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct PartialSources {
     /// The targets for which the sources should be considered.
     pub target: Option<TargetSpec>,
     /// The directories to search for include files.
-    pub include_dirs: Option<Vec<String>>,
+    pub include_dirs: Option<Vec<StringOrStruct<PartialIncludeDir>>>,
     /// The preprocessor definitions.
     pub defines: Option<IndexMap<String, Option<String>>>,
     /// The source file paths.
@@ -1048,7 +1113,12 @@ impl Validate for PartialSources {
                                     .flat_map(|s| {
                                         s.split('+').map(|s| s.to_string()).collect::<Vec<_>>()
                                     })
-                                    .map(|dir| dir.prefix_paths(&flist_dir))
+                                    .map(|dir| {
+                                        let prefixed = dir.prefix_paths(&flist_dir)?;
+                                        Ok(StringOrStruct(
+                                            PartialIncludeDir::from_str(&prefixed).unwrap(),
+                                        ))
+                                    })
                                     .collect::<Result<_>>()?,
                             ),
                             defines: Some(
@@ -1164,9 +1234,9 @@ impl Validate for PartialSources {
 
                 let include_dirs = include_dirs
                     .unwrap_or_default()
-                    .iter()
-                    .filter_map(|path| match env_path_from_string(path.to_string()) {
-                        Ok(p) => Some(Ok(p)),
+                    .into_iter()
+                    .filter_map(|entry| match entry.0.validate(vctx) {
+                        Ok(validated) => Some(Ok(validated)),
                         Err(cause) => {
                             if Diagnostics::is_suppressed("E30") {
                                 Warnings::IgnoredPath {

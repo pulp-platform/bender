@@ -379,7 +379,7 @@ pub enum Warnings {
     )]
     RevisionNotOnUpstream(String, String),
 
-    #[error("File not added, ignoring: {cause}")]
+    #[error("File/Directory not added, ignoring: {cause}")]
     #[diagnostic(code(W30))]
     IgnoredPath { cause: String },
 
