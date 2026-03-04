@@ -16,6 +16,7 @@ use tokio::runtime::Runtime;
 use crate::config::{Dependency, Validate, ValidationContext};
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
+use crate::src::FilteredSourceGroup;
 use crate::target::{TargetSet, TargetSpec};
 
 /// Emit the source file manifest for the package
@@ -124,10 +125,14 @@ pub fn run(sess: &Session, args: &SourcesArgs) -> Result<()> {
         let stdout = std::io::stdout();
         let handle = stdout.lock();
         if args.flatten {
-            let srcs = srcs.flatten();
+            let srcs = srcs
+                .flatten()
+                .into_iter()
+                .map(FilteredSourceGroup::from)
+                .collect::<Vec<_>>();
             serde_json::to_writer_pretty(handle, &srcs)
         } else {
-            serde_json::to_writer_pretty(handle, &srcs)
+            serde_json::to_writer_pretty(handle, &FilteredSourceGroup::from(srcs))
         }
     };
     let _ = writeln!(std::io::stdout(),);

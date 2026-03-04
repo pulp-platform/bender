@@ -394,6 +394,10 @@ pub enum Warnings {
     #[error("Override files in {} does not support additional fields like include_dirs, defines, etc.", fmt_pkg!(.0))]
     #[diagnostic(code(W33))]
     OverrideFilesWithExtras(String),
+
+    #[error("Source group in package {} uses `override_files`, which is not supported in the simplified source output and will be ignored.", fmt_pkg!(.0))]
+    #[diagnostic(code(W34))]
+    OverrideFilesIgnored(String),
 }
 
 #[cfg(test)]
