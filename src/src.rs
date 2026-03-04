@@ -381,6 +381,109 @@ impl<'ctx> SourceGroup<'ctx> {
     }
 }
 
+/// A source file group.
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct FilteredSourceGroup<'ctx> {
+    /// The package which this source group represents.
+    pub package: Option<&'ctx str>,
+    /// Whether the source files in this group can be treated in parallel.
+    pub independent: bool,
+    /// The directories to search for include files.
+    pub include_dirs: Vec<&'ctx Path>,
+    /// The preprocessor definitions.
+    pub defines: IndexMap<String, Option<&'ctx str>>,
+    /// The files in this group.
+    pub files: Vec<FilteredSourceFile<'ctx>>,
+    /// Package dependencies of this source group
+    pub dependencies: IndexSet<String>,
+    /// Version information of the package
+    pub version: Option<semver::Version>,
+}
+
+impl<'ctx> From<SourceGroup<'ctx>> for FilteredSourceGroup<'ctx> {
+    fn from(group: SourceGroup<'ctx>) -> Self {
+        if group.override_files {
+            if let Some(pkg) = group.package {
+                Warnings::OverrideFilesIgnored(pkg.to_string()).emit();
+            }
+        }
+        let include_dirs = group
+            .include_dirs
+            .into_iter()
+            .map(|(_, path)| path)
+            .chain(
+                group
+                    .export_incdirs
+                    .into_iter()
+                    .flat_map(|(_, dirs)| dirs.into_iter().map(|(_, path)| path)),
+            )
+            .collect();
+        FilteredSourceGroup {
+            package: group.package,
+            independent: group.independent,
+            include_dirs,
+            defines: group.defines,
+            files: group
+                .files
+                .into_iter()
+                .map(FilteredSourceFile::from)
+                .collect(),
+            dependencies: group.dependencies,
+            version: group.version,
+        }
+    }
+}
+
+/// A filtered source file.
+///
+/// This can either be an individual file, or a filtered subgroup of files.
+#[derive(Clone)]
+pub enum FilteredSourceFile<'ctx> {
+    /// A file.
+    File(&'ctx Path, &'ctx Option<SourceType>),
+    /// A group of files.
+    Group(Box<FilteredSourceGroup<'ctx>>),
+}
+
+impl<'ctx> From<SourceFile<'ctx>> for FilteredSourceFile<'ctx> {
+    fn from(file: SourceFile<'ctx>) -> Self {
+        match file {
+            SourceFile::File(path, ty) => FilteredSourceFile::File(path, ty),
+            SourceFile::Group(grp) => {
+                FilteredSourceFile::Group(Box::new(FilteredSourceGroup::from(*grp)))
+            }
+        }
+    }
+}
+
+impl<'ctx> fmt::Debug for FilteredSourceFile<'ctx> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            FilteredSourceFile::File(path, ty) => {
+                fmt::Debug::fmt(path, f)?;
+                if let Some(t) = ty {
+                    write!(f, " as {:?}", t)
+                } else {
+                    write!(f, " as <unknown>")
+                }
+            }
+            FilteredSourceFile::Group(ref srcs) => fmt::Debug::fmt(srcs, f),
+        }
+    }
+}
+
+impl<'ctx> Serialize for FilteredSourceFile<'ctx> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match *self {
+            FilteredSourceFile::File(path, _) => path.serialize(serializer),
+            FilteredSourceFile::Group(ref group) => group.serialize(serializer),
+        }
+    }
+}
+
 /// File types for a source file.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SourceType {
