@@ -4,6 +4,7 @@
 set -e
 {% endif %}
 ROOT="{{ root }}"
+{# Separate compilation: one block per source group -#}
 {% if compilation_mode == 'separate' %}{% for group in srcs %}{% if group.file_type != '' %}{% if source_annotations %}
 # {{ group.metadata }}{% endif %}
 {% if group.file_type == 'verilog' %}{{ vlogan_bin }} -sverilog \
@@ -16,7 +17,10 @@ ROOT="{{ root }}"
     {% endfor %}{% endif %}{% for file in group.files %}"{{ file.file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
     {% endif %}{% endfor %}
 {% endif %}{% endfor %}
-{% else %}{# compilation_mode == 'common' #}{% for file in all_verilog %}{% if loop.first %}{{ vlogan_bin }} -sverilog \
+{# Common compilation: all files in one block -#}
+{% else -%}
+{# Verilog sources -#}
+{%- for file in all_verilog %}{% if loop.first %}{{ vlogan_bin }} -sverilog \
     -full64 \
     {% for tmp_arg in vlogan_args %}{{ tmp_arg }} \
     {% endfor %}{% for define in all_defines %}"+define+{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}" \
@@ -24,6 +28,7 @@ ROOT="{{ root }}"
     {% endfor %}{% endif %}"{{ file.file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
     {% endif %}{% if loop.last %}
 {% endif %}{% endfor %}
+{# VHDL sources -#}
 {% for file in all_vhdl %}{% if loop.first %}{{ vhdlan_bin }} \
     {% for tmp_arg in vhdlan_args %}{{ tmp_arg }} \
     {% endfor %}{% endif %}"{{ file.file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
