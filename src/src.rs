@@ -8,7 +8,6 @@
 #![deny(missing_docs)]
 
 use std::fmt;
-use std::iter::FromIterator;
 use std::path::Path;
 
 use indexmap::{IndexMap, IndexSet};
@@ -184,7 +183,7 @@ impl<'ctx> SourceGroup<'ctx> {
         Some(
             SourceGroup {
                 include_dirs,
-                defines: defines.clone(),
+                defines,
                 export_incdirs,
                 files,
                 ..self.clone()
@@ -226,7 +225,7 @@ impl<'ctx> SourceGroup<'ctx> {
 
         if let Some(x) = self.package {
             if result.contains(x) {
-                result.extend(IndexSet::<String>::from_iter(self.dependencies.clone()));
+                result.extend(self.dependencies.iter().cloned());
                 result = &result - excludes;
             }
         }
@@ -298,15 +297,15 @@ impl<'ctx> SourceGroup<'ctx> {
     }
 
     /// Return list of unique include directories for the current src
-    pub fn get_incdirs(self) -> Vec<&'ctx Path> {
+    pub fn get_incdirs(&self) -> Vec<&'ctx Path> {
         let incdirs = self
             .include_dirs
-            .into_iter()
-            .map(|(_, path)| path)
+            .iter()
+            .map(|(_, path)| *path)
             .chain(
                 self.export_incdirs
-                    .into_iter()
-                    .flat_map(|(_, v)| v.into_iter().map(|(_, path)| path)),
+                    .iter()
+                    .flat_map(|(_, v)| v.iter().map(|(_, path)| *path)),
             )
             .fold(IndexSet::new(), |mut acc, inc_dir| {
                 acc.insert(inc_dir);
@@ -546,8 +545,7 @@ impl<'ctx> Validate for SourceFile<'ctx> {
     fn validate(self, vctx: &ValidationContext) -> Result<SourceFile<'ctx>, Error> {
         match self {
             SourceFile::File(path, ty) => {
-                let env_path_buf =
-                    crate::config::env_path_from_string(path.to_string_lossy().to_string())?;
+                let env_path_buf = crate::config::env_path_from_string(&path.to_string_lossy())?;
                 let exists = env_path_buf.exists() && env_path_buf.is_file();
                 if exists || Diagnostics::is_suppressed("E31") {
                     if !exists {

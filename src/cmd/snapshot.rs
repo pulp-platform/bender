@@ -219,7 +219,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
         .map(|(name, _)| name.as_str())
         .collect::<Vec<&str>>();
 
-    let updated_deps: Vec<&str> = [snapshotted_deps.clone(), subdeps.clone()].concat();
+    let updated_deps: Vec<&str> = [snapshotted_deps.clone(), subdeps].concat();
 
     // Update any possible workspace symlinks
     for (link_path, pkg_name) in &sess.manifest.workspace.package_links {

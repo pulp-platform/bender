@@ -765,11 +765,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 let refs: IndexMap<&str, &str> =
                     branches.into_iter().chain(tags.into_iter()).collect();
 
-                let mut git_versions = self.git_versions.lock().unwrap().clone();
-
                 let git_path = git.path;
 
-                git_versions.insert(
+                self.git_versions.lock().unwrap().insert(
                     git_path.to_path_buf(),
                     GitVersions {
                         versions: versions.clone(),
@@ -777,8 +775,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         revs: revs.clone(),
                     },
                 );
-
-                *self.git_versions.lock().unwrap() = git_versions.clone();
 
                 Ok(GitVersions {
                     versions,
@@ -991,7 +987,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             // First generate a tag to be cloned in the database. This is
             // necessary since `git clone` does not accept commits, but only
             // branches or tags for shallow clones.
-            let tag_name_0 = format!("bender-tmp-{}", revision).clone();
+            let tag_name_0 = format!("bender-tmp-{}", revision);
             let tag_name_1 = tag_name_0.clone();
             let tag_name_2 = tag_name_0.clone();
             let git = self
@@ -1230,13 +1226,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Some(sub_entry) => db.clone().cat_file(sub_entry.hash).await.map(Some),
                     }?;
 
-                    let sub_dep_path = reference_path.join(path).clone();
+                    let sub_dep_path = reference_path.join(path);
 
                     let tmp_path = self.sess.root.join(".bender").join("tmp");
 
-                    if let Some(full_sub_data) = sub_data.clone() {
+                    if let Some(ref full_sub_data) = sub_data {
                         if !tmp_path.exists() {
-                            std::fs::create_dir_all(tmp_path.clone())?;
+                            std::fs::create_dir_all(&tmp_path)?;
                         }
                         let mut sub_file = std::fs::OpenOptions::new()
                             .write(true)
@@ -1588,7 +1584,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .chain(once(vec![Some(self.sess.manifest)]))
             .map(|manifests| {
                 manifests
-                    .clone()
                     .into_iter()
                     .flatten()
                     .map(|m| {

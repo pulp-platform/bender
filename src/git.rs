@@ -30,14 +30,14 @@ pub struct Git<'ctx> {
     /// The path to the repository.
     pub path: &'ctx Path,
     /// The session within which commands will be executed.
-    pub git: &'ctx String,
+    pub git: &'ctx str,
     /// Reference to the throttle object.
     pub throttle: Arc<Semaphore>,
 }
 
 impl<'ctx> Git<'ctx> {
     /// Create a new git context.
-    pub fn new(path: &'ctx Path, git: &'ctx String, throttle: Arc<Semaphore>) -> Git<'ctx> {
+    pub fn new(path: &'ctx Path, git: &'ctx str, throttle: Arc<Semaphore>) -> Git<'ctx> {
         Git {
             path,
             git,
@@ -278,7 +278,7 @@ impl<'ctx> Git<'ctx> {
     /// Commit the staged changes.
     ///
     /// If message is None, this starts an interactive commit session.
-    pub async fn commit(self, message: Option<&String>) -> Result<()> {
+    pub async fn commit(self, message: Option<&str>) -> Result<()> {
         match message {
             Some(msg) => self
                 .spawn_with(
@@ -316,10 +316,11 @@ impl<'ctx> Git<'ctx> {
                     })
                     .collect::<Vec<_>>();
                 // Ensure only commit hashes are returned by using dereferenced values in case they exist
-                let deref_revs = all_revs
-                    .clone()
-                    .into_iter()
-                    .filter(|tup| tup.1.ends_with("^{}"));
+                let deref_revs: Vec<_> = all_revs
+                    .iter()
+                    .filter(|tup| tup.1.ends_with("^{}"))
+                    .cloned()
+                    .collect();
                 for item in deref_revs {
                     let index = all_revs
                         .iter()
