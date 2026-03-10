@@ -153,12 +153,12 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
     let mut path_subdeps: IndexMap<String, PathBuf> = IndexMap::new();
 
     for (name, url, _) in &snapshot_list {
-        // let old_path = io.get_package_path(depref);
-        // let new_path = io.get_depsource_path(name, &DependencySource::Git(url.clone()));
+        // let old_path = sess.get_package_path(depref);
+        // let new_path = sess.get_depsource_path(name, &DependencySource::Git(url.clone()));
         get_path_subdeps(
             &io,
             &rt,
-            &io.get_depsource_path(name, &DependencySource::Git(url.clone())),
+            &sess.get_depsource_path(name, &DependencySource::Git(url.clone())),
             sess.dependency_with_name(name)?,
         )?
         .into_iter()
@@ -228,7 +228,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
 
             // Determine the checkout path for this package.
             let pkg_path = if snapshotted_deps.contains(&pkg_name.as_str()) {
-                &io.get_depsource_path(
+                &sess.get_depsource_path(
                     pkg_name,
                     &DependencySource::Git(
                         snapshot_list

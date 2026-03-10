@@ -250,7 +250,7 @@ pub fn main() -> Result<()> {
             log::debug!("maintaining link to {} at {:?}", pkg_name, path);
 
             // Determine the checkout path for this package.
-            let pkg_path = io.get_package_path(sess.dependency_with_name(pkg_name)?);
+            let pkg_path = sess.get_package_path(sess.dependency_with_name(pkg_name)?);
 
             // Checkout if we are running update or package path does not exist yet
             if matches!(cli.command, Commands::Update(_)) || !pkg_path.exists() {

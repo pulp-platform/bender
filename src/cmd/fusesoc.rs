@@ -162,7 +162,7 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
             pkgs.iter().map(|&id| {
                 (
                     sess.dependency_name(id).to_string(),
-                    io.get_package_path(id),
+                    sess.get_package_path(id),
                 )
             })
         })
