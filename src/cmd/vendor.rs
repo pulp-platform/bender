@@ -198,13 +198,9 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
         match &args.vendor_subcommand {
             VendorSubcommand::Diff { err_on_diff } => {
                 // Apply patches
-                sorted_links
-                    .clone()
-                    .into_iter()
-                    .try_for_each(|patch_link| {
-                        apply_patches(&rt, git.clone(), vendor_package.name.clone(), patch_link)
-                            .map(|_| ())
-                    })?;
+                sorted_links.iter().cloned().try_for_each(|patch_link| {
+                    apply_patches(&rt, git.clone(), &vendor_package.name, patch_link).map(|_| ())
+                })?;
 
                 // Stage applied patches to clean working tree
                 rt.block_on(git.clone().add_all())?;
@@ -238,9 +234,9 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                         .prefix_paths(&vendor_package.target_dir)?;
                     if target_path.exists() {
                         if target_path.is_dir() {
-                            std::fs::remove_dir_all(target_path.clone())
+                            std::fs::remove_dir_all(&target_path)
                         } else {
-                            std::fs::remove_file(target_path.clone())
+                            std::fs::remove_file(&target_path)
                         }
                         .map_err(|cause| {
                             Error::chain(format!("Failed to remove {:?}.", target_path), cause)
@@ -271,10 +267,10 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                 // Apply patches
                 let mut num_patches = 0;
                 sorted_links
-                    .clone()
-                    .into_iter()
+                    .iter()
+                    .cloned()
                     .try_for_each(|patch_link| {
-                        apply_patches(&rt, git.clone(), vendor_package.name.clone(), patch_link)
+                        apply_patches(&rt, git.clone(), &vendor_package.name, patch_link)
                             .map(|num| num_patches += num)
                     })
                     .map_err(|cause| Error::chain("Failed to apply patch.", cause))?;
@@ -282,7 +278,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                 // Commit applied patches to clean working tree
                 if num_patches > 0 {
                     rt.block_on(git.clone().add_all())?;
-                    rt.block_on(git.clone().commit(Some(&"pre-patch".to_string())))?;
+                    rt.block_on(git.clone().commit(Some("pre-patch")))?;
                 }
 
                 // Generate patch
@@ -298,7 +294,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                                     dep_path.clone(),
                                 )
                                 .map_err(|cause| Error::chain("Failed to get diff.", cause))?;
-                                gen_plain_patch(get_diff, patch_dir, false)
+                                gen_plain_patch(&get_diff, patch_dir, false)
                             } else {
                                 gen_format_patch(
                                     &rt,
@@ -306,7 +302,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
                                     git.clone(),
                                     patch_link,
                                     vendor_package.target_dir.clone(),
-                                    message.as_ref(),
+                                    message.as_deref(),
                                 )
                             }
                         }
@@ -354,20 +350,13 @@ pub fn init(
     })?;
 
     if !no_patch {
-        apply_patches(
-            rt,
-            git.clone(),
-            vendor_package.name.clone(),
-            patch_link.clone(),
-        )?;
+        apply_patches(rt, git.clone(), &vendor_package.name, patch_link.clone())?;
     }
 
     // Check if includes exist
-    for path in vendor_package.include_from_upstream.clone() {
-        if !PathBuf::from(extend_paths(std::slice::from_ref(&path), dep_path, true)?[0].clone())
-            .exists()
-        {
-            Warnings::NotInUpstream { path }.emit();
+    for path in &vendor_package.include_from_upstream {
+        if !PathBuf::from(&extend_paths(std::slice::from_ref(path), dep_path, true)?[0]).exists() {
+            Warnings::NotInUpstream { path: path.clone() }.emit();
         }
     }
 
@@ -379,9 +368,8 @@ pub fn init(
             &extend_paths(&vendor_package.include_from_upstream, dep_path, false)?,
             &vendor_package
                 .exclude_from_upstream
-                .clone()
-                .into_iter()
-                .map(|excl| format!("{}/{}", &dep_path.to_str().unwrap(), &excl))
+                .iter()
+                .map(|excl| format!("{}/{}", &dep_path.to_str().unwrap(), excl))
                 .collect(),
         )?,
         false => {
@@ -412,7 +400,7 @@ pub fn init(
 pub fn apply_patches(
     rt: &Runtime,
     git: Git,
-    package_name: String,
+    package_name: &str,
     patch_link: PatchLink,
 ) -> Result<usize> {
     let patch_dir = match &patch_link.patch_dir {
@@ -517,9 +505,8 @@ pub fn diff(
             )?,
             &vendor_package
                 .exclude_from_upstream
-                .clone()
-                .into_iter()
-                .map(|excl| format!("{}/{}", &vendor_package.target_dir.to_str().unwrap(), &excl))
+                .iter()
+                .map(|excl| format!("{}/{}", &vendor_package.target_dir.to_str().unwrap(), excl))
                 .collect(),
         )?,
         false => {
@@ -554,7 +541,7 @@ pub fn diff(
 }
 
 /// Generate a plain patch from a diff
-pub fn gen_plain_patch(diff: String, patch_dir: impl AsRef<Path>, no_patch: bool) -> Result<()> {
+pub fn gen_plain_patch(diff: &str, patch_dir: impl AsRef<Path>, no_patch: bool) -> Result<()> {
     if !diff.is_empty() {
         // if let Some(patch) = patch_dir {
         // Create directory in case it does not already exist
@@ -616,7 +603,7 @@ pub fn gen_format_patch(
     git: Git,
     patch_link: PatchLink,
     target_dir: impl AsRef<Path>,
-    message: Option<&String>,
+    message: Option<&str>,
 ) -> Result<()> {
     // Local git
     let to_path = patch_link
@@ -691,7 +678,7 @@ pub fn gen_format_patch(
         let tmp_format_dir = TempDir::new()?;
         let tmp_format_path = tmp_format_dir.keep();
         let diff_cached_path = tmp_format_path.join("staged.diff");
-        std::fs::write(diff_cached_path.clone(), get_diff_cached)?;
+        std::fs::write(&diff_cached_path, get_diff_cached)?;
 
         // Apply diff and stage changes in ghost repo
         rt.block_on(async {
@@ -710,14 +697,11 @@ pub fn gen_format_patch(
         rt.block_on(git.clone().commit(message))?;
 
         // Create directory in case it does not already exist
-        std::fs::create_dir_all(patch_dir.clone()).map_err(|cause| {
-            Error::chain(
-                format!("Failed to create directory {:?}", patch_dir.clone()),
-                cause,
-            )
+        std::fs::create_dir_all(&patch_dir).map_err(|cause| {
+            Error::chain(format!("Failed to create directory {:?}", patch_dir), cause)
         })?;
 
-        let mut patches = std::fs::read_dir(patch_dir.clone())?
+        let mut patches = std::fs::read_dir(&patch_dir)?
             .map(move |f| f.unwrap().path())
             .filter(|f| f.extension().is_some())
             .filter(|f| f.extension().unwrap() == "patch")

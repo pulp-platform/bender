@@ -10,7 +10,7 @@ use std::fs;
 use std::fs::read_to_string;
 use std::io::IsTerminal;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{ArgAction, Args};
 use indexmap::IndexMap;
@@ -125,7 +125,7 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
         &srcs,
         &fuse_depend_string,
         &pkg_manifest_paths,
-        bender_generate_flag.to_string(),
+        bender_generate_flag,
         &args.license,
     )?;
 
@@ -205,13 +205,7 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
 
             fuse_depend_string.insert(
                 pkg.to_string(),
-                get_fuse_depend_string(
-                    pkg,
-                    &srcs,
-                    vendor_string.to_string(),
-                    top,
-                    version_string.clone(),
-                ),
+                get_fuse_depend_string(pkg, &srcs, vendor_string, top, version_string.clone()),
             );
         } else {
             let mut index = 0;
@@ -235,8 +229,8 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
                         })?;
 
                     let fuse_core = parse_fuse_file(
-                        file_str,
-                        present_core_files[pkg][i].display().to_string(),
+                        &file_str,
+                        &present_core_files[pkg][i].display().to_string(),
                     )?;
                     writeln!(
                         msg,
@@ -294,18 +288,12 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
 
                 fuse_depend_string.insert(
                     pkg.to_string(),
-                    get_fuse_depend_string(
-                        pkg,
-                        &srcs,
-                        vendor_string.to_string(),
-                        top,
-                        version_string.clone(),
-                    ),
+                    get_fuse_depend_string(pkg, &srcs, vendor_string, top, version_string.clone()),
                 );
             } else {
                 let fuse_core = parse_fuse_file(
-                    file_str,
-                    present_core_files[pkg][index].display().to_string(),
+                    &file_str,
+                    &present_core_files[pkg][index].display().to_string(),
                 )?;
                 fuse_depend_string.insert(pkg.to_string(), fuse_core.name.clone());
             }
@@ -324,7 +312,7 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
             src_packages,
             &fuse_depend_string,
             &pkg_manifest_paths,
-            bender_generate_flag.to_string(),
+            bender_generate_flag,
             &args.license,
         )?;
 
@@ -337,11 +325,11 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
 }
 
 fn get_fuse_file_str(
-    pkg: &String,
+    pkg: &str,
     src_packages: &[SourceGroup],
     fuse_depend_string: &IndexMap<String, String>,
     pkg_manifest_paths: &IndexMap<String, PathBuf>,
-    bender_generate_flag: String,
+    bender_generate_flag: &str,
     lic_string: &[String],
 ) -> Result<String> {
     let mut fuse_str = "CAPI=2:\n".to_string();
@@ -354,7 +342,7 @@ fn get_fuse_file_str(
     }
 
     let fuse_pkg = FuseSoCCAPI2 {
-        name: fuse_depend_string[&pkg.to_string()].clone(),
+        name: fuse_depend_string[pkg].clone(),
         description: None,
         filesets: {
             src_packages
@@ -366,13 +354,10 @@ fn get_fuse_file_str(
                             file_type: Some("systemVerilogSource".to_string()),
                             // logical_name: None,
                             files: {
-                                get_fileset_files(file_pkg, pkg_manifest_paths[pkg].clone())
+                                get_fileset_files(file_pkg, &pkg_manifest_paths[pkg])
                                     .into_iter()
                                     .chain(file_pkg.include_dirs.iter().flat_map(|(_, incdir)| {
-                                        get_include_files(
-                                            &incdir.to_path_buf(),
-                                            pkg_manifest_paths[pkg].clone(),
-                                        )
+                                        get_include_files(incdir, &pkg_manifest_paths[pkg])
                                     }))
                                     .collect()
                             },
@@ -404,10 +389,7 @@ fn get_fuse_file_str(
                                     .unwrap_or(&Vec::new())
                                     .iter()
                                     .flat_map(|(_, incdir)| {
-                                        get_include_files(
-                                            &incdir.to_path_buf(),
-                                            pkg_manifest_paths[pkg].clone(),
-                                        )
+                                        get_include_files(incdir, &pkg_manifest_paths[pkg])
                                     })
                                     .collect()
                             }
@@ -479,30 +461,30 @@ fn get_fuse_file_str(
     Ok(fuse_str)
 }
 
-fn parse_fuse_file(file_str: String, filename: String) -> Result<FuseSoCCAPI2> {
+fn parse_fuse_file(file_str: &str, filename: &str) -> Result<FuseSoCCAPI2> {
     serde_yaml_ng::from_value({
-        let mut value = serde_yaml_ng::from_str::<Value>(&file_str).map_err(|cause| {
+        let mut value = serde_yaml_ng::from_str::<Value>(file_str).map_err(|cause| {
             Error::chain(
-                format!("Unable to parse core file to value {:?}.", &filename),
+                format!("Unable to parse core file to value {:?}.", filename),
                 cause,
             )
         })?;
         value.apply_merge().map_err(|cause| {
             Error::chain(
-                format!("Unable to apply merge to file {:?}.", &filename),
+                format!("Unable to apply merge to file {:?}.", filename),
                 cause,
             )
         })?;
         value
     })
-    .map_err(|cause| Error::chain(format!("Unable to parse core file {:?}.", &filename), cause))
+    .map_err(|cause| Error::chain(format!("Unable to parse core file {:?}.", filename), cause))
 }
 
 fn get_fuse_depend_string(
-    pkg: &String,
+    pkg: &str,
     srcs: &SourceGroup,
-    vendor_string: String,
-    top: &String,
+    vendor_string: &str,
+    top: &str,
     version_string: Option<semver::Version>,
 ) -> String {
     let src_packages = srcs
@@ -519,7 +501,7 @@ fn get_fuse_depend_string(
             })
             .collect()
     } else {
-        src_packages.clone()
+        src_packages
     };
 
     format!(
@@ -527,7 +509,7 @@ fn get_fuse_depend_string(
         vendor_string, // Vendor
         "",            // Library
         pkg,           // Name
-        match &src_packages.clone()[0].version {
+        match &src_packages[0].version {
             Some(version) => format!("{}", version),
             None => "".to_string(),
         }  // Version
@@ -536,10 +518,10 @@ fn get_fuse_depend_string(
 
 fn get_fileset_name(spec: &TargetSpec, top: bool) -> String {
     let tmp_str = match spec {
-        TargetSpec::Wildcard => "".to_string(),
+        TargetSpec::Wildcard => String::new(),
         TargetSpec::Name(name) => name.to_string(),
         TargetSpec::Any(specs) => {
-            let mut spec_str = "".to_string();
+            let mut spec_str = String::new();
             for spec in specs.iter() {
                 let mystr = get_fileset_name(spec, false);
                 if !spec_str.is_empty() && !mystr.is_empty() {
@@ -547,10 +529,10 @@ fn get_fileset_name(spec: &TargetSpec, top: bool) -> String {
                 }
                 spec_str.push_str(&mystr);
             }
-            spec_str.to_string()
+            spec_str
         }
         TargetSpec::All(specs) => {
-            let mut spec_str = "".to_string();
+            let mut spec_str = String::new();
             for spec in specs.iter() {
                 let mystr = get_fileset_name(spec, false);
                 if !spec_str.is_empty() && !mystr.is_empty() {
@@ -558,7 +540,7 @@ fn get_fileset_name(spec: &TargetSpec, top: bool) -> String {
                 }
                 spec_str.push_str(&mystr);
             }
-            spec_str.to_string()
+            spec_str
         }
         TargetSpec::Not(spec) => format!("not{}", get_fileset_name(spec, false)),
     };
@@ -569,7 +551,7 @@ fn get_fileset_name(spec: &TargetSpec, top: bool) -> String {
     }
 }
 
-fn get_fileset_files(file_pkg: &SourceGroup, root_dir: PathBuf) -> Vec<FuseFileType> {
+fn get_fileset_files(file_pkg: &SourceGroup, root_dir: &Path) -> Vec<FuseFileType> {
     file_pkg
         .files
         .iter()
@@ -577,10 +559,7 @@ fn get_fileset_files(file_pkg: &SourceGroup, root_dir: PathBuf) -> Vec<FuseFileT
             SourceFile::File(intern_file, _) => Some(
                 match intern_file.extension().and_then(std::ffi::OsStr::to_str) {
                     Some("vhd") | Some("vhdl") => FuseFileType::IndexMap(IndexMap::from([(
-                        intern_file
-                            .strip_prefix(root_dir.clone())
-                            .unwrap()
-                            .to_path_buf(),
+                        intern_file.strip_prefix(root_dir).unwrap().to_path_buf(),
                         FuseSoCFile {
                             is_include_file: None,
                             include_path: None,
@@ -588,10 +567,7 @@ fn get_fileset_files(file_pkg: &SourceGroup, root_dir: PathBuf) -> Vec<FuseFileT
                         },
                     )])),
                     Some("v") => FuseFileType::IndexMap(IndexMap::from([(
-                        intern_file
-                            .strip_prefix(root_dir.clone())
-                            .unwrap()
-                            .to_path_buf(),
+                        intern_file.strip_prefix(root_dir).unwrap().to_path_buf(),
                         FuseSoCFile {
                             is_include_file: None,
                             include_path: None,
@@ -599,10 +575,7 @@ fn get_fileset_files(file_pkg: &SourceGroup, root_dir: PathBuf) -> Vec<FuseFileT
                         },
                     )])),
                     _ => FuseFileType::PathBuf(
-                        intern_file
-                            .strip_prefix(root_dir.clone())
-                            .unwrap()
-                            .to_path_buf(),
+                        intern_file.strip_prefix(root_dir).unwrap().to_path_buf(),
                     ),
                 },
             ),
@@ -619,7 +592,7 @@ fn is_not_hidden(entry: &DirEntry) -> bool {
         .unwrap_or(false)
 }
 
-fn get_include_files(dir: &PathBuf, base_path: PathBuf) -> Vec<FuseFileType> {
+fn get_include_files(dir: &Path, base_path: &Path) -> Vec<FuseFileType> {
     let incdir_files = WalkDir::new(dir)
         .follow_links(true)
         .into_iter()
@@ -633,13 +606,10 @@ fn get_include_files(dir: &PathBuf, base_path: PathBuf) -> Vec<FuseFileType> {
     incdir_files
         .map(|incdir_file| {
             FuseFileType::IndexMap(IndexMap::from([(
-                incdir_file
-                    .strip_prefix(base_path.clone())
-                    .unwrap()
-                    .to_path_buf(),
+                incdir_file.strip_prefix(base_path).unwrap().to_path_buf(),
                 FuseSoCFile {
                     is_include_file: Some(true),
-                    include_path: Some(dir.strip_prefix(base_path.clone()).unwrap().to_path_buf()),
+                    include_path: Some(dir.strip_prefix(base_path).unwrap().to_path_buf()),
                     file_type: None,
                 },
             )]))

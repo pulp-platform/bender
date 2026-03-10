@@ -253,7 +253,7 @@ pub fn main() -> Result<()> {
             let pkg_path = io.get_package_path(sess.dependency_with_name(pkg_name)?);
 
             // Checkout if we are running update or package path does not exist yet
-            if matches!(cli.command, Commands::Update(_)) || !pkg_path.clone().exists() {
+            if matches!(cli.command, Commands::Update(_)) || !pkg_path.exists() {
                 let rt = Runtime::new()?;
                 rt.block_on(io.checkout(sess.dependency_with_name(pkg_name)?, false, &[]))?;
             }
@@ -261,7 +261,7 @@ pub fn main() -> Result<()> {
             // Convert to relative path
             let pkg_path = path
                 .parent()
-                .and_then(|path| pathdiff::diff_paths(pkg_path.clone(), path))
+                .and_then(|path| pathdiff::diff_paths(&pkg_path, path))
                 .unwrap_or(pkg_path);
 
             // Check if there is something at the destination path that needs to be
