@@ -8,6 +8,7 @@
   - [Manifest](./manifest.md)
   - [Lockfile](./lockfile.md)
   - [Local](./local.md)
+  - [Manifest vs. Lock vs. Local](./bender_files.md)
   - [Dependencies](./dependencies.md)
   - [Sources](./sources.md)
   - [Targets](./targets.md)
