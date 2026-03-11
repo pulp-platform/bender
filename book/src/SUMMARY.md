@@ -19,6 +19,8 @@
   - [Scripts](./workflow/scripts.md)
   - [Package Development](./workflow/package_dev.md)
   - [Vendor](./workflow/vendor.md)
+  - [Continuous Integration](./workflow/ci.md)
+
 - [Commands](./commands.md)
 
 <!--- [Why?]()
