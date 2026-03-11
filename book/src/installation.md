@@ -12,6 +12,15 @@ cargo install bender
 ```
 If you need a specific version of Bender (e.g., `0.21.0`), append ` --version 0.21.0` to that command.
 
+To compile bender from source, clone the git project and run the following command inside the bender project:
+```sh
+cargo build
+```
+To install the local sources, you can run the following:
+```sh
+cargo install --path .
+```
+
 To install Bender system-wide, you can simply copy the binary you have obtained from one of the above methods to one of the system directories on your `PATH`.  Even better, some Linux distributions have Bender in their repositories.  We are currently aware of:
 
 ### [ArchLinux ![aur-shield](https://img.shields.io/aur/version/bender)][aur-bender]
