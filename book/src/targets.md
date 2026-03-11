@@ -6,14 +6,25 @@ Targets are the primary mechanism in Bender for managing project configurations.
 
 Bender uses a simple boolean expression language for targets:
 
-- `*`: Matches any target (wildcard).
-- `name`: Matches if the target `name` is active.
-- `all(T1, T2, ...)`: Matches if **all** listed targets are active (AND).
-- `any(T1, T2, ...)`: Matches if **any** of the listed targets are active (OR).
-- `not(T)`: Matches if target `T` is **not** active (NOT).
+- `*`: Wildcard, matches all target sets.
+- `name`: Matches if the target `name` is active (case-insensitive).
+- `all(T1, T2, ...)`: Matches if **all** arguments match (boolean AND).
+- `any(T1, T2, ...)`: Matches if **at least one** argument matches (boolean OR).
+- `not(T)`: Matches if `T` does **not** match (boolean NOT).
 - `(T)`: Parentheses for grouping.
 
-Target names are case-insensitive and cannot contain colons (`:`) or start with a hyphen (`-`).
+### Syntax Rules
+Target names can contain alphanumeric characters, dots (`.`), underscores (`_`), and hyphens (`-`).
+
+**Restrictions:**
+- They **cannot** contain colons (`:`), as colons are used for package-specific targets in the CLI.
+- They **cannot** start with a hyphen (`-`), as leading hyphens are used to disable targets in the CLI.
+
+### Logical Examples
+- `all(asic, synthesis)`: Matches when both 'asic' and 'synthesis' are set.
+- `any(vsim, vcs, riviera)`: Matches if any of the listed simulation tools are active.
+- `not(simulation)`: Matches only when 'simulation' is **not** set.
+- `any(test, all(rtl, simulation))`: Matches for testbenches, or for RTL code during simulation.
 
 ## Usage in Bender.yml
 
@@ -79,10 +90,13 @@ sources:
 ```
 
 ### Dependencies
-Dependencies can also be conditional. This is useful for verification IP that is only needed during testing:
+You can make a dependency conditional using target expressions. This is commonly used to include verification IP or platform-specific components only when needed:
 
 ```yaml
 dependencies:
+  # Included only during simulation
+  uvm: { version: "1.2.0", target: simulation }
+  # Included for either test or simulation
   common_verification: { version: "0.2", target: any(test, simulation) }
 ```
 
@@ -131,7 +145,20 @@ bender script vivado -t synthesis -t fpga
 
 ## Passing Targets Hierarchically
 
-A parent package can pass targets to its dependencies using `pass_targets`. This is useful for propagating configuration flags or selecting specific implementations in sub-modules:
+Bender allows you to "configure" your dependencies by passing specific targets down to them using the `pass_targets` field. This is a powerful way to propagate global settings or select implementations in sub-modules.
+
+### Simple Passing
+You can pass a target name as a string, which will then always be active for that specific dependency:
+
+```yaml
+dependencies:
+  my_submodule:
+    version: "1.0.0"
+    pass_targets: ["enable_debug"] # 'enable_debug' is always active for my_submodule
+```
+
+### Conditional Passing
+You can also pass targets conditionally, based on the targets active in the parent package:
 
 ```yaml
 dependencies:
