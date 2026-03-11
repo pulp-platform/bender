@@ -73,10 +73,16 @@ Dependencies can be conditionally included or configured using targets. For deta
 
 Bender automatically detects if a dependency uses **Git Large File Storage (LFS)**. If `git-lfs` is installed on your system, Bender will automatically pull the required large files during the checkout process.
 
+## Submodules
+
+TODO
+
 ## Version Resolution and the Lockfile
 
 When you run `bender update`, Bender performs the following:
 1.  **Resolution:** It scans the entire dependency tree and finds a set of versions that satisfy all constraints.
-2.  **Locking:** The exact versions and Git commit hashes are written to `Bender.lock`.
+2.  **Locking:** The exact versions and Git commit hashes are written to [`Bender.lock`](./lockfile.md).
+
+For details on updating dependencies, see [Adding and Updating Dependencies](./workflow/dependencies.md)
 
 **Reproducibility:** Once a `Bender.lock` exists, running `bender checkout` will always download the exact same code, even if newer compatible versions have been released. Always commit your `Bender.lock` to version control.
