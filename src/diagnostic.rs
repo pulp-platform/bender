@@ -398,6 +398,10 @@ pub enum Warnings {
     #[error("File {} is not a Verilog file and will be ignored in the pickle output.", fmt_path!(.0.display()))]
     #[diagnostic(code(W34))]
     PickleNonVerilogFile(PathBuf),
+
+    #[error("Source group in package {} uses `override_files`, which is not supported in the simplified source output and will be ignored.", fmt_pkg!(.0))]
+    #[diagnostic(code(W35))]
+    OverrideFilesIgnored(String),
 }
 
 #[cfg(test)]
