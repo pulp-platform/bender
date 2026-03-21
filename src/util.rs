@@ -111,7 +111,7 @@ where
             where
                 E: de::Error,
             {
-                self.visit_str(if value { "true" } else { "false" })
+                self.visit_str(&value.to_string())
             }
 
             fn visit_i64<E>(self, value: i64) -> std::result::Result<T, E>
