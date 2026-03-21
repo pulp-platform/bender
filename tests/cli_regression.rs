@@ -161,5 +161,4 @@ regression_tests! {
     packages:                       &["packages"],
     packages_graph:                 &["packages", "--graph"],
     packages_flat:                  &["packages", "--flat"],
-
 }
