@@ -96,9 +96,7 @@ fn main() {
     let lib_dir = dst.join("lib");
 
     // Create a symlink for the generated include directory
-    if target_os == "linux" || target_os == "macos" {
-        refresh_include_symlink(&dst.join("include"));
-    }
+    refresh_include_symlink(&dst.join("include"));
 
     // Configure Linker to find Slang static library
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
