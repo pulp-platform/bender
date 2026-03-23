@@ -72,6 +72,18 @@ struct Cli {
     )]
     no_progress: bool,
 
+    /// Increase logging verbosity (-v info, -vv debug, -vvv trace). Disables progress bars.
+    /// Set BENDER_VERBOSE to a number (e.g. BENDER_VERBOSE=2) for -vv equivalent.
+    #[arg(
+        short = 'v',
+        long,
+        action = ArgAction::Count,
+        global = true,
+        help_heading = "Global Options",
+        env = "BENDER_VERBOSE"
+    )]
+    verbose: u8,
+
     /// Print additional debug information
     #[cfg(debug_assertions)]
     #[arg(
@@ -128,6 +140,19 @@ fn cli_styles() -> Styles {
 pub fn main() -> Result<()> {
     // Parse command line arguments.
     let cli = Cli::parse();
+
+    // Initialize the logger based on verbosity level.
+    let log_level = match cli.verbose {
+        0 => log::LevelFilter::Warn,
+        1 => log::LevelFilter::Info,
+        2 => log::LevelFilter::Debug,
+        _ => log::LevelFilter::Trace,
+    };
+    env_logger::Builder::new()
+        .filter_level(log_level)
+        .format_timestamp(None)
+        .format_target(false)
+        .init();
 
     let mut suppressed_warnings: HashSet<String> =
         cli.suppress.into_iter().map(|s| s.to_owned()).collect();
@@ -201,7 +226,7 @@ pub fn main() -> Result<()> {
         cli.local,
         force_fetch,
         git_throttle,
-        cli.no_progress,
+        cli.no_progress || cli.verbose > 0,
     );
 
     if let Commands::Clean(args) = cli.command {

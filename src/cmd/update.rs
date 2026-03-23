@@ -126,8 +126,10 @@ pub fn run_plain<'ctx>(
         sess.root.join("Bender.lock")
     );
 
+    log::info!("resolving dependencies");
     let res = DependencyResolver::new(sess);
     let locked_new = res.resolve(existing, ignore_checkout_dir, keep_locked)?;
+    log::info!("resolved {} dependencies", locked_new.packages.len());
     let update_map: BTreeMap<String, (Option<LockedPackage>, Option<LockedPackage>)> = locked_new
         .packages
         .iter()

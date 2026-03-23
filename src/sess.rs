@@ -614,6 +614,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 ));
             }
             // Initialize.
+            log::info!("initializing git database for {} from {}", name, url);
             self.sess.stats.num_database_init.increment();
             // The progress bar object for cloning. We only use it for the
             // last fetch operation, which is the only network operation here.
@@ -658,9 +659,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 None => self.sess.manifest_mtime < db_mtime,
             };
             if skip_fetch || self.sess.local_only {
+                log::info!("skipping fetch of {:?} (skip_fetch={}, local_only={})", db_dir, skip_fetch, self.sess.local_only);
                 debugln!("sess: skipping fetch of {:?}", db_dir);
                 return Ok(git);
             }
+            log::info!("fetching updates for {} from {}", name, url);
             self.sess.stats.num_database_fetch.increment();
             // The progress bar object for fetching.
             let pb = Some(ProgressHandler::new(
@@ -855,6 +858,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         self.sess.stats.num_calls_checkout.increment();
         let dep = self.sess.dependency(dep_id);
+        log::info!("checking out {} (revision: {})", dep.name, dep.revision.as_deref().unwrap_or("none"));
 
         match dep.source {
             DependencySource::Registry => unimplemented!(),

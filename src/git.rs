@@ -85,6 +85,8 @@ impl<'ctx> Git<'ctx> {
         // instead of hanging indefinitely if auth is missing.
         cmd.env("GIT_TERMINAL_PROMPT", "0");
 
+        log::info!("git: {:?} in {:?}", cmd, self.path);
+
         // Spawn the child process
         let mut child = cmd.spawn().map_err(|cause| {
             if cause
