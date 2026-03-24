@@ -21,7 +21,7 @@ inherits = "release"
 lto = "thin"
 
 [dependencies]
-bender-slang = { path = "crates/bender-slang", optional = true}
+bender-slang = { version = "0.1.0", path = "crates/bender-slang", optional = true }
 
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
