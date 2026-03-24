@@ -2,10 +2,15 @@
 // Tim Fischer <fischeti@iis.ee.ethz.ch>
 
 #[cfg(unix)]
-// We create a symlink from the generated include directory to a stable location in the target directory
-// so that tools like clangd can find the headers without needing to know the exact OUT_DIR path.
+// We create symlinks from build-time directories to stable locations in the target directory
+// so that tools like clangd can find headers without needing to know the exact OUT_DIR path.
 // This is purely for improving the development experience and is not necessary for the build itself.
-fn refresh_include_symlink(generated_include_dir: &std::path::Path) {
+fn refresh_include_symlinks(
+    generated_include_dir: &std::path::Path,
+    slang_include_dir: &std::path::Path,
+    slang_external_dir: &std::path::Path,
+    fmt_include_dir: &std::path::Path,
+) {
     use std::ffi::OsStr;
     use std::fs;
     use std::os::unix::fs::symlink;
@@ -23,14 +28,26 @@ fn refresh_include_symlink(generated_include_dir: &std::path::Path) {
         return;
     };
 
-    let stable_link = target_root.join("slang-generated-include");
-    let _ = fs::remove_file(&stable_link);
-    let _ = fs::remove_dir_all(&stable_link);
-    let _ = symlink(generated_include_dir, &stable_link);
+    for (src, name) in [
+        (generated_include_dir, "slang-generated-include"),
+        (slang_include_dir, "slang-include"),
+        (slang_external_dir, "slang-external"),
+        (fmt_include_dir, "slang-fmt-include"),
+    ] {
+        let stable_link = target_root.join(name);
+        let _ = fs::remove_file(&stable_link);
+        let _ = fs::remove_dir_all(&stable_link);
+        let _ = symlink(src, &stable_link);
+    }
 }
 
 #[cfg(not(unix))]
-fn refresh_include_symlink(_generated_include_dir: &std::path::Path) {}
+fn refresh_include_symlinks(
+    _generated_include_dir: &std::path::Path,
+    _slang_include_dir: &std::path::Path,
+    _slang_external_dir: &std::path::Path,
+    _fmt_include_dir: &std::path::Path,
+) {}
 
 fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
@@ -45,7 +62,7 @@ fn main() {
     };
 
     // Create the configuration builder
-    let mut slang_lib = cmake::Config::new("vendor/slang");
+    let mut slang_lib = cmake::Config::new(".");
 
     // Common defines to give to both Slang and the Bridge
     // Note: It is very important to provide the same defines and flags
@@ -93,13 +110,23 @@ fn main() {
 
     // Build the slang library
     let dst = slang_lib.build();
-    let lib_dir = dst.join("lib");
+    // With FetchContent, cmake builds slang in a _deps subdirectory rather than
+    // installing it. Point directly at the FetchContent build/source directories.
+    let slang_lib_dir = dst.join("build/_deps/slang-build/lib");
+    let slang_include_dir = dst.join("build/_deps/slang-src/include");
+    let slang_generated_include_dir = dst.join("build/_deps/slang-build/source");
+    let fmt_include_dir = dst.join("build/_deps/fmt-src/include");
 
-    // Create a symlink for the generated include directory
-    refresh_include_symlink(&dst.join("include"));
+    // Create stable symlinks for clangd (see refresh_include_symlinks)
+    refresh_include_symlinks(
+        &slang_generated_include_dir,
+        &slang_include_dir,
+        &dst.join("slang-external"),
+        &fmt_include_dir,
+    );
 
     // Configure Linker to find Slang static library
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    println!("cargo:rustc-link-search=native={}", slang_lib_dir.display());
     println!("cargo:rustc-link-lib=static=svlang");
 
     // Link the additional libraries based on build profile.
@@ -124,9 +151,10 @@ fn main() {
         .file("cpp/print.cpp")
         .file("cpp/analysis.cpp")
         .flag_if_supported("-std=c++20")
-        .include("vendor/slang/include")
-        .include("vendor/slang/external")
-        .include(dst.join("include"));
+        .include(&slang_include_dir)
+        .include(&slang_generated_include_dir)
+        .include(dst.join("slang-external"))
+        .include(&fmt_include_dir);
 
     // Apply common defines and flags to the bridge build as well
     for (def, value) in common_cxx_defines.iter() {

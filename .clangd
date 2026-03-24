@@ -6,8 +6,9 @@ CompileFlags:
     - -fno-cxx-modules
     - -I.
     - -I../../../crates
-    - -I../vendor/slang/include
-    - -I../vendor/slang/external
+    - -I../../../target/slang-include
+    - -I../../../target/slang-external
+    - -I../../../target/slang-fmt-include
     - -I../../../target/slang-generated-include
     - -I../../../target/cxxbridge
     - -DSLANG_USE_MIMALLOC=1
