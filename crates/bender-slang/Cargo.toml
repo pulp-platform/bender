@@ -10,6 +10,8 @@ readme = "README.md"
 include = [
   "src/**",
   "cpp/**",
+  "!cpp/compile_flags.txt",
+  "tests/**",
   "CMakeLists.txt",
   "build.rs",
   "README.md",

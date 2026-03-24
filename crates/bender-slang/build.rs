@@ -34,6 +34,12 @@ fn generate_compile_flags(
 }
 
 fn main() {
+    let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+
+    // .cargo_vcs_info.json is placed in the package root by cargo during packaging/publish.
+    // Writing outside OUT_DIR is forbidden in that context, so skip the clangd helper.
+    let in_publish = manifest_dir.join(".cargo_vcs_info.json").exists();
+
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap();
     let build_profile = std::env::var("PROFILE").unwrap();
@@ -102,18 +108,19 @@ fn main() {
     let fmt_include_dir = dst.join("build/_deps/fmt-src/include");
 
     // Generate cpp/compile_flags.txt for clangd IDE support
-    let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    generate_compile_flags(
-        &manifest_dir,
-        &dst,
-        &[
-            &slang_include_dir,
-            &slang_generated_include_dir,
-            &dst.join("slang-external"),
-            &fmt_include_dir,
-        ],
-        &common_cxx_defines,
-    );
+    if !in_publish {
+        generate_compile_flags(
+            &manifest_dir,
+            &dst,
+            &[
+                &slang_include_dir,
+                &slang_generated_include_dir,
+                &dst.join("slang-external"),
+                &fmt_include_dir,
+            ],
+            &common_cxx_defines,
+        );
+    }
 
     // Configure Linker to find Slang static library
     println!("cargo:rustc-link-search=native={}", slang_lib_dir.display());
