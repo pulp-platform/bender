@@ -38,9 +38,9 @@ jobs:
           shared-key: ci-test-${{ matrix.os }}-${{ matrix.rust }}
           cache-workspace-crates: "true"
       - name: Build
-        run: cargo build --all-features
+        run: cargo build
       - name: Cargo Test
-        run: cargo test --workspace --all-features
+        run: cargo test --workspace
       - name: Run unit-tests
         run: tests/run_all.sh
         shell: bash
@@ -60,7 +60,7 @@ jobs:
         with:
           shared-key: ci-clippy-${{ runner.os }}-stable
           cache-workspace-crates: "true"
-      - run: cargo clippy --all-features
+      - run: cargo clippy
 
   unused-deps:
     name: Unused Dependencies

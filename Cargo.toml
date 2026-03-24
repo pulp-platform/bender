@@ -60,4 +60,5 @@ assert_cmd = "2.1.1"
 pretty_assertions = "1.4"
 
 [features]
+default = ["slang"]
 slang = ["dep:bender-slang"]

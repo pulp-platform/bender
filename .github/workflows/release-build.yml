@@ -56,4 +56,4 @@ jobs:
           shared-key: release-build-${{ matrix.target }}
           cache-workspace-crates: "true"
       - name: Build (release)
-        run: cargo build --release --all-features
+        run: cargo build --release
