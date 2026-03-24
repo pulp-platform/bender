@@ -56,7 +56,7 @@ To build from source, [install Rust][rust-installation] and run:
 ```sh
 cargo install bender
 ```
-To enable optional features (including the Slang-backed `pickle` command), add `--all-features`.  This may increase build time and require additional build dependencies.
+The Slang-backed `pickle` command is included by default. It requires a C++20 compiler and increases build time significantly. To build without it, use `--no-default-features`.
 
 Some Linux distributions also have Bender in their repositories:
 
