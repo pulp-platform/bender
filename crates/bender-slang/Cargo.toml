@@ -27,3 +27,6 @@ dunce = "1.0.4"
 [build-dependencies]
 cmake = "0.1.57"
 cxx-build = "1.0.194"
+
+[package.metadata.dist]
+dist = false
