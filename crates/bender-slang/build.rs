@@ -1,38 +1,45 @@
 // Copyright (c) 2025 ETH Zurich
 // Tim Fischer <fischeti@iis.ee.ethz.ch>
 
-#[cfg(unix)]
-// We create a symlink from the generated include directory to a stable location in the target directory
-// so that tools like clangd can find the headers without needing to know the exact OUT_DIR path.
-// This is purely for improving the development experience and is not necessary for the build itself.
-fn refresh_include_symlink(generated_include_dir: &std::path::Path) {
+// Generates cpp/compile_flags.txt so that clangd gets the correct include paths
+// for the C++ bridge files. The file is written to the cpp/ directory and should
+// be gitignored. It is picked up automatically by clangd for all files in that directory.
+fn generate_compile_flags(
+    manifest_dir: &std::path::Path,
+    dst: &std::path::Path,
+    includes: &[&std::path::Path],
+    defines: &[(&str, &str)],
+) {
     use std::ffi::OsStr;
-    use std::fs;
-    use std::os::unix::fs::symlink;
-    use std::path::PathBuf;
 
-    let Ok(out_dir) = std::env::var("OUT_DIR") else {
-        return;
-    };
-    let out_dir = PathBuf::from(out_dir);
-
-    let Some(target_root) = out_dir
+    let Some(target_root) = dst
         .ancestors()
-        .find(|path| path.file_name() == Some(OsStr::new("target")))
+        .find(|p| p.file_name() == Some(OsStr::new("target")))
     else {
         return;
     };
 
-    let stable_link = target_root.join("slang-generated-include");
-    let _ = fs::remove_file(&stable_link);
-    let _ = fs::remove_dir_all(&stable_link);
-    let _ = symlink(generated_include_dir, &stable_link);
+    let flags: Vec<String> = ["-x", "c++", "-std=c++20", "-fno-cxx-modules"]
+        .map(str::to_string)
+        .into_iter()
+        .chain(includes.iter().map(|p| format!("-I{}", p.display())))
+        .chain([format!("-I{}", target_root.join("cxxbridge").display())])
+        .chain(defines.iter().map(|(k, v)| format!("-D{}={}", k, v)))
+        .collect();
+
+    let _ = std::fs::write(
+        manifest_dir.join("cpp/compile_flags.txt"),
+        flags.join("\n") + "\n",
+    );
 }
 
-#[cfg(not(unix))]
-fn refresh_include_symlink(_generated_include_dir: &std::path::Path) {}
-
 fn main() {
+    let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+
+    // .cargo_vcs_info.json is placed in the package root by cargo during packaging/publish.
+    // Writing outside OUT_DIR is forbidden in that context, so skip the clangd helper.
+    let in_publish = manifest_dir.join(".cargo_vcs_info.json").exists();
+
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap();
     let build_profile = std::env::var("PROFILE").unwrap();
@@ -45,7 +52,7 @@ fn main() {
     };
 
     // Create the configuration builder
-    let mut slang_lib = cmake::Config::new("vendor/slang");
+    let mut slang_lib = cmake::Config::new(".");
 
     // Common defines to give to both Slang and the Bridge
     // Note: It is very important to provide the same defines and flags
@@ -93,13 +100,30 @@ fn main() {
 
     // Build the slang library
     let dst = slang_lib.build();
-    let lib_dir = dst.join("lib");
+    // With FetchContent, cmake builds slang in a _deps subdirectory rather than
+    // installing it. Point directly at the FetchContent build/source directories.
+    let slang_lib_dir = dst.join("build/_deps/slang-build/lib");
+    let slang_include_dir = dst.join("build/_deps/slang-src/include");
+    let slang_generated_include_dir = dst.join("build/_deps/slang-build/source");
+    let fmt_include_dir = dst.join("build/_deps/fmt-src/include");
 
-    // Create a symlink for the generated include directory
-    refresh_include_symlink(&dst.join("include"));
+    // Generate cpp/compile_flags.txt for clangd IDE support
+    if !in_publish {
+        generate_compile_flags(
+            &manifest_dir,
+            &dst,
+            &[
+                &slang_include_dir,
+                &slang_generated_include_dir,
+                &dst.join("slang-external"),
+                &fmt_include_dir,
+            ],
+            &common_cxx_defines,
+        );
+    }
 
     // Configure Linker to find Slang static library
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    println!("cargo:rustc-link-search=native={}", slang_lib_dir.display());
     println!("cargo:rustc-link-lib=static=svlang");
 
     // Link the additional libraries based on build profile.
@@ -124,9 +148,10 @@ fn main() {
         .file("cpp/print.cpp")
         .file("cpp/analysis.cpp")
         .flag_if_supported("-std=c++20")
-        .include("vendor/slang/include")
-        .include("vendor/slang/external")
-        .include(dst.join("include"));
+        .include(&slang_include_dir)
+        .include(&slang_generated_include_dir)
+        .include(dst.join("slang-external"))
+        .include(&fmt_include_dir);
 
     // Apply common defines and flags to the bridge build as well
     for (def, value) in common_cxx_defines.iter() {

@@ -1,3 +1,0 @@
-[submodule "crates/bender-slang/vendor/slang"]
-	path = crates/bender-slang/vendor/slang
-	url = https://github.com/MikePopoloski/slang.git

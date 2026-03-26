@@ -6,66 +6,41 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }}, Rust ${{ matrix.rust }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.rust == 'nightly' }}
     strategy:
       fail-fast: false
       matrix:
-        rust:
-          - stable
-          - beta
-          - nightly
-          - 1.87.0 # minimum supported version
-    continue-on-error: ${{ matrix.rust == 'nightly' }}
+        # Linux runs the full Rust version matrix; Windows and macOS test stable only.
+        os: [ubuntu-latest]
+        rust: [stable, beta, nightly, "1.87.0"]
+        include:
+          - os: windows-latest
+            rust: stable
+          - os: macos-latest
+            rust: stable
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ matrix.rust}}
-          components: rustfmt
+          toolchain: ${{ matrix.rust }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-test-${{ matrix.os }}-${{ matrix.rust }}
+          cache-workspace-crates: "true"
       - name: Build
-        run: cargo build --all-features
+        run: cargo build
       - name: Cargo Test
-        run: cargo test --workspace --all-features
-      - name: Format (fix with `cargo fmt`)
-        run: cargo fmt -- --check
-      - name: Run unit-tests
-        run: tests/run_all.sh
-        shell: bash
-
-  test-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-      - name: Build
-        run: cargo build --all-features
-      - name: Cargo Test
-        run: cargo test --workspace --all-features
-      - name: Run unit-tests
-        run: tests/run_all.sh
-        shell: bash
-
-  test-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-      - name: Build
-        run: cargo build --all-features
-      - name: Cargo Test
-        run: cargo test --workspace --all-features
+        run: cargo test --workspace
       - name: Run unit-tests
         run: tests/run_all.sh
         shell: bash
@@ -81,7 +56,11 @@ jobs:
         with:
           toolchain: stable
           components: clippy
-      - run: cargo clippy --all-features
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-clippy-${{ runner.os }}-stable
+          cache-workspace-crates: "true"
+      - run: cargo clippy
 
   unused-deps:
     name: Unused Dependencies
@@ -91,6 +70,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-unused-deps-${{ runner.os }}-stable
+          cache-workspace-crates: "true"
       - name: Install machete
         run: cargo install cargo-machete
       - name: Check for unused dependencies

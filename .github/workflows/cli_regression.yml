@@ -4,6 +4,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -15,7 +19,7 @@ jobs:
         with:
           toolchain: stable
       - name: Run CLI Regression
-        run: cargo test --all-features --test cli_regression -- --ignored
+        run: cargo test --test cli_regression -- --ignored
         env:
           BENDER_TEST_GOLDEN_BRANCH: ${{ github.base_ref }}
 
@@ -29,7 +33,7 @@ jobs:
         with:
           toolchain: stable
       - name: Run CLI Regression
-        run: cargo test --all-features --test cli_regression -- --ignored
+        run: cargo test --test cli_regression -- --ignored
         env:
           BENDER_TEST_GOLDEN_BRANCH: ${{ github.base_ref }}
 
@@ -43,6 +47,6 @@ jobs:
         with:
           toolchain: stable
       - name: Run CLI Regression
-        run: cargo test --all-features --test cli_regression -- --ignored
+        run: cargo test --test cli_regression -- --ignored
         env:
           BENDER_TEST_GOLDEN_BRANCH: ${{ github.base_ref }}

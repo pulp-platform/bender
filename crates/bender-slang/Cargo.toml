@@ -2,6 +2,20 @@
 name = "bender-slang"
 version = "0.1.0"
 edition = "2024"
+description = "Internal bender crate: Rust bindings for the Slang SystemVerilog parser"
+license = "Apache-2.0"
+authors = ["Tim Fischer <fischeti@iis.ee.ethz.ch>"]
+repository = "https://github.com/pulp-platform/bender"
+readme = "README.md"
+include = [
+  "src/**",
+  "cpp/**",
+  "!cpp/compile_flags.txt",
+  "tests/**",
+  "CMakeLists.txt",
+  "build.rs",
+  "README.md",
+]
 
 [dependencies]
 cxx = "1.0.194"
@@ -13,3 +27,6 @@ dunce = "1.0.4"
 [build-dependencies]
 cmake = "0.1.57"
 cxx-build = "1.0.194"
+
+[package.metadata.dist]
+dist = false
