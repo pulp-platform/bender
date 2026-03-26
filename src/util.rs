@@ -107,6 +107,34 @@ where
                 Ok(T::from_str(value).unwrap())
             }
 
+            fn visit_bool<E>(self, value: bool) -> std::result::Result<T, E>
+            where
+                E: de::Error,
+            {
+                self.visit_str(&value.to_string())
+            }
+
+            fn visit_i64<E>(self, value: i64) -> std::result::Result<T, E>
+            where
+                E: de::Error,
+            {
+                self.visit_str(&value.to_string())
+            }
+
+            fn visit_u64<E>(self, value: u64) -> std::result::Result<T, E>
+            where
+                E: de::Error,
+            {
+                self.visit_str(&value.to_string())
+            }
+
+            fn visit_f64<E>(self, value: f64) -> std::result::Result<T, E>
+            where
+                E: de::Error,
+            {
+                self.visit_str(&value.to_string())
+            }
+
             fn visit_map<M>(self, visitor: M) -> std::result::Result<T, M::Error>
             where
                 M: de::MapAccess<'de>,

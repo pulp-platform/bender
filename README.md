@@ -179,6 +179,8 @@ sources:
       EXCLUDE_MAGIC: ~
       # Define with a value.
       PREFIX_NAME: stuff
+      # Define dependent on a target
+      TEST_COMPONENTS: {target: "any(test, magic_test)", value: "all"}
     target: all(asic, synthesis, freepdk45)
     files:
       - src/core/pkg.sv
