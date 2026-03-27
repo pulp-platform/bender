@@ -20,6 +20,9 @@ use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::TargetSet;
 
+#[cfg(feature = "slang")]
+use bender_slang::SlangSession;
+
 /// Emit tool scripts for the package
 #[derive(Args, Debug)]
 pub struct ScriptArgs {
@@ -72,6 +75,11 @@ pub struct ScriptArgs {
     /// Do not abort analysis/compilation on first caught error
     #[arg(long, global = true, help_heading = "General Script Options")]
     pub no_abort_on_error: bool,
+
+    /// One or more top-level modules used to trim unreachable source files.
+    #[cfg(feature = "slang")]
+    #[arg(long, global = true, help_heading = "General Script Options")]
+    pub top: Vec<String>,
 
     /// Format of the generated script
     #[command(subcommand)]
@@ -226,6 +234,10 @@ where
         .collect()
 }
 
+fn concat_slices<T: Clone>(a: &[T], b: &[T]) -> Vec<T> {
+    a.iter().chain(b).cloned().collect()
+}
+
 /// Execute the `script` subcommand.
 pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
     let rt = Runtime::new()?;
@@ -234,9 +246,6 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
 
     // Format-specific target specifiers.
     let vivado_targets = &["vivado", "fpga", "xilinx"];
-    fn concat<T: Clone>(a: &[T], b: &[T]) -> Vec<T> {
-        a.iter().chain(b).cloned().collect()
-    }
     let format_targets: Vec<&str> = if !args.no_default_target {
         match args.format {
             ScriptFormat::Flist { .. } => vec!["flist"],
@@ -248,8 +257,8 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             ScriptFormat::Formality => vec!["synopsys", "synthesis", "formality"],
             ScriptFormat::Riviera { .. } => vec!["riviera", "simulation"],
             ScriptFormat::Genus => vec!["genus", "synthesis"],
-            ScriptFormat::Vivado { .. } => concat(vivado_targets, &["synthesis"]),
-            ScriptFormat::VivadoSim { .. } => concat(vivado_targets, &["simulation"]),
+            ScriptFormat::Vivado { .. } => concat_slices(vivado_targets, &["synthesis"]),
+            ScriptFormat::VivadoSim { .. } => concat_slices(vivado_targets, &["simulation"]),
             ScriptFormat::Precision => vec!["precision", "fpga", "synthesis"],
             ScriptFormat::Template { .. } => vec![],
             ScriptFormat::TemplateJson => vec![],
@@ -304,6 +313,14 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         .into_iter()
         .map(|f| f.validate(&ValidationContext::default()))
         .collect::<Result<Vec<_>>>()?;
+
+    // Slang-based --top filtering: trim unreachable Verilog files.
+    #[cfg(feature = "slang")]
+    let srcs = if !args.top.is_empty() {
+        filter_srcs_by_top(srcs, &args.top)?
+    } else {
+        srcs
+    };
 
     let mut tera_context = Context::new();
     let mut only_args = OnlyArgs {
@@ -415,6 +432,83 @@ where
     if !files.is_empty() {
         consume(&src, category.unwrap(), files);
     }
+}
+
+/// Filter source groups to only include Verilog files reachable from the given top modules.
+/// Non-Verilog files (VHDL, unknown) are always kept. Empty groups after filtering are dropped.
+#[cfg(feature = "slang")]
+fn filter_srcs_by_top<'a>(
+    srcs: Vec<SourceGroup<'a>>,
+    top: &[String],
+) -> Result<Vec<SourceGroup<'a>>> {
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    let mut session = SlangSession::new();
+    let mut index_to_path: HashMap<usize, PathBuf> = HashMap::new();
+
+    for src_group in &srcs {
+        // Collect include dirs (mirrors pickle.rs pattern).
+        let include_dirs: Vec<String> = src_group
+            .include_dirs
+            .iter()
+            .chain(src_group.export_incdirs.values().flatten())
+            .map(|(_, path)| path.to_string_lossy().into_owned())
+            .collect::<IndexSet<_>>()
+            .into_iter()
+            .collect();
+
+        // Collect defines (mirrors pickle.rs pattern).
+        let defines: Vec<String> = src_group
+            .defines
+            .iter()
+            .map(|(def, (_, value))| match value {
+                Some(v) => format!("{def}={v}"),
+                None => def.to_string(),
+            })
+            .collect::<IndexSet<_>>()
+            .into_iter()
+            .collect();
+
+        // Collect only Verilog file paths.
+        let (file_paths, path_bufs): (Vec<String>, Vec<PathBuf>) = src_group
+            .files
+            .iter()
+            .filter_map(|f| match f {
+                SourceFile::File(p, Some(SourceType::Verilog)) => {
+                    Some((p.to_string_lossy().into_owned(), p.to_path_buf()))
+                }
+                _ => None,
+            })
+            .unzip();
+
+        if !file_paths.is_empty() {
+            let indices = session.parse_group(&file_paths, &include_dirs, &defines)?;
+            for (idx, path) in indices.into_iter().zip(path_bufs) {
+                index_to_path.insert(idx, path);
+            }
+        }
+    }
+
+    let reachable_indices = session.reachable_indices(top)?;
+    let reachable_paths: std::collections::HashSet<PathBuf> = reachable_indices
+        .iter()
+        .filter_map(|i| index_to_path.get(i).cloned())
+        .collect();
+
+    Ok(srcs
+        .into_iter()
+        .map(|mut group| {
+            group.files.retain(|f| match f {
+                SourceFile::File(p, Some(SourceType::Verilog)) => {
+                    reachable_paths.contains(p.as_ref() as &std::path::Path)
+                }
+                _ => true,
+            });
+            group
+        })
+        .filter(|group| !group.files.is_empty())
+        .collect())
 }
 
 static HEADER_AUTOGEN: &str = "This script was generated automatically by bender.";
