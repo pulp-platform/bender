@@ -472,6 +472,57 @@ impl<'ctx> Session<'ctx> {
         }
     }
 
+    /// Get the path of a dependency
+    pub fn get_package_path(&self, dep_id: DependencyRef) -> PathBuf {
+        let dep = self.dependency(dep_id);
+
+        self.get_depsource_path(&dep.name, &dep.source)
+    }
+
+    /// Get path based on dependency source
+    pub fn get_depsource_path(&self, dep_name: &str, dep_source: &DependencySource) -> PathBuf {
+        // Determine the name of the checkout as the given name and the first
+        // 8 bytes (16 hex characters) of a BLAKE2 hash of the source and the
+        // root package name. This ensures that for every dependency and
+        // root package we have at most one checkout. (If multiple versions of
+        // the same package have access to the same dependency collection, this
+        // may need to be updated.)
+        let hash = {
+            use blake2::{Blake2b512, Digest};
+            let mut hasher = Blake2b512::new();
+            match dep_source {
+                DependencySource::Registry => unimplemented!(),
+                DependencySource::Git(url) => hasher.update(url.as_bytes()),
+                DependencySource::Path(path) => {
+                    // Determine and canonicalize the dependency path, and
+                    // immediately return it.
+                    let path = self.root.join(path);
+                    let path = match canonicalize(&path) {
+                        Ok(p) => p,
+                        Err(_) => path,
+                    };
+                    return path;
+                }
+            }
+            hasher.update(format!("{:?}", self.manifest.package.name).as_bytes());
+            &format!("{:016x}", hasher.finalize())[..16]
+        };
+        let checkout_name = format!("{}-{}", dep_name, hash);
+
+        // Determine the location of the git checkout. If the workspace has an
+        // explicit checkout directory, use that and do not append any hash to
+        // the dependency name.
+        match self.manifest.workspace.checkout_dir {
+            Some(ref cd) => cd.join(dep_name),
+            None => self
+                .config
+                .database
+                .join("git")
+                .join("checkouts")
+                .join(checkout_name),
+        }
+    }
+
     /// Get folder name of a git dependency with url
     pub fn git_db_name(&self, name: &str, url: &str) -> String {
         // Determine the name of the database as the given name and the first
@@ -483,11 +534,11 @@ impl<'ctx> Session<'ctx> {
     }
 }
 
-/// An event loop to perform IO within a session.
+/// A wrapper around a `Session` that provides async IO operations.
 ///
-/// This struct wraps a `Session` and keeps an additional event loop. Using the
-/// various functions provided, IO can be scheduled on this event loop. The
-/// futures may then be driven to completion using the `run()` function.
+/// This struct wraps a `Session` and caches intermediate results such as
+/// git version information. Its async methods can be driven by any async
+/// runtime.
 pub struct SessionIo<'sess, 'ctx: 'sess> {
     /// The underlying session.
     pub sess: &'sess Session<'ctx>,
@@ -765,11 +816,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 let refs: IndexMap<&str, &str> =
                     branches.into_iter().chain(tags.into_iter()).collect();
 
-                let mut git_versions = self.git_versions.lock().unwrap().clone();
-
                 let git_path = git.path;
 
-                git_versions.insert(
+                self.git_versions.lock().unwrap().insert(
                     git_path.to_path_buf(),
                     GitVersions {
                         versions: versions.clone(),
@@ -778,66 +827,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     },
                 );
 
-                *self.git_versions.lock().unwrap() = git_versions.clone();
-
                 Ok(GitVersions {
                     versions,
                     refs,
                     revs,
                 })
             }
-        }
-    }
-
-    /// Get the path of a dependency
-    pub fn get_package_path(&'io self, dep_id: DependencyRef) -> PathBuf {
-        let dep = self.sess.dependency(dep_id);
-
-        self.get_depsource_path(&dep.name, &dep.source)
-    }
-
-    /// Get path based on dependency source
-    pub fn get_depsource_path(&'io self, dep_name: &str, dep_source: &DependencySource) -> PathBuf {
-        // Determine the name of the checkout as the given name and the first
-        // 8 bytes (16 hex characters) of a BLAKE2 hash of the source and the
-        // root package name. This ensures that for every dependency and
-        // root package we have at most one checkout. (If multiple versions of
-        // the same package have access to the same dependency collection, this
-        // may need to be updated.)
-        let hash = {
-            use blake2::{Blake2b512, Digest};
-            let mut hasher = Blake2b512::new();
-            match dep_source {
-                DependencySource::Registry => unimplemented!(),
-                DependencySource::Git(url) => hasher.update(url.as_bytes()),
-                DependencySource::Path(path) => {
-                    // Determine and canonicalize the dependency path, and
-                    // immediately return it.
-                    let path = self.sess.root.join(path);
-                    let path = match canonicalize(&path) {
-                        Ok(p) => p,
-                        Err(_) => path,
-                    };
-                    return path;
-                }
-            }
-            hasher.update(format!("{:?}", self.sess.manifest.package.name).as_bytes());
-            &format!("{:016x}", hasher.finalize())[..16]
-        };
-        let checkout_name = format!("{}-{}", dep_name, hash);
-
-        // Determine the location of the git checkout. If the workspace has an
-        // explicit checkout directory, use that and do not append any hash to
-        // the dependency name.
-        match self.sess.manifest.workspace.checkout_dir {
-            Some(ref cd) => cd.join(dep_name),
-            None => self
-                .sess
-                .config
-                .database
-                .join("git")
-                .join("checkouts")
-                .join(checkout_name),
         }
     }
 
@@ -862,12 +857,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             DependencySource::Path(..) => {
                 let path = self
                     .sess
-                    .intern_path(self.get_package_path(dep_id).as_path());
+                    .intern_path(self.sess.get_package_path(dep_id).as_path());
                 return Ok(path);
             }
         }
 
-        let checkout_dir = self.sess.intern_path(self.get_package_path(dep_id));
+        let checkout_dir = self.sess.intern_path(self.sess.get_package_path(dep_id));
 
         match dep.source {
             DependencySource::Path(..) => unreachable!(),
@@ -991,7 +986,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             // First generate a tag to be cloned in the database. This is
             // necessary since `git clone` does not accept commits, but only
             // branches or tags for shallow clones.
-            let tag_name_0 = format!("bender-tmp-{}", revision).clone();
+            let tag_name_0 = format!("bender-tmp-{}", revision);
             let tag_name_1 = tag_name_0.clone();
             let tag_name_2 = tag_name_0.clone();
             let git = self
@@ -1230,13 +1225,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         Some(sub_entry) => db.clone().cat_file(sub_entry.hash).await.map(Some),
                     }?;
 
-                    let sub_dep_path = reference_path.join(path).clone();
+                    let sub_dep_path = reference_path.join(path);
 
                     let tmp_path = self.sess.root.join(".bender").join("tmp");
 
-                    if let Some(full_sub_data) = sub_data.clone() {
+                    if let Some(ref full_sub_data) = sub_data {
                         if !tmp_path.exists() {
-                            std::fs::create_dir_all(tmp_path.clone())?;
+                            std::fs::create_dir_all(&tmp_path)?;
                         }
                         let mut sub_file = std::fs::OpenOptions::new()
                             .write(true)
@@ -1448,8 +1443,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         self.sub_dependency_fixing(
                             &mut full.dependencies,
                             full.package.name.clone(),
-                            &self.get_package_path(dep_id),
-                            &self.get_package_path(dep_id),
+                            &self.sess.get_package_path(dep_id),
+                            &self.sess.get_package_path(dep_id),
                             db.clone(),
                             rev,
                         )
@@ -1588,7 +1583,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .chain(once(vec![Some(self.sess.manifest)]))
             .map(|manifests| {
                 manifests
-                    .clone()
                     .into_iter()
                     .flatten()
                     .map(|m| {

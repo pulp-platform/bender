@@ -464,7 +464,7 @@ fn emit_template(
                 .iter()
                 .map(|(k, (_, v))| (k.to_string(), v.map(String::from))),
         );
-        all_incdirs.extend(src.clone().get_incdirs());
+        all_incdirs.extend(src.get_incdirs());
 
         // If override_files is set, source files are not automatically included, only to replace files with matching basenames.
         if src.override_files {
@@ -569,7 +569,6 @@ fn emit_template(
                     },
                     incdirs: {
                         let mut incdirs = src
-                            .clone()
                             .get_incdirs()
                             .iter()
                             .map(|p| p.to_path_buf())
@@ -611,13 +610,13 @@ fn emit_template(
     for src in &split_srcs {
         match src.file_type {
             Some(SourceType::Verilog) => {
-                all_verilog.append(&mut src.files.clone().into_iter().collect());
+                all_verilog.extend(src.files.iter().cloned());
             }
             Some(SourceType::Vhdl) => {
-                all_vhdl.append(&mut src.files.clone().into_iter().collect());
+                all_vhdl.extend(src.files.iter().cloned());
             }
             _ => {
-                unknown_files.append(&mut src.files.clone().into_iter().collect());
+                unknown_files.extend(src.files.iter().cloned());
             }
         }
     }

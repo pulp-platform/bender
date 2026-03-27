@@ -1,64 +1,67 @@
 # {{HEADER_AUTOGEN}}
 set ROOT "{{ root }}"
 set search_path_initial $search_path
-{% if compilation_mode == 'separate' %}{#                                                                           Individual block for each source file group
-#}{% for group in srcs %}{% if group.file_type != '' %}{% if source_annotations %}
+{# Separate compilation: one block per source group -#}
+{% if compilation_mode == 'separate' -%}
+{%- for group in srcs %}{% if group.file_type != '' %}{% if source_annotations %}
 # {{ group.metadata }}{% endif %}
 set search_path $search_path_initial
-{% for incdir in group.incdirs %}{#                                                                                 Add group's include directories
-#}lappend search_path "{{ incdir | replace(from=root, to='$ROOT') }}"
+{% for incdir in group.incdirs -%}
+lappend search_path "{{ incdir | replace(from=root, to='$ROOT') }}"
 {% endfor %}
-{% if abort_on_error %}if {0 == [{% endif %}{#                                                                      Catch errors immediately
-#}analyze -format {% if group.file_type == 'verilog' %}sv{% elif group.file_type == 'vhdl' %}vhdl{% endif %} \{#    Analyze command for SystemVerilog or VHDL #}
-{% if group.file_type == 'verilog' %}{#                                                                             Additional command arguments
-#}{% for tmp_arg in verilog_args %}{{ tmp_arg }} \
-{% endfor %}{#
-#}{% else %}{#
-#}{% for tmp_arg in vhdl_args %}{{ tmp_arg }} \
-{% endfor %}{#
-#}{% endif %}{#
-#}{% for define in group.defines %}{#                                                                               Add group's defines
-#}{% if loop.first %}-define { \
+{% if abort_on_error %}if {0 == [{% endif -%}
+analyze -format {% if group.file_type == 'verilog' %}sv{% elif group.file_type == 'vhdl' %}vhdl{% endif %} \
+{% if group.file_type == 'verilog' -%}
+{%- for tmp_arg in verilog_args %}{{ tmp_arg }} \
+{% endfor -%}
+{%- else -%}
+{%- for tmp_arg in vhdl_args %}{{ tmp_arg }} \
+{% endfor -%}
+{%- endif -%}
+{%- for define in group.defines -%}
+{%- if loop.first %}-define { \
         {% endif %}{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %} \
     } \
     {% else %} \
         {% endif %}{% endfor %}[list \
-    {% for file in group.files %}{#                                                                                 Add group's files
-#}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
+    {% for file in group.files -%}
+{%- if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
 {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \
     {% endfor %}]
 {% if abort_on_error %}]} {return 1}{% endif %}
 {% endif %}{% endfor %}
-{% else %}{# compilation_mode == 'common' #}{#                                                                      Common block for all files
-#}{% for file in all_verilog %}{#                                                                                   Loop over verilog files
-#}{% if loop.first %}set search_path $search_path_initial
-{% for incdir in all_incdirs %}{#                                                                                   Add all include directories
-#}lappend search_path "{{ incdir | replace(from=root, to='$ROOT') }}"
+{# Common compilation: all files in one block -#}
+{% else -%}
+{# Verilog sources -#}
+{%- for file in all_verilog -%}
+{%- if loop.first %}set search_path $search_path_initial
+{% for incdir in all_incdirs -%}
+lappend search_path "{{ incdir | replace(from=root, to='$ROOT') }}"
 {% endfor %}
-{% if abort_on_error %}if {0 == [{% endif %}{#                                                                      Catch errors immediately
-#}analyze -format sv \{#                                                                                            Analyze command for SystemVerilog #}
+{% if abort_on_error %}if {0 == [{% endif -%}
+analyze -format sv \
 {% for tmp_arg in verilog_args %}{{ tmp_arg }} \
-{% endfor %}{#                                                                                                      Additional command arguments
-    #}{% for define in all_defines %}{#                                                                             Add all defines
-}
-#}{% if loop.first %}-define { \
+{% endfor -%}
+    {%- for define in all_defines -%}
+{%- if loop.first %}-define { \
         {% endif %}{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %} \
     } \
     {% else %} \
         {% endif %}{% endfor %}[list \
     {% endif %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
-    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \{#                        Add all verilog files #}
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \
     {% if loop.last %}]
 {% if abort_on_error %}]} {return 1}{% endif %}
 {% endif %}{% endfor %}
-{% for file in all_vhdl %}{% if loop.first %}{#                                                                     Loop over all VHDL files
-#}{% if abort_on_error %}if {0 == [{% endif %}{#                                                                    Catch errors immediately
-#}analyze -format vhdl \{#                                                                                          Analyze command for VHDL #}
+{# VHDL sources -#}
+{% for file in all_vhdl %}{% if loop.first -%}
+{%- if abort_on_error %}if {0 == [{% endif -%}
+analyze -format vhdl \
 {% for tmp_arg in vhdl_args %}{{ tmp_arg }} \
-{% endfor %}{#                                                                                                      Additional command arguments
-#}    [list \
+{% endfor -%}
+    [list \
     {% endif %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
-    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \{#                        Add all VHDL files #}
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \
     {% if loop.last %}]
 {% if abort_on_error %}]} {return 1}{% endif %}
 {% endif %}{% endfor %}

@@ -41,9 +41,12 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
     if args.targets {
         let mut res = String::from("");
         for (k, v) in parent_array.iter() {
-            res.push_str(
-                &format!("    {}\tfilters: {}\tpasses: {:?}\n", k, &v[0], &v[1..]).to_string(),
-            );
+            res.push_str(&format!(
+                "    {}\tfilters: {}\tpasses: {:?}\n",
+                k,
+                &v[0],
+                &v[1..]
+            ));
         }
         let mut tw = TabWriter::new(vec![]);
         write!(&mut tw, "{}", res).unwrap();
@@ -67,11 +70,11 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
         let mut res = String::from("");
         if constant_source {
             for (k, v) in parent_array.iter() {
-                res.push_str(&format!("    {}\trequires: {}\n", k, v[0]).to_string());
+                res.push_str(&format!("    {}\trequires: {}\n", k, v[0]));
             }
         } else {
             for (k, v) in parent_array.iter() {
-                res.push_str(&format!("    {}\trequires: {}\tat {}\n", k, v[0], v[1]).to_string());
+                res.push_str(&format!("    {}\trequires: {}\tat {}\n", k, v[0], v[1]));
             }
         }
         let mut tw = TabWriter::new(vec![]);
@@ -88,9 +91,9 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
         std::io::stdout(),
         "{} used version: {} at {}{}",
         sess.dependency(mydep).name,
-        match sess.dependency(mydep).version.clone() {
-            Some(ver) => ver.to_string(),
-            None => "".to_string(),
+        match sess.dependency(mydep).version {
+            Some(ref ver) => ver.to_string(),
+            None => String::new(),
         },
         sess.dependency(mydep).source,
         match sess.dependency(mydep).source {
