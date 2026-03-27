@@ -82,10 +82,9 @@ sources:
 EOF
 
 # Run bender audit and capture output
-if ! $BENDER audit > log 2>&1; then
-	# bender audit may return non-zero on conflicts, check output
-	true
-fi
+$BENDER audit > log 2>&1
+
+$BENDER parents common >> log 2>&1
 
 # The key assertion: "Conflict" should NOT appear for common
 if grep -q "Conflict" log; then
