@@ -4,6 +4,13 @@
 //! The `parents` subcommand.
 
 use std::io::Write;
+use std::path::Path;
+
+#[cfg(unix)]
+use std::fs::canonicalize;
+
+#[cfg(windows)]
+use dunce::canonicalize;
 
 use crate::diagnostic::Warnings;
 use clap::Args;
@@ -16,6 +23,21 @@ use crate::error::*;
 use crate::sess::{DependencyConstraint, DependencySource};
 use crate::sess::{Session, SessionIo};
 use crate::{fmt_path, fmt_version};
+
+/// Format a `DependencySource` as a string, canonicalizing path dependencies
+/// relative to the given base directory. This ensures that different relative
+/// paths pointing to the same directory (e.g., `ip/common` vs `../common`)
+/// produce the same string representation.
+fn format_dep_source(source: &DependencySource, base_dir: &Path) -> String {
+    match source {
+        DependencySource::Path(rel_path) => {
+            let abs_path = base_dir.join(rel_path);
+            let canonical = canonicalize(&abs_path).unwrap_or(abs_path);
+            format!("{:?}", canonical)
+        }
+        other => format!("{}", other),
+    }
+}
 
 /// List packages calling this dependency
 #[derive(Args, Debug)]
@@ -177,10 +199,8 @@ pub fn get_parent_array(
                 "{}",
                 DependencyConstraint::from(&sess.manifest.dependencies[dep])
             );
-            let dep_source = format!(
-                "{}",
-                DependencySource::from(&sess.manifest.dependencies[dep])
-            );
+            let source = DependencySource::from(&sess.manifest.dependencies[dep]);
+            let dep_source = format_dep_source(&source, sess.root);
             map.insert(
                 sess.manifest.package.name.clone(),
                 vec![dep_str, dep_source],
@@ -235,6 +255,8 @@ pub fn get_parent_array(
                             },
                         );
                     } else {
+                        let source = DependencySource::from(&dep_manifest.dependencies[dep]);
+                        let pkg_path = io.get_package_path(pkg);
                         map.insert(
                             pkg_name.to_string(),
                             vec![
@@ -242,10 +264,7 @@ pub fn get_parent_array(
                                     "{}",
                                     DependencyConstraint::from(&dep_manifest.dependencies[dep])
                                 ),
-                                format!(
-                                    "{}",
-                                    DependencySource::from(&dep_manifest.dependencies[dep])
-                                ),
+                                format_dep_source(&source, &pkg_path),
                             ],
                         );
                     }
