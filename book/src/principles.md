@@ -1,20 +1,44 @@
 # Principles
 
-Bender is built around the following core principles:
+Bender was created to solve the challenges of managing large-scale hardware designs with complex, nested dependencies. It is built around four core principles that guide its development and usage.
 
-- **Be as opt-in as possible.** We do not assume any specific EDA tool, workflow, or directory layout (besides a few key files). All features are designed to be as modular as possible, such that the user can integrate them into their respective flow.
+## 1. Modular and Opt-in
+Bender is designed to be a "pre-build" tool. It does not replace your EDA tools (synthesis, simulation, formal); it orchestrates them. 
+- **Tool Agnostic:** Whether you use Vivado, Questa, VCS, or Verilator, Bender provides the necessary file lists and configurations.
+- **Flexible Layout:** We do not enforce a strict directory structure. As long as a `Bender.yml` is present, Bender can manage it.
 
-- **Allow for reproducible builds.** Bender maintains a precise *lock file* which tracks the exact git hash a dependency has been resolved to. This allows the source code of a package to be reliable reconstructed after the fact.
+## 2. Reproducibility as Ground Truth
+In hardware design, knowing exactly what was taped out or simulated is critical.
+- **Precise Locking:** The `Bender.lock` file tracks every dependency down to its specific Git commit hash.
+- **Immutable States:** By committing the lockfile, you ensure that everyone on the team—and every CI runner—is using identical source code.
 
-- **Collect source files.** The first feature tier of Bender is to collect the source files in a hardware IP. In doing this, it shall do the following:
-  - Maintain the required order across source files, e.g. for package declarations before their use.
-  - Be as language-agnostic as possible, supporting both SystemVerilog and VHDL.
-  - Allow source files to be organized into recursive groups.
-  - Track defines and include directories individually for each group.
+## 3. Decentralized and Secure
+Unlike many software package managers (like npm or cargo), Bender does not rely on a central, public registry.
+- **Git-Centric:** Dependencies are resolved directly from Git repositories.
+- **NDA Friendly:** This allows projects to use internal, private repositories or even local paths, ensuring sensitive IP remains protected and within your infrastructure.
 
-- **Manage dependencies.** The second feature tier of Bender is to maintain other packages an IP may depend on, and to provide a local checkout of the necessary source files. Specifically, it shall:
-  - Support transitive dependencies
-  - Not rely on a central package registry, unlike e.g. npm, cargo, or brew (necessary because parts of a project are usually under NDA)
-  - Enforce strict use of [semantic versioning](https://semver.org/)
+## 4. Local-First Development
+Hardware development often requires modifying an IP and its dependencies simultaneously.
+- **Zero-Friction Overrides:** The `Bender.local` mechanism allows you to temporarily swap a remote dependency for a local working copy without changing the project's official manifest.
+- **Seamless Snapshots:** Captured states can be shared or moved to CI easily, bridging the gap between local development and official releases.
 
-- **Generate tool scripts.** The third feature tier of Bender is the ability to generate source file listings and compilation scripts for various tools.
+---
+
+## The Three Tiers of Bender
+
+Bender's functionality can be categorized into three distinct tiers, each building upon the other:
+
+### Tier 1: Source Collection
+At its simplest level, Bender is a tool for collecting and organizing HDL source files.
+- **Ordering:** Maintains the required order across source files (e.g., packages before modules).
+- **Organization:** Allows files to be organized into recursive groups with specific targets, defines, and include directories.
+
+### Tier 2: Dependency Management
+Bender resolves and manages transitive dependencies between different hardware IPs.
+- **Version Resolution:** Enforces Semantic Versioning (SemVer) to ensure compatibility.
+- **Lifecycle Management:** Automates the fetching, checking out, and updating of external packages.
+
+### Tier 3: Tool Script Generation
+The final tier provides the ability to generate the actual scripts and file lists used by vendor tools.
+- **Automation:** Eliminates the need to manually maintain tool-specific file lists (like `.f` files or TCL scripts).
+- **Consistency:** Ensures that the exact same set of sources is used across all stages of the design flow.
