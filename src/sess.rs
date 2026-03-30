@@ -33,7 +33,6 @@ use typed_arena::Arena;
 
 use crate::cli::read_manifest;
 use crate::config::{self, Config, Manifest, PartialManifest};
-use crate::debugln;
 use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::git::Git;
@@ -146,8 +145,8 @@ impl<'ctx> Session<'ctx> {
         cfg: &config::Dependency,
         _calling_package: &str,
     ) -> DependencyRef {
-        debugln!(
-            "sess: load dependency `{}` as {:?} for package `{}`",
+        log::debug!(
+            "load dependency `{}` as {:?} for package `{}`",
             name,
             cfg,
             _calling_package
@@ -265,7 +264,7 @@ impl<'ctx> Session<'ctx> {
                     )));
                 }
             }
-            debugln!("sess: topological ranks {:#?}", ranks);
+            log::debug!("topological ranks {:#?}", ranks);
 
             // Group together packages with the same rank, to build the final
             // ordering.
@@ -284,9 +283,9 @@ impl<'ctx> Session<'ctx> {
             pkgs
         };
 
-        debugln!("sess: names {:?}", names);
-        debugln!("sess: graph {:?}", graph);
-        debugln!("sess: pkgs {:?}", pkgs);
+        log::debug!("names {:?}", names);
+        log::debug!("graph {:?}", graph);
+        log::debug!("pkgs {:?}", pkgs);
 
         *self.names.lock().unwrap() = names;
         *self.graph.lock().unwrap() = Arc::new(graph);
@@ -660,7 +659,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             };
             if skip_fetch || self.sess.local_only {
                 log::info!("skipping fetch of {:?} (skip_fetch={}, local_only={})", db_dir, skip_fetch, self.sess.local_only);
-                debugln!("sess: skipping fetch of {:?}", db_dir);
                 return Ok(git);
             }
             log::info!("fetching updates for {} from {}", name, url);
@@ -701,11 +699,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         match versions_tmp.get(&git.path.to_path_buf()) {
             Some(result) => {
-                debugln!("sess: git_versions from stored");
+                log::debug!("git_versions from stored");
                 Ok(result.clone())
             }
             None => {
-                debugln!("sess: git_versions get new");
+                log::debug!("git_versions get new");
                 let dep_revs = git.clone().list_revs();
                 let dep_refs = git.clone().list_refs().await?;
                 let (refs, revs) = {
@@ -723,7 +721,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     .into_iter()
                     .map(|s| self.sess.intern_string(s))
                     .collect();
-                debugln!("sess: refs {:?}", refs);
+                log::debug!("refs {:?}", refs);
                 let (tags, branches) = {
                     // Create a lookup table for the revisions. This will be used to
                     // only accept refs that point to actual revisions.
@@ -923,8 +921,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             let current_checkout = local_git.clone().current_checkout().await;
             let checkout_already_good = match current_checkout {
                 Ok(Some(current)) => {
-                    debugln!(
-                        "checkout_git: currently `{}` (want `{}`)",
+                    log::debug!(
+                        "currently `{}` (want `{}`)",
                         current,
                         revision
                     );
@@ -979,7 +977,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             CheckoutState::ToClone
         };
         if path.exists() && clear == CheckoutState::ToClone {
-            debugln!("checkout_git: clear checkout {:?}", path);
+            log::debug!("clear checkout {:?}", path);
             std::fs::remove_dir_all(path).map_err(|cause| {
                 Error::chain(
                     format!("Failed to remove checkout directory {:?}.", path),
@@ -1017,8 +1015,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             {
                 Ok(r) => Ok(r),
                 Err(_cause) => {
-                    debugln!(
-                        "checkout_git: failed to tag commit {:?}, attempting fetch.",
+                    log::debug!(
+                        "failed to tag commit {:?}, attempting fetch.",
                         _cause
                     );
                     let pb = Some(ProgressHandler::new(
@@ -1610,7 +1608,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         for element in tmp_export_include_dirs {
             all_export_include_dirs.extend(element);
         }
-        debugln!(
+        log::debug!(
             "export_include_dirs for each package: {:?}",
             all_export_include_dirs
         );
@@ -1732,8 +1730,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         let mut plugins = IndexMap::new();
         for (package, manifest) in manifests {
             for (name, plugin) in &manifest.plugins {
-                debugln!(
-                    "sess: plugin `{}` declared by package `{}`",
+                log::debug!(
+                    "plugin `{}` declared by package `{}`",
                     name,
                     manifest.package.name
                 );
@@ -1757,7 +1755,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         }
         let root_plugins = &self.sess.manifest.plugins;
         for (name, plugin) in root_plugins.iter() {
-            debugln!("sess: plugin `{}` declared by root package", name);
+            log::debug!("plugin `{}` declared by root package", name);
             let existing = plugins.insert(
                 name.clone(),
                 Plugin {
@@ -1926,7 +1924,7 @@ impl<'ctx> DependencyTable<'ctx> {
     /// returned.
     pub fn add(&mut self, entry: &'ctx DependencyEntry) -> DependencyRef {
         if let Some(&id) = self.ids.get(&entry) {
-            debugln!("sess: reusing {:?}", id);
+            log::debug!("reusing {:?}", id);
             id
         } else {
             if let DependencySource::Path(path) = &entry.source {
@@ -1935,7 +1933,7 @@ impl<'ctx> DependencyTable<'ctx> {
                 }
             }
             let id = DependencyRef(self.list.len());
-            debugln!("sess: adding {:?} as {:?}", entry, id);
+            log::debug!("adding {:?} as {:?}", entry, id);
             self.list.push(entry);
             self.ids.insert(entry, id);
             id
@@ -2058,7 +2056,7 @@ pub struct SessionStatistics {
 
 impl Drop for SessionStatistics {
     fn drop(&mut self) {
-        debugln!("{:#?}", self);
+        log::debug!("{:#?}", self);
     }
 }
 

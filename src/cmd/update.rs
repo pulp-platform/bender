@@ -12,7 +12,6 @@ use tabwriter::TabWriter;
 
 use crate::cmd;
 use crate::config::{Locked, LockedPackage};
-use crate::debugln;
 use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::lockfile::*;
@@ -121,8 +120,8 @@ pub fn run_plain<'ctx>(
             sess.root.join("Bender.yml")
         )));
     }
-    debugln!(
-        "main: lockfile {:?} outdated",
+    log::debug!(
+        "lockfile {:?} outdated",
         sess.root.join("Bender.lock")
     );
 

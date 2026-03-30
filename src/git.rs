@@ -18,7 +18,6 @@ use walkdir::WalkDir;
 
 use crate::progress::{ProgressHandler, monitor_stderr};
 
-use crate::debugln;
 use crate::error::*;
 
 /// A git repository.
@@ -100,8 +99,6 @@ impl<'ctx> Git<'ctx> {
                 Error::chain("Failed to spawn child process.", cause)
             }
         })?;
-
-        debugln!("git: {:?} in {:?}", cmd, self.path);
 
         // Setup Streaming for Stderr (Progress + Error Collection)
         // We need to capture stderr in case the command fails, so we collect it while parsing.

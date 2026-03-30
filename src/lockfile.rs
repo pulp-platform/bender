@@ -5,12 +5,11 @@ use std;
 use std::path::Path;
 
 use crate::config::{Locked, LockedPackage, LockedSource, PrefixPaths};
-use crate::debugln;
 use crate::error::*;
 
 /// Read a lock file.
 pub fn read_lockfile(path: &Path, root_dir: &Path) -> Result<Locked> {
-    debugln!("read_lockfile: {:?}", path);
+    log::debug!("reading lockfile {:?}", path);
     use std::fs::File;
     let file = File::open(path)
         .map_err(|cause| Error::chain(format!("Cannot open lockfile {:?}.", path), cause))?;
@@ -44,7 +43,7 @@ pub fn read_lockfile(path: &Path, root_dir: &Path) -> Result<Locked> {
 
 /// Write a lock file.
 pub fn write_lockfile(locked: &Locked, path: &Path, root_dir: &Path) -> Result<()> {
-    debugln!("write_lockfile: {:?}", path);
+    log::debug!("writing lockfile {:?}", path);
     // Adapt paths within main repo to be relative
     let adapted_locked = Locked {
         packages: locked
