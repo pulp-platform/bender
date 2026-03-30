@@ -1,32 +1,64 @@
 # Installation
 
-To use Bender for a single project, the simplest is to download and use a precompiled binary.  We provide binaries for all current versions of Ubuntu and CentOS, as well as generic Linux, on each release.  Open a terminal and enter the following command:
+Bender is a single standalone binary. You can either use our recommended shell installer, download a precompiled version, or build it from source.
+
+## Recommended: Shell Installer
+
+The fastest way to install Bender is using our shell script. It detects your operating system and architecture, downloads the latest release, and places it in your path (typically `~/.cargo/bin`).
+
 ```sh
 curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh
 ```
-The command downloads and executes a script that detects your distribution and downloads the appropriate `bender` binary of the latest release to your current directory.  If you need a specific version of Bender (e.g., `0.21.0`), append ` -s -- 0.21.0` to that command.  Alternatively, you can manually download a precompiled binary from [our Releases on GitHub][releases].
 
-If you prefer building your own binary, you need to [install Rust][rust-installation].  You can then build and install Bender for the current user with the following command:
+### Installing a Specific Version
+If you need a specific version of Bender (e.g., `0.31.0`), you can pass it as an argument:
+```sh
+curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh -s -- 0.31.0
+```
+
+## Alternative: Build from Source
+
+If you prefer building your own binary, you will need to [install Rust](https://rustup.rs/).
+
+### Using Cargo
+You can install the latest official release directly from [crates.io](https://crates.io/crates/bender):
+
 ```sh
 cargo install bender
 ```
-If you need a specific version of Bender (e.g., `0.21.0`), append ` --version 0.21.0` to that command.
 
-To compile bender from source, clone the git project and run the following command inside the bender project:
-```sh
-cargo build
-```
-To install the local sources, you can run the following:
+> **Note:** By default, Bender includes the `pickle` command which is backed by [Slang](https://github.com/MikePopoloski/slang). This requires a **C++20 compliant compiler** and increases build time significantly. To build without this feature, run:
+> ```sh
+> cargo install bender --no-default-features
+> ```
+
+### From Local Source
+If you have cloned the repository, you can install the local version by running the following command from the project root:
+
 ```sh
 cargo install --path .
 ```
 
-To install Bender system-wide, you can simply copy the binary you have obtained from one of the above methods to one of the system directories on your `PATH`.  Even better, some Linux distributions have Bender in their repositories.  We are currently aware of:
+## Linux Distributions
 
-### [ArchLinux ![aur-shield](https://img.shields.io/aur/version/bender)][aur-bender]
+Some Linux distributions provide Bender through their package managers:
 
-Please extend this list through a PR if you know additional distributions.
+- **ArchLinux:** [Bender on the AUR](https://aur.archlinux.org/packages/bender)
 
-[aur-bender]: https://aur.archlinux.org/packages/bender
-[releases]: https://github.com/pulp-platform/bender/releases
-[rust-installation]: https://doc.rust-lang.org/book/ch01-01-installation.html
+## Verifying Installation
+
+After installation, verify that Bender is available in your terminal:
+
+```sh
+bender --version
+```
+
+## Shell Completion
+
+Bender supports shell completion for Bash, Zsh, Fish, and PowerShell. To enable it, use the `completion` command and source the output in your shell's configuration file.
+
+For example, for **Zsh**:
+```sh
+bender completion zsh > ~/.bender_completion.zsh
+echo "source ~/.bender_completion.zsh" >> ~/.zshrc
+```
