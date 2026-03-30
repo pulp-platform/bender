@@ -12,6 +12,7 @@
   - [Dependencies](./dependencies.md)
   - [Sources](./sources.md)
   - [Targets](./targets.md)
+  - [Configuration](./configuration.md)
 - [Workflows](./workflows.md)
   - [Initialization](./workflow/init.md)
   - [Dependencies](./workflow/dependencies.md)
