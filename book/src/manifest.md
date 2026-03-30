@@ -21,14 +21,25 @@ package:
   name: magic-chip
 
   # The list of package authors and contributors. Optional.
-  # By convention, authors should be listed in the form shown below.
   authors: ["John Doe <john@doe.si>"]
 
   # A short description of the package. Optional.
   description: "This is a magical chip"
 ```
 
-The next section in the manifest is the dependencies. Basic projects not requiring any modules from dependencies can omit this section. All packages this bender project depends on should be listed here for proper functionality, including the version requirements. More details on the specific format can be found [here](./dependencies.md).
+The `remotes` section allows you to define shorthand names for Git repositories. This makes the `dependencies` section much cleaner by avoiding repeated long URLs.
+
+```yaml
+# Specify git remotes for dependencies. Optional.
+remotes:
+  pulp: "https://github.com/pulp-platform"
+  openhw:
+    url: "https://github.com/openhwgroup"
+    default: true # Used if no remote is specified in a dependency
+```
+
+The next section in the manifest is the dependencies.
+ Basic projects not requiring any modules from dependencies can omit this section. All packages this bender project depends on should be listed here for proper functionality, including the version requirements. More details on the specific format can be found [here](./dependencies.md).
 
 ```yaml
 # Other packages this package depends on. Optional.
