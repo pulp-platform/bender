@@ -1102,11 +1102,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                                 Ok(Some((src.id, 0, IndexSet::from([0]))))
                             }
                             DependencyVersions::Git(..) => {
-                                log::debug!(
-                                    "selecting git version for `{}`[{}]",
-                                    dep.name,
-                                    src.id
-                                );
+                                log::debug!("selecting git version for `{}`[{}]", dep.name, src.id);
                                 Ok(match map[&src.id].is_empty() {
                                     true => None,
                                     false => Some((

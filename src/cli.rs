@@ -72,11 +72,11 @@ struct Cli {
     )]
     no_progress: bool,
 
-    /// Increase logging verbosity (-v info, -vv debug, -vvv trace). Disables progress bars.
-    /// Set BENDER_VERBOSE to a number (e.g. BENDER_VERBOSE=2) for -vv equivalent.
+    /// Increase logging verbosity. Disables progress bars.
     #[arg(
-        short = 'v',
+        short,
         long,
+        long_help = "Increase logging verbosity (-v info, -vv debug, -vvv trace). Disables progress bars.\nSet BENDER_VERBOSE to a number (e.g. BENDER_VERBOSE=2) for -vv equivalent.",
         action = ArgAction::Count,
         global = true,
         help_heading = "Global Options",

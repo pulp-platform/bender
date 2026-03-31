@@ -120,10 +120,7 @@ pub fn run_plain<'ctx>(
             sess.root.join("Bender.yml")
         )));
     }
-    log::debug!(
-        "lockfile {:?} outdated",
-        sess.root.join("Bender.lock")
-    );
+    log::debug!("lockfile {:?} outdated", sess.root.join("Bender.lock"));
 
     log::info!("resolving dependencies");
     let res = DependencyResolver::new(sess);

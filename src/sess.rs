@@ -658,7 +658,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 None => self.sess.manifest_mtime < db_mtime,
             };
             if skip_fetch || self.sess.local_only {
-                log::info!("skipping fetch of {:?} (skip_fetch={}, local_only={})", db_dir, skip_fetch, self.sess.local_only);
+                log::info!(
+                    "skipping fetch of {:?} (skip_fetch={}, local_only={})",
+                    db_dir,
+                    skip_fetch,
+                    self.sess.local_only
+                );
                 return Ok(git);
             }
             log::info!("fetching updates for {} from {}", name, url);
@@ -856,7 +861,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         self.sess.stats.num_calls_checkout.increment();
         let dep = self.sess.dependency(dep_id);
-        log::info!("checking out {} (revision: {})", dep.name, dep.revision.as_deref().unwrap_or("none"));
+        log::info!(
+            "checking out {} (revision: {})",
+            dep.name,
+            dep.revision.as_deref().unwrap_or("none")
+        );
 
         match dep.source {
             DependencySource::Registry => unimplemented!(),
@@ -921,11 +930,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             let current_checkout = local_git.clone().current_checkout().await;
             let checkout_already_good = match current_checkout {
                 Ok(Some(current)) => {
-                    log::debug!(
-                        "currently `{}` (want `{}`)",
-                        current,
-                        revision
-                    );
+                    log::debug!("currently `{}` (want `{}`)", current, revision);
                     if current == revision {
                         CheckoutState::Clean
                     } else if let Ok(db) = self.git_database(name, url, Some(false), None).await {
@@ -1015,10 +1020,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             {
                 Ok(r) => Ok(r),
                 Err(_cause) => {
-                    log::debug!(
-                        "failed to tag commit {:?}, attempting fetch.",
-                        _cause
-                    );
+                    log::debug!("failed to tag commit {:?}, attempting fetch.", _cause);
                     let pb = Some(ProgressHandler::new(
                         self.sess.multiprogress.clone(),
                         GitProgressOps::Checkout,
