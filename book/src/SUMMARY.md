@@ -16,7 +16,6 @@
 - [Workflows](./workflows.md)
   - [Initialization](./workflow/init.md)
   - [Dependencies](./workflow/dependencies.md)
-  - [Sources](./workflow/sources.md)
   - [Scripts](./workflow/scripts.md)
   - [Package Development](./workflow/package_dev.md)
   - [Vendor](./workflow/vendor.md)
