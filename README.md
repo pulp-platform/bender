@@ -77,4 +77,8 @@ at your option.
 
 ---
 
+<a href="https://pulp-platform.org/">
+<img src="website/pulp_logo_icon.svg" alt="PULP Platform" width="80" align="right">
+</a>
+
 Bender is maintained by the [PULP Platform](https://pulp-platform.org/) at ETH Zurich and the University of Bologna.
