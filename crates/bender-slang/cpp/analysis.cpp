@@ -4,7 +4,9 @@
 #include "slang_bridge.h"
 
 #include <functional>
+#include <iostream>
 #include <stdexcept>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -13,13 +15,21 @@ using namespace slang;
 rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, const rust::Vec<rust::String>& tops) {
     const auto& treeVec = session.trees();
 
-    // Build a mapping from declared symbol names to the index of the tree that
-    // declares them.
+    // Build the name-to-tree-index map with last-wins semantics, emitting a warning
+    // whenever a later definition overwrites an earlier one.
     std::unordered_map<std::string_view, size_t> nameToTreeIndex;
     for (size_t i = 0; i < treeVec.size(); ++i) {
-        const auto& metadata = treeVec[i]->getMetadata();
-        for (auto name : metadata.getDeclaredSymbols()) {
-            nameToTreeIndex.emplace(name, i);
+        for (auto name : treeVec[i]->getMetadata().getDeclaredSymbols()) {
+            auto [it, inserted] = nameToTreeIndex.emplace(name, i);
+            if (!inserted) {
+                std::cerr << "warning[BND]: Module '" << name << "' defined in "
+                          << treeVec[i]->sourceManager().getRawFileName(treeVec[i]->getSourceBufferIds()[0])
+                          << " overwrites previous definition in "
+                          << treeVec[it->second]->sourceManager().getRawFileName(
+                                 treeVec[it->second]->getSourceBufferIds()[0])
+                          << ".\n";
+                it->second = i;
+            }
         }
     }
 
