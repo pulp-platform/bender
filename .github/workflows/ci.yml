@@ -35,8 +35,7 @@ jobs:
           toolchain: ${{ matrix.rust }}
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-test-${{ matrix.os }}-${{ matrix.rust }}
-          cache-workspace-crates: "true"
+          shared-key: cargo-${{ matrix.os }}-${{ matrix.rust }}
       - name: Build
         run: cargo build
       - name: Cargo Test
@@ -58,8 +57,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-clippy-${{ runner.os }}-stable
-          cache-workspace-crates: "true"
+          shared-key: cargo-${{ runner.os }}-stable
       - run: cargo clippy
 
   unused-deps:
@@ -70,10 +68,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci-unused-deps-${{ runner.os }}-stable
-          cache-workspace-crates: "true"
       - name: Install machete
         run: cargo install cargo-machete
       - name: Check for unused dependencies

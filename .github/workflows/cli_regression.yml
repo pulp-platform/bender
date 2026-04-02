@@ -33,8 +33,7 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: cli-regression-${{ matrix.target }}-stable
-          cache-workspace-crates: "true"
+          shared-key: cargo-${{ runner.os }}-stable
       - name: Restore CLI regression golden binary
         uses: actions/cache/restore@v5
         with:
