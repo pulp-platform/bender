@@ -10,7 +10,20 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            golden_bin: target/regression-golden/bender
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            golden_bin: target/regression-golden/bender.exe
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            golden_bin: target/regression-golden/bender
     steps:
       - uses: actions/checkout@v6
         with:
@@ -18,35 +31,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cli-regression-${{ matrix.target }}-stable
+          cache-workspace-crates: "true"
+      - name: Restore CLI regression golden binary
+        uses: actions/cache/restore@v5
+        with:
+          path: target/regression-golden
+          key: golden-bender-${{ matrix.target }}-${{ github.event.pull_request.base.sha || github.sha }}
       - name: Run CLI Regression
         run: cargo test --test cli_regression -- --ignored
         env:
           BENDER_TEST_GOLDEN_BRANCH: ${{ github.base_ref }}
-
-  test-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-      - name: Run CLI Regression
-        run: cargo test --test cli_regression -- --ignored
-        env:
-          BENDER_TEST_GOLDEN_BRANCH: ${{ github.base_ref }}
-
-  test-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-      - name: Run CLI Regression
-        run: cargo test --test cli_regression -- --ignored
-        env:
-          BENDER_TEST_GOLDEN_BRANCH: ${{ github.base_ref }}
+          BENDER_TEST_GOLDEN_BIN: ${{ matrix.golden_bin }}

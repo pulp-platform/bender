@@ -10,18 +10,54 @@ use pretty_assertions::assert_eq;
 
 static SETUP: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
 
+fn golden_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "bender.exe"
+    } else {
+        "bender"
+    }
+}
+
+fn non_empty_env_var(key: &str) -> Option<String> {
+    std::env::var(key).ok().filter(|value| !value.is_empty())
+}
+
 fn get_test_env() -> &'static (PathBuf, PathBuf) {
     SETUP.get_or_init(|| {
         let root = Path::new("target/tmp_regression");
         let install_root = root.join("golden_install");
         let repo_dir = Path::new("tests/cli_regression").to_path_buf();
 
-        // Install Golden Bender
-        let bender_exe = install_root.join("bin").join("bender");
+        if let Some(prebuilt_bin) = non_empty_env_var("BENDER_TEST_GOLDEN_BIN") {
+            let bender_exe = std::env::current_dir().unwrap().join(prebuilt_bin);
+            if bender_exe.exists() {
+                println!("Using prebuilt golden bender binary: {:?}", bender_exe);
 
-        let golden_branch = std::env::var("BENDER_TEST_GOLDEN_BRANCH")
-            .or_else(|_| std::env::var("GITHUB_BASE_REF")) // For GitHub Actions
-            .unwrap_or_else(|_| "master".to_string());
+                let status = SysCommand::new(&bender_exe)
+                    .arg("checkout")
+                    .current_dir(&repo_dir)
+                    .status()
+                    .expect("Failed to run bender checkout");
+                assert!(
+                    status.success(),
+                    "Failed to initialize common_cells with golden bender"
+                );
+
+                return (bender_exe, repo_dir);
+            }
+
+            println!(
+                "Prebuilt golden bender binary not found at {:?}, falling back to cargo install",
+                bender_exe
+            );
+        }
+
+        // Install Golden Bender
+        let bender_exe = install_root.join("bin").join(golden_binary_name());
+
+        let golden_branch = non_empty_env_var("BENDER_TEST_GOLDEN_BRANCH")
+            .or_else(|| non_empty_env_var("GITHUB_BASE_REF")) // For GitHub Actions
+            .unwrap_or_else(|| "master".to_string());
 
         println!("Using golden bender branch: {}", golden_branch);
 
@@ -59,7 +95,7 @@ fn get_test_env() -> &'static (PathBuf, PathBuf) {
             "Failed to initialize common_cells with bender"
         );
 
-        (bender_exe, repo_dir)
+        (bender_exe_abs, repo_dir)
     })
 }
 
