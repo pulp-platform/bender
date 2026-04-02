@@ -259,7 +259,7 @@ pub fn get_parent_array(
                         );
                     } else {
                         let source = DependencySource::from(&dep_manifest.dependencies[dep]);
-                        let pkg_path = io.get_package_path(pkg);
+                        let pkg_path = sess.get_package_path(pkg);
                         map.insert(
                             pkg_name.to_string(),
                             vec![
