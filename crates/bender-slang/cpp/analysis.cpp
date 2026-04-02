@@ -8,7 +8,13 @@
 #include <iostream>
 #include <stdexcept>
 #include <string_view>
+#ifdef _WIN32
+#include <io.h>
+#define STDERR_IS_TTY _isatty(_fileno(stderr))
+#else
 #include <unistd.h>
+#define STDERR_IS_TTY isatty(STDERR_FILENO)
+#endif
 #include <unordered_map>
 #include <unordered_set>
 
@@ -31,7 +37,7 @@ rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, con
             if (!inserted) {
                 slang::DiagnosticEngine engine(treeVec[i]->sourceManager());
                 auto client = std::make_shared<slang::TextDiagnosticClient>();
-                client->showColors(isatty(STDERR_FILENO));
+                client->showColors(STDERR_IS_TTY);
                 engine.addClient(client);
                 engine.setMessage(overwriteCode, "module '{}' overwrites previous definition in '{}'");
                 engine.setSeverity(overwriteCode, slang::DiagnosticSeverity::Warning);
