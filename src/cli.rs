@@ -29,7 +29,7 @@ use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::lockfile::*;
 use crate::sess::{Session, SessionArenas, SessionIo};
-use crate::{debugln, fmt_path, fmt_pkg, stageln};
+use crate::{fmt_path, fmt_pkg, stageln};
 
 #[derive(Parser, Debug)]
 #[command(name = "bender")]
@@ -72,15 +72,17 @@ struct Cli {
     )]
     no_progress: bool,
 
-    /// Print additional debug information
-    #[cfg(debug_assertions)]
+    /// Increase logging verbosity. Disables progress bars.
     #[arg(
+        short,
         long,
+        long_help = "Increase logging verbosity (-v info, -vv debug, -vvv trace). Disables progress bars.\nSet BENDER_VERBOSE to a number (e.g. BENDER_VERBOSE=2) for -vv equivalent.",
+        action = ArgAction::Count,
         global = true,
         help_heading = "Global Options",
-        env = "BENDER_DEBUG"
+        env = "BENDER_VERBOSE"
     )]
-    debug: bool,
+    verbose: u8,
 
     #[command(subcommand)]
     command: Commands,
@@ -129,6 +131,19 @@ pub fn main() -> Result<()> {
     // Parse command line arguments.
     let cli = Cli::parse();
 
+    // Initialize the logger based on verbosity level.
+    let log_level = match cli.verbose {
+        0 => log::LevelFilter::Warn,
+        1 => log::LevelFilter::Info,
+        2 => log::LevelFilter::Debug,
+        _ => log::LevelFilter::Trace,
+    };
+    env_logger::Builder::new()
+        .filter_level(log_level)
+        .format_timestamp(None)
+        .format_target(false)
+        .init();
+
     let mut suppressed_warnings: HashSet<String> =
         cli.suppress.into_iter().map(|s| s.to_owned()).collect();
 
@@ -144,11 +159,6 @@ pub fn main() -> Result<()> {
 
     // Initialize warning and error handling with the suppression arguments.
     Diagnostics::init(suppressed_warnings);
-
-    #[cfg(debug_assertions)]
-    if cli.debug {
-        ENABLE_DEBUG.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
 
     // Handle commands that do not require a session.
     match &cli.command {
@@ -177,16 +187,16 @@ pub fn main() -> Result<()> {
         None => find_package_root(Path::new("."))
             .map_err(|cause| Error::chain("Cannot find root directory of package.", cause))?,
     };
-    debugln!("main: root dir {:?}", root_dir);
+    log::debug!("root dir {:?}", root_dir);
 
     // Parse the manifest file of the package.
     let manifest_path = root_dir.join("Bender.yml");
     let manifest = read_manifest(&manifest_path)?;
-    debugln!("main: {:#?}", manifest);
+    log::debug!("{:#?}", manifest);
 
     // Gather and parse the tool configuration.
     let config = load_config(&root_dir, matches!(cli.command, Commands::Update(_)))?;
-    debugln!("main: {:#?}", config);
+    log::debug!("{:#?}", config);
 
     // Determine git throttle. The precedence is: CLI argument, env variable, config file, default (4).
     let git_throttle = cli.git_throttle.or(config.git_throttle).unwrap_or(4);
@@ -201,7 +211,7 @@ pub fn main() -> Result<()> {
         cli.local,
         force_fetch,
         git_throttle,
-        cli.no_progress,
+        cli.no_progress || cli.verbose > 0,
     );
 
     if let Commands::Clean(args) = cli.command {
@@ -226,7 +236,7 @@ pub fn main() -> Result<()> {
             cmd::update::run_plain(false, &sess, locked_existing.as_ref(), IndexSet::new())?
         }
         _ => {
-            debugln!("main: lockfile {:?} up-to-date", lock_path);
+            log::debug!("lockfile {:?} up-to-date", lock_path);
             (locked_existing.unwrap(), Vec::new())
         }
     };
@@ -237,7 +247,7 @@ pub fn main() -> Result<()> {
     {
         let io = SessionIo::new(&sess);
         for (path, pkg_name) in &sess.manifest.workspace.package_links {
-            debugln!("main: maintaining link to {} at {:?}", pkg_name, path);
+            log::debug!("maintaining link to {} at {:?}", pkg_name, path);
 
             // Determine the checkout path for this package.
             let pkg_path = io.get_package_path(sess.dependency_with_name(pkg_name)?);
@@ -268,7 +278,7 @@ pub fn main() -> Result<()> {
                     continue;
                 }
                 if path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
-                    debugln!("main: removing existing link {:?}", path);
+                    log::debug!("removing existing link {:?}", path);
                     remove_symlink_dir(path).map_err(|cause| {
                         Error::chain(
                             format!("Failed to remove symlink at path {:?}.", path),
@@ -375,18 +385,18 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
     // Canonicalize the path. This will resolve any intermediate links.
     let mut path = canonicalize(from)
         .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", from), cause))?;
-    debugln!("find_package_root: canonicalized to {:?}", path);
+    log::debug!("canonicalized to {:?}", path);
 
     // Look up the device at the current path. This information will then be
     // used to stop at filesystem boundaries.
     #[cfg(unix)]
     let limit_rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
     #[cfg(unix)]
-    debugln!("find_package_root: limit rdev = {:?}", limit_rdev);
+    log::debug!("limit rdev = {:?}", limit_rdev);
 
     // Step upwards through the path hierarchy.
     for _ in 0..100 {
-        debugln!("find_package_root: looking in {:?}", path);
+        log::debug!("looking in {:?}", path);
 
         // Check if we can find a package manifest here.
         if path.join("Bender.yml").exists() {
@@ -405,7 +415,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
         #[cfg(unix)]
         {
             let rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
-            debugln!("find_package_root: rdev = {:?}", rdev);
+            log::debug!("rdev = {:?}", rdev);
             if rdev != limit_rdev {
                 return Err(Error::new(format!(
                     "No manifest (`Bender.yml` file) found. Stopped searching at filesystem boundary {:?}.",
@@ -424,7 +434,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
 pub fn read_manifest(path: &Path) -> Result<Manifest> {
     use crate::config::PartialManifest;
     use std::fs::File;
-    debugln!("read_manifest: {:?}", path);
+    log::debug!("reading manifest {:?}", path);
     let file = File::open(path)
         .map_err(|cause| Error::chain(format!("Cannot open manifest {:?}.", path), cause))?;
     let partial: PartialManifest = serde_yaml_ng::from_reader(file)
@@ -446,14 +456,14 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
     // Canonicalize the path. This will resolve any intermediate links.
     let mut path = canonicalize(from)
         .map_err(|cause| Error::chain(format!("Failed to canonicalize path {:?}.", from), cause))?;
-    debugln!("load_config: canonicalized to {:?}", path);
+    log::debug!("canonicalized to {:?}", path);
 
     // Look up the device at the current path. This information will then be
     // used to stop at filesystem boundaries.
     #[cfg(unix)]
     let limit_rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
     #[cfg(unix)]
-    debugln!("load_config: limit rdev = {:?}", limit_rdev);
+    log::debug!("limit rdev = {:?}", limit_rdev);
 
     // Step upwards through the path hierarchy.
     for _ in 0..100 {
@@ -462,7 +472,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
             out = out.merge(cfg);
         }
 
-        debugln!("load_config: looking in {:?}", path);
+        log::debug!("looking in {:?}", path);
 
         if let Some(cfg) = maybe_load_config(&path.join(".bender.yml"), warn_config_loaded)? {
             out = out.merge(cfg);
@@ -477,7 +487,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
         #[cfg(unix)]
         {
             let rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
-            debugln!("load_config: rdev = {:?}", rdev);
+            log::debug!("rdev = {:?}", rdev);
             if rdev != limit_rdev {
                 break;
             }
@@ -526,7 +536,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
 /// Load a configuration file if it exists.
 fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<PartialConfig>> {
     use std::fs::File;
-    debugln!("maybe_load_config: {:?}", path);
+    log::debug!("maybe loading config {:?}", path);
     if !path.exists() {
         return Ok(None);
     }
@@ -545,7 +555,7 @@ fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<Par
 
 /// Execute a plugin.
 fn execute_plugin(sess: &Session, plugin: &str, args: &[String]) -> Result<()> {
-    debugln!("main: execute plugin `{}`", plugin);
+    log::debug!("execute plugin `{}`", plugin);
 
     // Obtain a list of declared plugins.
     let runtime = Runtime::new()?;
@@ -557,7 +567,7 @@ fn execute_plugin(sess: &Session, plugin: &str, args: &[String]) -> Result<()> {
         Some(p) => p,
         None => return Err(Error::new(format!("Unknown command `{}`.", plugin))),
     };
-    debugln!("main: found plugin {:#?}", plugin);
+    log::debug!("found plugin {:#?}", plugin);
 
     // Assemble a command that executes the plugin with the appropriate
     // environment and forwards command line arguments.
@@ -576,7 +586,7 @@ fn execute_plugin(sess: &Session, plugin: &str, args: &[String]) -> Result<()> {
     cmd.current_dir(sess.root);
     cmd.args(args);
 
-    debugln!("main: executing plugin {:#?}", cmd);
+    log::debug!("executing plugin {:#?}", cmd);
     let stat = cmd.status().map_err(|cause| {
         Error::chain(
             format!(

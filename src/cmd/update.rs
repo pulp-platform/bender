@@ -12,7 +12,6 @@ use tabwriter::TabWriter;
 
 use crate::cmd;
 use crate::config::{Locked, LockedPackage};
-use crate::debugln;
 use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::lockfile::*;
@@ -121,13 +120,12 @@ pub fn run_plain<'ctx>(
             sess.root.join("Bender.yml")
         )));
     }
-    debugln!(
-        "main: lockfile {:?} outdated",
-        sess.root.join("Bender.lock")
-    );
+    log::debug!("lockfile {:?} outdated", sess.root.join("Bender.lock"));
 
+    log::info!("resolving dependencies");
     let res = DependencyResolver::new(sess);
     let locked_new = res.resolve(existing, ignore_checkout_dir, keep_locked)?;
+    log::info!("resolved {} dependencies", locked_new.packages.len());
     let update_map: BTreeMap<String, (Option<LockedPackage>, Option<LockedPackage>)> = locked_new
         .packages
         .iter()

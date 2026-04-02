@@ -18,7 +18,6 @@ use walkdir::WalkDir;
 
 use crate::progress::{ProgressHandler, monitor_stderr};
 
-use crate::debugln;
 use crate::error::*;
 
 /// A git repository.
@@ -85,6 +84,8 @@ impl<'ctx> Git<'ctx> {
         // instead of hanging indefinitely if auth is missing.
         cmd.env("GIT_TERMINAL_PROMPT", "0");
 
+        log::info!("git: {:?} in {:?}", cmd, self.path);
+
         // Spawn the child process
         let mut child = cmd.spawn().map_err(|cause| {
             if cause
@@ -98,8 +99,6 @@ impl<'ctx> Git<'ctx> {
                 Error::chain("Failed to spawn child process.", cause)
             }
         })?;
-
-        debugln!("git: {:?} in {:?}", cmd, self.path);
 
         // Setup Streaming for Stderr (Progress + Error Collection)
         // We need to capture stderr in case the command fails, so we collect it while parsing.

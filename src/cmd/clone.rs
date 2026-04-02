@@ -16,7 +16,7 @@ use crate::config::{Locked, LockedSource};
 use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{DependencyRef, DependencySource, Session, SessionIo};
-use crate::{debugln, fmt_path, fmt_pkg, stageln};
+use crate::{fmt_path, fmt_pkg, stageln};
 
 /// Clone dependency to a working directory
 #[derive(Args, Debug)]
@@ -82,9 +82,9 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
         eprintln!("Please manually ensure the correct checkout.");
     } else {
         let id = sess.dependency_with_name(&args.name.to_lowercase())?;
-        debugln!("main: obtain checkout {:?}", id);
+        log::debug!("obtain checkout {:?}", id);
         let checkout = rt.block_on(io.checkout(id, false, &[]))?;
-        debugln!("main: checkout {:#?}", checkout);
+        log::debug!("checkout {:#?}", checkout);
         if let Some(s) = checkout.to_str() {
             if !Path::new(s).exists() {
                 Err(Error::new(format!("`{dep}` path `{s}` does not exist")))?;
@@ -247,7 +247,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
     // Update any possible workspace symlinks
     for (link_path, pkg_name) in &sess.manifest.workspace.package_links {
         if pkg_name == dep {
-            debugln!("main: maintaining link to {} at {:?}", pkg_name, link_path);
+            log::debug!("maintaining link to {} at {:?}", pkg_name, link_path);
 
             // Determine the checkout path for this package.
             let pkg_path = &path.join(path_mod).join(dep);
@@ -270,7 +270,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
                     continue;
                 }
                 if link_path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
-                    debugln!("main: removing existing link {:?}", link_path);
+                    log::debug!("removing existing link {:?}", link_path);
                     remove_symlink_dir(link_path).map_err(|cause| {
                         Error::chain(
                             format!("Failed to remove symlink at path {:?}.", link_path),

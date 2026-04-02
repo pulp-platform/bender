@@ -16,7 +16,7 @@ use crate::config::{Dependency, Locked, LockedSource};
 use crate::diagnostic::Warnings;
 use crate::error::*;
 use crate::sess::{DependencySource, Session, SessionIo};
-use crate::{debugln, fmt_path, fmt_pkg, stageln};
+use crate::{fmt_path, fmt_pkg, stageln};
 
 /// Snapshot the cloned IPs from the working directory into the Bender.lock file
 #[derive(Args, Debug)]
@@ -224,7 +224,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
     // Update any possible workspace symlinks
     for (link_path, pkg_name) in &sess.manifest.workspace.package_links {
         if updated_deps.contains(&pkg_name.as_str()) {
-            debugln!("main: maintaining link to {} at {:?}", pkg_name, link_path);
+            log::debug!("maintaining link to {} at {:?}", pkg_name, link_path);
 
             // Determine the checkout path for this package.
             let pkg_path = if snapshotted_deps.contains(&pkg_name.as_str()) {
@@ -262,7 +262,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
                     continue;
                 }
                 if link_path.read_link().map(|d| d != pkg_path).unwrap_or(true) {
-                    debugln!("main: removing existing link {:?}", link_path);
+                    log::debug!("removing existing link {:?}", link_path);
                     remove_symlink_dir(link_path).map_err(|cause| {
                         Error::chain(
                             format!("Failed to remove symlink at path {:?}.", link_path),

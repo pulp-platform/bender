@@ -9,7 +9,6 @@ use clap::Args;
 use futures::future::join_all;
 use tokio::runtime::Runtime;
 
-use crate::debugln;
 use crate::error::*;
 use crate::sess::{Session, SessionIo};
 
@@ -43,7 +42,7 @@ pub fn run(sess: &Session, args: &PathArgs) -> Result<()> {
 
     // Check out if requested or not done yet
     if args.checkout || !paths.iter().all(|p| p.exists()) {
-        debugln!("main: obtain checkouts {:?}", ids);
+        log::debug!("obtain checkouts {:?}", ids);
         let rt = Runtime::new()?;
         let _checkouts = rt
             .block_on(join_all(
@@ -53,7 +52,7 @@ pub fn run(sess: &Session, args: &PathArgs) -> Result<()> {
             ))
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
-        debugln!("main: checkouts {:#?}", _checkouts);
+        log::debug!("checkouts {:#?}", _checkouts);
     }
 
     // Print paths
