@@ -4,9 +4,10 @@
 //! The `checkout` subcommand.
 
 use clap::Args;
+use miette::IntoDiagnostic as _;
 use tokio::runtime::Runtime;
 
-use crate::error::*;
+use crate::Result;
 use crate::fmt_dim;
 use crate::infoln;
 use crate::sess::{Session, SessionIo};
@@ -27,7 +28,7 @@ pub fn run(sess: &Session, args: &CheckoutArgs) -> Result<()> {
 
 /// Execute a checkout (for the `checkout` subcommand).
 pub fn run_plain(sess: &Session, force: bool, update_list: &[String]) -> Result<()> {
-    let rt = Runtime::new()?;
+    let rt = Runtime::new().into_diagnostic()?;
     let io = SessionIo::new(sess);
     let start_time = std::time::Instant::now();
     let _srcs = rt.block_on(io.sources(force, update_list))?;

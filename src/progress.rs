@@ -11,7 +11,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use regex::Regex;
 use tokio::io::{AsyncReadExt, BufReader};
 
-use crate::{errorln, fmt_completed, fmt_dim, fmt_pkg, fmt_stage};
+use crate::{fmt_completed, fmt_dim, fmt_pkg, fmt_stage};
 
 static RE_GIT: OnceLock<Regex> = OnceLock::new();
 
@@ -300,14 +300,8 @@ impl ProgressHandler {
                 target_pb.set_position(percent as u64);
             }
             // Handle errors by finishing and clearing the target bar, then logging the error
-            GitProgress::Error(err_msg) => {
+            GitProgress::Error(_) => {
                 target_pb.finish_and_clear();
-                errorln!(
-                    "{} {}: {}",
-                    "Error during git operation of",
-                    fmt_pkg!(&self.name),
-                    err_msg
-                );
             }
             _ => {}
         }
