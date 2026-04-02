@@ -37,7 +37,7 @@ pub fn run(sess: &Session, args: &PathArgs) -> Result<()> {
     // Get paths
     let paths = ids
         .iter()
-        .map(|&(_, id)| io.get_package_path(id))
+        .map(|&(_, id)| sess.get_package_path(id))
         .collect::<Vec<_>>();
 
     // Check out if requested or not done yet

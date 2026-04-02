@@ -494,7 +494,7 @@ mod tests {
         }
 
         // Emit first warning again
-        warn1.clone().emit();
+        warn1.emit();
         {
             let emitted = diag.emitted.lock().unwrap();
             // The length should STILL be 2, because warn1 was already there
@@ -506,7 +506,7 @@ mod tests {
     fn test_contains_code() {
         let warn = Warnings::LocalNoFetch;
         let code = warn.code().unwrap().to_string();
-        assert_eq!(code, "W14".to_string());
+        assert_eq!(code, "W14");
     }
 
     #[test]

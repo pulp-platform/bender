@@ -167,7 +167,7 @@ pub fn run_plain<'ctx>(
     let update_map: BTreeMap<String, (Option<LockedPackage>, Option<LockedPackage>)> =
         update_map.into_iter().chain(removed_map).collect();
     let mut update_str = String::from("");
-    for (name, (existing_dep, new_dep)) in update_map.clone() {
+    for (name, (existing_dep, new_dep)) in &update_map {
         update_str.push_str(&format!(
             "{:>14} {}:\t",
             fmt_completed!("Updating"),
@@ -175,17 +175,21 @@ pub fn run_plain<'ctx>(
         ));
         if let Some(existing_dep) = existing_dep {
             update_str.push_str(
-                &existing_dep
+                existing_dep
                     .version
-                    .unwrap_or(existing_dep.revision.unwrap_or("path".to_string())),
+                    .as_deref()
+                    .or(existing_dep.revision.as_deref())
+                    .unwrap_or("path"),
             );
         }
         update_str.push_str("\t-> ");
         if let Some(new_dep) = new_dep {
             update_str.push_str(
-                &new_dep
+                new_dep
                     .version
-                    .unwrap_or(new_dep.revision.unwrap_or("path".to_string())),
+                    .as_deref()
+                    .or(new_dep.revision.as_deref())
+                    .unwrap_or("path"),
             );
         }
         update_str.push('\n');

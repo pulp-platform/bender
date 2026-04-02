@@ -329,7 +329,7 @@ pub fn get_path_subdeps(
     depref: DependencyRef,
 ) -> Result<IndexMap<String, PathBuf>> {
     let binding = IndexMap::new();
-    let old_path = io.get_package_path(depref);
+    let old_path = io.sess.get_package_path(depref);
     let mut path_deps = match rt.block_on(io.dependency_manifest(depref, false, &[]))? {
         Some(m) => &m.dependencies,
         None => &binding,

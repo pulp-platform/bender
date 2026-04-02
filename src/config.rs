@@ -599,7 +599,7 @@ impl Validate for PartialManifest {
         let plugins = match self.plugins {
             Some(s) => s
                 .iter()
-                .map(|(k, v)| Ok((k.clone(), env_path_from_string(v.to_string())?)))
+                .map(|(k, v)| Ok((k.clone(), env_path_from_string(v)?)))
                 .collect::<Result<IndexMap<_, _>>>()?,
             None => IndexMap::new(),
         };
@@ -644,8 +644,8 @@ impl Validate for PartialManifest {
             },
             export_include_dirs: exp_inc_dirs
                 .into_iter()
-                .filter_map(
-                    |(trgt, path)| match env_path_from_string(path.display().to_string()) {
+                .filter_map(|(trgt, path)| {
+                    match env_path_from_string(&path.display().to_string()) {
                         Ok(parsed_path) => Some(Ok((trgt.clone(), parsed_path))),
                         Err(cause) => {
                             if Diagnostics::is_suppressed("E30") {
@@ -658,8 +658,8 @@ impl Validate for PartialManifest {
                                 Some(Err(Error::chain("[E30]", cause)))
                             }
                         }
-                    },
-                )
+                    }
+                })
                 .collect::<Result<Vec<_>>>()?,
             plugins,
             frozen,
@@ -833,7 +833,7 @@ impl Validate for PartialDependency {
             // ```
             (None, Some(path), None, None, _) => Ok(Dependency::Path {
                 target,
-                path: env_path_from_string(path)?,
+                path: env_path_from_string(&path)?,
                 pass_targets,
             }),
             (_, _, Some(_), Some(_), _) => Err(Error::new(format!(
@@ -904,7 +904,7 @@ impl Validate for PartialIncludeDir {
     type Output = (TargetSpec, PathBuf);
     type Error = Error;
     fn validate(self, vctx: &ValidationContext) -> Result<(TargetSpec, PathBuf)> {
-        let dir = env_path_from_string(self.dir)?;
+        let dir = env_path_from_string(&self.dir)?;
         if !vctx.pre_output {
             self.extra.iter().for_each(|(k, _)| {
                 Warnings::IgnoreUnknownField {
@@ -1075,7 +1075,7 @@ impl Validate for PartialSources {
                     .clone()
                     .unwrap_or_default()
                     .iter()
-                    .filter_map(|path| match env_path_from_string(path.to_string()) {
+                    .filter_map(|path| match env_path_from_string(path) {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
                             if Diagnostics::is_suppressed("E30") {
@@ -1217,7 +1217,7 @@ impl Validate for PartialSources {
                             | PartialSourceFile::SvFile(ref filename)
                             | PartialSourceFile::VerilogFile(ref filename)
                             | PartialSourceFile::VhdlFile(ref filename) => {
-                                match env_string_from_string(filename.to_string()) {
+                                match env_string_from_string(filename) {
                                     Ok(p) => match file {
                                         PartialSourceFile::File(_) => {
                                             Some(Ok(PartialSourceFile::File(p)))
@@ -1458,12 +1458,12 @@ impl Validate for PartialSourceFile {
             //     srcs.validate(package_name, pre_output, suppress_warnings)?,
             // )))),
             PartialSourceFile::Group(srcs) => Ok(srcs.validate(vctx)?),
-            PartialSourceFile::SvFile(path) => Ok(SourceFile::SvFile(env_path_from_string(path)?)),
+            PartialSourceFile::SvFile(path) => Ok(SourceFile::SvFile(env_path_from_string(&path)?)),
             PartialSourceFile::VerilogFile(path) => {
-                Ok(SourceFile::VerilogFile(env_path_from_string(path)?))
+                Ok(SourceFile::VerilogFile(env_path_from_string(&path)?))
             }
             PartialSourceFile::VhdlFile(path) => {
-                Ok(SourceFile::VhdlFile(env_path_from_string(path)?))
+                Ok(SourceFile::VhdlFile(env_path_from_string(&path)?))
             }
         }
     }
@@ -1574,7 +1574,7 @@ impl Validate for PartialWorkspace {
             .package_links
             .unwrap_or_default()
             .iter()
-            .map(|(k, v)| Ok((env_path_from_string(k.to_string())?, v.clone())))
+            .map(|(k, v)| Ok((env_path_from_string(k)?, v.clone())))
             .collect();
         if !vctx.pre_output {
             self.extra.iter().for_each(|(k, _)| {
@@ -1587,7 +1587,7 @@ impl Validate for PartialWorkspace {
         }
         Ok(Workspace {
             checkout_dir: match self.checkout_dir {
-                Some(dir) => Some(env_path_from_string(dir)?),
+                Some(dir) => Some(env_path_from_string(&dir)?),
                 None => None,
             },
             package_links: package_links?,
@@ -1746,7 +1746,7 @@ impl Validate for PartialConfig {
     fn validate(self, vctx: &ValidationContext) -> Result<Config> {
         Ok(Config {
             database: match self.database {
-                Some(db) => env_path_from_string(db)?,
+                Some(db) => env_path_from_string(&db)?,
                 None => return Err(Error::new("Database directory not configured")),
             },
             git: match self.git {
@@ -1883,7 +1883,7 @@ impl Validate for PartialVendorPackage {
                 None => return Err(Error::new("external import name missing")),
             },
             target_dir: match self.target_dir {
-                Some(target_dir) => env_path_from_string(target_dir)?,
+                Some(target_dir) => env_path_from_string(&target_dir)?,
                 None => return Err(Error::new("external import target dir missing")),
             },
             upstream: match self.upstream {
@@ -1894,7 +1894,7 @@ impl Validate for PartialVendorPackage {
             },
             mapping: self.mapping.unwrap_or_default(),
             patch_dir: match self.patch_dir {
-                Some(patch_dir) => Some(env_path_from_string(patch_dir)?),
+                Some(patch_dir) => Some(env_path_from_string(&patch_dir)?),
                 None => None,
             },
             include_from_upstream: match self.include_from_upstream {
@@ -2054,8 +2054,8 @@ pub enum LockedSource {
 }
 
 #[cfg(unix)]
-fn env_string_from_string(path_str: String) -> Result<String> {
-    subst::substitute(&path_str, &subst::Env).map_err(|cause| {
+fn env_string_from_string(path_str: &str) -> Result<String> {
+    subst::substitute(path_str, &subst::Env).map_err(|cause| {
         Error::chain(
             format!("Unable to substitute with env: {}", path_str),
             cause,
@@ -2064,10 +2064,10 @@ fn env_string_from_string(path_str: String) -> Result<String> {
 }
 
 #[cfg(windows)]
-fn env_string_from_string(path_str: String) -> Result<String> {
-    Ok(path_str)
+fn env_string_from_string(path_str: &str) -> Result<String> {
+    Ok(path_str.to_string())
 }
 
-pub(crate) fn env_path_from_string(path_str: String) -> Result<PathBuf> {
+pub(crate) fn env_path_from_string(path_str: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(env_string_from_string(path_str)?))
 }

@@ -43,7 +43,6 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
     let io_ref = &io;
     let dep_versions = rt.block_on(async {
         let futures = pkgs
-            .clone()
             .iter()
             .map(|&pkg| async move {
                 futures::join!(
@@ -80,18 +79,17 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
         let parent_array = get_parent_array(sess, &rt, &io, pkg_name, false)?;
         let current_version = sess.dependency(*pkg).version.clone();
         let current_version_unwrapped = current_version
-            .clone()
+            .as_ref()
             .map(|v| v.to_string())
             .unwrap_or_default();
         let current_revision = sess.dependency(*pkg).revision.clone();
-        let current_revision_unwrapped = current_revision.clone().unwrap_or_default();
-        let available_versions = match dep_versions.get(pkg).unwrap().clone() {
-            DependencyVersions::Git(versions) => versions.versions,
+        let current_revision_unwrapped = current_revision.as_deref().unwrap_or_default();
+        let available_versions = match dep_versions.get(pkg).unwrap() {
+            DependencyVersions::Git(versions) => {
+                versions.versions.iter().map(|(v, _)| v.clone()).collect()
+            }
             _ => vec![],
-        }
-        .into_iter()
-        .map(|(v, _)| v)
-        .collect::<Vec<semver::Version>>();
+        };
         let highest_version = available_versions.iter().max();
 
         let mut conflicting = false;

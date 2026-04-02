@@ -1,6 +1,7 @@
 # {{HEADER_AUTOGEN}}
 set ROOT "{{ root }}"
 set search_path_initial $search_path
+{# Separate compilation: one block per source group -#}
 {% if compilation_mode == 'separate' %}{% for group in srcs %}{% if group.file_type != '' %}{% if source_annotations %}
 # {{ group.metadata }}{% endif %}
 set search_path $search_path_initial
@@ -17,7 +18,10 @@ set search_path $search_path_initial
     {% endfor %}]
 {% if abort_on_error %}}]} {return 1}{% endif %}
 {% endif %}{% endfor %}
-{% else %}{# compilation_mode == 'common' #}{% for file in all_verilog %}{% if loop.first %}set search_path $search_path_initial
+{# Common compilation: all files in one block -#}
+{% else -%}
+{# Verilog sources -#}
+{%- for file in all_verilog %}{% if loop.first %}set search_path $search_path_initial
 {% for incdir in all_incdirs %}lappend search_path "$ROOT{{ incdir | replace(from=root, to='') }}"
 {% endfor %}
 {% if abort_on_error %}if {[catch { {% endif %}read_sverilog -r \
@@ -31,6 +35,7 @@ set search_path $search_path_initial
     {% if loop.last %}]
 {% if abort_on_error %}}]} {return 1}{% endif %}
 {% endif %}{% endfor %}
+{# VHDL sources -#}
 {% for file in all_vhdl %}{% if loop.first %}{% if abort_on_error %}if {[catch { {% endif %}read_vhdl -r \
     [list \
     {% endif %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
