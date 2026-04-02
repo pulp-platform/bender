@@ -37,7 +37,7 @@ use crate::diagnostic::{Diagnostics, Warnings};
 use crate::error::*;
 use crate::git::Git;
 use crate::progress::{GitProgressOps, ProgressHandler};
-use crate::src::SourceGroup;
+use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::TargetSpec;
 use crate::util::try_modification_time;
 
@@ -423,23 +423,21 @@ impl<'ctx> Session<'ctx> {
                 config::SourceFile::File(ref path) => {
                     let ty = match path.extension().and_then(std::ffi::OsStr::to_str) {
                         Some("sv") | Some("v") | Some("vp") | Some("svh") => {
-                            Some(crate::src::SourceType::Verilog)
+                            Some(SourceType::Verilog)
                         }
-                        Some("vhd") | Some("vhdl") => Some(crate::src::SourceType::Vhdl),
+                        Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
                         _ => None,
                     };
-                    crate::src::SourceFile::File(path as &Path, ty)
+                    SourceFile::File(path as &Path, ty)
                 }
-                config::SourceFile::SvFile(ref path) => crate::src::SourceFile::File(
-                    path as &Path,
-                    Some(crate::src::SourceType::Verilog),
-                ),
-                config::SourceFile::VerilogFile(ref path) => crate::src::SourceFile::File(
-                    path as &Path,
-                    Some(crate::src::SourceType::Verilog),
-                ),
+                config::SourceFile::SvFile(ref path) => {
+                    SourceFile::File(path as &Path, Some(SourceType::Verilog))
+                }
+                config::SourceFile::VerilogFile(ref path) => {
+                    SourceFile::File(path as &Path, Some(SourceType::Verilog))
+                }
                 config::SourceFile::VhdlFile(ref path) => {
-                    crate::src::SourceFile::File(path as &Path, Some(crate::src::SourceType::Vhdl))
+                    SourceFile::File(path as &Path, Some(SourceType::Vhdl))
                 }
                 config::SourceFile::Group(ref group) => self
                     .load_sources(
@@ -1616,33 +1614,29 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 let files = manifests
                     .into_iter()
                     .flatten()
-                    .filter_map(|m| {
-                        m.sources.as_ref().map(|s| {
-                            // Collect include dirs from export_include_dirs of package and direct dependencies
-                            let mut export_include_dirs: IndexMap<
-                                String,
-                                Vec<(TargetSpec, &Path)>,
-                            > = IndexMap::new();
-                            export_include_dirs.insert(
-                                m.package.name.clone(),
-                                m.export_include_dirs
-                                    .iter()
-                                    .map(|(trgt, path)| (trgt.clone(), path.as_path()))
-                                    .collect(),
-                            );
-                            if !m.dependencies.is_empty() {
-                                for i in m.dependencies.keys() {
-                                    if !all_export_include_dirs.contains_key(i) {
-                                        Warnings::ExportDirNameIssue(i.clone()).emit();
-                                        export_include_dirs.insert(i.to_string(), Vec::new());
-                                    } else {
-                                        export_include_dirs.insert(
-                                            i.to_string(),
-                                            all_export_include_dirs[i].clone(),
-                                        );
-                                    }
+                    .map(|m| {
+                        // Collect include dirs from export_include_dirs of package and direct dependencies
+                        let mut export_include_dirs: IndexMap<String, Vec<(TargetSpec, &Path)>> =
+                            IndexMap::new();
+                        export_include_dirs.insert(
+                            m.package.name.clone(),
+                            m.export_include_dirs
+                                .iter()
+                                .map(|(trgt, path)| (trgt.clone(), path.as_path()))
+                                .collect(),
+                        );
+                        if !m.dependencies.is_empty() {
+                            for i in m.dependencies.keys() {
+                                if !all_export_include_dirs.contains_key(i) {
+                                    Warnings::ExportDirNameIssue(i.clone()).emit();
+                                    export_include_dirs.insert(i.to_string(), Vec::new());
+                                } else {
+                                    export_include_dirs
+                                        .insert(i.to_string(), all_export_include_dirs[i].clone());
                                 }
                             }
+                        }
+                        if let Some(s) = m.sources.as_ref() {
                             self.sess
                                 .load_sources(
                                     s,
@@ -1655,7 +1649,24 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     },
                                 )
                                 .into()
-                        })
+                        } else {
+                            // Create an empty source group to preserve the
+                            // package and its dependency information, so that
+                            // get_package_list can discover transitive deps.
+                            SourceFile::Group(Box::new(SourceGroup {
+                                package: Some(m.package.name.as_str()),
+                                dependencies: m.dependencies.keys().cloned().collect(),
+                                export_incdirs: export_include_dirs,
+                                version: match self
+                                    .sess
+                                    .dependency_with_name(m.package.name.as_str())
+                                {
+                                    Ok(dep_id) => self.sess.dependency(dep_id).version.clone(),
+                                    Err(_) => None,
+                                },
+                                ..Default::default()
+                            }))
+                        }
                     })
                     .collect();
 
@@ -1670,11 +1681,15 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             .collect();
 
         // Create a source group covering all ranks, i.e. the root source group.
+        // Note: we do not call simplify() here so that empty package groups
+        // (packages with no sources but with dependencies or export_include_dirs)
+        // are preserved for get_package_list to discover transitive dependencies.
+        // Downstream consumers (filter_packages, filter_targets) call simplify()
+        // and will remove these empty groups before output.
         let sources = SourceGroup {
             files,
             ..Default::default()
-        }
-        .simplify();
+        };
 
         *self.sess.sources.lock().unwrap() = Some(sources.clone());
         Ok(sources)
