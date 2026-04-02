@@ -27,15 +27,23 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-22.04
             container: quay.io/pypa/manylinux_2_28_x86_64
+            cache_golden_bin: false
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-22.04-arm
             container: quay.io/pypa/manylinux_2_28_aarch64
+            cache_golden_bin: false
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cache_golden_bin: true
           - target: x86_64-apple-darwin
             runner: macos-latest
+            cache_golden_bin: true
           - target: aarch64-apple-darwin
             runner: macos-15
+            cache_golden_bin: false
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
+            cache_golden_bin: true
     steps:
       - uses: actions/checkout@v6
         with:
@@ -57,3 +65,20 @@ jobs:
           cache-workspace-crates: "true"
       - name: Build (release)
         run: cargo build --release
+      - name: Prepare CLI regression golden binary
+        if: ${{ matrix.cache_golden_bin && runner.os != 'Windows' }}
+        run: |
+          mkdir -p target/regression-golden
+          cp target/release/bender target/regression-golden/bender
+      - name: Prepare CLI regression golden binary
+        if: ${{ matrix.cache_golden_bin && runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path target/regression-golden | Out-Null
+          Copy-Item target/release/bender.exe target/regression-golden/bender.exe
+      - name: Cache CLI regression golden binary
+        if: ${{ matrix.cache_golden_bin }}
+        uses: actions/cache/save@v5
+        with:
+          path: target/regression-golden
+          key: golden-bender-${{ matrix.target }}-${{ github.sha }}
