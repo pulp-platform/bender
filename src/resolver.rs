@@ -86,7 +86,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Store path dependencies already in checkout_dir
         if let Some(ref checkout) = self.sess.manifest.workspace.checkout_dir {
             if checkout.exists() {
-                for dir in fs::read_dir(checkout)? {
+                for dir in fs::read_dir(checkout).into_diagnostic()? {
                     let depname = dir
                         .as_ref()
                         .unwrap()

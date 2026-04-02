@@ -688,7 +688,6 @@ pub fn gen_format_patch(
         let tmp_format_dir = TempDir::new().into_diagnostic()?;
         let tmp_format_path = tmp_format_dir.keep();
         let diff_cached_path = tmp_format_path.join("staged.diff");
-        std::fs::write(&diff_cached_path, get_diff_cached)?;
         std::fs::write(&diff_cached_path, get_diff_cached).into_diagnostic()?;
 
         // Apply diff and stage changes in ghost repo

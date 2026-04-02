@@ -10,7 +10,7 @@ use futures::future::join_all;
 use miette::IntoDiagnostic as _;
 use tokio::runtime::Runtime;
 
-use crate::error::*;
+use crate::Result;
 use crate::sess::{Session, SessionIo};
 
 /// Get the path to a dependency

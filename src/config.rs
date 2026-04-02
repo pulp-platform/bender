@@ -585,12 +585,7 @@ impl Validate for PartialManifest {
             .export_include_dirs
             .unwrap_or_default()
             .validate(vctx)
-            .map_err(|cause| {
-                Error::chain(
-                    format!("In export_include_dirs of package `{}`:", pkg.name),
-                    cause,
-                )
-            })?;
+            .wrap_err(format!("In export_include_dirs of package `{}`:", pkg.name))?;
         let plugins = match self.plugins {
             Some(s) => s
                 .iter()
@@ -637,11 +632,11 @@ impl Validate for PartialManifest {
             },
             export_include_dirs: exp_inc_dirs
                 .into_iter()
-                .filter_map(|(trgt, path)| {
+                .map(|(trgt, path)| {
                     if !(vctx.pre_output || path.exists() && path.is_dir()) {
                         Warnings::IncludeDirMissing(path.clone()).emit();
                     }
-                    Some(Ok((trgt, path)))
+                    Ok((trgt, path))
                 })
                 .collect::<Result<Vec<_>>>()?,
             plugins,

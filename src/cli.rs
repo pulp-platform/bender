@@ -27,7 +27,7 @@ use crate::cmd::fusesoc::FusesocArgs;
 use crate::config::{
     Config, Manifest, Merge, PartialConfig, PrefixPaths, Validate, ValidationContext,
 };
-use crate::diagnostic::{Diagnostics, ENABLE_DEBUG, Warnings};
+use crate::diagnostic::{Diagnostics, Warnings};
 use crate::lockfile::*;
 use crate::sess::{Session, SessionArenas, SessionIo};
 use crate::{bail, err};
