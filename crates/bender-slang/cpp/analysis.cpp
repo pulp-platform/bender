@@ -1,10 +1,20 @@
 // Copyright (c) 2025 ETH Zurich
 // Tim Fischer <fischeti@iis.ee.ethz.ch>
 
+#include "slang/syntax/AllSyntax.h"
 #include "slang_bridge.h"
 
 #include <functional>
+#include <iostream>
 #include <stdexcept>
+#include <string_view>
+#ifdef _WIN32
+#include <io.h>
+#define STDERR_IS_TTY _isatty(_fileno(stderr))
+#else
+#include <unistd.h>
+#define STDERR_IS_TTY isatty(STDERR_FILENO)
+#endif
 #include <unordered_map>
 #include <unordered_set>
 
@@ -13,14 +23,39 @@ using namespace slang;
 rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, const rust::Vec<rust::String>& tops) {
     const auto& treeVec = session.trees();
 
-    // Build a mapping from declared symbol names to the index of the tree that
-    // declares them.
+    // Build the name-to-tree-index map with last-wins semantics, emitting a warning
+    // whenever a later definition overwrites an earlier one.
+    slang::DiagCode overwriteCode(slang::DiagSubsystem::General, 9999);
     std::unordered_map<std::string_view, size_t> nameToTreeIndex;
     for (size_t i = 0; i < treeVec.size(); ++i) {
         const auto& metadata = treeVec[i]->getMetadata();
-        for (auto name : metadata.getDeclaredSymbols()) {
-            nameToTreeIndex.emplace(name, i);
-        }
+
+        auto checkAndInsert = [&](std::string_view name, slang::SourceLocation loc) {
+            if (name.empty())
+                return;
+            auto [it, inserted] = nameToTreeIndex.emplace(name, i);
+            if (!inserted) {
+                slang::DiagnosticEngine engine(treeVec[i]->sourceManager());
+                auto client = std::make_shared<slang::TextDiagnosticClient>();
+                client->showColors(STDERR_IS_TTY);
+                engine.addClient(client);
+                engine.setMessage(overwriteCode, "module '{}' overwrites previous definition in '{}'");
+                engine.setSeverity(overwriteCode, slang::DiagnosticSeverity::Warning);
+
+                slang::Diagnostic diag(overwriteCode, loc);
+                diag << name;
+                diag << treeVec[it->second]->sourceManager().getRawFileName(
+                    treeVec[it->second]->getSourceBufferIds()[0]);
+                engine.issue(diag);
+                std::cerr << client->getString();
+                it->second = i;
+            }
+        };
+
+        for (const auto& [decl, _] : metadata.nodeMeta)
+            checkAndInsert(decl->header->name.valueText(), decl->header->name.location());
+        for (const auto classDecl : metadata.classDecls)
+            checkAndInsert(classDecl->name.valueText(), classDecl->name.location());
     }
 
     // Build a dependency graph where each tree points to the trees that declare
