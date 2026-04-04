@@ -1,0 +1,30 @@
+[package]
+name = "bender-git"
+version = "0.1.0"
+edition = "2024"
+description = "Git abstraction library for the bender hardware package manager"
+license = "Apache-2.0 OR MIT"
+authors = ["Tim Fischer <fischeti@iis.ee.ethz.ch>"]
+repository = "https://github.com/pulp-platform/bender"
+
+[dependencies]
+thiserror = "2"
+tokio = { version = "1.27", features = ["process", "io-util", "rt", "sync"] }
+walkdir = "2"
+log = "0.4"
+
+# gix: used only for local/read-only operations (list_refs, cat_file, list_files,
+# resolve, current_checkout, remote_url). Network operations (fetch, clone) still
+# use subprocess to avoid dealing with credential handling.
+#
+# Minimal feature set: "revision" pulls in rev_parse, rev_walk, and the object
+# store access needed for finding objects and decoding trees/commits.
+# Do NOT enable: credentials, blocking-network-client, async-network-client.
+gix = { version = "0.70.0", default-features = false, features = [
+    "fast-sha1",  # required: select SHA-1 as the hash algorithm (hardware-accelerated)
+    "revision",   # rev_parse, rev_walk, commit graph traversal
+] }
+
+[dev-dependencies]
+tempfile = "3.5"
+tokio = { version = "1.27", features = ["full"] }
