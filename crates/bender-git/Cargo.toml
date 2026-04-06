@@ -9,6 +9,7 @@ repository = "https://github.com/pulp-platform/bender"
 
 [dependencies]
 thiserror = "2"
+which = "8"
 tokio = { version = "1.27", features = ["process", "io-util", "rt", "sync"] }
 walkdir = "2"
 log = "0.4"

@@ -5,7 +5,7 @@ use tokio::sync::Semaphore;
 use walkdir::WalkDir;
 
 use crate::database::GitDatabase;
-use crate::error::{gix_err, GitError, Result};
+use crate::error::{GitError, Result, gix_err};
 use crate::progress::{GitProgressSink, NoProgress};
 use crate::subprocess::SubprocessRunner;
 use crate::types::ObjectId;
@@ -34,30 +34,20 @@ use crate::types::ObjectId;
 pub struct GitCheckout {
     /// Absolute path to the working tree directory.
     pub path: PathBuf,
-    git_bin: PathBuf,
     throttle: Arc<Semaphore>,
 }
 
 impl GitCheckout {
     /// Construct a handle to a working tree at `path`.
-    pub fn new(
-        path: impl Into<PathBuf>,
-        git_bin: impl Into<PathBuf>,
-        throttle: Arc<Semaphore>,
-    ) -> Self {
+    pub fn new(path: impl Into<PathBuf>, throttle: Arc<Semaphore>) -> Self {
         Self {
             path: path.into(),
-            git_bin: git_bin.into(),
             throttle,
         }
     }
 
     fn runner(&self) -> SubprocessRunner {
-        SubprocessRunner::new(
-            self.git_bin.clone(),
-            self.path.clone(),
-            self.throttle.clone(),
-        )
+        SubprocessRunner::new(self.path.clone(), self.throttle.clone())
     }
 
     fn open_repo(&self) -> Result<gix::Repository> {
@@ -82,9 +72,9 @@ impl GitCheckout {
     /// # use bender_git::types::ObjectId;
     /// # use bender_git::progress::NoProgress;
     /// # let throttle = Arc::new(Semaphore::new(4));
-    /// # let db = GitDatabase::new(Path::new("/db"), "git", throttle.clone());
+    /// # let db = GitDatabase::new(Path::new("/db"), throttle.clone());
     /// # let rev = ObjectId("abc123".repeat(6).chars().take(40).collect());
-    /// # let checkout = GitCheckout::new(Path::new("/checkout"), "git", throttle);
+    /// # let checkout = GitCheckout::new(Path::new("/checkout"), throttle);
     /// // 1. Tag the commit so git clone can reference it by name.
     /// let tag = format!("bender-tmp-{}", rev.short(8));
     /// db.tag_commit(&tag, &rev)?;
@@ -115,11 +105,7 @@ impl GitCheckout {
             .path
             .parent()
             .ok_or_else(|| GitError::Gix("checkout path has no parent directory".into()))?;
-        let runner = SubprocessRunner::new(
-            self.git_bin.clone(),
-            parent.to_path_buf(),
-            self.throttle.clone(),
-        );
+        let runner = SubprocessRunner::new(parent.to_path_buf(), self.throttle.clone());
 
         runner
             .run_discard(&[
