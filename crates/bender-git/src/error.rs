@@ -30,6 +30,9 @@ pub enum GitError {
     #[error("semaphore closed (runtime shutting down)")]
     SemaphoreClosed,
 
+    #[error("git binary already configured")]
+    GitBinAlreadySet,
+
     #[error("gix error: {0}")]
     Gix(String),
 }

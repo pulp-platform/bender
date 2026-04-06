@@ -45,10 +45,12 @@
 //! use bender_git::progress::NoProgress;
 //!
 //! # async fn run() -> bender_git::error::Result<()> {
+//! // Optional: override the git binary (defaults to `which git`).
+//! bender_git::set_git_bin("/path/to/git-wrapper.sh")?;
 //! let throttle = Arc::new(Semaphore::new(4));
 //!
 //! // --- Database (bare repo) ---
-//! let db = GitDatabase::new(Path::new("/cache/db/myrepo-abc123"), "git", throttle.clone());
+//! let db = GitDatabase::new(Path::new("/cache/db/myrepo-abc123"), throttle.clone());
 //! db.init_bare()?;
 //! db.add_remote("origin", "https://github.com/example/repo").await?;
 //! db.fetch("origin", NoProgress).await?;
@@ -68,7 +70,7 @@
 //! let tag = format!("bender-tmp-{}", rev.short(8));
 //! db.tag_commit(&tag, &rev)?;
 //!
-//! let checkout = GitCheckout::new(Path::new("/cache/checkouts/myrepo-abc123"), "git", throttle);
+//! let checkout = GitCheckout::new(Path::new("/cache/checkouts/myrepo-abc123"), throttle);
 //! checkout.clone_from(&db, &tag, NoProgress).await?;
 //! # Ok(())
 //! # }
@@ -81,3 +83,5 @@ pub mod progress;
 pub mod types;
 
 mod subprocess;
+
+pub use subprocess::set_git_bin;
