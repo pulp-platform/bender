@@ -21,9 +21,6 @@ pub enum GitError {
     #[error("reference not found: {refname}")]
     RefNotFound { refname: String },
 
-    #[error("path not found in tree: {path}")]
-    PathNotFound { path: String },
-
     #[error("invalid UTF-8 in git output: {context}")]
     InvalidUtf8 { context: String },
 
@@ -32,6 +29,9 @@ pub enum GitError {
 
     #[error("git binary already configured")]
     GitBinAlreadySet,
+
+    #[error("git-lfs not found: {0}")]
+    LfsNotFound(String),
 
     #[error("gix error: {0}")]
     Gix(String),

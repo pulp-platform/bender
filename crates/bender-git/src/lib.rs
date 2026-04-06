@@ -23,8 +23,8 @@
 //!
 //! ### `gix` vs subprocess
 //!
-//! - **Local operations** (`init_bare`, `tag_commit`, `list_refs`, `cat_file`,
-//!   `list_files`, `resolve`, `current_checkout`, `remote_url`) use `gix`
+//! - **Local operations** (`init_bare`, `tag_commit`, `list_tags`, `list_branches`, `read_file`,
+//!   `resolve`, `current_checkout`, `remote_url`) use `gix`
 //!   directly. They are synchronous and do not acquire the throttle semaphore,
 //!   so they can run concurrently without limit.
 //!
@@ -56,15 +56,13 @@
 //! db.fetch("origin", NoProgress).await?;
 //!
 //! // Version listing — fast, no subprocess, no throttle:
-//! let refs = db.list_refs()?;
+//! let tags = db.list_tags()?;
+//! let branches = db.list_branches()?;
 //! let revs = db.list_revs()?;
 //!
 //! // Read a file from a specific commit:
 //! let rev = db.resolve("v1.2.0")?;
-//! let entries = db.list_files(&rev, None)?;
-//! if let Some(e) = entries.iter().find(|e| e.path.as_os_str() == "Bender.yml") {
-//!     let content = db.cat_file_str(&e.oid)?;
-//! }
+//! let content = db.read_file(&rev, Path::new("Bender.yml"))?;
 //!
 //! // --- Checkout (working tree) ---
 //! let tag = format!("bender-tmp-{}", rev.short(8));
