@@ -31,9 +31,7 @@ impl std::str::FromStr for ObjectId {
         if s.len() == 40 && s.chars().all(|c| c.is_ascii_hexdigit()) {
             Ok(ObjectId(s.to_owned()))
         } else {
-            Err(crate::error::GitError::ObjectNotFound {
-                oid: s.to_owned(),
-            })
+            Err(crate::error::GitError::ObjectNotFound { oid: s.to_owned() })
         }
     }
 }
@@ -68,10 +66,7 @@ impl GitRef {
     /// - `refs/heads/main` → `main`
     pub fn short_name(&self) -> &str {
         match self.kind {
-            RefKind::Tag => self
-                .name
-                .strip_prefix("refs/tags/")
-                .unwrap_or(&self.name),
+            RefKind::Tag => self.name.strip_prefix("refs/tags/").unwrap_or(&self.name),
             RefKind::Branch => self
                 .name
                 .strip_prefix("refs/remotes/origin/")

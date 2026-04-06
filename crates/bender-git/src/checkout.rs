@@ -87,7 +87,7 @@ impl GitCheckout {
     /// # let checkout = GitCheckout::new(Path::new("/checkout"), "git", throttle);
     /// // 1. Tag the commit so git clone can reference it by name.
     /// let tag = format!("bender-tmp-{}", rev.short(8));
-    /// db.tag_commit(&tag, &rev).await?;
+    /// db.tag_commit(&tag, &rev)?;
     ///
     /// // 2. Clone from the database using the tag.
     /// checkout.clone_from(&db, &tag, NoProgress).await?;
@@ -100,18 +100,21 @@ impl GitCheckout {
         branch_or_tag: &str,
         _progress: impl GitProgressSink,
     ) -> Result<()> {
-        let db_path = database.path.to_str().ok_or_else(|| GitError::Gix(
-            "database path is not valid UTF-8".into(),
-        ))?;
-        let checkout_path = self.path.to_str().ok_or_else(|| GitError::Gix(
-            "checkout path is not valid UTF-8".into(),
-        ))?;
+        let db_path = database
+            .path
+            .to_str()
+            .ok_or_else(|| GitError::Gix("database path is not valid UTF-8".into()))?;
+        let checkout_path = self
+            .path
+            .to_str()
+            .ok_or_else(|| GitError::Gix("checkout path is not valid UTF-8".into()))?;
 
         // Use a SubprocessRunner rooted at the *parent* directory since the
         // checkout directory does not exist yet.
-        let parent = self.path.parent().ok_or_else(|| GitError::Gix(
-            "checkout path has no parent directory".into(),
-        ))?;
+        let parent = self
+            .path
+            .parent()
+            .ok_or_else(|| GitError::Gix("checkout path has no parent directory".into()))?;
         let runner = SubprocessRunner::new(
             self.git_bin.clone(),
             parent.to_path_buf(),
@@ -167,7 +170,12 @@ impl GitCheckout {
         Ok(url.to_string())
     }
 
-    /// Return `true` if the working tree has any staged or unstaged changes.
+    /// Return `true` if the working tree has any modifications.
+    ///
+    /// Uses `git status --porcelain` via subprocess rather than `gix::Repository::is_dirty()`
+    /// because gix deliberately excludes untracked files from its dirty check, whereas bender
+    /// must treat untracked files as dirty too — a user may have created new files in a
+    /// dependency checkout that bender is about to overwrite.
     pub async fn is_dirty(&self) -> Result<bool> {
         let output = self
             .runner()
@@ -196,12 +204,7 @@ impl GitCheckout {
     /// Initialise and update git submodules recursively.
     pub async fn update_submodules(&self, _progress: impl GitProgressSink) -> Result<()> {
         self.runner()
-            .run_discard(&[
-                "submodule",
-                "update",
-                "--init",
-                "--recursive",
-            ])
+            .run_discard(&["submodule", "update", "--init", "--recursive"])
             .await
     }
 
@@ -215,20 +218,15 @@ impl GitCheckout {
     pub async fn uses_lfs_attributes(&self) -> Result<bool> {
         let path = self.path.clone();
         tokio::task::spawn_blocking(move || {
-            Ok(WalkDir::new(&path)
-                .into_iter()
-                .flatten()
-                .any(|entry| {
-                    if entry.file_type().is_file()
-                        && entry.file_name() == ".gitattributes"
-                    {
-                        std::fs::read_to_string(entry.path())
-                            .map(|c| c.contains("filter=lfs"))
-                            .unwrap_or(false)
-                    } else {
-                        false
-                    }
-                }))
+            Ok(WalkDir::new(&path).into_iter().flatten().any(|entry| {
+                if entry.file_type().is_file() && entry.file_name() == ".gitattributes" {
+                    std::fs::read_to_string(entry.path())
+                        .map(|c| c.contains("filter=lfs"))
+                        .unwrap_or(false)
+                } else {
+                    false
+                }
+            }))
         })
         .await
         .map_err(|e| GitError::Gix(format!("blocking task failed: {}", e)))?
@@ -238,19 +236,14 @@ impl GitCheckout {
     ///
     /// Runs `git lfs ls-files`; returns `false` if git-lfs is not installed.
     pub async fn uses_lfs(&self) -> Result<bool> {
-        let output = self
-            .runner()
-            .run_str(&["lfs", "ls-files"], false)
-            .await?;
+        let output = self.runner().run_str(&["lfs", "ls-files"], false).await?;
         Ok(!output.trim().is_empty())
     }
 
     /// Configure the LFS URL and pull LFS objects.
     pub async fn lfs_pull(&self, lfs_url: &str) -> Result<()> {
         let runner = self.runner();
-        runner
-            .run_discard(&["config", "lfs.url", lfs_url])
-            .await?;
+        runner.run_discard(&["config", "lfs.url", lfs_url]).await?;
         runner.run_discard(&["lfs", "pull"]).await
     }
 }
