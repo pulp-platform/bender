@@ -71,7 +71,7 @@ async fn test_database_init_and_fetch() {
     std::fs::create_dir(&db_path).unwrap();
 
     let throttle = Arc::new(Semaphore::new(4));
-    let db = GitDatabase::new(&db_path, "git", throttle);
+    let db = GitDatabase::new(&db_path, throttle);
 
     // Init bare repo
     db.init_bare().unwrap();
@@ -104,7 +104,7 @@ async fn test_list_revs() {
     std::fs::create_dir(&db_path).unwrap();
 
     let throttle = Arc::new(Semaphore::new(4));
-    let db = GitDatabase::new(&db_path, "git", throttle);
+    let db = GitDatabase::new(&db_path, throttle);
 
     db.init_bare().unwrap();
     db.add_remote("origin", source.to_str().unwrap())
@@ -126,7 +126,7 @@ async fn test_resolve_and_cat_file() {
     std::fs::create_dir(&db_path).unwrap();
 
     let throttle = Arc::new(Semaphore::new(4));
-    let db = GitDatabase::new(&db_path, "git", throttle);
+    let db = GitDatabase::new(&db_path, throttle);
 
     db.init_bare().unwrap();
     db.add_remote("origin", source.to_str().unwrap())
@@ -163,7 +163,7 @@ async fn test_checkout() {
     std::fs::create_dir(&db_path).unwrap();
 
     let throttle = Arc::new(Semaphore::new(4));
-    let db = GitDatabase::new(&db_path, "git", throttle.clone());
+    let db = GitDatabase::new(&db_path, throttle.clone());
 
     db.init_bare().unwrap();
     db.add_remote("origin", source.to_str().unwrap())
@@ -180,7 +180,7 @@ async fn test_checkout() {
 
     // Clone the checkout
     let checkout_path = tmp.path().join("checkout");
-    let checkout = GitCheckout::new(&checkout_path, "git", throttle);
+    let checkout = GitCheckout::new(&checkout_path, throttle);
     checkout.clone_from_silent(&db, &tag).await.unwrap();
 
     // Verify the checkout is at the right commit
@@ -202,7 +202,7 @@ async fn test_remote_url() {
     std::fs::create_dir(&db_path).unwrap();
 
     let throttle = Arc::new(Semaphore::new(4));
-    let db = GitDatabase::new(&db_path, "git", throttle);
+    let db = GitDatabase::new(&db_path, throttle);
 
     db.init_bare().unwrap();
     let url = source.to_str().unwrap();

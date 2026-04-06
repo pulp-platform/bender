@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use tokio::sync::Semaphore;
 
-use crate::error::{gix_err, GitError, Result};
+use crate::error::{GitError, Result, gix_err};
 use crate::progress::{GitProgressSink, NoProgress};
 use crate::subprocess::SubprocessRunner;
 use crate::types::{GitRef, ObjectId, RefKind, TreeEntry, TreeEntryKind};
@@ -35,7 +35,6 @@ use crate::types::{GitRef, ObjectId, RefKind, TreeEntry, TreeEntryKind};
 pub struct GitDatabase {
     /// Absolute path to the bare repository directory.
     pub path: PathBuf,
-    git_bin: PathBuf,
     throttle: Arc<Semaphore>,
 }
 
@@ -44,24 +43,15 @@ impl GitDatabase {
     ///
     /// The directory at `path` must already exist. Call [`Self::init_bare`]
     /// if the repository has not yet been initialised.
-    pub fn new(
-        path: impl Into<PathBuf>,
-        git_bin: impl Into<PathBuf>,
-        throttle: Arc<Semaphore>,
-    ) -> Self {
+    pub fn new(path: impl Into<PathBuf>, throttle: Arc<Semaphore>) -> Self {
         Self {
             path: path.into(),
-            git_bin: git_bin.into(),
             throttle,
         }
     }
 
     fn runner(&self) -> SubprocessRunner {
-        SubprocessRunner::new(
-            self.git_bin.clone(),
-            self.path.clone(),
-            self.throttle.clone(),
-        )
+        SubprocessRunner::new(self.path.clone(), self.throttle.clone())
     }
 
     fn open_repo(&self) -> Result<gix::Repository> {
@@ -152,12 +142,7 @@ impl GitDatabase {
         let repo = self.open_repo()?;
         let mut result = Vec::new();
 
-        for reference in repo
-            .references()
-            .map_err(gix_err)?
-            .all()
-            .map_err(gix_err)?
-        {
+        for reference in repo.references().map_err(gix_err)?.all().map_err(gix_err)? {
             let mut reference = reference.map_err(gix_err)?;
 
             let name = reference.name().as_bstr().to_string();
@@ -278,10 +263,7 @@ impl GitDatabase {
             .try_into_commit()
             .map_err(|_| GitError::Gix(format!("{} is not a commit", rev)))?;
 
-        let tree_id = commit
-            .tree_id()
-            .map_err(gix_err)?
-            .detach();
+        let tree_id = commit.tree_id().map_err(gix_err)?.detach();
 
         // Navigate to the requested subdirectory if `path` is given.
         let target_tree_id = match path {
@@ -330,9 +312,7 @@ impl GitDatabase {
     pub fn resolve(&self, expr: &str) -> Result<ObjectId> {
         let repo = self.open_repo()?;
         let spec = format!("{}^{{commit}}", expr);
-        let id = repo
-            .rev_parse_single(spec.as_str())
-            .map_err(gix_err)?;
+        let id = repo.rev_parse_single(spec.as_str()).map_err(gix_err)?;
         Ok(ObjectId(id.to_string()))
     }
 

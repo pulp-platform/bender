@@ -5,9 +5,10 @@
 /// is acquired for every subprocess invocation so that the total number of
 /// concurrent git processes is bounded. Local/read-only operations implemented
 /// via `gix` do NOT go through here and therefore do not acquire the semaphore.
+use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -15,19 +16,27 @@ use tokio::sync::Semaphore;
 
 use crate::error::{GitError, Result};
 
+static GIT_BIN: OnceLock<std::result::Result<PathBuf, String>> = OnceLock::new();
+
+/// Override the `git` binary used for all subprocess operations.
+///
+/// If not called, the binary is auto-discovered via `which git` on first use.
+/// Must be called before the first git subprocess operation to take effect.
+/// Returns an error if the binary has already been set or auto-discovered.
+pub fn set_git_bin(path: impl AsRef<OsStr>) -> Result<()> {
+    GIT_BIN
+        .set(Ok(PathBuf::from(path.as_ref())))
+        .map_err(|_| GitError::GitBinAlreadySet)
+}
+
 pub(crate) struct SubprocessRunner {
-    pub git_bin: PathBuf,
     pub work_dir: PathBuf,
     pub throttle: Arc<Semaphore>,
 }
 
 impl SubprocessRunner {
-    pub fn new(git_bin: PathBuf, work_dir: PathBuf, throttle: Arc<Semaphore>) -> Self {
-        Self {
-            git_bin,
-            work_dir,
-            throttle,
-        }
+    pub fn new(work_dir: PathBuf, throttle: Arc<Semaphore>) -> Self {
+        Self { work_dir, throttle }
     }
 
     /// Run a git command, capturing stdout.
@@ -46,7 +55,11 @@ impl SubprocessRunner {
             .await
             .map_err(|_| GitError::SemaphoreClosed)?;
 
-        let mut cmd = Command::new(&self.git_bin);
+        let git = GIT_BIN
+            .get_or_init(|| which::which("git").map_err(|e| e.to_string()))
+            .as_ref()
+            .map_err(|e| GitError::Gix(format!("git binary not found: {e}")))?;
+        let mut cmd = Command::new(git);
         cmd.args(args);
         cmd.current_dir(&self.work_dir);
         cmd.env("GIT_TERMINAL_PROMPT", "0");
