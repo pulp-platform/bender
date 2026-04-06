@@ -5,7 +5,7 @@ use tokio::sync::Semaphore;
 use walkdir::WalkDir;
 
 use crate::database::GitDatabase;
-use crate::error::{GitError, Result};
+use crate::error::{gix_err, GitError, Result};
 use crate::progress::{GitProgressSink, NoProgress};
 use crate::subprocess::SubprocessRunner;
 use crate::types::ObjectId;
@@ -61,7 +61,7 @@ impl GitCheckout {
     }
 
     fn open_repo(&self) -> Result<gix::Repository> {
-        gix::open(&self.path).map_err(|e| GitError::Gix(e.to_string()))
+        gix::open(&self.path).map_err(gix_err)
     }
 
     // ── Initialisation ────────────────────────────────────────────────────────

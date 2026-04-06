@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use tokio::sync::Semaphore;
 
-use crate::error::{GitError, Result};
+use crate::error::{gix_err, GitError, Result};
 use crate::progress::{GitProgressSink, NoProgress};
 use crate::subprocess::SubprocessRunner;
 use crate::types::{GitRef, ObjectId, RefKind, TreeEntry, TreeEntryKind};
@@ -65,7 +65,7 @@ impl GitDatabase {
     }
 
     fn open_repo(&self) -> Result<gix::Repository> {
-        gix::open(&self.path).map_err(|e| GitError::Gix(e.to_string()))
+        gix::open(&self.path).map_err(gix_err)
     }
 
     // ── Initialisation ───────────────────────────────────────────────────────
@@ -77,7 +77,7 @@ impl GitDatabase {
         if gix::open(&self.path).is_ok() {
             return Ok(()); // already a valid git repo
         }
-        gix::init_bare(&self.path).map_err(|e| GitError::Gix(e.to_string()))?;
+        gix::init_bare(&self.path).map_err(gix_err)?;
         Ok(())
     }
 
@@ -137,7 +137,7 @@ impl GitDatabase {
         let repo = self.open_repo()?;
         let oid = parse_oid(commit)?;
         repo.tag_reference(tag_name, oid, PreviousValue::Any)
-            .map_err(|e| GitError::Gix(e.to_string()))?;
+            .map_err(gix_err)?;
         Ok(())
     }
 
@@ -154,11 +154,11 @@ impl GitDatabase {
 
         for reference in repo
             .references()
-            .map_err(|e| GitError::Gix(e.to_string()))?
+            .map_err(gix_err)?
             .all()
-            .map_err(|e| GitError::Gix(e.to_string()))?
+            .map_err(gix_err)?
         {
-            let mut reference = reference.map_err(|e| GitError::Gix(e.to_string()))?;
+            let mut reference = reference.map_err(gix_err)?;
 
             let name = reference.name().as_bstr().to_string();
 
@@ -202,9 +202,9 @@ impl GitDatabase {
         // Collect all ref commit OIDs as walk starting points.
         let tips: Vec<gix::ObjectId> = repo
             .references()
-            .map_err(|e| GitError::Gix(e.to_string()))?
+            .map_err(gix_err)?
             .all()
-            .map_err(|e| GitError::Gix(e.to_string()))?
+            .map_err(gix_err)?
             .filter_map(|r| {
                 let mut r = r.ok()?;
                 r.peel_to_id().ok().map(|id| id.detach())
@@ -221,11 +221,11 @@ impl GitDatabase {
                 Default::default(),
             ))
             .all()
-            .map_err(|e| GitError::Gix(e.to_string()))?;
+            .map_err(gix_err)?;
 
         let mut revs = Vec::new();
         for info in walk {
-            let info = info.map_err(|e| GitError::Gix(e.to_string()))?;
+            let info = info.map_err(gix_err)?;
             revs.push(ObjectId(info.id.to_string()));
         }
 
@@ -272,7 +272,7 @@ impl GitDatabase {
                 oid: rev.to_string(),
             })?
             .peel_tags_to_end()
-            .map_err(|e| GitError::Gix(e.to_string()))?;
+            .map_err(gix_err)?;
 
         let commit = commit_obj
             .try_into_commit()
@@ -280,7 +280,7 @@ impl GitDatabase {
 
         let tree_id = commit
             .tree_id()
-            .map_err(|e| GitError::Gix(e.to_string()))?
+            .map_err(gix_err)?
             .detach();
 
         // Navigate to the requested subdirectory if `path` is given.
@@ -299,7 +299,7 @@ impl GitDatabase {
             .try_into_tree()
             .map_err(|_| GitError::Gix("expected a tree object".into()))?;
 
-        let decoded = tree.decode().map_err(|e| GitError::Gix(e.to_string()))?;
+        let decoded = tree.decode().map_err(gix_err)?;
 
         let mut entries = Vec::new();
         for entry in decoded.entries.iter() {
@@ -332,7 +332,7 @@ impl GitDatabase {
         let spec = format!("{}^{{commit}}", expr);
         let id = repo
             .rev_parse_single(spec.as_str())
-            .map_err(|e| GitError::Gix(e.to_string()))?;
+            .map_err(gix_err)?;
         Ok(ObjectId(id.to_string()))
     }
 
@@ -383,7 +383,7 @@ fn find_subtree(
         let tree = tree_obj
             .try_into_tree()
             .map_err(|_| GitError::Gix("expected a tree object".into()))?;
-        let decoded = tree.decode().map_err(|e| GitError::Gix(e.to_string()))?;
+        let decoded = tree.decode().map_err(gix_err)?;
 
         let entry = decoded
             .entries
