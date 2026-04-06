@@ -23,14 +23,14 @@ use crate::types::{GitRef, ObjectId, RefKind, TreeEntry, TreeEntryKind};
 /// ## Operation categories
 ///
 /// - **Subprocess operations** (async, acquire the throttle semaphore):
-///   `init_bare`, `add_remote`, `fetch`, `fetch_ref`, `tag_commit`.
-///   These are reserved for network I/O and write operations.
+///   `fetch`, `fetch_ref`, `add_remote`.
+///   Network I/O or operations where gix has no public disk-write API.
 ///
 /// - **`gix` operations** (synchronous, no semaphore):
+///   `init_bare`, `tag_commit`,
 ///   `list_refs`, `list_revs`, `cat_file`, `list_files`, `resolve`,
 ///   `remote_url`.
-///   These are pure local reads and are not throttled — they are fast and safe
-///   to run concurrently in unlimited numbers.
+///   All local reads and writes — fast and safe to run concurrently.
 #[derive(Clone)]
 pub struct GitDatabase {
     /// Absolute path to the bare repository directory.
@@ -73,13 +73,24 @@ impl GitDatabase {
     /// Initialise a bare repository in the directory (idempotent).
     ///
     /// Equivalent to `git init --bare`.
-    pub async fn init_bare(&self) -> Result<()> {
-        self.runner().run_discard(&["init", "--bare"]).await
+    pub fn init_bare(&self) -> Result<()> {
+        if gix::open(&self.path).is_ok() {
+            return Ok(()); // already a valid git repo
+        }
+        gix::init_bare(&self.path).map_err(|e| GitError::Gix(e.to_string()))?;
+        Ok(())
     }
 
     /// Add a remote (e.g. `origin`).
     ///
     /// Equivalent to `git remote add <name> <url>`.
+    ///
+    /// This uses the `git` subprocess even though it is a local operation.
+    /// gix's `remote_at()` creates an in-memory remote only; persisting it to
+    /// `.git/config` requires internal gix helpers (`write_remote_to_local_config_file`)
+    /// that are not part of the public API. Since `fetch` is also a subprocess
+    /// that reads the remote URL from `.git/config` at runtime, the config must
+    /// be written to disk anyway — subprocess is the simplest correct path here.
     pub async fn add_remote(&self, name: &str, url: &str) -> Result<()> {
         self.runner()
             .run_discard(&["remote", "add", name, url])
@@ -121,10 +132,13 @@ impl GitDatabase {
     /// Bender uses this to create short-lived `bender-tmp-<rev>` tags so that
     /// `git clone --branch` can check out an arbitrary commit (since `--branch`
     /// only accepts named refs, not bare hashes).
-    pub async fn tag_commit(&self, tag_name: &str, commit: &ObjectId) -> Result<()> {
-        self.runner()
-            .run_discard(&["tag", "--force", tag_name, commit.as_str()])
-            .await
+    pub fn tag_commit(&self, tag_name: &str, commit: &ObjectId) -> Result<()> {
+        use gix::refs::transaction::PreviousValue;
+        let repo = self.open_repo()?;
+        let oid = parse_oid(commit)?;
+        repo.tag_reference(tag_name, oid, PreviousValue::Any)
+            .map_err(|e| GitError::Gix(e.to_string()))?;
+        Ok(())
     }
 
     // ── Read operations (gix, not throttled) ─────────────────────────────────
@@ -155,7 +169,7 @@ impl GitDatabase {
 
             // Peel annotated tags to the underlying commit OID. References
             // that can't be resolved (e.g. broken symrefs) are silently skipped.
-            let commit_oid = match reference.peel_to_id_in_place() {
+            let commit_oid = match reference.peel_to_id() {
                 Ok(id) => ObjectId(id.to_string()),
                 Err(_) => continue,
             };
@@ -193,7 +207,7 @@ impl GitDatabase {
             .map_err(|e| GitError::Gix(e.to_string()))?
             .filter_map(|r| {
                 let mut r = r.ok()?;
-                r.peel_to_id_in_place().ok().map(|id| id.detach())
+                r.peel_to_id().ok().map(|id| id.detach())
             })
             .collect();
 
@@ -226,7 +240,9 @@ impl GitDatabase {
         let gix_oid = parse_oid(oid)?;
         let obj = repo
             .find_object(gix_oid)
-            .map_err(|_| GitError::ObjectNotFound { oid: oid.to_string() })?;
+            .map_err(|_| GitError::ObjectNotFound {
+                oid: oid.to_string(),
+            })?;
         Ok(obj.data.to_vec())
     }
 
@@ -252,7 +268,9 @@ impl GitDatabase {
         // Resolve to commit (peeling through any annotated tags).
         let commit_obj = repo
             .find_object(commit_gix_oid)
-            .map_err(|_| GitError::ObjectNotFound { oid: rev.to_string() })?
+            .map_err(|_| GitError::ObjectNotFound {
+                oid: rev.to_string(),
+            })?
             .peel_tags_to_end()
             .map_err(|e| GitError::Gix(e.to_string()))?;
 
@@ -337,8 +355,9 @@ impl GitDatabase {
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 fn parse_oid(oid: &ObjectId) -> Result<gix::ObjectId> {
-    gix::ObjectId::from_hex(oid.as_str().as_bytes())
-        .map_err(|_| GitError::ObjectNotFound { oid: oid.to_string() })
+    gix::ObjectId::from_hex(oid.as_str().as_bytes()).map_err(|_| GitError::ObjectNotFound {
+        oid: oid.to_string(),
+    })
 }
 
 /// Walk `path` components into the tree rooted at `tree_id`, returning the OID
@@ -358,7 +377,9 @@ fn find_subtree(
 
         let tree_obj = repo
             .find_object(tree_id)
-            .map_err(|_| GitError::ObjectNotFound { oid: tree_id.to_string() })?;
+            .map_err(|_| GitError::ObjectNotFound {
+                oid: tree_id.to_string(),
+            })?;
         let tree = tree_obj
             .try_into_tree()
             .map_err(|_| GitError::Gix("expected a tree object".into()))?;

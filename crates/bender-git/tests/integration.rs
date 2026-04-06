@@ -44,10 +44,19 @@ fn create_local_repo(dir: &std::path::Path) -> std::path::PathBuf {
     run(&["tag", "v0.1.0"]);
 
     // Second commit
-    std::fs::write(repo_path.join("Bender.yml"), "package:\n  name: test\n  version: 0.2.0\n")
-        .unwrap();
+    std::fs::write(
+        repo_path.join("Bender.yml"),
+        "package:\n  name: test\n  version: 0.2.0\n",
+    )
+    .unwrap();
     run(&["add", "."]);
-    run(&["-c", "commit.gpgsign=false", "commit", "-m", "Bump to v0.2.0"]);
+    run(&[
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-m",
+        "Bump to v0.2.0",
+    ]);
     run(&["tag", "v0.2.0"]);
 
     repo_path
@@ -65,7 +74,7 @@ async fn test_database_init_and_fetch() {
     let db = GitDatabase::new(&db_path, "git", throttle);
 
     // Init bare repo
-    db.init_bare().await.unwrap();
+    db.init_bare().unwrap();
 
     // Add remote and fetch
     db.add_remote("origin", source.to_str().unwrap())
@@ -97,7 +106,7 @@ async fn test_list_revs() {
     let throttle = Arc::new(Semaphore::new(4));
     let db = GitDatabase::new(&db_path, "git", throttle);
 
-    db.init_bare().await.unwrap();
+    db.init_bare().unwrap();
     db.add_remote("origin", source.to_str().unwrap())
         .await
         .unwrap();
@@ -119,7 +128,7 @@ async fn test_resolve_and_cat_file() {
     let throttle = Arc::new(Semaphore::new(4));
     let db = GitDatabase::new(&db_path, "git", throttle);
 
-    db.init_bare().await.unwrap();
+    db.init_bare().unwrap();
     db.add_remote("origin", source.to_str().unwrap())
         .await
         .unwrap();
@@ -130,9 +139,7 @@ async fn test_resolve_and_cat_file() {
     assert_eq!(rev.as_str().len(), 40);
 
     // list_files at v0.1.0 root
-    let entries = db
-        .list_files(&rev, None)
-        .unwrap();
+    let entries = db.list_files(&rev, None).unwrap();
     let bender_yml = entries
         .iter()
         .find(|e| e.path.as_os_str() == "Bender.yml")
@@ -158,7 +165,7 @@ async fn test_checkout() {
     let throttle = Arc::new(Semaphore::new(4));
     let db = GitDatabase::new(&db_path, "git", throttle.clone());
 
-    db.init_bare().await.unwrap();
+    db.init_bare().unwrap();
     db.add_remote("origin", source.to_str().unwrap())
         .await
         .unwrap();
@@ -169,7 +176,7 @@ async fn test_checkout() {
 
     // Create a bender-tmp tag so git clone --branch can reference it
     let tag = format!("bender-tmp-{}", rev.short(8));
-    db.tag_commit(&tag, &rev).await.unwrap();
+    db.tag_commit(&tag, &rev).unwrap();
 
     // Clone the checkout
     let checkout_path = tmp.path().join("checkout");
@@ -197,7 +204,7 @@ async fn test_remote_url() {
     let throttle = Arc::new(Semaphore::new(4));
     let db = GitDatabase::new(&db_path, "git", throttle);
 
-    db.init_bare().await.unwrap();
+    db.init_bare().unwrap();
     let url = source.to_str().unwrap();
     db.add_remote("origin", url).await.unwrap();
 
