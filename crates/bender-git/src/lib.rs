@@ -23,14 +23,16 @@
 //!
 //! ### `gix` vs subprocess
 //!
-//! - **Local/read-only operations** (`list_refs`, `cat_file`, `list_files`,
-//!   `resolve`, `current_checkout`, `remote_url`) use `gix` directly. They are
-//!   synchronous and do not acquire the throttle semaphore, so they can run
-//!   concurrently without limit.
+//! - **Local operations** (`init_bare`, `tag_commit`, `list_refs`, `cat_file`,
+//!   `list_files`, `resolve`, `current_checkout`, `remote_url`) use `gix`
+//!   directly. They are synchronous and do not acquire the throttle semaphore,
+//!   so they can run concurrently without limit.
 //!
-//! - **Network/write operations** (`fetch`, `clone`, `init`, `tag`) spawn the
-//!   system `git` binary. They are async, acquire the shared semaphore, and have
-//!   progress reporting hooks (currently stubbed).
+//! - **Subprocess operations** (`fetch`, `clone`, `add_remote`) spawn the
+//!   system `git` binary. They are async and acquire the shared semaphore.
+//!   `fetch` and `clone` require credential handling; `add_remote` is local
+//!   but gix has no public API for persisting a remote to `.git/config`
+//!   (the relevant helper is `pub(crate)` in gix).
 //!
 //! ## Typical usage
 //!
@@ -47,7 +49,7 @@
 //!
 //! // --- Database (bare repo) ---
 //! let db = GitDatabase::new(Path::new("/cache/db/myrepo-abc123"), "git", throttle.clone());
-//! db.init_bare().await?;
+//! db.init_bare()?;
 //! db.add_remote("origin", "https://github.com/example/repo").await?;
 //! db.fetch("origin", NoProgress).await?;
 //!
@@ -64,7 +66,7 @@
 //!
 //! // --- Checkout (working tree) ---
 //! let tag = format!("bender-tmp-{}", rev.short(8));
-//! db.tag_commit(&tag, &rev).await?;
+//! db.tag_commit(&tag, &rev)?;
 //!
 //! let checkout = GitCheckout::new(Path::new("/cache/checkouts/myrepo-abc123"), "git", throttle);
 //! checkout.clone_from(&db, &tag, NoProgress).await?;
