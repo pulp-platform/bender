@@ -35,3 +35,11 @@ pub enum GitError {
 }
 
 pub type Result<T> = std::result::Result<T, GitError>;
+
+/// Convert any [`Display`](std::fmt::Display)-able error into [`GitError::Gix`].
+///
+/// Use as `.map_err(gix_err)` at gix call sites instead of the verbose
+/// `.map_err(|e| GitError::Gix(e.to_string()))` lambda.
+pub fn gix_err(e: impl std::fmt::Display) -> GitError {
+    GitError::Gix(e.to_string())
+}
