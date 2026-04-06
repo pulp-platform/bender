@@ -11,7 +11,6 @@ repository = "https://github.com/pulp-platform/bender"
 thiserror = "2"
 which = "8"
 tokio = { version = "1.27", features = ["process", "io-util", "rt", "sync"] }
-walkdir = "2"
 log = "0.4"
 
 # gix: used only for local/read-only operations (list_refs, cat_file, list_files,

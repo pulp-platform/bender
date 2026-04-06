@@ -1,14 +1,12 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tokio::sync::Semaphore;
-use walkdir::WalkDir;
-
 use crate::database::GitDatabase;
 use crate::error::{GitError, Result, gix_err};
-use crate::progress::{GitProgressSink, NoProgress};
-use crate::subprocess::SubprocessRunner;
+use crate::progress::GitProgressSink;
+use crate::subprocess::{GIT_LFS, SubprocessRunner};
 use crate::types::ObjectId;
+use tokio::sync::Semaphore;
 
 /// A git working tree checkout.
 ///
@@ -17,19 +15,10 @@ use crate::types::ObjectId;
 /// filesystem path — the caller creates, moves, and removes directories as
 /// needed.
 ///
-/// ## Clone vs. worktree
-///
-/// Checkouts are created via `git clone --local --branch <tag>` rather than
-/// `git worktree add`. The worktree approach was evaluated but rejected because:
-///
-/// - `git worktree add` on bare repos requires git ≥ 2.37 (compatibility risk).
-/// - Worktrees are tightly coupled to the source bare repo's filesystem path,
-///   so moving or deleting the database breaks all linked checkouts.
-/// - Deleting a worktree requires `git worktree remove`, not just `rm -rf`.
-/// - LFS per-checkout URL configuration becomes a concurrency hazard.
-///
-/// The `--local` clone already shares object storage via
-/// `objects/info/alternates`, so disk usage is efficient.
+/// Checkouts are cloned from a [`GitDatabase`] with `--shared`, which sets up
+/// `.git/objects/info/alternates` so all objects in the database are visible
+/// without copying them. This keeps disk usage minimal while allowing the
+/// checkout to be moved or deleted independently of the database.
 #[derive(Clone)]
 pub struct GitCheckout {
     /// Absolute path to the working tree directory.
@@ -50,12 +39,6 @@ impl GitCheckout {
         SubprocessRunner::new(self.path.clone(), self.throttle.clone())
     }
 
-    fn open_repo(&self) -> Result<gix::Repository> {
-        gix::open(&self.path).map_err(gix_err)
-    }
-
-    // ── Initialisation ────────────────────────────────────────────────────────
-
     /// Clone from a local bare database and check out `branch_or_tag`.
     ///
     /// `branch_or_tag` must be a named ref (branch or tag), not a bare commit
@@ -63,26 +46,12 @@ impl GitCheckout {
     /// typical caller workflow:
     ///
     /// ```no_run
-    /// # async fn example() -> bender_git::error::Result<()> {
-    /// # use std::sync::Arc;
-    /// # use tokio::sync::Semaphore;
-    /// # use std::path::Path;
-    /// # use bender_git::database::GitDatabase;
-    /// # use bender_git::checkout::GitCheckout;
-    /// # use bender_git::types::ObjectId;
-    /// # use bender_git::progress::NoProgress;
-    /// # let throttle = Arc::new(Semaphore::new(4));
-    /// # let db = GitDatabase::new(Path::new("/db"), throttle.clone());
-    /// # let rev = ObjectId("abc123".repeat(6).chars().take(40).collect());
-    /// # let checkout = GitCheckout::new(Path::new("/checkout"), throttle);
     /// // 1. Tag the commit so git clone can reference it by name.
     /// let tag = format!("bender-tmp-{}", rev.short(8));
     /// db.tag_commit(&tag, &rev)?;
     ///
     /// // 2. Clone from the database using the tag.
     /// checkout.clone_from(&db, &tag, NoProgress).await?;
-    /// # Ok(())
-    /// # }
     /// ```
     pub async fn clone_from(
         &self,
@@ -107,37 +76,45 @@ impl GitCheckout {
             .ok_or_else(|| GitError::Gix("checkout path has no parent directory".into()))?;
         let runner = SubprocessRunner::new(parent.to_path_buf(), self.throttle.clone());
 
+        // --shared sets up .git/objects/info/alternates pointing at the
+        // database's object directory. The checkout owns no objects itself;
+        // all object lookups fall through to the database. This means any
+        // commit fetched into the database is immediately visible to the
+        // checkout, so updating to a newer revision requires no fetch step.
+        //
+        // The risk of --shared is that git-gc in the database can prune
+        // objects still needed by the checkout. This is safe here because
+        // bender always creates a bender-tmp-<hash> tag in the database
+        // before updating a checkout to that commit, and only removes old
+        // bender-tmp-* tags after the checkout has moved on — so gc will
+        // never see the referenced objects as unreachable.
+        // GIT_LFS_SKIP_SMUDGE=1 prevents git-lfs from downloading LFS objects
+        // during clone. LFS objects are pulled explicitly afterwards via
+        // lfs_pull() so bender can decide whether LFS is needed.
+        // filter.lfs.required=false is a safety net: if git-lfs is registered
+        // in the git config but not installed, the clone won't fail.
         runner
-            .run_discard(&[
-                "clone",
-                "--local",
-                "--branch",
-                branch_or_tag,
-                db_path,
-                checkout_path,
-            ])
+            .run_discard_with_env(
+                &[
+                    "clone",
+                    "--shared",
+                    "--branch",
+                    branch_or_tag,
+                    db_path,
+                    checkout_path,
+                ],
+                &[("GIT_LFS_SKIP_SMUDGE", "1")],
+            )
             .await
     }
 
-    // ── Interrogation ─────────────────────────────────────────────────────────
-
-    /// Return the commit OID currently checked out (`HEAD^{commit}`), or
-    /// `None` if the repository has no commits.
+    /// Return the commit OID currently checked out (`HEAD^{commit}`).
     ///
     /// This is a pure local read implemented via `gix`; no semaphore acquired.
-    pub fn current_checkout(&self) -> Result<Option<ObjectId>> {
-        let repo = self.open_repo()?;
-        match repo.head_id() {
-            Ok(id) => Ok(Some(ObjectId(id.to_string()))),
-            Err(e) => {
-                let msg = e.to_string();
-                if msg.contains("unborn") || msg.contains("no commits") {
-                    Ok(None)
-                } else {
-                    Err(GitError::Gix(msg))
-                }
-            }
-        }
+    pub fn current_checkout(&self) -> Result<ObjectId> {
+        let repo = gix::open(&self.path).map_err(gix_err)?;
+        let id = repo.head_id().map_err(gix_err)?;
+        Ok(ObjectId::from(id.detach()))
     }
 
     /// Return the URL of a remote (used to verify the checkout points at the
@@ -145,13 +122,12 @@ impl GitCheckout {
     ///
     /// This is a pure local read via `gix`; no semaphore acquired.
     pub fn remote_url(&self, remote: &str) -> Result<String> {
-        let repo = self.open_repo()?;
-        let key = format!("remote.{}.url", remote);
-        let snapshot = repo.config_snapshot();
-        let url = snapshot
-            .string(key.as_str())
-            .ok_or_else(|| GitError::RefNotFound {
-                refname: format!("remote.{}.url", remote),
+        let repo = gix::open(&self.path).map_err(gix_err)?;
+        let remote = repo.find_remote(remote).map_err(gix_err)?;
+        let url = remote
+            .url(gix::remote::Direction::Fetch)
+            .ok_or(GitError::RefNotFound {
+                refname: "fetch url".into(),
             })?;
         Ok(url.to_string())
     }
@@ -170,84 +146,56 @@ impl GitCheckout {
         Ok(!output.trim().is_empty())
     }
 
-    // ── Update ────────────────────────────────────────────────────────────────
-
-    /// Fetch from all remotes and check out `rev_or_tag`.
-    pub async fn fetch_and_checkout(
-        &self,
-        rev_or_tag: &str,
-        _progress: impl GitProgressSink,
-    ) -> Result<()> {
-        let runner = self.runner();
-        runner
-            .run_discard(&["fetch", "--all", "--tags", "--prune"])
-            .await?;
-        runner
-            .run_discard(&["checkout", "--force", rev_or_tag])
+    /// Switch the working tree to `rev`.
+    ///
+    /// Since checkouts are cloned with `--shared`, all objects in the database
+    /// are accessible via alternates — no fetch required before switching.
+    /// LFS smudging is disabled; call `lfs_pull` afterwards if needed.
+    pub async fn switch(&self, rev: &ObjectId) -> Result<()> {
+        self.runner()
+            .run_discard_with_env(
+                &["switch", "--detach", "--force", &rev.to_string()],
+                &[("GIT_LFS_SKIP_SMUDGE", "1")],
+            )
             .await
     }
 
     /// Initialise and update git submodules recursively.
     pub async fn update_submodules(&self, _progress: impl GitProgressSink) -> Result<()> {
         self.runner()
-            .run_discard(&["submodule", "update", "--init", "--recursive"])
+            .run_discard_with_env(
+                &["submodule", "update", "--init", "--recursive"],
+                &[("GIT_LFS_SKIP_SMUDGE", "1")],
+            )
             .await
     }
 
-    // ── LFS ───────────────────────────────────────────────────────────────────
-
-    /// Return `true` if any `.gitattributes` file in the working tree contains
-    /// a `filter=lfs` line.
+    /// Pull LFS objects for the current checkout, pointing git-lfs at `lfs_url`.
     ///
-    /// Runs the file walk in a blocking thread via `tokio::task::spawn_blocking`
-    /// to avoid blocking the async runtime.
-    pub async fn uses_lfs_attributes(&self) -> Result<bool> {
-        let path = self.path.clone();
-        tokio::task::spawn_blocking(move || {
-            Ok(WalkDir::new(&path).into_iter().flatten().any(|entry| {
-                if entry.file_type().is_file() && entry.file_name() == ".gitattributes" {
-                    std::fs::read_to_string(entry.path())
-                        .map(|c| c.contains("filter=lfs"))
-                        .unwrap_or(false)
-                } else {
-                    false
-                }
-            }))
-        })
-        .await
-        .map_err(|e| GitError::Gix(format!("blocking task failed: {}", e)))?
-    }
-
-    /// Return `true` if the checkout actually tracks any files via LFS.
+    /// Runs `git lfs ls-files` first; if no LFS-tracked files are present this
+    /// is a no-op and returns `Ok(false)`. Returns `Ok(true)` if LFS objects
+    /// were actually pulled. Callers should only call this when LFS is enabled
+    /// in the bender config — if LFS files are present but this is never called,
+    /// the working tree will contain raw LFS pointer files instead of content.
     ///
-    /// Runs `git lfs ls-files`; returns `false` if git-lfs is not installed.
-    pub async fn uses_lfs(&self) -> Result<bool> {
-        let output = self.runner().run_str(&["lfs", "ls-files"], false).await?;
-        Ok(!output.trim().is_empty())
-    }
+    /// `lfs_url` must be the URL of the original remote (not the local database
+    /// path), since LFS objects are stored on the LFS server, not in the bare repo.
+    pub async fn lfs_pull(&self, lfs_url: &str) -> Result<bool> {
+        // Verify git-lfs is installed before doing anything. This is checked
+        // once and cached for the lifetime of the process (LazyLock). Returning
+        // an error here lets the caller surface a clear warning rather than
+        // silently leaving raw LFS pointer files in the working tree.
+        GIT_LFS
+            .as_ref()
+            .map_err(|e| GitError::LfsNotFound(e.clone()))?;
 
-    /// Configure the LFS URL and pull LFS objects.
-    pub async fn lfs_pull(&self, lfs_url: &str) -> Result<()> {
         let runner = self.runner();
+        let output = runner.run_str(&["lfs", "ls-files"], true).await?;
+        if output.trim().is_empty() {
+            return Ok(false);
+        }
         runner.run_discard(&["config", "lfs.url", lfs_url]).await?;
-        runner.run_discard(&["lfs", "pull"]).await
-    }
-}
-
-// ── No-progress convenience wrappers ─────────────────────────────────────────
-
-impl GitCheckout {
-    /// Clone from `database`, reporting no progress.
-    pub async fn clone_from_silent(
-        &self,
-        database: &GitDatabase,
-        branch_or_tag: &str,
-    ) -> Result<()> {
-        self.clone_from(database, branch_or_tag, NoProgress).await
-    }
-
-    /// Fetch and check out `rev_or_tag`, reporting no progress.
-    pub async fn fetch_and_checkout_silent(&self, rev_or_tag: &str) -> Result<()> {
-        self.fetch_and_checkout(rev_or_tag, NoProgress).await
+        runner.run_discard(&["lfs", "pull"]).await?;
+        Ok(true)
     }
 }

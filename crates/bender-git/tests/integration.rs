@@ -82,15 +82,15 @@ async fn test_database_init_and_fetch() {
         .unwrap();
     db.fetch("origin", NoProgress).await.unwrap();
 
-    // list_refs should return at least the two tags and the HEAD branch
-    let refs = db.list_refs().unwrap();
+    // list_tags should return at least the two tags
+    let tags = db.list_tags().unwrap();
     assert!(
-        refs.iter().any(|r| r.name.contains("v0.1.0")),
+        tags.iter().any(|(name, _)| name.contains("v0.1.0")),
         "should have v0.1.0 tag, got: {:?}",
-        refs.iter().map(|r| &r.name).collect::<Vec<_>>()
+        tags.iter().map(|(name, _)| name).collect::<Vec<_>>()
     );
     assert!(
-        refs.iter().any(|r| r.name.contains("v0.2.0")),
+        tags.iter().any(|(name, _)| name.contains("v0.2.0")),
         "should have v0.2.0 tag"
     );
 }
@@ -136,17 +136,13 @@ async fn test_resolve_and_cat_file() {
 
     // Resolve v0.1.0 tag to a commit
     let rev = db.resolve("refs/tags/v0.1.0").unwrap();
-    assert_eq!(rev.as_str().len(), 40);
+    assert_eq!(rev.to_string().len(), 40);
 
-    // list_files at v0.1.0 root
-    let entries = db.list_files(&rev, None).unwrap();
-    let bender_yml = entries
-        .iter()
-        .find(|e| e.path.as_os_str() == "Bender.yml")
+    // read_file should return the correct content
+    let content = db
+        .read_file(&rev, std::path::Path::new("Bender.yml"))
+        .unwrap()
         .expect("Bender.yml not found in root");
-
-    // cat_file should return the correct content
-    let content = db.cat_file_str(&bender_yml.oid).unwrap();
     assert!(
         content.contains("name: test"),
         "unexpected content: {}",
@@ -181,11 +177,11 @@ async fn test_checkout() {
     // Clone the checkout
     let checkout_path = tmp.path().join("checkout");
     let checkout = GitCheckout::new(&checkout_path, throttle);
-    checkout.clone_from_silent(&db, &tag).await.unwrap();
+    checkout.clone_from(&db, &tag, NoProgress).await.unwrap();
 
     // Verify the checkout is at the right commit
     let head = checkout.current_checkout().unwrap();
-    assert_eq!(head.as_ref().map(|id| id.as_str()), Some(rev.as_str()));
+    assert_eq!(head.to_string(), rev.to_string());
 
     // Verify the file exists in the checkout
     assert!(checkout_path.join("Bender.yml").exists());

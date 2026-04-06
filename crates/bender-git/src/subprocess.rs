@@ -8,7 +8,7 @@
 use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -17,6 +17,14 @@ use tokio::sync::Semaphore;
 use crate::error::{GitError, Result};
 
 static GIT_BIN: OnceLock<std::result::Result<PathBuf, String>> = OnceLock::new();
+
+/// Lazily-resolved path to the `git-lfs` binary.
+///
+/// Resolved once on first use by running `git-lfs`. If `git-lfs` is
+/// not installed this is `Err` and `lfs_pull` will return an error instead of
+/// silently leaving raw LFS pointer files in the working tree.
+pub(crate) static GIT_LFS: LazyLock<std::result::Result<PathBuf, String>> =
+    LazyLock::new(|| which::which("git-lfs").map_err(|e| e.to_string()));
 
 /// Override the `git` binary used for all subprocess operations.
 ///
@@ -48,6 +56,15 @@ impl SubprocessRunner {
     ///   message if the command fails.
     /// - If `check` is `false`, stdout is returned even on non-zero exit.
     pub async fn run(&self, args: &[&str], check: bool) -> Result<Vec<u8>> {
+        self.run_with_env(args, &[], check).await
+    }
+
+    pub async fn run_with_env(
+        &self,
+        args: &[&str],
+        envs: &[(&str, &str)],
+        check: bool,
+    ) -> Result<Vec<u8>> {
         let permit = self
             .throttle
             .clone()
@@ -63,6 +80,9 @@ impl SubprocessRunner {
         cmd.args(args);
         cmd.current_dir(&self.work_dir);
         cmd.env("GIT_TERMINAL_PROMPT", "0");
+        for (k, v) in envs {
+            cmd.env(k, v);
+        }
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
@@ -121,5 +141,10 @@ impl SubprocessRunner {
     /// Run a git command and discard stdout.
     pub async fn run_discard(&self, args: &[&str]) -> Result<()> {
         self.run(args, true).await.map(|_| ())
+    }
+
+    /// Run a git command with extra environment variables and discard stdout.
+    pub async fn run_discard_with_env(&self, args: &[&str], envs: &[(&str, &str)]) -> Result<()> {
+        self.run_with_env(args, envs, true).await.map(|_| ())
     }
 }
