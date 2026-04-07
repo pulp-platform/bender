@@ -9,16 +9,16 @@ use std::path::Path;
 
 use clap::Args;
 use indexmap::{IndexMap, IndexSet};
-use miette::IntoDiagnostic as _;
+use miette::{Context, IntoDiagnostic as _};
 use tokio::runtime::Runtime;
 
+use crate::Result;
 use crate::cmd::sources::get_passed_targets;
 use crate::config::{Validate, ValidationContext};
 use crate::diagnostic::Warnings;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::{TargetSet, TargetSpec};
-use crate::{Result, err};
 
 use bender_slang::{SlangPrintOpts, SlangSession, SyntaxTreeRewriter};
 
@@ -241,9 +241,11 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
 
     // Setup Output Writer, either to file or stdout
     let raw_writer: Box<dyn Write> = match &args.output {
-        Some(path) => {
-            Box::new(File::create(path).map_err(|e| err!("Cannot create output file: {}", e))?)
-        }
+        Some(path) => Box::new(
+            File::create(path)
+                .into_diagnostic()
+                .wrap_err_with(|| format!("failed to create output file `{path}`"))?,
+        ),
         None => Box::new(std::io::stdout()),
     };
     let mut writer = BufWriter::new(raw_writer);

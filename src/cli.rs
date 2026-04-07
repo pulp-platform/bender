@@ -421,9 +421,7 @@ fn find_package_root(from: &Path) -> Result<PathBuf> {
         }
     }
 
-    Err(err!(
-        "No manifest (`Bender.yml` file) found. Reached maximum number of search steps.",
-    ))
+    bail!("No manifest (`Bender.yml` file) found. Reached maximum number of search steps.")
 }
 
 /// Read a package manifest from a file.

@@ -634,7 +634,7 @@ impl Validate for PartialManifest {
                 .into_iter()
                 .map(|(trgt, path)| {
                     if !(vctx.pre_output || path.exists() && path.is_dir()) {
-                        Warnings::IncludeDirMissing(path.clone()).emit();
+                        Warnings::IncludeDirMissing(path.clone()).emit_or_error()?;
                     }
                     Ok((trgt, path))
                 })

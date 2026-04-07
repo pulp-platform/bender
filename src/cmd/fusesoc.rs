@@ -22,11 +22,11 @@ use walkdir::{DirEntry, WalkDir};
 
 use crate::Result;
 use crate::diagnostic::Warnings;
-use crate::err;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup};
 use crate::target::TargetSet;
 use crate::target::TargetSpec;
+use crate::{bail, err};
 
 /// Creates a FuseSoC `.core` file for all dependencies where none is present
 #[derive(Args, Debug)]
@@ -85,10 +85,7 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
     };
 
     if !file_str.contains(bender_generate_flag) {
-        Err(err!(
-            "{}.core already exists, please delete to generate.",
-            name
-        ))?
+        bail!("{}.core already exists, please delete to generate.", name)
     }
 
     let fuse_depend_string = sess

@@ -993,7 +993,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 }
             }
         } else {
-            Err(err!(msg))
+            bail!(msg)
         }
     }
 

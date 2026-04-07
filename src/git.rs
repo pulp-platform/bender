@@ -175,7 +175,9 @@ impl<'ctx> Git<'ctx> {
         if status.success() || !check {
             String::from_utf8(stdout_buffer)
                 .into_diagnostic()
-                .wrap_err("Output of git command is not valid UTF-8.")
+                .wrap_err_with(|| {
+                    format!("Output of git command `{}` is not valid UTF-8.", command)
+                })
         } else {
             let exit = match status.code() {
                 Some(code) => format!("exit code {}", code),
@@ -266,7 +268,8 @@ impl<'ctx> Git<'ctx> {
             }))
         })
         .await
-        .into_diagnostic()?
+        .into_diagnostic()
+        .wrap_err("Failed to check for LFS attributes.")?
     }
 
     /// Fetch the tags and refs of a remote.

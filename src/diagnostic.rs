@@ -37,24 +37,6 @@ macro_rules! infoln {
     ($($arg:tt)*) => { $crate::diagnostic!($crate::fmt_with_style!("Info", owo_colors::Style::new().white().bold()); $($arg)*); }
 }
 
-/// Print debug information. Omitted in release builds.
-#[macro_export]
-#[cfg(debug_assertions)]
-macro_rules! debugln {
-    ($($arg:tt)*) => {
-        if $crate::diagnostic::ENABLE_DEBUG.load(std::sync::atomic::Ordering::Relaxed) {
-            $crate::diagnostic!($crate::fmt_with_style!("Debug", owo_colors::Style::new().blue().bold()); $($arg)*);
-        }
-    }
-}
-
-/// Print debug information. Omitted in release builds.
-#[macro_export]
-#[cfg(not(debug_assertions))]
-macro_rules! debugln {
-    ($($arg:tt)*) => {};
-}
-
 /// Format and print stage progress.
 #[macro_export]
 macro_rules! stageln {

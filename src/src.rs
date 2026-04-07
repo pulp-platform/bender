@@ -547,15 +547,13 @@ impl<'ctx> Validate for SourceFile<'ctx> {
             SourceFile::File(path, ty) => {
                 let env_path_buf = crate::config::env_path_from_string(&path.to_string_lossy())?;
                 let exists = env_path_buf.exists() && env_path_buf.is_file();
-                if exists {
-                    Ok(SourceFile::File(path, ty))
-                } else {
+                if !exists {
                     Warnings::FileMissing {
                         path: env_path_buf.clone(),
                     }
                     .emit_or_error()?;
-                    Ok(SourceFile::File(path, ty))
                 }
+                Ok(SourceFile::File(path, ty))
             }
             SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate(vctx)?))),
         }
