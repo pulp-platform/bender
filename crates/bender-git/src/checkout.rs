@@ -39,7 +39,7 @@ impl GitCheckout {
         })
     }
 
-    fn runner(&self) -> SubprocessRunner {
+    fn runner(&self) -> Result<SubprocessRunner> {
         SubprocessRunner::new(self.path.clone(), self.throttle.clone())
     }
 
@@ -79,7 +79,7 @@ impl GitCheckout {
         let parent = path
             .parent()
             .ok_or_else(|| GitError::Gix("checkout path has no parent directory".into()))?;
-        let runner = SubprocessRunner::new(parent.to_path_buf(), throttle.clone());
+        let runner = SubprocessRunner::new(parent.to_path_buf(), throttle.clone())?;
 
         // --shared sets up .git/objects/info/alternates pointing at the
         // database's object directory. The checkout owns no objects itself;
@@ -152,7 +152,7 @@ impl GitCheckout {
     /// dependency checkout that bender is about to overwrite.
     pub async fn is_dirty(&self) -> Result<bool> {
         let output = self
-            .runner()
+            .runner()?
             .run_str(&["status", "--porcelain"], true)
             .await?;
         Ok(!output.trim().is_empty())
@@ -164,7 +164,7 @@ impl GitCheckout {
     /// are accessible via alternates — no fetch required before switching.
     /// LFS smudging is disabled; call `lfs_pull` afterwards if needed.
     pub async fn switch(&self, rev: &ObjectId) -> Result<()> {
-        self.runner()
+        self.runner()?
             .run_discard_with_env(
                 &["switch", "--detach", "--force", &rev.to_string()],
                 &[("GIT_LFS_SKIP_SMUDGE", "1")],
@@ -174,7 +174,7 @@ impl GitCheckout {
 
     /// Initialise and update git submodules recursively.
     pub async fn update_submodules(&self, _progress: impl GitProgressSink) -> Result<()> {
-        self.runner()
+        self.runner()?
             .run_discard_with_env(
                 &["submodule", "update", "--init", "--recursive"],
                 &[("GIT_LFS_SKIP_SMUDGE", "1")],
@@ -201,7 +201,7 @@ impl GitCheckout {
             .as_ref()
             .map_err(|e| GitError::LfsNotFound(e.clone()))?;
 
-        let runner = self.runner();
+        let runner = self.runner()?;
         let output = runner.run_str(&["lfs", "ls-files"], true).await?;
         if output.trim().is_empty() {
             return Ok(false);

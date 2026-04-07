@@ -64,7 +64,7 @@ impl GitDatabase {
         })
     }
 
-    fn runner(&self) -> SubprocessRunner {
+    fn runner(&self) -> Result<SubprocessRunner> {
         SubprocessRunner::new(self.path.clone(), self.throttle.clone())
     }
 
@@ -76,7 +76,7 @@ impl GitDatabase {
     /// gix's `remote_at()` creates an in-memory remote only; there is currently
     /// no public API to persist it to `.git/config`.
     pub async fn add_remote(&self, name: &str, url: &str) -> Result<()> {
-        self.runner()
+        self.runner()?
             .run_discard(&["remote", "add", name, url])
             .await
     }
@@ -88,7 +88,7 @@ impl GitDatabase {
         // Progress integration is stubbed for v1; see progress.rs for the
         // planned trait boundary. The `--progress` flag causes git to write
         // progress to stderr, which is currently discarded.
-        self.runner()
+        self.runner()?
             .run_discard(&["fetch", "--tags", "--prune", remote, "--progress"])
             .await
     }
@@ -104,7 +104,7 @@ impl GitDatabase {
         refspec: &str,
         _progress: impl GitProgressSink,
     ) -> Result<()> {
-        self.runner()
+        self.runner()?
             .run_discard(&["fetch", remote, refspec, "--progress"])
             .await
     }
