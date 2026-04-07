@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::database::GitDatabase;
 use crate::error::{GitError, Result, gix_err};
 use crate::progress::GitProgressSink;
 use crate::subprocess::{GIT_LFS, SubprocessRunner};
@@ -11,11 +10,11 @@ use tokio::sync::Semaphore;
 /// A git working tree checkout.
 ///
 /// This corresponds to the `git/checkouts/{name}-{hash}/` directories in
-/// bender's local cache. Like [`GitDatabase`], this struct does not manage the
+/// bender's local cache. Like [`GitDatabase`](crate::database::GitDatabase), this struct does not manage the
 /// filesystem path — the caller creates, moves, and removes directories as
 /// needed.
 ///
-/// Checkouts are cloned from a [`GitDatabase`] with `--shared`, which sets up
+/// Checkouts are cloned from a [`GitDatabase`](crate::database::GitDatabase) with `--shared`, which sets up
 /// `.git/objects/info/alternates` so all objects in the database are visible
 /// without copying them. This keeps disk usage minimal while allowing the
 /// checkout to be moved or deleted independently of the database.
@@ -41,83 +40,6 @@ impl GitCheckout {
 
     fn runner(&self) -> Result<SubprocessRunner> {
         SubprocessRunner::new(self.path.clone(), self.throttle.clone())
-    }
-
-    /// Clone from a local bare database, check out `branch_or_tag`, and return
-    /// a handle to the new working tree.
-    ///
-    /// `branch_or_tag` must be a named ref (branch or tag), not a bare commit
-    /// hash, because `git clone --branch` does not accept commit hashes. The
-    /// typical caller workflow:
-    ///
-    /// ```ignore
-    /// // 1. Tag the commit so git clone can reference it by name.
-    /// let tag = format!("bender-tmp-{}", rev.short(8));
-    /// db.tag_commit(&tag, &rev)?;
-    ///
-    /// // 2. Clone from the database using the tag.
-    /// let checkout = GitCheckout::clone_from(&checkout_path, &db, &tag, NoProgress, throttle).await?;
-    /// ```
-    pub async fn clone_from(
-        path: impl Into<PathBuf>,
-        database: &GitDatabase,
-        branch_or_tag: &str,
-        _progress: impl GitProgressSink,
-        throttle: Arc<Semaphore>,
-    ) -> Result<Self> {
-        let path = path.into();
-        let db_path = database
-            .path
-            .to_str()
-            .ok_or_else(|| GitError::Gix("database path is not valid UTF-8".into()))?;
-        let checkout_path = path
-            .to_str()
-            .ok_or_else(|| GitError::Gix("checkout path is not valid UTF-8".into()))?;
-
-        // Use a SubprocessRunner rooted at the *parent* directory since the
-        // checkout directory does not exist yet.
-        let parent = path
-            .parent()
-            .ok_or_else(|| GitError::Gix("checkout path has no parent directory".into()))?;
-        let runner = SubprocessRunner::new(parent.to_path_buf(), throttle.clone())?;
-
-        // --shared sets up .git/objects/info/alternates pointing at the
-        // database's object directory. The checkout owns no objects itself;
-        // all object lookups fall through to the database. This means any
-        // commit fetched into the database is immediately visible to the
-        // checkout, so updating to a newer revision requires no fetch step.
-        //
-        // The risk of --shared is that git-gc in the database can prune
-        // objects still needed by the checkout. This is safe here because
-        // bender always creates a bender-tmp-<hash> tag in the database
-        // before updating a checkout to that commit, and only removes old
-        // bender-tmp-* tags after the checkout has moved on — so gc will
-        // never see the referenced objects as unreachable.
-        // GIT_LFS_SKIP_SMUDGE=1 prevents git-lfs from downloading LFS objects
-        // during clone. LFS objects are pulled explicitly afterwards via
-        // lfs_pull() so bender can decide whether LFS is needed.
-        // filter.lfs.required=false is a safety net: if git-lfs is registered
-        // in the git config but not installed, the clone won't fail.
-        runner
-            .run_discard_with_env(
-                &[
-                    "clone",
-                    "--shared",
-                    "--branch",
-                    branch_or_tag,
-                    db_path,
-                    checkout_path,
-                ],
-                &[("GIT_LFS_SKIP_SMUDGE", "1")],
-            )
-            .await?;
-
-        let repo = gix::open(&path).map_err(gix_err)?.into_sync();
-        Ok(Self {
-            path,
-            throttle,
-            repo,
-        })
     }
 
     /// Return the commit OID currently checked out (`HEAD^{commit}`).

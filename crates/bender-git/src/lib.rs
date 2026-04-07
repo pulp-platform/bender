@@ -41,7 +41,6 @@
 //! use std::path::Path;
 //! use tokio::sync::Semaphore;
 //! use bender_git::database::GitDatabase;
-//! use bender_git::checkout::GitCheckout;
 //! use bender_git::progress::NoProgress;
 //!
 //! # async fn run() -> bender_git::error::Result<()> {
@@ -67,13 +66,7 @@
 //! let tag = format!("bender-tmp-{}", rev.short(8));
 //! db.tag_commit(&tag, &rev)?;
 //!
-//! let checkout = GitCheckout::clone_from(
-//!     Path::new("/cache/checkouts/myrepo-abc123"),
-//!     &db,
-//!     &tag,
-//!     NoProgress,
-//!     throttle,
-//! ).await?;
+//! let checkout = db.clone_into(Path::new("/cache/checkouts/myrepo-abc123"), &tag, NoProgress).await?;
 //! # Ok(())
 //! # }
 //! ```
