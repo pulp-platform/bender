@@ -24,57 +24,62 @@ pub struct GitCheckout {
     /// Absolute path to the working tree directory.
     pub path: PathBuf,
     throttle: Arc<Semaphore>,
+    repo: gix::ThreadSafeRepository,
 }
 
 impl GitCheckout {
-    /// Construct a handle to a working tree at `path`.
-    pub fn new(path: impl Into<PathBuf>, throttle: Arc<Semaphore>) -> Self {
-        Self {
-            path: path.into(),
+    /// Open an existing working tree at `path`.
+    pub fn open(path: impl Into<PathBuf>, throttle: Arc<Semaphore>) -> Result<Self> {
+        let path = path.into();
+        let repo = gix::open(&path).map_err(gix_err)?.into_sync();
+        Ok(Self {
+            path,
             throttle,
-        }
+            repo,
+        })
     }
 
     fn runner(&self) -> SubprocessRunner {
         SubprocessRunner::new(self.path.clone(), self.throttle.clone())
     }
 
-    /// Clone from a local bare database and check out `branch_or_tag`.
+    /// Clone from a local bare database, check out `branch_or_tag`, and return
+    /// a handle to the new working tree.
     ///
     /// `branch_or_tag` must be a named ref (branch or tag), not a bare commit
     /// hash, because `git clone --branch` does not accept commit hashes. The
     /// typical caller workflow:
     ///
-    /// ```no_run
+    /// ```ignore
     /// // 1. Tag the commit so git clone can reference it by name.
     /// let tag = format!("bender-tmp-{}", rev.short(8));
     /// db.tag_commit(&tag, &rev)?;
     ///
     /// // 2. Clone from the database using the tag.
-    /// checkout.clone_from(&db, &tag, NoProgress).await?;
+    /// let checkout = GitCheckout::clone_from(&checkout_path, &db, &tag, NoProgress, throttle).await?;
     /// ```
     pub async fn clone_from(
-        &self,
+        path: impl Into<PathBuf>,
         database: &GitDatabase,
         branch_or_tag: &str,
         _progress: impl GitProgressSink,
-    ) -> Result<()> {
+        throttle: Arc<Semaphore>,
+    ) -> Result<Self> {
+        let path = path.into();
         let db_path = database
             .path
             .to_str()
             .ok_or_else(|| GitError::Gix("database path is not valid UTF-8".into()))?;
-        let checkout_path = self
-            .path
+        let checkout_path = path
             .to_str()
             .ok_or_else(|| GitError::Gix("checkout path is not valid UTF-8".into()))?;
 
         // Use a SubprocessRunner rooted at the *parent* directory since the
         // checkout directory does not exist yet.
-        let parent = self
-            .path
+        let parent = path
             .parent()
             .ok_or_else(|| GitError::Gix("checkout path has no parent directory".into()))?;
-        let runner = SubprocessRunner::new(parent.to_path_buf(), self.throttle.clone());
+        let runner = SubprocessRunner::new(parent.to_path_buf(), throttle.clone());
 
         // --shared sets up .git/objects/info/alternates pointing at the
         // database's object directory. The checkout owns no objects itself;
@@ -105,14 +110,21 @@ impl GitCheckout {
                 ],
                 &[("GIT_LFS_SKIP_SMUDGE", "1")],
             )
-            .await
+            .await?;
+
+        let repo = gix::open(&path).map_err(gix_err)?.into_sync();
+        Ok(Self {
+            path,
+            throttle,
+            repo,
+        })
     }
 
     /// Return the commit OID currently checked out (`HEAD^{commit}`).
     ///
     /// This is a pure local read implemented via `gix`; no semaphore acquired.
     pub fn current_checkout(&self) -> Result<ObjectId> {
-        let repo = gix::open(&self.path).map_err(gix_err)?;
+        let repo = self.repo.to_thread_local();
         let id = repo.head_id().map_err(gix_err)?;
         Ok(ObjectId::from(id.detach()))
     }
@@ -122,7 +134,7 @@ impl GitCheckout {
     ///
     /// This is a pure local read via `gix`; no semaphore acquired.
     pub fn remote_url(&self, remote: &str) -> Result<String> {
-        let repo = gix::open(&self.path).map_err(gix_err)?;
+        let repo = self.repo.to_thread_local();
         let remote = repo.find_remote(remote).map_err(gix_err)?;
         let url = remote
             .url(gix::remote::Direction::Fetch)
