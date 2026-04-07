@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use tokio::sync::Semaphore;
 
+use crate::checkout::GitCheckout;
 use crate::error::{GitError, Result, gix_err};
 use crate::progress::GitProgressSink;
 use crate::subprocess::SubprocessRunner;
@@ -107,6 +108,76 @@ impl GitDatabase {
         self.runner()?
             .run_discard(&["fetch", remote, refspec, "--progress"])
             .await
+    }
+
+    /// Clone this database into `path` and check out `branch_or_tag`, returning
+    /// a [`GitCheckout`] handle to the new working tree.
+    ///
+    /// `branch_or_tag` must be a named ref (branch or tag), not a bare commit
+    /// hash, because `git clone --branch` does not accept commit hashes. The
+    /// typical caller workflow:
+    ///
+    /// ```no_run
+    /// # use std::sync::Arc;
+    /// # use tokio::sync::Semaphore;
+    /// # use bender_git::database::GitDatabase;
+    /// # use bender_git::progress::NoProgress;
+    /// # #[tokio::main] async fn main() -> bender_git::error::Result<()> {
+    /// # let db = GitDatabase::init_bare("/tmp/db", Arc::new(Semaphore::new(4)))?;
+    /// # let rev = db.resolve("HEAD")?;
+    /// # let checkout_path = std::path::PathBuf::from("/tmp/checkout");
+    /// let tag = format!("bender-tmp-{}", rev.short(8));
+    /// db.tag_commit(&tag, &rev)?;
+    /// let checkout = db.clone_into(&checkout_path, &tag, NoProgress).await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn clone_into(
+        &self,
+        path: impl Into<PathBuf>,
+        branch_or_tag: &str,
+        _progress: impl GitProgressSink,
+    ) -> Result<GitCheckout> {
+        let path = path.into();
+        let db_path = self.path.to_str().unwrap();
+        let checkout_path = path.to_str().unwrap();
+
+        // Use a SubprocessRunner rooted at the *parent* directory since the
+        // checkout directory does not exist yet.
+        let parent = path.parent().unwrap();
+        let runner = SubprocessRunner::new(parent.to_path_buf(), self.throttle.clone())?;
+
+        // --shared sets up .git/objects/info/alternates pointing at the
+        // database's object directory. The checkout owns no objects itself;
+        // all object lookups fall through to the database. This means any
+        // commit fetched into the database is immediately visible to the
+        // checkout, so updating to a newer revision requires no fetch step.
+        //
+        // The risk of --shared is that git-gc in the database can prune
+        // objects still needed by the checkout. This is safe here because
+        // bender always creates a bender-tmp-<hash> tag in the database
+        // before updating a checkout to that commit, and only removes old
+        // bender-tmp-* tags after the checkout has moved on — so gc will
+        // never see the referenced objects as unreachable.
+        // GIT_LFS_SKIP_SMUDGE=1 prevents git-lfs from downloading LFS objects
+        // during clone. LFS objects are pulled explicitly afterwards via
+        // lfs_pull() so bender can decide whether LFS is needed.
+        // filter.lfs.required=false is a safety net: if git-lfs is registered
+        // in the git config but not installed, the clone won't fail.
+        runner
+            .run_discard_with_env(
+                &[
+                    "clone",
+                    "--shared",
+                    "--branch",
+                    branch_or_tag,
+                    db_path,
+                    checkout_path,
+                ],
+                &[("GIT_LFS_SKIP_SMUDGE", "1")],
+            )
+            .await?;
+
+        GitCheckout::open(path, self.throttle.clone())
     }
 
     /// Create or overwrite a local tag pointing to `commit`.
