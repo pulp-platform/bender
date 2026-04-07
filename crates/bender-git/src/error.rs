@@ -27,6 +27,9 @@ pub enum GitError {
     #[error("semaphore closed (runtime shutting down)")]
     SemaphoreClosed,
 
+    #[error("git binary not found: {0}")]
+    GitBinNotFound(String),
+
     #[error("git binary already configured")]
     GitBinAlreadySet,
 

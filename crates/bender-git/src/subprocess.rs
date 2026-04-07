@@ -16,7 +16,7 @@ use tokio::sync::Semaphore;
 
 use crate::error::{GitError, Result};
 
-static GIT_BIN: OnceLock<std::result::Result<PathBuf, String>> = OnceLock::new();
+static GIT_BIN: OnceLock<PathBuf> = OnceLock::new();
 
 /// Lazily-resolved path to the `git-lfs` binary.
 ///
@@ -33,7 +33,7 @@ pub(crate) static GIT_LFS: LazyLock<std::result::Result<PathBuf, String>> =
 /// Returns an error if the binary has already been set or auto-discovered.
 pub fn set_git_bin(path: impl AsRef<OsStr>) -> Result<()> {
     GIT_BIN
-        .set(Ok(PathBuf::from(path.as_ref())))
+        .set(PathBuf::from(path.as_ref()))
         .map_err(|_| GitError::GitBinAlreadySet)
 }
 
@@ -43,8 +43,12 @@ pub(crate) struct SubprocessRunner {
 }
 
 impl SubprocessRunner {
-    pub fn new(work_dir: PathBuf, throttle: Arc<Semaphore>) -> Self {
-        Self { work_dir, throttle }
+    pub fn new(work_dir: PathBuf, throttle: Arc<Semaphore>) -> Result<Self> {
+        if GIT_BIN.get().is_none() {
+            let path = which::which("git").map_err(|e| GitError::GitBinNotFound(e.to_string()))?;
+            let _ = GIT_BIN.set(path);
+        }
+        Ok(Self { work_dir, throttle })
     }
 
     /// Run a git command, capturing stdout.
@@ -72,11 +76,7 @@ impl SubprocessRunner {
             .await
             .map_err(|_| GitError::SemaphoreClosed)?;
 
-        let git = GIT_BIN
-            .get_or_init(|| which::which("git").map_err(|e| e.to_string()))
-            .as_ref()
-            .map_err(|e| GitError::Gix(format!("git binary not found: {e}")))?;
-        let mut cmd = Command::new(git);
+        let mut cmd = Command::new(GIT_BIN.get().expect("git binary resolved in new()"));
         cmd.args(args);
         cmd.current_dir(&self.work_dir);
         cmd.env("GIT_TERMINAL_PROMPT", "0");
