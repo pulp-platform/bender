@@ -4,7 +4,6 @@
 /// against real git repositories created in temporary directories.
 use std::sync::Arc;
 
-use bender_git::checkout::GitCheckout;
 use bender_git::database::GitDatabase;
 use bender_git::progress::NoProgress;
 use tokio::sync::Semaphore;
@@ -153,8 +152,7 @@ async fn test_checkout() {
     let db_path = tmp.path().join("db");
     std::fs::create_dir(&db_path).unwrap();
 
-    let throttle = Arc::new(Semaphore::new(4));
-    let db = GitDatabase::init_bare(&db_path, throttle.clone()).unwrap();
+    let db = GitDatabase::init_bare(&db_path, Arc::new(Semaphore::new(4))).unwrap();
 
     db.add_remote("origin", source.to_str().unwrap())
         .await
@@ -170,7 +168,8 @@ async fn test_checkout() {
 
     // Clone the checkout
     let checkout_path = tmp.path().join("checkout");
-    let checkout = GitCheckout::clone_from(&checkout_path, &db, &tag, NoProgress, throttle)
+    let checkout = db
+        .clone_into(&checkout_path, &tag, NoProgress)
         .await
         .unwrap();
 
