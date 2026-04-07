@@ -71,10 +71,7 @@ async fn test_database_init_and_fetch() {
     std::fs::create_dir(&db_path).unwrap();
 
     let throttle = Arc::new(Semaphore::new(4));
-    let db = GitDatabase::new(&db_path, throttle);
-
-    // Init bare repo
-    db.init_bare().unwrap();
+    let db = GitDatabase::init_bare(&db_path, throttle).unwrap();
 
     // Add remote and fetch
     db.add_remote("origin", source.to_str().unwrap())
@@ -104,9 +101,8 @@ async fn test_list_revs() {
     std::fs::create_dir(&db_path).unwrap();
 
     let throttle = Arc::new(Semaphore::new(4));
-    let db = GitDatabase::new(&db_path, throttle);
+    let db = GitDatabase::init_bare(&db_path, throttle).unwrap();
 
-    db.init_bare().unwrap();
     db.add_remote("origin", source.to_str().unwrap())
         .await
         .unwrap();
@@ -126,9 +122,8 @@ async fn test_resolve_and_cat_file() {
     std::fs::create_dir(&db_path).unwrap();
 
     let throttle = Arc::new(Semaphore::new(4));
-    let db = GitDatabase::new(&db_path, throttle);
+    let db = GitDatabase::init_bare(&db_path, throttle).unwrap();
 
-    db.init_bare().unwrap();
     db.add_remote("origin", source.to_str().unwrap())
         .await
         .unwrap();
@@ -159,9 +154,8 @@ async fn test_checkout() {
     std::fs::create_dir(&db_path).unwrap();
 
     let throttle = Arc::new(Semaphore::new(4));
-    let db = GitDatabase::new(&db_path, throttle.clone());
+    let db = GitDatabase::init_bare(&db_path, throttle.clone()).unwrap();
 
-    db.init_bare().unwrap();
     db.add_remote("origin", source.to_str().unwrap())
         .await
         .unwrap();
@@ -176,8 +170,9 @@ async fn test_checkout() {
 
     // Clone the checkout
     let checkout_path = tmp.path().join("checkout");
-    let checkout = GitCheckout::new(&checkout_path, throttle);
-    checkout.clone_from(&db, &tag, NoProgress).await.unwrap();
+    let checkout = GitCheckout::clone_from(&checkout_path, &db, &tag, NoProgress, throttle)
+        .await
+        .unwrap();
 
     // Verify the checkout is at the right commit
     let head = checkout.current_checkout().unwrap();
@@ -198,9 +193,8 @@ async fn test_remote_url() {
     std::fs::create_dir(&db_path).unwrap();
 
     let throttle = Arc::new(Semaphore::new(4));
-    let db = GitDatabase::new(&db_path, throttle);
+    let db = GitDatabase::init_bare(&db_path, throttle).unwrap();
 
-    db.init_bare().unwrap();
     let url = source.to_str().unwrap();
     db.add_remote("origin", url).await.unwrap();
 

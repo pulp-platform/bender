@@ -27,39 +27,45 @@ use crate::types::ObjectId;
 ///   Network I/O or operations where gix has no public disk-write API.
 ///
 /// - **`gix` operations** (synchronous, no semaphore):
-///   `init_bare`, `tag_commit`,
-///   `list_refs`, `list_revs`, `cat_file`, `list_files`, `resolve`,
-///   `remote_url`.
+///   `tag_commit`, `list_refs`, `list_revs`, `cat_file`, `list_files`,
+///   `resolve`, `remote_url`.
 ///   All local reads and writes — fast and safe to run concurrently.
 #[derive(Clone)]
 pub struct GitDatabase {
     /// Absolute path to the bare repository directory.
     pub path: PathBuf,
     throttle: Arc<Semaphore>,
+    repo: gix::ThreadSafeRepository,
 }
 
 impl GitDatabase {
-    /// Construct a handle to a bare repository at `path`.
+    /// Initialise a new bare repository at `path` and return a handle to it.
     ///
-    /// The directory at `path` must already exist. Call [`Self::init_bare`]
-    /// if the repository has not yet been initialised.
-    pub fn new(path: impl Into<PathBuf>, throttle: Arc<Semaphore>) -> Self {
-        Self {
-            path: path.into(),
+    /// Equivalent to `git init --bare`. The directory must already exist.
+    pub fn init_bare(path: impl Into<PathBuf>, throttle: Arc<Semaphore>) -> Result<Self> {
+        let path = path.into();
+        gix::init_bare(&path).map_err(gix_err)?;
+        let repo = gix::open(&path).map_err(gix_err)?.into_sync();
+        Ok(Self {
+            path,
             throttle,
-        }
+            repo,
+        })
+    }
+
+    /// Open an existing bare repository at `path`.
+    pub fn open(path: impl Into<PathBuf>, throttle: Arc<Semaphore>) -> Result<Self> {
+        let path = path.into();
+        let repo = gix::open(&path).map_err(gix_err)?.into_sync();
+        Ok(Self {
+            path,
+            throttle,
+            repo,
+        })
     }
 
     fn runner(&self) -> SubprocessRunner {
         SubprocessRunner::new(self.path.clone(), self.throttle.clone())
-    }
-
-    /// Initialise a bare repository in the directory.
-    ///
-    /// Equivalent to `git init --bare`.
-    pub fn init_bare(&self) -> Result<()> {
-        gix::init_bare(&self.path).map_err(gix_err)?;
-        Ok(())
     }
 
     /// Add a remote (e.g. `origin`).
@@ -110,7 +116,7 @@ impl GitDatabase {
     /// only accepts named refs, not bare hashes).
     pub fn tag_commit(&self, tag_name: &str, commit: &ObjectId) -> Result<()> {
         use gix::refs::transaction::PreviousValue;
-        let repo = gix::open(&self.path).map_err(gix_err)?;
+        let repo = self.repo.to_thread_local();
         repo.tag_reference(tag_name, *commit, PreviousValue::Any)
             .map_err(gix_err)?;
         Ok(())
@@ -121,7 +127,7 @@ impl GitDatabase {
     /// Annotated tags are peeled to their target commit. Broken symrefs are
     /// silently skipped.
     pub fn list_tags(&self) -> Result<Vec<(String, ObjectId)>> {
-        let repo = gix::open(&self.path).map_err(gix_err)?;
+        let repo = self.repo.to_thread_local();
         let mut result = Vec::new();
         for reference in repo
             .references()
@@ -145,7 +151,7 @@ impl GitDatabase {
     /// Short names have the `refs/remotes/origin/` prefix stripped. Broken
     /// symrefs are silently skipped.
     pub fn list_branches(&self) -> Result<Vec<(String, ObjectId)>> {
-        let repo = gix::open(&self.path).map_err(gix_err)?;
+        let repo = self.repo.to_thread_local();
         let mut result = Vec::new();
         for reference in repo
             .references()
@@ -172,7 +178,7 @@ impl GitDatabase {
     /// Equivalent to `git rev-list --all --date-order`.
     /// This is a pure local read and does not acquire the throttle semaphore.
     pub fn list_revs(&self) -> Result<Vec<ObjectId>> {
-        let repo = gix::open(&self.path).map_err(gix_err)?;
+        let repo = self.repo.to_thread_local();
 
         let tips: Vec<gix::ObjectId> = repo
             .references()
@@ -196,7 +202,7 @@ impl GitDatabase {
     ///
     /// This is a pure local read and does not acquire the throttle semaphore.
     pub fn cat_file(&self, oid: &ObjectId) -> Result<String> {
-        let repo = gix::open(&self.path).map_err(gix_err)?;
+        let repo = self.repo.to_thread_local();
         let obj = repo
             .find_object(*oid)
             .map_err(|_| GitError::ObjectNotFound {
@@ -212,7 +218,7 @@ impl GitDatabase {
     /// Returns `None` if the path does not exist in the tree.
     /// This is a pure local read and does not acquire the throttle semaphore.
     pub fn read_file(&self, rev: &ObjectId, path: &Path) -> Result<Option<String>> {
-        let repo = gix::open(&self.path).map_err(gix_err)?;
+        let repo = self.repo.to_thread_local();
         let commit = repo
             .find_commit(*rev)
             .map_err(|_| GitError::ObjectNotFound {
@@ -237,7 +243,7 @@ impl GitDatabase {
     ///
     /// This is a pure local read and does not acquire the throttle semaphore.
     pub fn resolve(&self, expr: &str) -> Result<ObjectId> {
-        let repo = gix::open(&self.path).map_err(gix_err)?;
+        let repo = self.repo.to_thread_local();
         let spec = format!("{}^{{commit}}", expr);
         let id = repo.rev_parse_single(spec.as_str()).map_err(gix_err)?;
         Ok(ObjectId::from(id.detach()))
@@ -246,6 +252,10 @@ impl GitDatabase {
     /// Return the URL of a remote.
     ///
     /// This is a pure local read and does not acquire the throttle semaphore.
+    ///
+    /// Note: this re-opens the repository on each call rather than using the
+    /// cached `ThreadSafeRepository`. Remotes are added via subprocess after
+    /// construction, so the cached config snapshot would not include them.
     pub fn remote_url(&self, remote: &str) -> Result<String> {
         let repo = gix::open(&self.path).map_err(gix_err)?;
         let remote = repo.find_remote(remote).map_err(gix_err)?;
