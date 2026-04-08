@@ -143,7 +143,7 @@ impl<'ctx> Git<'ctx> {
         let stderr = child
             .stderr
             .take()
-            .ok_or_else(|| err!("Failed to capture git stderr",))?;
+            .ok_or(err!("Failed to capture git stderr"))?;
 
         // Spawn a background task to handle stderr so it doesn't block
         let stderr_handle = tokio::spawn(async move {
@@ -156,14 +156,18 @@ impl<'ctx> Git<'ctx> {
         let mut stdout = child
             .stdout
             .take()
-            .ok_or_else(|| err!("Failed to capture git stdout.",))?;
+            .ok_or(err!("Failed to capture git stdout."))?;
         stdout
             .read_to_end(&mut stdout_buffer)
             .await
             .into_diagnostic()?;
 
         // Wait for child process to finish
-        let status = child.wait().await.into_diagnostic()?;
+        let status = child
+            .wait()
+            .await
+            .into_diagnostic()
+            .wrap_err("Failed to wait on child")?;
 
         // Join the stderr task to get the error log
         let collected_stderr = stderr_handle.await.into_diagnostic()?;

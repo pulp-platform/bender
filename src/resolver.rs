@@ -926,10 +926,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                     let mut buffer = String::new();
                     io::stdin().read_line(&mut buffer).unwrap();
                     if buffer.starts_with('\n') {
-                        break Err(err!(
+                        bail!(
                             "Dependency requirements conflict with each other on dependency `{}`. Manual resolution aborted.\n",
                             name
-                        ));
+                        );
                     }
                     let choice = match buffer.trim().parse::<usize>() {
                         Ok(u) => u,
@@ -947,8 +947,8 @@ impl<'ctx> DependencyResolver<'ctx> {
                     };
                     self.decisions
                         .insert(name, (decision.0.clone(), *decision.1));
-                    break Ok((decision.0.clone(), *decision.1));
-                }?
+                    break (decision.0.clone(), *decision.1);
+                }
             };
             let indices = self.req_indices(name, &decision.0, sources.get(&decision.1).unwrap());
             match indices {
