@@ -15,7 +15,7 @@ edition = "2024"
 rust-version = "1.89.0"
 
 [workspace]
-members = ["crates/bender-slang", "crates/bender-git"]
+members = ["crates/bender-slang", "crates/bender-git", "crates/bender-resolve"]
 
 [profile.dist]
 inherits = "release"
