@@ -9,12 +9,13 @@ use std::path::Path;
 
 use clap::Args;
 use indexmap::{IndexMap, IndexSet};
+use miette::{Context, IntoDiagnostic as _};
 use tokio::runtime::Runtime;
 
+use crate::Result;
 use crate::cmd::sources::get_passed_targets;
 use crate::config::{Validate, ValidationContext};
 use crate::diagnostic::Warnings;
-use crate::error::*;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::{TargetSet, TargetSpec};
@@ -91,7 +92,7 @@ pub struct PickleArgs {
 /// Execute the `pickle` subcommand.
 pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
     // Load the source files
-    let rt = Runtime::new()?;
+    let rt = Runtime::new().into_diagnostic()?;
     let io = SessionIo::new(sess);
     let srcs = rt.block_on(io.sources(false, &[]))?;
 
@@ -210,13 +211,15 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
             })
             .collect();
 
-        session.parse_group(&file_paths, &include_dirs, &defines)?;
+        session
+            .parse_group(&file_paths, &include_dirs, &defines)
+            .into_diagnostic()?;
     }
 
     let trees = if args.top.is_empty() {
-        session.all_trees()?
+        session.all_trees().into_diagnostic()?
     } else {
-        session.reachable_trees(&args.top)?
+        session.reachable_trees(&args.top).into_diagnostic()?
     };
 
     let mut rewriter = SyntaxTreeRewriter::new();
@@ -240,7 +243,8 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
     let raw_writer: Box<dyn Write> = match &args.output {
         Some(path) => Box::new(
             File::create(path)
-                .map_err(|e| Error::new(format!("Cannot create output file: {}", e)))?,
+                .into_diagnostic()
+                .wrap_err_with(|| format!("failed to create output file `{path}`"))?,
         ),
         None => Box::new(std::io::stdout()),
     };
@@ -248,7 +252,7 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
 
     // Start JSON Array if needed
     if args.ast_json {
-        write!(writer, "[")?;
+        write!(writer, "[").into_diagnostic()?;
     }
 
     let mut first_item = true;
@@ -256,18 +260,18 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
         if args.ast_json {
             // JSON Array Logic: Prepend comma if not the first item
             if !first_item {
-                write!(writer, ",")?;
+                write!(writer, ",").into_diagnostic()?;
             }
-            write!(writer, "{:?}", tree)?;
+            write!(writer, "{:?}", tree).into_diagnostic()?;
             first_item = false;
         } else {
-            write!(writer, "{}", tree.display(print_opts))?;
+            write!(writer, "{}", tree.display(print_opts)).into_diagnostic()?;
         }
     }
 
     // Close JSON Array
     if args.ast_json {
-        writeln!(writer, "]")?;
+        writeln!(writer, "]").into_diagnostic()?;
     }
 
     Ok(())

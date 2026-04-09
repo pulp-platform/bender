@@ -13,9 +13,9 @@ use std::path::Path;
 use indexmap::{IndexMap, IndexSet};
 use serde::{Serialize, Serializer};
 
+use crate::Error;
 use crate::config::{Validate, ValidationContext};
-use crate::diagnostic::{Diagnostics, Warnings};
-use crate::error::Error;
+use crate::diagnostic::{Errors, Warnings};
 use crate::target::{TargetSet, TargetSpec};
 use semver;
 
@@ -47,7 +47,7 @@ pub struct SourceGroup<'ctx> {
 impl<'ctx> Validate for SourceGroup<'ctx> {
     type Output = SourceGroup<'ctx>;
     type Error = Error;
-    fn validate(self, vctx: &ValidationContext) -> crate::error::Result<SourceGroup<'ctx>> {
+    fn validate(self, vctx: &ValidationContext) -> crate::Result<SourceGroup<'ctx>> {
         Ok(SourceGroup {
             files: self
                 .files
@@ -547,20 +547,13 @@ impl<'ctx> Validate for SourceFile<'ctx> {
             SourceFile::File(path, ty) => {
                 let env_path_buf = crate::config::env_path_from_string(&path.to_string_lossy())?;
                 let exists = env_path_buf.exists() && env_path_buf.is_file();
-                if exists || Diagnostics::is_suppressed("E31") {
-                    if !exists {
-                        Warnings::FileMissing {
-                            path: env_path_buf.clone(),
-                        }
-                        .emit();
+                if !exists {
+                    Errors::FileMissing {
+                        path: env_path_buf.clone(),
                     }
-                    Ok(SourceFile::File(path, ty))
-                } else {
-                    Err(Error::new(format!(
-                        "[E31] File {} doesn't exist",
-                        env_path_buf.to_string_lossy()
-                    )))
+                    .downgrade_if_suppressed()?;
                 }
+                Ok(SourceFile::File(path, ty))
             }
             SourceFile::Group(srcs) => Ok(SourceFile::Group(Box::new(srcs.validate(vctx)?))),
         }
