@@ -35,7 +35,7 @@ use typed_arena::Arena;
 
 use crate::cli::read_manifest;
 use crate::config::{self, Config, Manifest, PartialManifest};
-use crate::diagnostic::{Diagnostics, Warnings};
+use crate::diagnostic::{Diagnostics, Errors, Warnings};
 use crate::git::Git;
 use crate::progress::{GitProgressOps, ProgressHandler};
 use crate::src::{SourceFile, SourceGroup, SourceType};
@@ -1387,11 +1387,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     }
                 } else {
                     if !path.exists() {
-                        Warnings::DepPathMissing {
+                        Errors::DepPathMissing {
                             pkg: dep.name.clone(),
                             path: path.to_path_buf(),
                         }
-                        .emit_or_error()?;
+                        .downgrade_if_suppressed()?;
                     }
                     Warnings::ManifestNotFound {
                         pkg: dep.name.clone(),

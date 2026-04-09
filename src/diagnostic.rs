@@ -8,7 +8,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Mutex, OnceLock};
 
 use indicatif::MultiProgress;
-use miette::{Diagnostic, MietteDiagnostic, ReportHandler, Severity};
+use miette::{Diagnostic, ReportHandler};
 use owo_colors::Style;
 use thiserror::Error;
 
@@ -133,34 +133,6 @@ impl Warnings {
         // Prepare and emit the report
         let report = miette::Report::new(self.clone());
         Diagnostics::eprintln(&format!("{report:?}"));
-    }
-
-    /// Checks if the warning is suppressed as an error. If so, it emits the warning.
-    /// Otherwise, it returns the warning as an error.
-    pub fn emit_or_error(self) -> miette::Result<()> {
-        let warning_code = self
-            .code()
-            .expect("All warning diagnostics must define a code")
-            .to_string();
-        let error_code = format!(
-            "E{}",
-            warning_code
-                .strip_prefix('W')
-                .expect("Warning code must start with `W`")
-        );
-        if Diagnostics::is_suppressed(&error_code) {
-            self.emit();
-            Ok(())
-        } else {
-            // Construct a dynamic diagnostic with the same message, help, but with the error code and severity.
-            let mut err = MietteDiagnostic::new(self.to_string())
-                .with_code(error_code)
-                .with_severity(Severity::Error);
-            if let Some(help) = self.help().map(|h| h.to_string()) {
-                err = err.with_help(help);
-            }
-            Err(err.into())
-        }
     }
 }
 
@@ -453,6 +425,55 @@ pub enum Warnings {
     OverrideFilesIgnored(String),
 }
 
+#[derive(Error, Diagnostic, Debug, Clone)]
+#[diagnostic(severity(Error))]
+pub enum Errors {
+    #[error("Include directory {} doesn't exist.", fmt_path!(.0.display()))]
+    #[diagnostic(
+        code(E24),
+        help("Please check that the include directory exists and is correct.")
+    )]
+    IncludeDirMissing(PathBuf),
+
+    #[error("File/Directory not added, ignoring: {cause}")]
+    #[diagnostic(code(E30))]
+    IgnoredPath { cause: String },
+
+    #[error("File {} doesn't exist.", fmt_path!(path.display()))]
+    #[diagnostic(code(E31))]
+    FileMissing { path: PathBuf },
+
+    #[error("Path {} for dependency {} does not exist.", fmt_path!(path.display()), fmt_pkg!(pkg))]
+    #[diagnostic(code(E32))]
+    DepPathMissing { pkg: String, path: PathBuf },
+}
+
+impl Errors {
+    fn downgrade(self) -> Warnings {
+        match self {
+            Errors::IncludeDirMissing(path) => Warnings::IncludeDirMissing(path),
+            Errors::IgnoredPath { cause } => Warnings::IgnoredPath { cause },
+            Errors::FileMissing { path } => Warnings::FileMissing { path },
+            Errors::DepPathMissing { pkg, path } => Warnings::DepPathMissing { pkg, path },
+        }
+    }
+
+    /// Emits the corresponding warning if the error is suppressed.
+    /// Otherwise, it returns the error.
+    pub fn downgrade_if_suppressed(self) -> miette::Result<()> {
+        let error_code = self
+            .code()
+            .expect("All error diagnostics must define a code")
+            .to_string();
+        if Diagnostics::is_suppressed(&error_code) {
+            self.downgrade().emit();
+            Ok(())
+        } else {
+            Err(self.into())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -558,12 +579,14 @@ mod tests {
     fn test_emit_or_error_suppressed() {
         with_test_lock(|| {
             let diag = Diagnostics::get();
-            let warning = Warnings::IgnoredPath {
+            let error = Errors::IgnoredPath {
                 cause: "bad env var".to_string(),
             };
-            assert!(warning.clone().emit_or_error().is_ok());
+            assert!(error.clone().downgrade_if_suppressed().is_ok());
             let emitted = diag.emitted.lock().unwrap();
-            assert!(emitted.contains(&warning));
+            assert!(emitted.contains(&Warnings::IgnoredPath {
+                cause: "bad env var".to_string(),
+            }));
         });
     }
 
@@ -581,10 +604,10 @@ mod tests {
     #[test]
     fn test_emit_or_error_not_suppressed() {
         with_test_lock(|| {
-            let warning = Warnings::FileMissing {
+            let error = Errors::FileMissing {
                 path: PathBuf::from("/definitely/missing/file.sv"),
             };
-            let err = warning.emit_or_error().expect_err("expected error");
+            let err = error.downgrade_if_suppressed().expect_err("expected error");
             let report = format!("{err:?}");
             assert!(report.contains("E31"));
             assert!(report.contains("doesn't exist"));

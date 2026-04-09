@@ -15,7 +15,7 @@ use serde::{Serialize, Serializer};
 
 use crate::Error;
 use crate::config::{Validate, ValidationContext};
-use crate::diagnostic::Warnings;
+use crate::diagnostic::{Errors, Warnings};
 use crate::target::{TargetSet, TargetSpec};
 use semver;
 
@@ -548,10 +548,10 @@ impl<'ctx> Validate for SourceFile<'ctx> {
                 let env_path_buf = crate::config::env_path_from_string(&path.to_string_lossy())?;
                 let exists = env_path_buf.exists() && env_path_buf.is_file();
                 if !exists {
-                    Warnings::FileMissing {
+                    Errors::FileMissing {
                         path: env_path_buf.clone(),
                     }
-                    .emit_or_error()?;
+                    .downgrade_if_suppressed()?;
                 }
                 Ok(SourceFile::File(path, ty))
             }

@@ -26,7 +26,7 @@ use serde_yaml_ng::Value;
 #[cfg(unix)]
 use subst;
 
-use crate::diagnostic::Warnings;
+use crate::diagnostic::{Errors, Warnings};
 use crate::target::TargetSpec;
 use crate::util::*;
 use crate::{Error, Result};
@@ -634,7 +634,7 @@ impl Validate for PartialManifest {
                 .into_iter()
                 .map(|(trgt, path)| {
                     if !(vctx.pre_output || path.exists() && path.is_dir()) {
-                        Warnings::IncludeDirMissing(path.clone()).emit_or_error()?;
+                        Errors::IncludeDirMissing(path.clone()).downgrade_if_suppressed()?;
                     }
                     Ok((trgt, path))
                 })
@@ -1055,10 +1055,10 @@ impl Validate for PartialSources {
                     .filter_map(|path| match env_path_from_string(path) {
                         Ok(p) => Some(Ok(p)),
                         Err(cause) => {
-                            let warning = Warnings::IgnoredPath {
+                            let err = Errors::IgnoredPath {
                                 cause: cause.to_string(),
                             };
-                            warning.emit_or_error().err().map(Err)
+                            err.downgrade_if_suppressed().err().map(Err)
                         }
                     })
                     .collect();
@@ -1200,10 +1200,10 @@ impl Validate for PartialSources {
                                         _ => unreachable!(),
                                     },
                                     Err(cause) => {
-                                        let warning = Warnings::IgnoredPath {
+                                        let err = Errors::IgnoredPath {
                                             cause: cause.to_string(),
                                         };
-                                        warning.emit_or_error().err().map(Err)
+                                        err.downgrade_if_suppressed().err().map(Err)
                                     }
                                 }
                             }
@@ -1242,10 +1242,10 @@ impl Validate for PartialSources {
                     .filter_map(|entry| match entry.0.validate(vctx) {
                         Ok(validated) => Some(Ok(validated)),
                         Err(cause) => {
-                            let warning = Warnings::IgnoredPath {
+                            let err = Errors::IgnoredPath {
                                 cause: cause.to_string(),
                             };
-                            warning.emit_or_error().err().map(Err)
+                            err.downgrade_if_suppressed().err().map(Err)
                         }
                     })
                     .collect::<Result<Vec<_>>>()?;
