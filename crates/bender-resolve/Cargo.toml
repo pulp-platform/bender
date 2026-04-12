@@ -15,6 +15,9 @@ serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
 log = "0.4"
 thiserror = "2"
+bender-git = { version = "0.1.0", path = "../bender-git" }
+blake2 = "0.10"
+tokio = { version = "1.27", features = ["sync"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4"

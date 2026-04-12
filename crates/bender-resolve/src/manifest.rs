@@ -70,7 +70,11 @@ pub struct Package {
 #[serde(untagged)]
 pub enum Remote {
     Url(String),
-    Full { url: String, #[serde(default)] default: bool },
+    Full {
+        url: String,
+        #[serde(default)]
+        default: bool,
+    },
 }
 
 /// A dependency entry: either a bare version string or a struct with fields.
@@ -128,9 +132,7 @@ impl PartialManifest {
     /// Resolve all dependencies, expanding remote URLs where needed.
     ///
     /// Returns `(dependency_name, parsed)` pairs.
-    pub fn resolve_dependencies(
-        &self,
-    ) -> Result<Vec<(String, ParsedDependency)>, ManifestError> {
+    pub fn resolve_dependencies(&self) -> Result<Vec<(String, ParsedDependency)>, ManifestError> {
         let deps = match &self.dependencies {
             Some(d) => d,
             None => return Ok(Vec::new()),
@@ -140,7 +142,9 @@ impl PartialManifest {
         let remotes = self.remotes.as_ref();
         let default_remote = remotes.and_then(|r| {
             r.values().find_map(|v| match v {
-                Remote::Full { url, default: true, .. } => Some(url.as_str()),
+                Remote::Full {
+                    url, default: true, ..
+                } => Some(url.as_str()),
                 _ => None,
             })
         });
@@ -240,13 +244,12 @@ fn resolve_one(
                 // Version with named remote: {version: "X", remote: "name"}
                 (None, None, None, Some(v), Some(r)) => {
                     let version = parse_version(name, v)?;
-                    let remote_cfg =
-                        remotes
-                            .and_then(|rs| rs.get(r))
-                            .ok_or_else(|| ManifestError::UnknownRemote {
-                                dep: name.to_string(),
-                                remote: r.to_string(),
-                            })?;
+                    let remote_cfg = remotes.and_then(|rs| rs.get(r)).ok_or_else(|| {
+                        ManifestError::UnknownRemote {
+                            dep: name.to_string(),
+                            remote: r.to_string(),
+                        }
+                    })?;
                     Ok(ParsedDependency::GitVersion {
                         url: expand_remote_url(remote_cfg.url(), name),
                         version,
@@ -273,13 +276,10 @@ fn resolve_one(
                     name: name.to_string(),
                     reason: "cannot specify both `version` and `rev`".to_string(),
                 }),
-                (g, Some(_), r, v, _)
-                    if g.is_some() || r.is_some() || v.is_some() =>
-                {
+                (g, Some(_), r, v, _) if g.is_some() || r.is_some() || v.is_some() => {
                     Err(ManifestError::InvalidDependency {
                         name: name.to_string(),
-                        reason: "cannot combine `path` with `git`, `rev`, or `version`"
-                            .to_string(),
+                        reason: "cannot combine `path` with `git`, `rev`, or `version`".to_string(),
                     })
                 }
                 (Some(_), _, None, None, _) => Err(ManifestError::InvalidDependency {

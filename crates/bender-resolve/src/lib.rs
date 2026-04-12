@@ -10,7 +10,7 @@
 //!
 //! 1. **Pre-fetch (async)**: Discover all reachable packages and their available
 //!    versions by fetching git repositories and reading manifests. This populates
-//!    a [`BenderProvider`](provider::BenderProvider).
+//!    a [`BenderProvider`].
 //!
 //! 2. **Resolve (sync)**: Run pubgrub's solver against the populated provider.
 //!    This is pure computation with no I/O.
@@ -18,7 +18,7 @@
 //! # Version Model
 //!
 //! Bender has three kinds of dependency versions, modeled as variants of
-//! [`BenderVersion`](version::BenderVersion):
+//! [`BenderVersion`]:
 //!
 //! - **Path**: local filesystem dependency, exactly one "version"
 //! - **Semver**: semantic versions from git tags (`v1.2.3`)
@@ -29,6 +29,7 @@
 //! without a custom `VersionSet` implementation.
 
 pub mod error;
+pub mod fetcher;
 pub mod manifest;
 pub mod package;
 pub mod provider;

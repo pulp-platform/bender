@@ -177,6 +177,8 @@ dependencies = [
 name = "bender-resolve"
 version = "0.1.0"
 dependencies = [
+ "bender-git",
+ "blake2",
  "indexmap",
  "log",
  "pretty_assertions",
@@ -185,6 +187,7 @@ dependencies = [
  "serde",
  "serde_yaml_ng",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]
