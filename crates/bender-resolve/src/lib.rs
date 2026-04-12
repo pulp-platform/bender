@@ -10,7 +10,7 @@
 //!
 //! 1. **Pre-fetch (async)**: Discover all reachable packages and their available
 //!    versions by fetching git repositories and reading manifests. This populates
-//!    a [`BenderProvider`].
+//!    a [`BenderProvider`] via [`BenderProvider::fetch`].
 //!
 //! 2. **Resolve (sync)**: Run pubgrub's solver against the populated provider.
 //!    This is pure computation with no I/O.
@@ -36,8 +36,9 @@ pub mod provider;
 pub mod version;
 
 pub use error::ResolveError;
+pub use fetcher::{DependencyFetcher, FetchConfig, FetchError, PackageInfo, VersionSource};
 pub use package::BenderPackage;
-pub use provider::{BenderProvider, PackageInfo, VersionSource};
+pub use provider::BenderProvider;
 pub use version::{BenderVersion, BenderVersionSet};
 
 /// Resolve dependencies using pubgrub.

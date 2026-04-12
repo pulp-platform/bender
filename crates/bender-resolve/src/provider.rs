@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::cmp::Reverse;
 
 use indexmap::IndexMap;
@@ -5,38 +6,42 @@ use pubgrub::{
     Dependencies, DependencyConstraints, DependencyProvider, PackageResolutionStatistics,
 };
 
+use crate::fetcher::{DependencyFetcher, FetchConfig, FetchError, PackageInfo};
+use crate::manifest::PartialManifest;
 use crate::package::BenderPackage;
 use crate::version::{BenderVersion, BenderVersionSet};
 
-/// Metadata about the source of a specific version, used after resolution
-/// to determine how to check out the dependency.
-#[derive(Clone, Debug)]
-pub enum VersionSource {
-    /// A local path dependency.
-    Path(std::path::PathBuf),
-    /// A git dependency from the given URL.
-    Git(String),
-}
-
-/// Information about a package's available versions and their dependencies.
-#[derive(Clone, Debug)]
-pub struct PackageInfo {
-    /// All available versions for this package, sorted.
-    pub versions: Vec<BenderVersion>,
-    /// Dependencies for each version. `None` means the manifest hasn't been loaded yet.
-    pub dependencies: IndexMap<BenderVersion, Option<Vec<(BenderPackage, BenderVersionSet)>>>,
-    /// Source metadata for each version (used for checkout after resolution).
-    pub sources: IndexMap<BenderVersion, VersionSource>,
-}
-
 /// The dependency provider for bender's pubgrub-based resolver.
 ///
-/// This is populated during the pre-fetch phase (async) and then passed to
-/// pubgrub's synchronous `resolve()` function.
-#[derive(Clone, Debug)]
+/// Wraps a [`DependencyFetcher`] (populated during the async pre-fetch phase)
+/// and exposes it to pubgrub's synchronous `resolve()` function via interior
+/// mutability. The `RefCell` is required because `DependencyProvider` takes
+/// `&self` — if lazy fetching is added later, `get_dependencies` can call
+/// `fetcher.borrow_mut().fetch(...)` without changing the interface.
+///
+/// # Usage
+///
+/// ```no_run
+/// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+/// use std::sync::Arc;
+/// use tokio::sync::Semaphore;
+/// use bender_resolve::provider::BenderProvider;
+/// use bender_resolve::fetcher::FetchConfig;
+/// use bender_resolve::manifest::PartialManifest;
+///
+/// let config = FetchConfig {
+///     db_dir: "/home/user/.bender/git/db".into(),
+///     throttle: Arc::new(Semaphore::new(4)),
+/// };
+/// let root_yaml = std::fs::read_to_string("Bender.yml")?;
+/// let root = PartialManifest::parse(&root_yaml)?;
+///
+/// let mut provider = BenderProvider::new();
+/// provider.fetch(&config, &root).await?;
+/// # Ok(()) }
+/// ```
 pub struct BenderProvider {
-    /// All pre-fetched package metadata, keyed by package name.
-    pub packages: IndexMap<String, PackageInfo>,
+    fetcher: RefCell<DependencyFetcher>,
     /// Lockfile pins (package name -> locked version).
     pub locked: IndexMap<String, BenderVersion>,
 }
@@ -56,14 +61,28 @@ impl BenderProvider {
     /// Create a new empty provider.
     pub fn new() -> Self {
         BenderProvider {
-            packages: IndexMap::new(),
+            fetcher: RefCell::new(DependencyFetcher::new()),
             locked: IndexMap::new(),
         }
     }
 
-    /// Register a package with its available versions.
+    /// Populate the provider by fetching all reachable packages from `root_manifest`.
+    pub async fn fetch(
+        &mut self,
+        config: &FetchConfig,
+        root_manifest: &PartialManifest,
+    ) -> Result<(), FetchError> {
+        self.fetcher
+            .get_mut()
+            .fetch_all(config, root_manifest)
+            .await
+    }
+
+    /// Register a package directly, bypassing git fetching.
+    ///
+    /// Useful for pre-populating the provider in tests.
     pub fn add_package(&mut self, name: impl Into<String>, info: PackageInfo) {
-        self.packages.insert(name.into(), info);
+        self.fetcher.get_mut().add_package(name, info);
     }
 
     /// Record a lockfile pin.
@@ -71,10 +90,10 @@ impl BenderProvider {
         self.locked.insert(name.into(), version);
     }
 
-    /// Count how many versions of a package match the given range.
     fn count_versions_in_range(&self, package: &str, range: &BenderVersionSet) -> usize {
-        self.packages
-            .get(package)
+        self.fetcher
+            .borrow()
+            .get_package(package)
             .map(|info| info.versions.iter().filter(|v| range.contains(v)).count())
             .unwrap_or(0)
     }
@@ -111,8 +130,8 @@ impl DependencyProvider for BenderProvider {
             }
         }
 
-        // Otherwise, pick the highest version in range.
-        let Some(info) = self.packages.get(package.name()) else {
+        let fetcher = self.fetcher.borrow();
+        let Some(info) = fetcher.get_package(package.name()) else {
             return Ok(None);
         };
 
@@ -140,7 +159,9 @@ impl DependencyProvider for BenderProvider {
         package: &BenderPackage,
         version: &BenderVersion,
     ) -> Result<Dependencies<BenderPackage, BenderVersionSet, String>, ProviderError> {
-        let Some(info) = self.packages.get(package.name()) else {
+        let fetcher = self.fetcher.borrow();
+
+        let Some(info) = fetcher.get_package(package.name()) else {
             return Ok(Dependencies::Unavailable(format!(
                 "unknown package '{}'",
                 package.name()
@@ -173,6 +194,7 @@ impl DependencyProvider for BenderProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fetcher::VersionSource;
     use pubgrub::Ranges;
 
     fn semver(major: u64, minor: u64, patch: u64) -> BenderVersion {
@@ -183,7 +205,6 @@ mod tests {
     fn basic_resolution() {
         let mut provider = BenderProvider::new();
 
-        // Root package at version 0.0.0 depends on "dep" ^1.0.0
         let root_v = semver(0, 0, 0);
         let dep_v1 = semver(1, 0, 0);
         let dep_v2 = semver(1, 5, 0);
@@ -434,10 +455,6 @@ mod tests {
             hash: "deadbeef".to_string(),
         };
 
-        // Root depends on both "a" and "b"
-        // "a" requires "dep" as semver ^1.0.0
-        // "b" requires "dep" as a git revision
-        // → conflict: same package, incompatible strata
         provider.add_package(
             "root",
             PackageInfo {
@@ -511,8 +528,6 @@ mod tests {
 
         let root_v = semver(0, 0, 0);
 
-        // Root depends on "dep" as path
-        // But "dep" only has semver versions → conflict
         provider.add_package(
             "root",
             PackageInfo {

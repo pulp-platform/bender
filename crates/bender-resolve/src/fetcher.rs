@@ -1,34 +1,8 @@
-//! Async pre-fetch phase that populates a [`BenderProvider`] from real git repositories.
+//! Async dependency fetching with integrated caching.
 //!
-//! # Overview
-//!
-//! Resolution is a two-phase process:
-//!
-//! 1. **Pre-fetch (this module)**: Starting from a root [`PartialManifest`], discover all
-//!    reachable packages via BFS. For each package, fetch the git repository (if needed),
-//!    enumerate available versions (semver tags or pinned revisions), and read the package's
-//!    own `Bender.yml` to get its transitive dependencies.
-//!
-//! 2. **Resolve (sync)**: Pass the populated [`BenderProvider`] to [`crate::resolve`].
-//!
-//! # Entry point
-//!
-//! ```no_run
-//! use std::sync::Arc;
-//! use tokio::sync::Semaphore;
-//! use bender_resolve::fetcher::{fetch, FetchConfig};
-//! use bender_resolve::manifest::PartialManifest;
-//!
-//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
-//! let config = FetchConfig {
-//!     db_dir: "/home/user/.bender/git/db".into(),
-//!     throttle: Arc::new(Semaphore::new(4)),
-//! };
-//! let root_yaml = std::fs::read_to_string("Bender.yml")?;
-//! let root = PartialManifest::parse(&root_yaml)?;
-//! let provider = fetch(&config, &root).await?;
-//! # Ok(()) }
-//! ```
+//! [`DependencyFetcher`] handles fetching git repositories, reading manifests,
+//! and caching the results. It is embedded in [`crate::provider::BenderProvider`]
+//! and populated via [`DependencyFetcher::fetch_all`] before resolution begins.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -42,10 +16,30 @@ use tokio::sync::Semaphore;
 
 use crate::manifest::{ManifestError, ParsedDependency, PartialManifest};
 use crate::package::BenderPackage;
-use crate::provider::{BenderProvider, PackageInfo, VersionSource};
 use crate::version::{BenderVersion, BenderVersionSet};
 
-/// Configuration for the pre-fetch phase.
+/// Metadata about the source of a specific version, used after resolution
+/// to determine how to check out the dependency.
+#[derive(Clone, Debug)]
+pub enum VersionSource {
+    /// A local path dependency.
+    Path(std::path::PathBuf),
+    /// A git dependency from the given URL.
+    Git(String),
+}
+
+/// Information about a package's available versions and their dependencies.
+#[derive(Clone, Debug)]
+pub struct PackageInfo {
+    /// All available versions for this package, sorted.
+    pub versions: Vec<BenderVersion>,
+    /// Dependencies for each version. `None` means the manifest hasn't been loaded yet.
+    pub dependencies: IndexMap<BenderVersion, Option<Vec<(BenderPackage, BenderVersionSet)>>>,
+    /// Source metadata for each version (used for checkout after resolution).
+    pub sources: IndexMap<BenderVersion, VersionSource>,
+}
+
+/// Configuration for the fetch phase.
 pub struct FetchConfig {
     /// Root directory for git bare repos. Individual databases are stored at
     /// `{db_dir}/{name}-{hash}/` matching the legacy bender layout.
@@ -54,7 +48,7 @@ pub struct FetchConfig {
     pub throttle: Arc<Semaphore>,
 }
 
-/// Errors that can occur during the pre-fetch phase.
+/// Errors that can occur during fetching.
 #[derive(Debug, thiserror::Error)]
 pub enum FetchError {
     #[error("manifest parse error: {0}")]
@@ -99,234 +93,376 @@ impl FetchError {
 }
 
 // ---------------------------------------------------------------------------
-// Public entry point
+// DependencyFetcher
 // ---------------------------------------------------------------------------
 
-/// Populate a [`BenderProvider`] by fetching all reachable packages starting
-/// from `root_manifest`.
+/// Fetches and caches package metadata from git repositories.
 ///
-/// This performs a BFS over the dependency graph: the root manifest's direct
-/// dependencies are enqueued, each is fetched and its transitive dependencies
-/// enqueued, until no new packages remain.
+/// Populated via [`DependencyFetcher::fetch_all`] before resolution begins,
+/// then queried by [`crate::provider::BenderProvider`] during resolution.
 ///
-/// Git databases are cached by `(name, url)` — the same repo is never fetched
-/// twice even if multiple packages depend on it.
-pub async fn fetch(
-    config: &FetchConfig,
-    root_manifest: &PartialManifest,
-) -> Result<BenderProvider, FetchError> {
-    let mut provider = BenderProvider::new();
+/// Because no [`FetchConfig`] is stored on the struct itself, a
+/// `DependencyFetcher` can be constructed and pre-populated with
+/// [`add_package`](Self::add_package) without any git configuration — which
+/// is useful in tests.
+pub struct DependencyFetcher {
+    /// Open git databases keyed by their on-disk path.
+    db_cache: HashMap<PathBuf, GitDatabase>,
+    /// All pre-fetched package metadata, keyed by package name.
+    pub packages: IndexMap<String, PackageInfo>,
+}
 
-    // Pending work: (dep_name, parsed_dep)
-    let mut queue: VecDeque<(String, ParsedDependency)> = VecDeque::new();
-    // Packages already discovered (avoid re-fetching).
-    let mut seen: HashSet<String> = HashSet::new();
-    // Cache of open git databases keyed by their on-disk path.
-    let mut db_cache: HashMap<PathBuf, GitDatabase> = HashMap::new();
-
-    // Seed the queue from the root manifest's direct dependencies.
-    for (name, dep) in root_manifest.resolve_dependencies()? {
-        if seen.insert(name.clone()) {
-            queue.push_back((name, dep));
+impl DependencyFetcher {
+    pub fn new() -> Self {
+        DependencyFetcher {
+            db_cache: HashMap::new(),
+            packages: IndexMap::new(),
         }
     }
 
-    while let Some((name, dep)) = queue.pop_front() {
-        let sub_deps =
-            process_dependency(config, &name, &dep, &mut provider, &mut db_cache).await?;
+    /// Register a package directly, bypassing git fetching.
+    ///
+    /// Useful for pre-populating the cache in tests or for inserting root
+    /// package metadata.
+    pub fn add_package(&mut self, name: impl Into<String>, info: PackageInfo) {
+        self.packages.insert(name.into(), info);
+    }
 
-        for (sub_name, sub_dep) in sub_deps {
-            if seen.insert(sub_name.clone()) {
-                queue.push_back((sub_name, sub_dep));
+    /// Look up a package's metadata by name.
+    pub fn get_package(&self, name: &str) -> Option<&PackageInfo> {
+        self.packages.get(name)
+    }
+
+    /// Populate the cache by BFS-ing from `root_manifest`.
+    ///
+    /// Starting from the root manifest's direct dependencies, fetches each
+    /// package's git repository (or reads from the local path), enumerates
+    /// available versions, reads transitive manifests, and registers everything
+    /// in the internal package cache.
+    pub async fn fetch_all(
+        &mut self,
+        config: &FetchConfig,
+        root_manifest: &PartialManifest,
+    ) -> Result<(), FetchError> {
+        let mut queue: VecDeque<(String, ParsedDependency)> = VecDeque::new();
+        let mut seen: HashSet<String> = HashSet::new();
+
+        for (name, dep) in root_manifest.resolve_dependencies()? {
+            if seen.insert(name.clone()) {
+                queue.push_back((name, dep));
+            }
+        }
+
+        while let Some((name, dep)) = queue.pop_front() {
+            let sub_deps = self.process_dependency(config, &name, &dep).await?;
+            for (sub_name, sub_dep) in sub_deps {
+                if seen.insert(sub_name.clone()) {
+                    queue.push_back((sub_name, sub_dep));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------------------
+    // Per-dependency processing
+    // ---------------------------------------------------------------------------
+
+    async fn process_dependency(
+        &mut self,
+        config: &FetchConfig,
+        name: &str,
+        dep: &ParsedDependency,
+    ) -> Result<Vec<(String, ParsedDependency)>, FetchError> {
+        match dep {
+            ParsedDependency::Path(path_str) => self.process_path_dep(name, path_str).await,
+            ParsedDependency::GitVersion { url, version } => {
+                self.process_git_version_dep(config, name, url, version)
+                    .await
+            }
+            ParsedDependency::GitRevision { url, rev } => {
+                self.process_git_revision_dep(config, name, url, rev).await
             }
         }
     }
 
-    Ok(provider)
-}
+    // ---------------------------------------------------------------------------
+    // Path dependencies
+    // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Per-dependency processing
-// ---------------------------------------------------------------------------
+    async fn process_path_dep(
+        &mut self,
+        name: &str,
+        path_str: &str,
+    ) -> Result<Vec<(String, ParsedDependency)>, FetchError> {
+        let path = PathBuf::from(path_str);
+        let bender_yml = path.join("Bender.yml");
 
-/// Process one dependency: fetch/open its git db, enumerate versions, read
-/// manifests, register with the provider, and return discovered sub-deps.
-async fn process_dependency(
-    config: &FetchConfig,
-    name: &str,
-    dep: &ParsedDependency,
-    provider: &mut BenderProvider,
-    db_cache: &mut HashMap<PathBuf, GitDatabase>,
-) -> Result<Vec<(String, ParsedDependency)>, FetchError> {
-    match dep {
-        ParsedDependency::Path(path_str) => process_path_dep(name, path_str, provider).await,
-        ParsedDependency::GitVersion { url, version } => {
-            process_git_version_dep(config, name, url, version, provider, db_cache).await
-        }
-        ParsedDependency::GitRevision { url, rev } => {
-            process_git_revision_dep(config, name, url, rev, provider, db_cache).await
-        }
-    }
-}
+        let sub_deps = if bender_yml.exists() {
+            let yaml = std::fs::read_to_string(&bender_yml)?;
+            PartialManifest::parse(&yaml)?.resolve_dependencies()?
+        } else {
+            Vec::new()
+        };
 
-// ---------------------------------------------------------------------------
-// Path dependencies
-// ---------------------------------------------------------------------------
+        let version = BenderVersion::Path;
+        let deps_for_version = self.convert_sub_deps(&sub_deps);
 
-async fn process_path_dep(
-    name: &str,
-    path_str: &str,
-    provider: &mut BenderProvider,
-) -> Result<Vec<(String, ParsedDependency)>, FetchError> {
-    let path = PathBuf::from(path_str);
-    let bender_yml = path.join("Bender.yml");
-
-    let mut sub_deps = Vec::new();
-
-    // Read the manifest if it exists, to discover transitive deps.
-    if bender_yml.exists() {
-        let yaml = std::fs::read_to_string(&bender_yml)?;
-        let manifest = PartialManifest::parse(&yaml)?;
-        sub_deps = manifest.resolve_dependencies()?;
-    }
-
-    let version = BenderVersion::Path;
-    let deps_for_version = convert_sub_deps(&sub_deps, provider);
-
-    provider.add_package(
-        name,
-        PackageInfo {
-            versions: vec![version.clone()],
-            dependencies: IndexMap::from([(version.clone(), Some(deps_for_version))]),
-            sources: IndexMap::from([(version, VersionSource::Path(path))]),
-        },
-    );
-
-    Ok(sub_deps)
-}
-
-// ---------------------------------------------------------------------------
-// Git version (semver tag) dependencies
-// ---------------------------------------------------------------------------
-
-async fn process_git_version_dep(
-    config: &FetchConfig,
-    name: &str,
-    url: &str,
-    _version_req: &semver::VersionReq,
-    provider: &mut BenderProvider,
-    db_cache: &mut HashMap<PathBuf, GitDatabase>,
-) -> Result<Vec<(String, ParsedDependency)>, FetchError> {
-    let db = ensure_db(config, name, url, None, db_cache).await?;
-
-    // Extract semver versions from tags (tags matching `v<semver>`).
-    let mut semver_tags: Vec<(semver::Version, ObjectId)> = db
-        .list_tags()
-        .map_err(|e| FetchError::git(name, e))?
-        .into_iter()
-        .filter_map(|(tag, oid)| {
-            tag.strip_prefix('v')
-                .and_then(|s| semver::Version::parse(s).ok())
-                .map(|v| (v, oid))
-        })
-        .collect();
-
-    // Sort ascending so BenderVersion list is in order.
-    semver_tags.sort_by(|a, b| a.0.cmp(&b.0));
-
-    let mut versions = Vec::new();
-    let mut dependencies: IndexMap<BenderVersion, Option<Vec<(BenderPackage, BenderVersionSet)>>> =
-        IndexMap::new();
-    let mut sources: IndexMap<BenderVersion, VersionSource> = IndexMap::new();
-    let mut all_sub_deps: HashMap<String, ParsedDependency> = HashMap::new();
-
-    for (semver_ver, oid) in &semver_tags {
-        let bv = BenderVersion::Semver(semver_ver.clone());
-
-        // Read the manifest at this specific commit to get sub-deps.
-        let sub_deps = read_manifest_at(db, &oid, name).await?;
-
-        for (sub_name, sub_dep) in &sub_deps {
-            // Last writer wins — versions are processed oldest-first, so
-            // the newest manifest's deps take precedence for new packages.
-            all_sub_deps
-                .entry(sub_name.clone())
-                .or_insert_with(|| sub_dep.clone());
-        }
-
-        let dep_constraints = convert_sub_deps(&sub_deps, provider);
-
-        versions.push(bv.clone());
-        dependencies.insert(bv.clone(), Some(dep_constraints));
-        sources.insert(bv, VersionSource::Git(url.to_string()));
-    }
-
-    if !versions.is_empty() {
-        provider.add_package(
-            name,
+        self.packages.insert(
+            name.to_string(),
             PackageInfo {
-                versions,
-                dependencies,
-                sources,
+                versions: vec![version.clone()],
+                dependencies: IndexMap::from([(version.clone(), Some(deps_for_version))]),
+                sources: IndexMap::from([(version, VersionSource::Path(path))]),
             },
         );
+
+        Ok(sub_deps)
     }
 
-    // Return the union of all sub-dependencies encountered across versions.
-    Ok(all_sub_deps.into_iter().collect())
+    // ---------------------------------------------------------------------------
+    // Git version (semver tag) dependencies
+    // ---------------------------------------------------------------------------
+
+    async fn process_git_version_dep(
+        &mut self,
+        config: &FetchConfig,
+        name: &str,
+        url: &str,
+        _version_req: &semver::VersionReq,
+    ) -> Result<Vec<(String, ParsedDependency)>, FetchError> {
+        // Step 1: ensure db is fetched. Returns the cache key path so we don't
+        // hold a borrow across the async boundary.
+        let dir = self.ensure_db_dir(config, name, url, None).await?;
+
+        // Step 2: list semver tags (sync, scoped borrow of db_cache).
+        let mut semver_tags: Vec<(semver::Version, ObjectId)> = {
+            let db = self.db_cache.get(&dir).unwrap();
+            db.list_tags()
+                .map_err(|e| FetchError::git(name, e))?
+                .into_iter()
+                .filter_map(|(tag, oid)| {
+                    tag.strip_prefix('v')
+                        .and_then(|s| semver::Version::parse(s).ok())
+                        .map(|v| (v, oid))
+                })
+                .collect()
+        }; // db borrow released
+
+        semver_tags.sort_by(|a, b| a.0.cmp(&b.0));
+
+        // Step 3: for each version, read manifest and build constraints.
+        let mut versions = Vec::new();
+        let mut dependencies: IndexMap<
+            BenderVersion,
+            Option<Vec<(BenderPackage, BenderVersionSet)>>,
+        > = IndexMap::new();
+        let mut sources: IndexMap<BenderVersion, VersionSource> = IndexMap::new();
+        let mut all_sub_deps: HashMap<String, ParsedDependency> = HashMap::new();
+
+        for (semver_ver, oid) in &semver_tags {
+            // Read manifest (sync, scoped borrow of db_cache).
+            let sub_deps: Vec<(String, ParsedDependency)> = {
+                let db = self.db_cache.get(&dir).unwrap();
+                read_manifest_at(db, oid, name)?
+            }; // db borrow released
+
+            for (sub_name, sub_dep) in &sub_deps {
+                // Last writer wins — versions are processed oldest-first, so
+                // the newest manifest's deps take precedence for new packages.
+                all_sub_deps
+                    .entry(sub_name.clone())
+                    .or_insert_with(|| sub_dep.clone());
+            }
+
+            let dep_constraints = self.convert_sub_deps(&sub_deps);
+            let bv = BenderVersion::Semver(semver_ver.clone());
+
+            versions.push(bv.clone());
+            dependencies.insert(bv.clone(), Some(dep_constraints));
+            sources.insert(bv, VersionSource::Git(url.to_string()));
+        }
+
+        // Step 4: register package (mutates self.packages).
+        if !versions.is_empty() {
+            self.packages.insert(
+                name.to_string(),
+                PackageInfo {
+                    versions,
+                    dependencies,
+                    sources,
+                },
+            );
+        }
+
+        Ok(all_sub_deps.into_iter().collect())
+    }
+
+    // ---------------------------------------------------------------------------
+    // Git revision (pinned commit) dependencies
+    // ---------------------------------------------------------------------------
+
+    async fn process_git_revision_dep(
+        &mut self,
+        config: &FetchConfig,
+        name: &str,
+        url: &str,
+        rev: &str,
+    ) -> Result<Vec<(String, ParsedDependency)>, FetchError> {
+        // Step 1: ensure db is fetched.
+        let dir = self.ensure_db_dir(config, name, url, Some(rev)).await?;
+
+        // Step 2: resolve OID and compute chronological index (sync, scoped borrow).
+        let (oid, index) = {
+            let db = self.db_cache.get(&dir).unwrap();
+            let oid = db
+                .resolve(rev)
+                .map_err(|e| FetchError::resolve(name, rev, e))?;
+            let all_revs = db.list_revs().map_err(|e| FetchError::git(name, e))?;
+            let index = all_revs
+                .iter()
+                .position(|r| r == &oid)
+                .map(|i| (all_revs.len() - 1 - i) as u64)
+                .unwrap_or(0);
+            (oid, index)
+        }; // db borrow released
+
+        let bv = BenderVersion::GitRevision {
+            index,
+            hash: oid.to_string(),
+        };
+
+        // Step 3: read manifest (sync, scoped borrow).
+        let sub_deps: Vec<(String, ParsedDependency)> = {
+            let db = self.db_cache.get(&dir).unwrap();
+            read_manifest_at(db, &oid, name)?
+        }; // db borrow released
+
+        let dep_constraints = self.convert_sub_deps(&sub_deps);
+
+        // Step 4: register package.
+        self.packages.insert(
+            name.to_string(),
+            PackageInfo {
+                versions: vec![bv.clone()],
+                dependencies: IndexMap::from([(bv.clone(), Some(dep_constraints))]),
+                sources: IndexMap::from([(bv, VersionSource::Git(url.to_string()))]),
+            },
+        );
+
+        Ok(sub_deps)
+    }
+
+    // ---------------------------------------------------------------------------
+    // Database helpers
+    // ---------------------------------------------------------------------------
+
+    /// Ensure the git database for `(pkg_name, url)` exists and is up-to-date.
+    ///
+    /// Returns the on-disk directory path used as the cache key. Returning a
+    /// path instead of a `&GitDatabase` avoids holding a borrow on `self`
+    /// across subsequent operations.
+    async fn ensure_db_dir(
+        &mut self,
+        config: &FetchConfig,
+        pkg_name: &str,
+        url: &str,
+        fetch_ref: Option<&str>,
+    ) -> Result<PathBuf, FetchError> {
+        let dir = config.db_dir.join(db_name(pkg_name, url));
+        std::fs::create_dir_all(&dir)?;
+
+        if !self.db_cache.contains_key(&dir) {
+            let db =
+                open_or_init_db(&dir, url, fetch_ref, config.throttle.clone(), pkg_name).await?;
+            self.db_cache.insert(dir.clone(), db);
+        }
+
+        Ok(dir)
+    }
+
+    // ---------------------------------------------------------------------------
+    // Constraint conversion
+    // ---------------------------------------------------------------------------
+
+    /// Convert a list of `(name, ParsedDependency)` pairs into pubgrub constraint
+    /// pairs `(BenderPackage, BenderVersionSet)`.
+    fn convert_sub_deps(
+        &self,
+        sub_deps: &[(String, ParsedDependency)],
+    ) -> Vec<(BenderPackage, BenderVersionSet)> {
+        sub_deps
+            .iter()
+            .map(|(dep_name, dep)| {
+                let pkg = BenderPackage::new(dep_name.clone());
+                let vs = self.dep_to_version_set(dep_name, dep);
+                (pkg, vs)
+            })
+            .collect()
+    }
+
+    /// Build a `BenderVersionSet` from a `ParsedDependency`, consulting the
+    /// already-populated package cache where available.
+    fn dep_to_version_set(&self, dep_name: &str, dep: &ParsedDependency) -> BenderVersionSet {
+        match dep {
+            ParsedDependency::Path(_) => pubgrub::Ranges::singleton(BenderVersion::Path),
+
+            ParsedDependency::GitRevision { .. } => {
+                if let Some(info) = self.packages.get(dep_name) {
+                    for v in &info.versions {
+                        if matches!(v, BenderVersion::GitRevision { .. }) {
+                            return pubgrub::Ranges::singleton(v.clone());
+                        }
+                    }
+                }
+                // Not yet populated — return a range covering all GitRevisions.
+                let lower = BenderVersion::GitRevision {
+                    index: 0,
+                    hash: String::new(),
+                };
+                pubgrub::Ranges::from_range_bounds(lower..)
+            }
+
+            ParsedDependency::GitVersion { version, .. } => {
+                if let Some(info) = self.packages.get(dep_name) {
+                    let matching: Vec<BenderVersion> = info
+                        .versions
+                        .iter()
+                        .filter(|v| {
+                            if let BenderVersion::Semver(sv) = v {
+                                version.matches(sv)
+                            } else {
+                                false
+                            }
+                        })
+                        .cloned()
+                        .collect();
+
+                    if !matching.is_empty() {
+                        return matching
+                            .into_iter()
+                            .fold(pubgrub::Ranges::empty(), |acc, v| {
+                                acc.union(&pubgrub::Ranges::singleton(v))
+                            });
+                    }
+                }
+
+                // Package not yet in cache — build a continuous semver range.
+                semver_req_to_range(version)
+            }
+        }
+    }
+}
+
+impl Default for DependencyFetcher {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Git revision (pinned commit) dependencies
-// ---------------------------------------------------------------------------
-
-async fn process_git_revision_dep(
-    config: &FetchConfig,
-    name: &str,
-    url: &str,
-    rev: &str,
-    provider: &mut BenderProvider,
-    db_cache: &mut HashMap<PathBuf, GitDatabase>,
-) -> Result<Vec<(String, ParsedDependency)>, FetchError> {
-    let db = ensure_db(config, name, url, Some(rev), db_cache).await?;
-
-    // Resolve the revision expression to a concrete commit OID.
-    let oid = db
-        .resolve(rev)
-        .map_err(|e| FetchError::resolve(name, rev, e))?;
-
-    // Compute the index by finding this commit's position in the date-ordered
-    // revision list (newest = highest index, matching BenderVersion ordering).
-    let all_revs = db.list_revs().map_err(|e| FetchError::git(name, e))?;
-    let index = all_revs
-        .iter()
-        .position(|r| r == &oid)
-        .map(|i| (all_revs.len() - 1 - i) as u64) // reverse: newest gets highest index
-        .unwrap_or(0);
-
-    let hash = oid.to_string();
-    let bv = BenderVersion::GitRevision {
-        index,
-        hash: hash.clone(),
-    };
-
-    let sub_deps = read_manifest_at(db, &oid, name).await?;
-    let dep_constraints = convert_sub_deps(&sub_deps, provider);
-
-    provider.add_package(
-        name,
-        PackageInfo {
-            versions: vec![bv.clone()],
-            dependencies: IndexMap::from([(bv.clone(), Some(dep_constraints))]),
-            sources: IndexMap::from([(bv, VersionSource::Git(url.to_string()))]),
-        },
-    );
-
-    Ok(sub_deps)
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
+// Free helper functions
 // ---------------------------------------------------------------------------
 
 /// Compute the database directory name matching bender's legacy convention:
@@ -335,30 +471,6 @@ fn db_name(pkg_name: &str, url: &str) -> String {
     use blake2::{Blake2b512, Digest};
     let hash = format!("{:016x}", Blake2b512::digest(url.as_bytes()));
     format!("{}-{}", pkg_name, &hash[..16])
-}
-
-/// Open an existing git database or initialise and fetch a new one.
-///
-/// If `fetch_ref` is provided, a second targeted fetch is done after the main
-/// fetch to make a specific commit reachable (needed for pinned revisions that
-/// aren't on any named ref).
-async fn ensure_db<'a>(
-    config: &FetchConfig,
-    pkg_name: &str,
-    url: &str,
-    fetch_ref: Option<&str>,
-    db_cache: &'a mut HashMap<PathBuf, GitDatabase>,
-) -> Result<&'a GitDatabase, FetchError> {
-    let dir = config.db_dir.join(db_name(pkg_name, url));
-    std::fs::create_dir_all(&dir)?;
-
-    // Use entry API to avoid re-opening an already-open database.
-    if !db_cache.contains_key(&dir) {
-        let db = open_or_init_db(&dir, url, fetch_ref, config.throttle.clone(), pkg_name).await?;
-        db_cache.insert(dir.clone(), db);
-    }
-
-    Ok(db_cache.get(&dir).unwrap())
 }
 
 async fn open_or_init_db(
@@ -403,9 +515,8 @@ async fn open_or_init_db(
 }
 
 /// Read and parse `Bender.yml` from a specific commit in a git database.
-/// Returns the list of resolved sub-dependencies, or an empty vec if no
-/// manifest exists at that revision.
-async fn read_manifest_at(
+/// Returns resolved sub-dependencies, or an empty vec if no manifest exists.
+fn read_manifest_at(
     db: &GitDatabase,
     oid: &ObjectId,
     pkg_name: &str,
@@ -422,101 +533,12 @@ async fn read_manifest_at(
     Ok(manifest.resolve_dependencies()?)
 }
 
-/// Convert a list of `(name, ParsedDependency)` pairs into pubgrub constraint
-/// pairs `(BenderPackage, BenderVersionSet)`.
-///
-/// For git version deps the version set is built by matching `VersionReq`
-/// against the versions already registered in the provider for that package.
-/// For git revision and path deps a singleton range is used.
-///
-/// Note: when called during BFS the referenced package may not yet be in the
-/// provider. In that case we record the requirement as the full semver range
-/// expressed by the `VersionReq` converted to a bound range, or as a
-/// singleton. The provider is populated in a later BFS iteration.
-fn convert_sub_deps(
-    sub_deps: &[(String, ParsedDependency)],
-    provider: &BenderProvider,
-) -> Vec<(BenderPackage, BenderVersionSet)> {
-    sub_deps
-        .iter()
-        .map(|(dep_name, dep)| {
-            let pkg = BenderPackage::new(dep_name.clone());
-            let vs = dep_to_version_set(dep_name, dep, provider);
-            (pkg, vs)
-        })
-        .collect()
-}
-
-/// Build a `BenderVersionSet` from a `ParsedDependency`.
-fn dep_to_version_set(
-    dep_name: &str,
-    dep: &ParsedDependency,
-    provider: &BenderProvider,
-) -> BenderVersionSet {
-    match dep {
-        ParsedDependency::Path(_) => pubgrub::Ranges::singleton(BenderVersion::Path),
-
-        ParsedDependency::GitRevision { .. } => {
-            // If the package is already in the provider, find the exact revision.
-            if let Some(info) = provider.packages.get(dep_name) {
-                for v in &info.versions {
-                    if matches!(v, BenderVersion::GitRevision { .. }) {
-                        return pubgrub::Ranges::singleton(v.clone());
-                    }
-                }
-            }
-            // Not yet populated — return a range covering all GitRevisions.
-            // This is safe: pubgrub will constrain further during resolution.
-            let lower = BenderVersion::GitRevision {
-                index: 0,
-                hash: String::new(),
-            };
-            pubgrub::Ranges::from_range_bounds(lower..)
-        }
-
-        ParsedDependency::GitVersion { version, .. } => {
-            // If the package's versions are already in the provider, filter
-            // by VersionReq and build a union of matching singletons.
-            if let Some(info) = provider.packages.get(dep_name) {
-                let matching: Vec<BenderVersion> = info
-                    .versions
-                    .iter()
-                    .filter(|v| {
-                        if let BenderVersion::Semver(sv) = v {
-                            version.matches(sv)
-                        } else {
-                            false
-                        }
-                    })
-                    .cloned()
-                    .collect();
-
-                if !matching.is_empty() {
-                    return matching
-                        .into_iter()
-                        .fold(pubgrub::Ranges::empty(), |acc, v| {
-                            acc.union(&pubgrub::Ranges::singleton(v))
-                        });
-                }
-            }
-
-            // Package not yet in provider — build a continuous semver range.
-            // We express the VersionReq as [lower_bound, upper_bound) using
-            // the minimum and maximum matching versions in the semver space.
-            semver_req_to_range(version)
-        }
-    }
-}
-
 /// Convert a `semver::VersionReq` to a `BenderVersionSet` (range of Semver
 /// variants) by walking the comparators.
 ///
-/// This is an approximation: it computes the tightest [lo, hi) interval that
-/// subsumes the requirement. It is used only when the package is not yet in
-/// the provider; once the package is populated the constraint is tightened to
-/// the exact matching singletons.
+/// This is an approximation used only when the package is not yet in the cache;
+/// once the package is populated the constraint is tightened to exact singletons.
 fn semver_req_to_range(req: &semver::VersionReq) -> BenderVersionSet {
-    // Try to determine a lower bound (inclusive) and upper bound (exclusive).
     let mut lo: Option<semver::Version> = None;
     let mut hi: Option<semver::Version> = None;
 
@@ -528,7 +550,6 @@ fn semver_req_to_range(req: &semver::VersionReq) -> BenderVersionSet {
 
         match comp.op {
             semver::Op::Exact => {
-                // = X.Y.Z → singleton [base, next_patch)
                 let next = semver::Version::new(major, minor, patch + 1);
                 lo = Some(lo.map_or(base.clone(), |l: semver::Version| l.max(base.clone())));
                 hi = Some(hi.map_or(next.clone(), |h: semver::Version| h.min(next)));
@@ -548,15 +569,11 @@ fn semver_req_to_range(req: &semver::VersionReq) -> BenderVersionSet {
                 hi = Some(hi.map_or(next.clone(), |h: semver::Version| h.min(next)));
             }
             semver::Op::Tilde => {
-                // ~X.Y.Z → [X.Y.Z, X.(Y+1).0)
                 let upper = semver::Version::new(major, minor + 1, 0);
                 lo = Some(lo.map_or(base.clone(), |l: semver::Version| l.max(base)));
                 hi = Some(hi.map_or(upper.clone(), |h: semver::Version| h.min(upper)));
             }
             semver::Op::Caret => {
-                // ^X.Y.Z → [X.Y.Z, (X+1).0.0) if X>0
-                //           [0.Y.Z, 0.(Y+1).0)  if X==0, Y>0
-                //           [0.0.Z, 0.0.(Z+1))  if X==Y==0
                 let upper = if major > 0 {
                     semver::Version::new(major + 1, 0, 0)
                 } else if minor > 0 {
@@ -568,8 +585,6 @@ fn semver_req_to_range(req: &semver::VersionReq) -> BenderVersionSet {
                 hi = Some(hi.map_or(upper.clone(), |h: semver::Version| h.min(upper)));
             }
             semver::Op::Wildcard => {
-                // X.* → [X.0.0, (X+1).0.0)
-                // X.Y.* → [X.Y.0, X.(Y+1).0)
                 let lower = semver::Version::new(major, minor, 0);
                 let upper = if comp.minor.is_some() {
                     semver::Version::new(major, minor + 1, 0)
@@ -580,7 +595,6 @@ fn semver_req_to_range(req: &semver::VersionReq) -> BenderVersionSet {
                 hi = Some(hi.map_or(upper.clone(), |h: semver::Version| h.min(upper)));
             }
             _ => {
-                // Unknown comparator — return universe and let pubgrub handle it.
                 return pubgrub::Ranges::full();
             }
         }
