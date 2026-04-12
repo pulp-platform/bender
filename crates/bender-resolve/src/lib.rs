@@ -29,6 +29,7 @@
 //! without a custom `VersionSet` implementation.
 
 pub mod error;
+pub mod manifest;
 pub mod package;
 pub mod provider;
 pub mod version;
