@@ -5,7 +5,7 @@ use tokio::sync::Semaphore;
 
 use crate::checkout::GitCheckout;
 use crate::error::{GitError, Result, gix_err};
-use crate::progress::GitProgressSink;
+use crate::progress::{GitOp, GitProgress, GitProgressEvent, drain_stderr, on_fetch_progress};
 use crate::subprocess::SubprocessRunner;
 use crate::types::ObjectId;
 
@@ -78,20 +78,29 @@ impl GitDatabase {
     /// no public API to persist it to `.git/config`.
     pub async fn add_remote(&self, name: &str, url: &str) -> Result<()> {
         self.runner()?
-            .run_discard(&["remote", "add", name, url])
+            .cmd(&["remote", "add", name, url])
+            .run_discard()
             .await
     }
 
     /// Fetch all tags and branches from `remote`.
     ///
     /// Equivalent to `git fetch --tags --prune <remote> --progress`.
-    pub async fn fetch(&self, remote: &str, _progress: impl GitProgressSink) -> Result<()> {
-        // Progress integration is stubbed for v1; see progress.rs for the
-        // planned trait boundary. The `--progress` flag causes git to write
-        // progress to stderr, which is currently discarded.
-        self.runner()?
-            .run_discard(&["fetch", "--tags", "--prune", remote, "--progress"])
-            .await
+    pub async fn fetch(&self, remote: &str, mut progress: impl GitProgress) -> Result<()> {
+        progress.event(GitProgressEvent::Started {
+            op: GitOp::Fetch,
+            label: remote,
+        });
+        let mut child = self
+            .runner()?
+            .cmd(&["fetch", "--tags", "--prune", remote, "--progress"])
+            .envs(&[("GIT_TERMINAL_PROMPT", "0")])
+            .start_stderr()
+            .await?;
+        let raw_stderr = drain_stderr(&mut child.stderr, on_fetch_progress(&mut progress)).await;
+        let result = child.finish(raw_stderr).await;
+        progress.event(GitProgressEvent::Finished);
+        result
     }
 
     /// Fetch a specific ref from `remote`.
@@ -99,15 +108,15 @@ impl GitDatabase {
     /// Useful when a pinned commit hash is not reachable from any named ref
     /// (e.g. after a force-push), in which case the full OID must be fetched
     /// explicitly.
-    pub async fn fetch_ref(
-        &self,
-        remote: &str,
-        refspec: &str,
-        _progress: impl GitProgressSink,
-    ) -> Result<()> {
-        self.runner()?
-            .run_discard(&["fetch", remote, refspec, "--progress"])
-            .await
+    pub async fn fetch_ref(&self, remote: &str, refspec: &str) -> Result<()> {
+        let mut child = self
+            .runner()?
+            .cmd(&["fetch", remote, refspec])
+            .envs(&[("GIT_TERMINAL_PROMPT", "0")])
+            .start_stderr()
+            .await?;
+        let raw_stderr = drain_stderr(&mut child.stderr, |_| {}).await;
+        child.finish(raw_stderr).await
     }
 
     /// Clone this database into `path` and check out `branch_or_tag`, returning
@@ -128,14 +137,13 @@ impl GitDatabase {
     /// # let checkout_path = std::path::PathBuf::from("/tmp/checkout");
     /// let tag = format!("bender-tmp-{}", rev.short(8));
     /// db.tag_commit(&tag, &rev)?;
-    /// let checkout = db.clone_into(&checkout_path, &tag, NoProgress).await?;
+    /// let checkout = db.clone_into(&checkout_path, &tag).await?;
     /// # Ok(()) }
     /// ```
     pub async fn clone_into(
         &self,
         path: impl Into<PathBuf>,
         branch_or_tag: &str,
-        _progress: impl GitProgressSink,
     ) -> Result<GitCheckout> {
         let path = path.into();
         let db_path = self.path.to_str().unwrap();
@@ -163,19 +171,22 @@ impl GitDatabase {
         // lfs_pull() so bender can decide whether LFS is needed.
         // filter.lfs.required=false is a safety net: if git-lfs is registered
         // in the git config but not installed, the clone won't fail.
-        runner
-            .run_discard_with_env(
-                &[
-                    "clone",
-                    "--shared",
-                    "--branch",
-                    branch_or_tag,
-                    db_path,
-                    checkout_path,
-                ],
-                &[("GIT_LFS_SKIP_SMUDGE", "1")],
-            )
+        let mut child = runner
+            .cmd(&[
+                "clone",
+                "--shared",
+                "--branch",
+                branch_or_tag,
+                "--progress",
+                db_path,
+                checkout_path,
+            ])
+            .envs(&[("GIT_LFS_SKIP_SMUDGE", "1")])
+            .start_stderr()
             .await?;
+        let raw_stderr = drain_stderr(&mut child.stderr, |_| {}).await;
+        let result = child.finish(raw_stderr).await;
+        result?;
 
         GitCheckout::open(path, self.throttle.clone())
     }

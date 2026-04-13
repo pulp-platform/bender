@@ -28,9 +28,9 @@
 //!   directly. They are synchronous and do not acquire the throttle semaphore,
 //!   so they can run concurrently without limit.
 //!
-//! - **Subprocess operations** (`fetch`, `clone_from`, `add_remote`) spawn the
+//! - **Subprocess operations** (`fetch`, `clone_into`, `add_remote`) spawn the
 //!   system `git` binary. They are async and acquire the shared semaphore.
-//!   `fetch` and `clone_from` require credential handling; `add_remote` is local
+//!   `fetch` and `clone_into` require credential handling; `add_remote` is local
 //!   but gix has no public API for persisting a remote to `.git/config`
 //!   (the relevant helper is `pub(crate)` in gix).
 //!
@@ -66,7 +66,7 @@
 //! let tag = format!("bender-tmp-{}", rev.short(8));
 //! db.tag_commit(&tag, &rev)?;
 //!
-//! let checkout = db.clone_into(Path::new("/cache/checkouts/myrepo-abc123"), &tag, NoProgress).await?;
+//! let checkout = db.clone_into(Path::new("/cache/checkouts/myrepo-abc123"), &tag).await?;
 //! # Ok(())
 //! # }
 //! ```

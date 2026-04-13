@@ -168,10 +168,7 @@ async fn test_checkout() {
 
     // Clone the checkout
     let checkout_path = tmp.path().join("checkout");
-    let checkout = db
-        .clone_into(&checkout_path, &tag, NoProgress)
-        .await
-        .unwrap();
+    let checkout = db.clone_into(&checkout_path, &tag).await.unwrap();
 
     // Verify the checkout is at the right commit
     let head = checkout.current_checkout().unwrap();
