@@ -316,7 +316,15 @@ impl GitDatabase {
     pub fn resolve(&self, expr: &str) -> Result<ObjectId> {
         let repo = self.repo.to_thread_local();
         let spec = format!("{}^{{commit}}", expr);
-        let id = repo.rev_parse_single(spec.as_str()).map_err(gix_err)?;
+        if let Ok(id) = repo.rev_parse_single(spec.as_str()) {
+            return Ok(ObjectId::from(id.detach()));
+        }
+        // Fall back to remote-tracking ref — in a bare repo, `git fetch` stores
+        // branches as refs/remotes/origin/<name> rather than refs/heads/<name>.
+        let remote_spec = format!("refs/remotes/origin/{}^{{commit}}", expr);
+        let id = repo
+            .rev_parse_single(remote_spec.as_str())
+            .map_err(gix_err)?;
         Ok(ObjectId::from(id.detach()))
     }
 
