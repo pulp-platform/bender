@@ -2,7 +2,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::error::{GitError, Result, gix_err};
-use crate::progress::GitProgressSink;
+use crate::progress::{
+    GitOp, GitProgress, GitProgressEvent, SubmoduleTracker, drain_stderr, on_submodule_progress,
+};
 use crate::subprocess::{GIT_LFS, SubprocessRunner};
 use crate::types::ObjectId;
 use tokio::sync::Semaphore;
@@ -75,7 +77,8 @@ impl GitCheckout {
     pub async fn is_dirty(&self) -> Result<bool> {
         let output = self
             .runner()?
-            .run_str(&["status", "--porcelain"], true)
+            .cmd(&["status", "--porcelain"])
+            .run_string(true)
             .await?;
         Ok(!output.trim().is_empty())
     }
@@ -87,21 +90,34 @@ impl GitCheckout {
     /// LFS smudging is disabled; call `lfs_pull` afterwards if needed.
     pub async fn switch(&self, rev: &ObjectId) -> Result<()> {
         self.runner()?
-            .run_discard_with_env(
-                &["switch", "--detach", "--force", &rev.to_string()],
-                &[("GIT_LFS_SKIP_SMUDGE", "1")],
-            )
+            .cmd(&["switch", "--detach", "--force", &rev.to_string()])
+            .envs(&[("GIT_LFS_SKIP_SMUDGE", "1")])
+            .run_discard()
             .await
     }
 
     /// Initialise and update git submodules recursively.
-    pub async fn update_submodules(&self, _progress: impl GitProgressSink) -> Result<()> {
-        self.runner()?
-            .run_discard_with_env(
-                &["submodule", "update", "--init", "--recursive"],
-                &[("GIT_LFS_SKIP_SMUDGE", "1")],
-            )
-            .await
+    pub async fn update_submodules(&self, mut progress: impl GitProgress) -> Result<()> {
+        let label = self.path.to_str().unwrap_or("");
+        progress.event(GitProgressEvent::Started {
+            op: GitOp::SubmoduleUpdate,
+            label,
+        });
+        let mut child = self
+            .runner()?
+            .cmd(&["submodule", "update", "--init", "--recursive", "--progress"])
+            .envs(&[("GIT_TERMINAL_PROMPT", "0"), ("GIT_LFS_SKIP_SMUDGE", "1")])
+            .start_stderr()
+            .await?;
+        let mut tracker = SubmoduleTracker::new();
+        let raw_stderr = drain_stderr(
+            &mut child.stderr,
+            on_submodule_progress(&mut tracker, &mut progress),
+        )
+        .await;
+        let result = child.finish(raw_stderr).await;
+        progress.event(GitProgressEvent::Finished);
+        result
     }
 
     /// Pull LFS objects for the current checkout, pointing git-lfs at `lfs_url`.
@@ -124,12 +140,19 @@ impl GitCheckout {
             .map_err(|e| GitError::LfsNotFound(e.clone()))?;
 
         let runner = self.runner()?;
-        let output = runner.run_str(&["lfs", "ls-files"], true).await?;
+        let output = runner.cmd(&["lfs", "ls-files"]).run_string(true).await?;
         if output.trim().is_empty() {
             return Ok(false);
         }
-        runner.run_discard(&["config", "lfs.url", lfs_url]).await?;
-        runner.run_discard(&["lfs", "pull"]).await?;
+        runner
+            .cmd(&["config", "lfs.url", lfs_url])
+            .run_discard()
+            .await?;
+        runner
+            .cmd(&["lfs", "pull"])
+            .envs(&[("GIT_TERMINAL_PROMPT", "0")])
+            .run_discard()
+            .await?;
         Ok(true)
     }
 }
