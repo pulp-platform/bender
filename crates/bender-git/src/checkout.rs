@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::error::{GitError, Result, gix_err};
 use crate::progress::{
-    GitOp, GitProgress, GitProgressEvent, SubmoduleTracker, drain_stderr, on_submodule_progress,
+    GitOp, GitProgress, GitProgressEvent, SubmoduleTracker, on_submodule_progress,
 };
 use crate::subprocess::{GIT_LFS, SubprocessRunner};
 use crate::types::ObjectId;
@@ -75,11 +75,8 @@ impl GitCheckout {
     /// must treat untracked files as dirty too — a user may have created new files in a
     /// dependency checkout that bender is about to overwrite.
     pub async fn is_dirty(&self) -> Result<bool> {
-        let output = self
-            .runner()?
-            .cmd(&["status", "--porcelain"])
-            .run_string(true)
-            .await?;
+        let output = self.runner()?.run(&["status", "--porcelain"], &[]).await?;
+        let output = String::from_utf8_lossy(&output);
         Ok(!output.trim().is_empty())
     }
 
@@ -90,9 +87,10 @@ impl GitCheckout {
     /// LFS smudging is disabled; call `lfs_pull` afterwards if needed.
     pub async fn switch(&self, rev: &ObjectId) -> Result<()> {
         self.runner()?
-            .cmd(&["switch", "--detach", "--force", &rev.to_string()])
-            .envs(&[("GIT_LFS_SKIP_SMUDGE", "1")])
-            .run_discard()
+            .run_discard(
+                &["switch", "--detach", "--force", &rev.to_string()],
+                &[("GIT_LFS_SKIP_SMUDGE", "1")],
+            )
             .await
     }
 
@@ -103,19 +101,15 @@ impl GitCheckout {
             op: GitOp::SubmoduleUpdate,
             label,
         });
-        let mut child = self
-            .runner()?
-            .cmd(&["submodule", "update", "--init", "--recursive", "--progress"])
-            .envs(&[("GIT_TERMINAL_PROMPT", "0"), ("GIT_LFS_SKIP_SMUDGE", "1")])
-            .start_stderr()
-            .await?;
         let mut tracker = SubmoduleTracker::new();
-        let raw_stderr = drain_stderr(
-            &mut child.stderr,
-            on_submodule_progress(&mut tracker, &mut progress),
-        )
-        .await;
-        let result = child.finish(raw_stderr).await;
+        let result = self
+            .runner()?
+            .run_drain(
+                &["submodule", "update", "--init", "--recursive", "--progress"],
+                &[("GIT_TERMINAL_PROMPT", "0"), ("GIT_LFS_SKIP_SMUDGE", "1")],
+                on_submodule_progress(&mut tracker, &mut progress),
+            )
+            .await;
         progress.event(GitProgressEvent::Finished);
         result
     }
@@ -140,18 +134,16 @@ impl GitCheckout {
             .map_err(|e| GitError::LfsNotFound(e.clone()))?;
 
         let runner = self.runner()?;
-        let output = runner.cmd(&["lfs", "ls-files"]).run_string(true).await?;
+        let output = runner.run(&["lfs", "ls-files"], &[]).await?;
+        let output = String::from_utf8_lossy(&output);
         if output.trim().is_empty() {
             return Ok(false);
         }
         runner
-            .cmd(&["config", "lfs.url", lfs_url])
-            .run_discard()
+            .run_discard(&["config", "lfs.url", lfs_url], &[])
             .await?;
         runner
-            .cmd(&["lfs", "pull"])
-            .envs(&[("GIT_TERMINAL_PROMPT", "0")])
-            .run_discard()
+            .run_discard(&["lfs", "pull"], &[("GIT_TERMINAL_PROMPT", "0")])
             .await?;
         Ok(true)
     }

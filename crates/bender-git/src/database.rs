@@ -5,7 +5,7 @@ use tokio::sync::Semaphore;
 
 use crate::checkout::GitCheckout;
 use crate::error::{GitError, Result, gix_err};
-use crate::progress::{GitOp, GitProgress, GitProgressEvent, drain_stderr, on_fetch_progress};
+use crate::progress::{GitOp, GitProgress, GitProgressEvent, on_fetch_progress};
 use crate::subprocess::SubprocessRunner;
 use crate::types::ObjectId;
 
@@ -78,8 +78,7 @@ impl GitDatabase {
     /// no public API to persist it to `.git/config`.
     pub async fn add_remote(&self, name: &str, url: &str) -> Result<()> {
         self.runner()?
-            .cmd(&["remote", "add", name, url])
-            .run_discard()
+            .run_discard(&["remote", "add", name, url], &[])
             .await
     }
 
@@ -91,14 +90,14 @@ impl GitDatabase {
             op: GitOp::Fetch,
             label: remote,
         });
-        let mut child = self
+        let result = self
             .runner()?
-            .cmd(&["fetch", "--tags", "--prune", remote, "--progress"])
-            .envs(&[("GIT_TERMINAL_PROMPT", "0")])
-            .start_stderr()
-            .await?;
-        let raw_stderr = drain_stderr(&mut child.stderr, on_fetch_progress(&mut progress)).await;
-        let result = child.finish(raw_stderr).await;
+            .run_drain(
+                &["fetch", "--tags", "--prune", remote, "--progress"],
+                &[("GIT_TERMINAL_PROMPT", "0")],
+                on_fetch_progress(&mut progress),
+            )
+            .await;
         progress.event(GitProgressEvent::Finished);
         result
     }
@@ -109,14 +108,9 @@ impl GitDatabase {
     /// (e.g. after a force-push), in which case the full OID must be fetched
     /// explicitly.
     pub async fn fetch_ref(&self, remote: &str, refspec: &str) -> Result<()> {
-        let mut child = self
-            .runner()?
-            .cmd(&["fetch", remote, refspec])
-            .envs(&[("GIT_TERMINAL_PROMPT", "0")])
-            .start_stderr()
-            .await?;
-        let raw_stderr = drain_stderr(&mut child.stderr, |_| {}).await;
-        child.finish(raw_stderr).await
+        self.runner()?
+            .run_discard(&["fetch", remote, refspec], &[("GIT_TERMINAL_PROMPT", "0")])
+            .await
     }
 
     /// Clone this database into `path` and check out `branch_or_tag`, returning
@@ -169,24 +163,19 @@ impl GitDatabase {
         // GIT_LFS_SKIP_SMUDGE=1 prevents git-lfs from downloading LFS objects
         // during clone. LFS objects are pulled explicitly afterwards via
         // lfs_pull() so bender can decide whether LFS is needed.
-        // filter.lfs.required=false is a safety net: if git-lfs is registered
-        // in the git config but not installed, the clone won't fail.
-        let mut child = runner
-            .cmd(&[
-                "clone",
-                "--shared",
-                "--branch",
-                branch_or_tag,
-                "--progress",
-                db_path,
-                checkout_path,
-            ])
-            .envs(&[("GIT_LFS_SKIP_SMUDGE", "1")])
-            .start_stderr()
+        runner
+            .run_discard(
+                &[
+                    "clone",
+                    "--shared",
+                    "--branch",
+                    branch_or_tag,
+                    db_path,
+                    checkout_path,
+                ],
+                &[("GIT_LFS_SKIP_SMUDGE", "1")],
+            )
             .await?;
-        let raw_stderr = drain_stderr(&mut child.stderr, |_| {}).await;
-        let result = child.finish(raw_stderr).await;
-        result?;
 
         GitCheckout::open(path, self.throttle.clone())
     }
@@ -278,21 +267,6 @@ impl GitDatabase {
             .map_err(gix_err)?
             .map(|info| Ok(ObjectId::from(info.map_err(gix_err)?.id)))
             .collect()
-    }
-
-    /// Read a blob object by its hash and return its content as UTF-8.
-    ///
-    /// This is a pure local read and does not acquire the throttle semaphore.
-    pub fn cat_file(&self, oid: &ObjectId) -> Result<String> {
-        let repo = self.repo.to_thread_local();
-        let obj = repo
-            .find_object(*oid)
-            .map_err(|_| GitError::ObjectNotFound {
-                oid: oid.to_string(),
-            })?;
-        String::from_utf8(obj.data.to_vec()).map_err(|_| GitError::InvalidUtf8 {
-            context: format!("object {}", oid),
-        })
     }
 
     /// Read the content of a file at `path` in the tree at `rev`.

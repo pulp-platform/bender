@@ -210,10 +210,8 @@ impl SubmoduleTracker {
 // ---------------------------------------------------------------------------
 
 /// Build a line handler for plain fetch progress.
-pub(crate) fn on_fetch_progress<'a>(
-    progress: &'a mut impl GitProgress,
-) -> impl FnMut(GitStderrLine) + 'a {
-    move |line| match line {
+pub(crate) fn on_fetch_progress<'a>(progress: &'a mut impl GitProgress) -> impl FnMut(&str) + 'a {
+    move |line| match parse_git_line(line) {
         GitStderrLine::Receiving { percent } => {
             progress.event(GitProgressEvent::Progress {
                 percent: map_progress(ProgressMode::Fetch, Phase::Receiving, percent),
@@ -237,35 +235,8 @@ pub(crate) fn on_fetch_progress<'a>(
 pub(crate) fn on_submodule_progress<'a>(
     tracker: &'a mut SubmoduleTracker,
     progress: &'a mut impl GitProgress,
-) -> impl FnMut(GitStderrLine) + 'a {
-    move |line| tracker.apply(&line, progress)
-}
-
-/// Drain a stderr stream byte-by-byte, parse completed lines, and forward each
-/// parsed stderr line to `on_line`.
-///
-/// Returns the full raw stderr as a `String` for use in error messages.
-pub(crate) async fn drain_stderr(
-    stderr: &mut (impl tokio::io::AsyncRead + Unpin),
-    mut on_line: impl FnMut(GitStderrLine),
-) -> String {
-    use tokio::io::AsyncReadExt;
-    let mut line_buf = Vec::new();
-    let mut raw = Vec::new();
-
-    while let Ok(byte) = stderr.read_u8().await {
-        raw.push(byte);
-        if byte != b'\r' && byte != b'\n' {
-            line_buf.push(byte);
-            continue;
-        }
-        if let Ok(line) = std::str::from_utf8(&line_buf) {
-            on_line(parse_git_line(line));
-        }
-        line_buf.clear();
-    }
-
-    String::from_utf8_lossy(&raw).into_owned()
+) -> impl FnMut(&str) + 'a {
+    move |line| tracker.apply(&parse_git_line(line), progress)
 }
 
 // ---------------------------------------------------------------------------

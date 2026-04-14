@@ -7,10 +7,12 @@
 /// via `gix` do NOT go through here and therefore do not acquire the semaphore.
 use std::ffi::OsStr;
 use std::path::PathBuf;
-use std::process::Stdio;
 use std::sync::{Arc, LazyLock, OnceLock};
 
-use tokio::process::{ChildStderr, Command};
+use std::process::Stdio;
+
+use tokio::io::AsyncReadExt;
+use tokio::process::Command;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::error::{GitError, Result};
@@ -50,15 +52,6 @@ impl SubprocessRunner {
         Ok(Self { work_dir, throttle })
     }
 
-    /// Begin configuring a git command to run in this runner's working directory.
-    pub fn cmd<'a>(&'a self, args: &'a [&'a str]) -> GitCommand<'a> {
-        GitCommand {
-            runner: self,
-            args,
-            envs: &[],
-        }
-    }
-
     /// Build a pre-configured git command.
     ///
     /// The caller acquires the semaphore and runs it.
@@ -66,45 +59,31 @@ impl SubprocessRunner {
         let mut cmd = Command::new(GIT_BIN.get().expect("git binary resolved in new()"));
         cmd.args(args);
         cmd.current_dir(&self.work_dir);
-        for (k, v) in envs {
-            cmd.env(k, v);
-        }
+        cmd.envs(envs.iter().copied());
         log::debug!("git {:?} in {:?}", args, self.work_dir);
         cmd
     }
-}
 
-pub(crate) struct GitCommand<'a> {
-    runner: &'a SubprocessRunner,
-    args: &'a [&'a str],
-    envs: &'a [(&'a str, &'a str)],
-}
-
-impl<'a> GitCommand<'a> {
-    /// Add extra environment variables for this command.
-    pub fn envs(mut self, envs: &'a [(&'a str, &'a str)]) -> Self {
-        self.envs = envs;
-        self
-    }
-
-    /// Run a git command and capture stdout.
-    ///
-    /// Uses `.output()` which concurrently collects stdout and stderr,
-    /// avoiding pipe deadlocks without a background task.
-    /// If `check` is `false`, stdout is returned even on non-zero exit.
-    pub async fn run_stdout(self, check: bool) -> Result<Vec<u8>> {
-        let mut cmd = self.runner.build_cmd(self.args, self.envs);
-        let permit = self
-            .runner
-            .throttle
+    async fn acquire_permit(&self) -> Result<OwnedSemaphorePermit> {
+        self.throttle
             .clone()
             .acquire_owned()
             .await
-            .map_err(|_| GitError::SemaphoreClosed)?;
+            .map_err(|_| GitError::SemaphoreClosed)
+    }
+
+    /// Run a git command and capture both stdout and stderr.
+    ///
+    /// Uses `.output()` which concurrently collects stdout and stderr,
+    /// avoiding pipe deadlocks without a background task.
+    /// If `check` is `false`, output is returned even on non-zero exit.
+    pub async fn run(&self, args: &[&str], envs: &[(&str, &str)]) -> Result<Vec<u8>> {
+        let mut cmd = self.build_cmd(args, envs);
+        let permit = self.acquire_permit().await?;
         let output = cmd.output().await.map_err(GitError::SpawnFailed)?;
         drop(permit);
 
-        if output.status.success() || !check {
+        if output.status.success() {
             Ok(output.stdout)
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -115,63 +94,32 @@ impl<'a> GitCommand<'a> {
         }
     }
 
-    /// Run a git command and interpret stdout as UTF-8.
-    pub async fn run_string(self, check: bool) -> Result<String> {
-        let context = format!("git {}", self.args.join(" "));
-        let bytes = self.run_stdout(check).await?;
-        String::from_utf8(bytes).map_err(|_| GitError::InvalidUtf8 { context })
-    }
-
     /// Run a git command and discard stdout.
-    pub async fn run_discard(self) -> Result<()> {
-        self.run_stdout(true).await.map(|_| ())
+    pub async fn run_discard(&self, args: &[&str], envs: &[(&str, &str)]) -> Result<()> {
+        self.run(args, envs).await.map(|_| ())
     }
 
-    /// Start a git command with piped stderr for streaming progress parsing.
+    /// Run a git command, draining stderr line-by-line while it executes.
     ///
-    /// Stdout is discarded. Stderr is returned separately so callers can
-    /// drain and parse it before calling [`GitChild::finish`].
-    ///
-    /// The throttle semaphore is held until [`GitChild::finish`] is called.
-    pub async fn start_stderr(self) -> Result<GitChild> {
-        let mut cmd = self.runner.build_cmd(self.args, self.envs);
+    /// The full raw stderr is preserved for error reporting, while each
+    /// completed UTF-8 line is forwarded to `on_line`.
+    pub async fn run_drain(
+        &self,
+        args: &[&str],
+        envs: &[(&str, &str)],
+        on_line: impl FnMut(&str),
+    ) -> Result<()> {
+        let mut cmd = self.build_cmd(args, envs);
         cmd.stdout(Stdio::null());
         cmd.stderr(Stdio::piped());
-        let permit = self
-            .runner
-            .throttle
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| GitError::SemaphoreClosed)?;
+        let permit = self.acquire_permit().await?;
         let mut child = cmd.spawn().map_err(GitError::SpawnFailed)?;
-        let stderr = child.stderr.take().expect("stderr was piped");
-        Ok(GitChild {
-            child,
-            stderr,
-            _permit: permit,
-        })
-    }
-}
+        let mut stderr = child.stderr.take().expect("stderr was piped");
+        let raw_stderr = drain_stderr_lines(&mut stderr, on_line).await;
 
-/// A running git subprocess.
-///
-/// Created by [`SubprocessRunner::spawn`]. Callers borrow [`stderr`](GitChild::stderr)
-/// to stream and parse it, then call [`finish`](GitChild::finish) with the
-/// collected raw stderr to wait for the process and check the exit code.
-pub(crate) struct GitChild {
-    child: tokio::process::Child,
-    pub stderr: ChildStderr,
-    _permit: OwnedSemaphorePermit,
-}
-
-impl GitChild {
-    /// Wait for the process to exit and check its status.
-    ///
-    /// `raw_stderr` is the already-drained stderr content used in error messages.
-    pub async fn finish(mut self, raw_stderr: String) -> Result<()> {
-        let status = self.child.wait().await.map_err(GitError::SpawnFailed)?;
-        drop(self._permit);
+        let status = child.wait().await.map_err(GitError::SpawnFailed)?;
+        drop(permit);
+        let raw_stderr = String::from_utf8_lossy(&raw_stderr).into_owned();
         if status.success() {
             Ok(())
         } else {
@@ -184,4 +132,26 @@ impl GitChild {
             }
         }
     }
+}
+
+async fn drain_stderr_lines(
+    stderr: &mut (impl tokio::io::AsyncRead + Unpin),
+    mut on_line: impl FnMut(&str),
+) -> Vec<u8> {
+    let mut line_buf = Vec::new();
+    let mut raw_stderr = Vec::new();
+
+    while let Ok(byte) = stderr.read_u8().await {
+        raw_stderr.push(byte);
+        if byte != b'\r' && byte != b'\n' {
+            line_buf.push(byte);
+            continue;
+        }
+        if let Ok(line) = std::str::from_utf8(&line_buf) {
+            on_line(line);
+        }
+        line_buf.clear();
+    }
+
+    raw_stderr
 }
