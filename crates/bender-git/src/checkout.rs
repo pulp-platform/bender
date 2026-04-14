@@ -2,9 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::error::{GitError, Result, gix_err};
-use crate::progress::{
-    GitOp, GitProgress, GitProgressEvent, SubmoduleTracker, on_submodule_progress,
-};
+use crate::progress::{GitProgress, SubmoduleTracker, on_submodule_progress};
 use crate::subprocess::{GIT_LFS, SubprocessRunner};
 use crate::types::ObjectId;
 use tokio::sync::Semaphore;
@@ -96,11 +94,11 @@ impl GitCheckout {
 
     /// Initialise and update git submodules recursively.
     pub async fn update_submodules(&self, mut progress: impl GitProgress) -> Result<()> {
-        let label = self.path.to_str().unwrap_or("");
-        progress.event(GitProgressEvent::Started {
-            op: GitOp::SubmoduleUpdate,
-            label,
-        });
+        let repo = self.repo.to_thread_local();
+        if repo.submodules().map_err(gix_err)?.is_none() {
+            return Ok(());
+        }
+
         let mut tracker = SubmoduleTracker::new();
         let result = self
             .runner()?
@@ -110,7 +108,7 @@ impl GitCheckout {
                 on_submodule_progress(&mut tracker, &mut progress),
             )
             .await;
-        progress.event(GitProgressEvent::Finished);
+        tracker.finish(&mut progress);
         result
     }
 

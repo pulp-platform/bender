@@ -76,7 +76,6 @@ impl SubprocessRunner {
     ///
     /// Uses `.output()` which concurrently collects stdout and stderr,
     /// avoiding pipe deadlocks without a background task.
-    /// If `check` is `false`, output is returned even on non-zero exit.
     pub async fn run(&self, args: &[&str], envs: &[(&str, &str)]) -> Result<Vec<u8>> {
         let mut cmd = self.build_cmd(args, envs);
         let permit = self.acquire_permit().await?;
