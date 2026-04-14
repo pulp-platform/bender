@@ -5,7 +5,7 @@ use tokio::sync::Semaphore;
 
 use crate::checkout::GitCheckout;
 use crate::error::{GitError, Result, gix_err};
-use crate::progress::{GitOp, GitProgress, GitProgressEvent, on_fetch_progress};
+use crate::progress::{GitOp, GitProgress, on_fetch_progress};
 use crate::subprocess::SubprocessRunner;
 use crate::types::ObjectId;
 
@@ -86,19 +86,17 @@ impl GitDatabase {
     ///
     /// Equivalent to `git fetch --tags --prune <remote> --progress`.
     pub async fn fetch(&self, remote: &str, mut progress: impl GitProgress) -> Result<()> {
-        progress.event(GitProgressEvent::Started {
-            op: GitOp::Fetch,
-            label: remote,
-        });
+        let label = self.path.to_str().unwrap_or(remote);
+        let id = progress.started(GitOp::Fetch, label);
         let result = self
             .runner()?
             .run_drain(
                 &["fetch", "--tags", "--prune", remote, "--progress"],
                 &[("GIT_TERMINAL_PROMPT", "0")],
-                on_fetch_progress(&mut progress),
+                on_fetch_progress(&mut progress, id),
             )
             .await;
-        progress.event(GitProgressEvent::Finished);
+        progress.finished(id);
         result
     }
 

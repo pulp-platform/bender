@@ -15,36 +15,33 @@ pub enum GitOp {
     SubmoduleUpdate,
 }
 
-/// Progress events emitted by git network operations.
-#[derive(Debug, Clone)]
-pub enum GitProgressEvent<'a> {
-    /// The operation has started.
-    Started { op: GitOp, label: &'a str },
-    /// Progress percentage (0–100) for a plain git operation.
-    ///
-    /// For fetch: receiving objects maps to 0–70%, resolving deltas to 70–100%.
-    Progress { percent: u8 },
-    /// Progress percentage (0–100) within the currently active submodule.
-    SubmoduleProgress { name: &'a str, percent: u8 },
-    /// The operation has completed.
-    Finished,
-}
-
 /// A receiver for progress updates from git network operations.
 ///
-/// The crate parses git's stderr internally and maps the individual phases
-/// (receiving objects, resolving deltas, checking out files) and submodule
-/// lifecycle messages into a stream of high-level events.
+/// The crate parses git's stderr internally and reports progress via opaque
+/// sink-owned ids. A sink can use those ids to map one git operation to one
+/// progress bar, spinner, log record, or any other UI element.
 pub trait GitProgress: Send + 'static {
-    /// Called for each progress event. The default implementation ignores all
-    /// events, making [`NoProgress`] zero-cost.
-    fn event(&mut self, _event: GitProgressEvent<'_>) {}
+    /// Opaque progress handle returned by [`GitProgress::started`].
+    type Id: Copy + Eq + Send + 'static;
+
+    /// Create a new progress stream for `op`.
+    fn started(&mut self, _op: GitOp, _label: &str) -> Self::Id;
+
+    /// Update the progress percentage for an existing progress stream.
+    fn progress(&mut self, _id: Self::Id, _percent: u8) {}
+
+    /// Mark a progress stream as finished.
+    fn finished(&mut self, _id: Self::Id) {}
 }
 
 /// A no-op progress sink for callers that don't need progress reporting.
 pub struct NoProgress;
 
-impl GitProgress for NoProgress {}
+impl GitProgress for NoProgress {
+    type Id = ();
+
+    fn started(&mut self, _op: GitOp, _label: &str) -> Self::Id {}
+}
 
 // ---------------------------------------------------------------------------
 // Internal — stderr line parsing
@@ -151,56 +148,52 @@ pub(crate) fn map_progress(mode: ProgressMode, phase: Phase, percent: u8) -> u8 
 // ---------------------------------------------------------------------------
 
 /// Tracks the currently active submodule for [`GitOp::SubmoduleUpdate`].
-pub(crate) struct SubmoduleTracker {
-    active: Option<String>,
+pub(crate) struct SubmoduleTracker<Id> {
+    active: Option<Id>,
 }
 
-impl SubmoduleTracker {
+impl<Id> SubmoduleTracker<Id> {
     pub fn new() -> Self {
         Self { active: None }
     }
+}
 
-    /// Process a parsed stderr line and emit the appropriate progress/submodule
-    /// events through the given sink.
-    pub fn apply(&mut self, line: &GitStderrLine, progress: &mut impl GitProgress) {
+impl<Id: Copy + Eq> SubmoduleTracker<Id> {
+    /// Process a parsed stderr line and emit the appropriate progress updates
+    /// through the given sink.
+    pub fn apply<P: GitProgress<Id = Id>>(&mut self, line: &GitStderrLine, progress: &mut P) {
         match line {
             GitStderrLine::CloningInto { name } => {
-                if let Some(prev) = self.active.replace(name.clone()) {
-                    progress.event(GitProgressEvent::SubmoduleProgress {
-                        name: &prev,
-                        percent: 100,
-                    });
+                if let Some(prev) = self.active.take() {
+                    progress.finished(prev);
                 }
-                progress.event(GitProgressEvent::SubmoduleProgress { name, percent: 0 });
+                self.active = Some(progress.started(GitOp::SubmoduleUpdate, name));
             }
             GitStderrLine::Receiving { percent } => {
                 let local = map_progress(ProgressMode::Submodule, Phase::Receiving, *percent);
-                if let Some(name) = self.active.as_deref() {
-                    progress.event(GitProgressEvent::SubmoduleProgress {
-                        name,
-                        percent: local,
-                    });
+                if let Some(id) = self.active {
+                    progress.progress(id, local);
                 }
             }
             GitStderrLine::Resolving { percent } => {
                 let local = map_progress(ProgressMode::Submodule, Phase::Resolving, *percent);
-                if let Some(name) = self.active.as_deref() {
-                    progress.event(GitProgressEvent::SubmoduleProgress {
-                        name,
-                        percent: local,
-                    });
+                if let Some(id) = self.active {
+                    progress.progress(id, local);
                 }
             }
             GitStderrLine::Checkout { percent } => {
                 let local = map_progress(ProgressMode::Submodule, Phase::Checkout, *percent);
-                if let Some(name) = self.active.as_deref() {
-                    progress.event(GitProgressEvent::SubmoduleProgress {
-                        name,
-                        percent: local,
-                    });
+                if let Some(id) = self.active {
+                    progress.progress(id, local);
                 }
             }
             GitStderrLine::Error | GitStderrLine::Other => {}
+        }
+    }
+
+    pub fn finish<P: GitProgress<Id = Id>>(&mut self, progress: &mut P) {
+        if let Some(id) = self.active.take() {
+            progress.finished(id);
         }
     }
 }
@@ -210,32 +203,41 @@ impl SubmoduleTracker {
 // ---------------------------------------------------------------------------
 
 /// Build a line handler for plain fetch progress.
-pub(crate) fn on_fetch_progress<'a>(progress: &'a mut impl GitProgress) -> impl FnMut(&str) + 'a {
+pub(crate) fn on_fetch_progress<'a, P>(progress: &'a mut P, id: P::Id) -> impl FnMut(&str) + 'a
+where
+    P: GitProgress,
+{
     move |line| match parse_git_line(line) {
         GitStderrLine::Receiving { percent } => {
-            progress.event(GitProgressEvent::Progress {
-                percent: map_progress(ProgressMode::Fetch, Phase::Receiving, percent),
-            });
+            progress.progress(
+                id,
+                map_progress(ProgressMode::Fetch, Phase::Receiving, percent),
+            );
         }
         GitStderrLine::Resolving { percent } => {
-            progress.event(GitProgressEvent::Progress {
-                percent: map_progress(ProgressMode::Fetch, Phase::Resolving, percent),
-            });
+            progress.progress(
+                id,
+                map_progress(ProgressMode::Fetch, Phase::Resolving, percent),
+            );
         }
         GitStderrLine::Checkout { percent } => {
-            progress.event(GitProgressEvent::Progress {
-                percent: map_progress(ProgressMode::Fetch, Phase::Checkout, percent),
-            });
+            progress.progress(
+                id,
+                map_progress(ProgressMode::Fetch, Phase::Checkout, percent),
+            );
         }
         _ => {}
     }
 }
 
 /// Build a line handler for recursive submodule update progress.
-pub(crate) fn on_submodule_progress<'a>(
-    tracker: &'a mut SubmoduleTracker,
-    progress: &'a mut impl GitProgress,
-) -> impl FnMut(&str) + 'a {
+pub(crate) fn on_submodule_progress<'a, P>(
+    tracker: &'a mut SubmoduleTracker<P::Id>,
+    progress: &'a mut P,
+) -> impl FnMut(&str) + 'a
+where
+    P: GitProgress,
+{
     move |line| tracker.apply(&parse_git_line(line), progress)
 }
 
@@ -327,55 +329,73 @@ mod tests {
 
     #[test]
     fn submodule_tracker_current_progress() {
+        #[derive(Default)]
         struct Recorder {
-            submodule_progress: Vec<(String, u8)>,
+            next_id: usize,
+            events: Vec<(usize, Option<u8>, bool)>,
         }
+
         impl GitProgress for Recorder {
-            fn event(&mut self, event: GitProgressEvent<'_>) {
-                match event {
-                    GitProgressEvent::SubmoduleProgress { name, percent } => {
-                        self.submodule_progress.push((name.to_owned(), percent));
-                    }
-                    GitProgressEvent::Progress { .. } => {}
-                    GitProgressEvent::Started { .. } | GitProgressEvent::Finished => {}
-                }
+            type Id = usize;
+
+            fn started(&mut self, _op: GitOp, _label: &str) -> Self::Id {
+                let id = self.next_id;
+                self.next_id += 1;
+                self.events.push((id, None, false));
+                id
+            }
+
+            fn progress(&mut self, id: Self::Id, percent: u8) {
+                self.events.push((id, Some(percent), false));
+            }
+
+            fn finished(&mut self, id: Self::Id) {
+                self.events.push((id, None, true));
             }
         }
 
         let mut tracker = SubmoduleTracker::new();
-        let mut rec = Recorder {
-            submodule_progress: vec![],
-        };
+        let mut rec = Recorder::default();
 
         tracker.apply(&GitStderrLine::CloningInto { name: "a".into() }, &mut rec);
-        assert_eq!(rec.submodule_progress.last(), Some(&("a".into(), 0)));
         tracker.apply(&GitStderrLine::Receiving { percent: 100 }, &mut rec);
-        assert_eq!(rec.submodule_progress.last(), Some(&("a".into(), 50)));
+
+        assert_eq!(rec.events[0], (0, None, false));
+        assert_eq!(rec.events[1], (0, Some(50), false));
     }
 
     #[test]
     fn submodule_tracker_finishes_previous_on_next_clone() {
+        #[derive(Default)]
         struct Recorder {
-            submodule_progress: Vec<(String, u8)>,
+            next_id: usize,
+            started: Vec<(usize, String)>,
+            finished: Vec<usize>,
         }
+
         impl GitProgress for Recorder {
-            fn event(&mut self, event: GitProgressEvent<'_>) {
-                if let GitProgressEvent::SubmoduleProgress { name, percent } = event {
-                    self.submodule_progress.push((name.to_owned(), percent));
-                }
+            type Id = usize;
+
+            fn started(&mut self, _op: GitOp, label: &str) -> Self::Id {
+                let id = self.next_id;
+                self.next_id += 1;
+                self.started.push((id, label.to_owned()));
+                id
+            }
+
+            fn finished(&mut self, id: Self::Id) {
+                self.finished.push(id);
             }
         }
 
         let mut tracker = SubmoduleTracker::new();
-        let mut rec = Recorder {
-            submodule_progress: vec![],
-        };
+        let mut rec = Recorder::default();
 
         tracker.apply(&GitStderrLine::CloningInto { name: "a".into() }, &mut rec);
         tracker.apply(&GitStderrLine::CloningInto { name: "b".into() }, &mut rec);
+        tracker.finish(&mut rec);
 
-        assert_eq!(rec.submodule_progress[0], ("a".into(), 0));
-        assert_eq!(rec.submodule_progress[1], ("a".into(), 100));
-        assert_eq!(rec.submodule_progress[2], ("b".into(), 0));
+        assert_eq!(rec.started, vec![(0, "a".into()), (1, "b".into())]);
+        assert_eq!(rec.finished, vec![0, 1]);
     }
 }
