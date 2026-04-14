@@ -3,11 +3,9 @@
 /// These tests exercise the full stack (gix local reads + subprocess writes)
 /// against real git repositories created in temporary directories.
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use bender_git::database::GitDatabase;
 use bender_git::progress::NoProgress;
-use tokio::sync::Semaphore;
 
 const ORIGIN: &str = "origin";
 const BENDER_FILE: &str = "Bender.yml";
@@ -102,7 +100,7 @@ impl TestContext {
         let db_path = tmp.path().join("db");
         std::fs::create_dir(&db_path).unwrap();
 
-        let db = GitDatabase::init_bare(&db_path, Arc::new(Semaphore::new(4))).unwrap();
+        let db = GitDatabase::init_bare(&db_path).unwrap();
         db.add_remote(ORIGIN, source.to_str().unwrap())
             .await
             .unwrap();
