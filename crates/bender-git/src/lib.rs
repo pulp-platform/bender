@@ -37,19 +37,18 @@
 //! ## Typical usage
 //!
 //! ```no_run
-//! use std::sync::Arc;
 //! use std::path::Path;
-//! use tokio::sync::Semaphore;
 //! use bender_git::database::GitDatabase;
 //! use bender_git::progress::NoProgress;
 //!
 //! # async fn run() -> bender_git::error::Result<()> {
 //! // Optional: override the git binary (defaults to `which git`).
 //! bender_git::set_git_bin("/path/to/git-wrapper.sh")?;
-//! let throttle = Arc::new(Semaphore::new(4));
+//! // Optional: bound concurrent git subprocesses.
+//! bender_git::set_git_throttle(4)?;
 //!
 //! // --- Database (bare repo) ---
-//! let db = GitDatabase::init_bare(Path::new("/cache/db/myrepo-abc123"), throttle.clone())?;
+//! let db = GitDatabase::init_bare(Path::new("/cache/db/myrepo-abc123"))?;
 //! db.add_remote("origin", "https://github.com/example/repo").await?;
 //! db.fetch("origin", NoProgress).await?;
 //!
@@ -79,4 +78,4 @@ pub mod types;
 
 mod subprocess;
 
-pub use subprocess::set_git_bin;
+pub use subprocess::{set_git_bin, set_git_throttle};

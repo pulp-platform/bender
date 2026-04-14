@@ -1,7 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
-use tokio::sync::Semaphore;
 
 use crate::checkout::GitCheckout;
 use crate::error::{GitError, Result, gix_err};
@@ -33,9 +30,6 @@ use crate::types::ObjectId;
 ///   All local reads and writes — fast and safe to run concurrently.
 #[derive(Clone)]
 pub struct GitDatabase {
-    /// Absolute path to the bare repository directory.
-    pub path: PathBuf,
-    throttle: Arc<Semaphore>,
     repo: gix::ThreadSafeRepository,
 }
 
@@ -43,30 +37,19 @@ impl GitDatabase {
     /// Initialise a new bare repository at `path` and return a handle to it.
     ///
     /// Equivalent to `git init --bare`. The directory must already exist.
-    pub fn init_bare(path: impl Into<PathBuf>, throttle: Arc<Semaphore>) -> Result<Self> {
-        let path = path.into();
-        gix::init_bare(&path).map_err(gix_err)?;
-        let repo = gix::open(&path).map_err(gix_err)?.into_sync();
-        Ok(Self {
-            path,
-            throttle,
-            repo,
-        })
+    pub fn init_bare(path: impl Into<PathBuf>) -> Result<Self> {
+        let repo = gix::init_bare(path.into()).map_err(gix_err)?.into_sync();
+        Ok(Self { repo })
     }
 
     /// Open an existing bare repository at `path`.
-    pub fn open(path: impl Into<PathBuf>, throttle: Arc<Semaphore>) -> Result<Self> {
-        let path = path.into();
-        let repo = gix::open(&path).map_err(gix_err)?.into_sync();
-        Ok(Self {
-            path,
-            throttle,
-            repo,
-        })
+    pub fn open(path: impl Into<PathBuf>) -> Result<Self> {
+        let repo = gix::open(path).map_err(gix_err)?.into_sync();
+        Ok(Self { repo })
     }
 
     fn runner(&self) -> Result<SubprocessRunner> {
-        SubprocessRunner::new(self.path.clone(), self.throttle.clone())
+        SubprocessRunner::new(self.repo.path().to_path_buf())
     }
 
     /// Add a remote (e.g. `origin`).
@@ -86,7 +69,7 @@ impl GitDatabase {
     ///
     /// Equivalent to `git fetch --tags --prune <remote> --progress`.
     pub async fn fetch(&self, remote: &str, mut progress: impl GitProgress) -> Result<()> {
-        let label = self.path.to_str().unwrap_or(remote);
+        let label = self.repo.path().to_str().unwrap_or(remote);
         let id = progress.started(GitOp::Fetch, label);
         let result = self
             .runner()?
@@ -119,12 +102,10 @@ impl GitDatabase {
     /// typical caller workflow:
     ///
     /// ```no_run
-    /// # use std::sync::Arc;
-    /// # use tokio::sync::Semaphore;
     /// # use bender_git::database::GitDatabase;
     /// # use bender_git::progress::NoProgress;
     /// # #[tokio::main] async fn main() -> bender_git::error::Result<()> {
-    /// # let db = GitDatabase::init_bare("/tmp/db", Arc::new(Semaphore::new(4)))?;
+    /// # let db = GitDatabase::init_bare("/tmp/db")?;
     /// # let rev = db.resolve("HEAD")?;
     /// # let checkout_path = std::path::PathBuf::from("/tmp/checkout");
     /// let tag = format!("bender-tmp-{}", rev.short(8));
@@ -138,13 +119,8 @@ impl GitDatabase {
         branch_or_tag: &str,
     ) -> Result<GitCheckout> {
         let path = path.into();
-        let db_path = self.path.to_str().unwrap();
+        let db_path = self.repo.path().to_str().unwrap();
         let checkout_path = path.to_str().unwrap();
-
-        // Use a SubprocessRunner rooted at the *parent* directory since the
-        // checkout directory does not exist yet.
-        let parent = path.parent().unwrap();
-        let runner = SubprocessRunner::new(parent.to_path_buf(), self.throttle.clone())?;
 
         // --shared sets up .git/objects/info/alternates pointing at the
         // database's object directory. The checkout owns no objects itself;
@@ -161,7 +137,7 @@ impl GitDatabase {
         // GIT_LFS_SKIP_SMUDGE=1 prevents git-lfs from downloading LFS objects
         // during clone. LFS objects are pulled explicitly afterwards via
         // lfs_pull() so bender can decide whether LFS is needed.
-        runner
+        self.runner()?
             .run_discard(
                 &[
                     "clone",
@@ -175,7 +151,7 @@ impl GitDatabase {
             )
             .await?;
 
-        GitCheckout::open(path, self.throttle.clone())
+        GitCheckout::open(path)
     }
 
     /// Create or overwrite a local tag pointing to `commit`.
@@ -319,7 +295,7 @@ impl GitDatabase {
     /// cached `ThreadSafeRepository`. Remotes are added via subprocess after
     /// construction, so the cached config snapshot would not include them.
     pub fn remote_url(&self, remote: &str) -> Result<String> {
-        let repo = gix::open(&self.path).map_err(gix_err)?;
+        let repo = gix::open(self.repo.path()).map_err(gix_err)?;
         let remote = repo.find_remote(remote).map_err(gix_err)?;
         let url = remote
             .url(gix::remote::Direction::Fetch)

@@ -3,8 +3,9 @@
 ///
 /// All network operations (fetch, clone, push) go through here. The semaphore
 /// is acquired for every subprocess invocation so that the total number of
-/// concurrent git processes is bounded. Local/read-only operations implemented
-/// via `gix` do NOT go through here and therefore do not acquire the semaphore.
+/// concurrent git processes can be bounded when configured. Local/read-only
+/// operations implemented via `gix` do NOT go through here and therefore do not
+/// acquire the semaphore.
 use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, OnceLock};
@@ -18,12 +19,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use crate::error::{GitError, Result};
 
 static GIT_BIN: OnceLock<PathBuf> = OnceLock::new();
-
-/// Lazily-resolved path to the `git-lfs` binary.
-///
-/// Resolved once on first use by running `git-lfs`. If `git-lfs` is
-/// not installed this is `Err` and `lfs_pull` will return an error instead of
-/// silently leaving raw LFS pointer files in the working tree.
+static GIT_THROTTLE: OnceLock<Arc<Semaphore>> = OnceLock::new();
 pub(crate) static GIT_LFS: LazyLock<std::result::Result<PathBuf, String>> =
     LazyLock::new(|| which::which("git-lfs").map_err(|e| e.to_string()));
 
@@ -38,18 +34,29 @@ pub fn set_git_bin(path: impl AsRef<OsStr>) -> Result<()> {
         .map_err(|_| GitError::GitBinAlreadySet)
 }
 
+/// Override the maximum number of concurrent git subprocesses.
+///
+/// If not called, subprocesses are effectively unbounded.
+/// Must be called before the first git subprocess operation to take effect.
+/// Returns an error if the throttle has already been configured or used.
+pub fn set_git_throttle(limit: usize) -> Result<()> {
+    GIT_THROTTLE
+        .set(Arc::new(Semaphore::new(limit)))
+        .map_err(|_| GitError::GitThrottleAlreadySet)
+}
+
 pub(crate) struct SubprocessRunner {
     pub work_dir: PathBuf,
-    pub throttle: Arc<Semaphore>,
 }
 
 impl SubprocessRunner {
-    pub fn new(work_dir: PathBuf, throttle: Arc<Semaphore>) -> Result<Self> {
+    pub fn new(work_dir: PathBuf) -> Result<Self> {
         if GIT_BIN.get().is_none() {
             let path = which::which("git").map_err(|e| GitError::GitBinNotFound(e.to_string()))?;
             let _ = GIT_BIN.set(path);
         }
-        Ok(Self { work_dir, throttle })
+        let _ = GIT_THROTTLE.get_or_init(|| Arc::new(Semaphore::new(Semaphore::MAX_PERMITS)));
+        Ok(Self { work_dir })
     }
 
     /// Build a pre-configured git command.
@@ -65,7 +72,9 @@ impl SubprocessRunner {
     }
 
     async fn acquire_permit(&self) -> Result<OwnedSemaphorePermit> {
-        self.throttle
+        GIT_THROTTLE
+            .get()
+            .expect("git throttle initialized in new()")
             .clone()
             .acquire_owned()
             .await

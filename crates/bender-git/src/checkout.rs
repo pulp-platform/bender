@@ -1,11 +1,9 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use crate::error::{GitError, Result, gix_err};
 use crate::progress::{GitProgress, SubmoduleTracker, on_submodule_progress};
 use crate::subprocess::{GIT_LFS, SubprocessRunner};
 use crate::types::ObjectId;
-use tokio::sync::Semaphore;
 
 /// A git working tree checkout.
 ///
@@ -20,26 +18,19 @@ use tokio::sync::Semaphore;
 /// checkout to be moved or deleted independently of the database.
 #[derive(Clone)]
 pub struct GitCheckout {
-    /// Absolute path to the working tree directory.
-    pub path: PathBuf,
-    throttle: Arc<Semaphore>,
     repo: gix::ThreadSafeRepository,
 }
 
 impl GitCheckout {
     /// Open an existing working tree at `path`.
-    pub fn open(path: impl Into<PathBuf>, throttle: Arc<Semaphore>) -> Result<Self> {
-        let path = path.into();
-        let repo = gix::open(&path).map_err(gix_err)?.into_sync();
-        Ok(Self {
-            path,
-            throttle,
-            repo,
-        })
+    pub fn open(path: impl Into<PathBuf>) -> Result<Self> {
+        let repo = gix::open(path).map_err(gix_err)?.into_sync();
+        Ok(Self { repo })
     }
 
     fn runner(&self) -> Result<SubprocessRunner> {
-        SubprocessRunner::new(self.path.clone(), self.throttle.clone())
+        let work_dir = self.repo.work_dir().expect("checkout should have work dir");
+        SubprocessRunner::new(work_dir.to_path_buf())
     }
 
     /// Return the commit OID currently checked out (`HEAD^{commit}`).

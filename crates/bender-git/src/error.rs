@@ -33,6 +33,9 @@ pub enum GitError {
     #[error("git binary already configured")]
     GitBinAlreadySet,
 
+    #[error("git subprocess throttle already configured")]
+    GitThrottleAlreadySet,
+
     #[error("git-lfs not found: {0}")]
     LfsNotFound(String),
 
