@@ -140,18 +140,23 @@ async fn drain_stderr_lines(
 ) -> Vec<u8> {
     let mut line_buf = Vec::new();
     let mut raw_stderr = Vec::new();
+    let mut chunk = [0_u8; 4096];
 
-    while let Ok(byte) = stderr.read_u8().await {
-        raw_stderr.push(byte);
-        if byte != b'\r' && byte != b'\n' {
-            line_buf.push(byte);
-            continue;
+    while let Ok(read) = stderr.read(&mut chunk).await {
+        if read == 0 {
+            break;
         }
-        if let Ok(line) = std::str::from_utf8(&line_buf) {
-            on_line(line);
+        raw_stderr.extend_from_slice(&chunk[..read]);
+        for &byte in &chunk[..read] {
+            if byte != b'\r' && byte != b'\n' {
+                line_buf.push(byte);
+                continue;
+            }
+            if let Ok(line) = std::str::from_utf8(&line_buf) {
+                on_line(line);
+            }
+            line_buf.clear();
         }
-        line_buf.clear();
     }
-
     raw_stderr
 }
