@@ -166,6 +166,7 @@ name = "bender-git"
 version = "0.1.0"
 dependencies = [
  "gix",
+ "indicatif",
  "log",
  "regex",
  "tempfile",
@@ -813,7 +814,9 @@ checksum = "0473c64d9ccbcfb9953a133b47c8b9a335b87ac6c52b983ee4b03d49000b0f3f"
 dependencies = [
  "gix-actor",
  "gix-archive",
+ "gix-attributes",
  "gix-blame",
+ "gix-command",
  "gix-commitgraph",
  "gix-config",
  "gix-date",
@@ -827,6 +830,7 @@ dependencies = [
  "gix-glob",
  "gix-hash",
  "gix-hashtable",
+ "gix-ignore",
  "gix-index",
  "gix-lock",
  "gix-merge",
@@ -835,6 +839,7 @@ dependencies = [
  "gix-odb",
  "gix-pack",
  "gix-path",
+ "gix-pathspec",
  "gix-protocol",
  "gix-ref",
  "gix-refspec",

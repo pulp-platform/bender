@@ -22,10 +22,12 @@ regex = "1"
 # store access needed for finding objects and decoding trees/commits.
 # Do NOT enable: credentials, blocking-network-client, async-network-client.
 gix = { version = "0.81.0", default-features = false, features = [
+    "attributes", # submodule metadata and .gitmodules access
     "sha1",       # required: select SHA-1 as the hash algorithm (hardware-accelerated)
     "revision",   # rev_parse, rev_walk, commit graph traversal
 ] }
 
 [dev-dependencies]
+indicatif = "0.18"
 tempfile = "3.5"
 tokio = { version = "1.27", features = ["full"] }
