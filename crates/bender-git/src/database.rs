@@ -21,12 +21,12 @@ use crate::types::ObjectId;
 /// ## Operation categories
 ///
 /// - **Subprocess operations** (async, acquire the throttle semaphore):
-///   `fetch`, `fetch_ref`, `add_remote`.
-///   Network I/O or operations where gix has no public disk-write API.
+///   `fetch`, `fetch_ref`.
+///   Network I/O requiring the system `git` binary.
 ///
 /// - **`gix` operations** (synchronous, no semaphore):
-///   `tag_commit`, `list_refs`, `list_revs`, `cat_file`, `list_files`,
-///   `resolve`, `remote_url`.
+///   `add_remote`, `tag_commit`, `list_refs`, `list_revs`, `cat_file`,
+///   `list_files`, `resolve`, `remote_url`.
 ///   All local reads and writes — fast and safe to run concurrently.
 #[derive(Clone)]
 pub struct GitDatabase {
@@ -56,13 +56,27 @@ impl GitDatabase {
     ///
     /// Equivalent to `git remote add <name> <url>`.
     ///
-    /// This uses the `git` subprocess even though it is a local operation.
-    /// gix's `remote_at()` creates an in-memory remote only; there is currently
-    /// no public API to persist it to `.git/config`.
+    /// This persists the remote to the repository-local `config` file using
+    /// `gix` only, including the default fetch refspec Git would install.
     pub async fn add_remote(&self, name: &str, url: &str) -> Result<()> {
-        self.runner()?
-            .run_discard(&["remote", "add", name, url], &[])
-            .await
+        let repo = self.repo.to_thread_local();
+        let refspec = format!("+refs/heads/*:refs/remotes/{name}/*");
+        let mut remote = repo
+            .remote_at(url)
+            .map_err(gix_err)?
+            .with_refspecs(Some(refspec.as_str()), gix::remote::Direction::Fetch)
+            .map_err(gix_err)?;
+
+        let config_path = repo.path().join("config");
+        let mut config = gix::config::File::from_path_no_includes(
+            config_path.clone(),
+            gix::config::Source::Local,
+        )
+        .map_err(gix_err)?;
+        remote.save_as_to(name, &mut config).map_err(gix_err)?;
+
+        let mut out = std::fs::File::create(&config_path).map_err(gix_err)?;
+        config.write_to(&mut out).map_err(gix_err)
     }
 
     /// Fetch all tags and branches from `remote`.
@@ -292,8 +306,8 @@ impl GitDatabase {
     /// This is a pure local read and does not acquire the throttle semaphore.
     ///
     /// Note: this re-opens the repository on each call rather than using the
-    /// cached `ThreadSafeRepository`. Remotes are added via subprocess after
-    /// construction, so the cached config snapshot would not include them.
+    /// cached `ThreadSafeRepository`. Remotes may be added after construction,
+    /// so the cached config snapshot would not include them.
     pub fn remote_url(&self, remote: &str) -> Result<String> {
         let repo = gix::open(self.repo.path()).map_err(gix_err)?;
         let remote = repo.find_remote(remote).map_err(gix_err)?;
