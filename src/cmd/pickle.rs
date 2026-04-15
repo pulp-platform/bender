@@ -44,6 +44,10 @@ pub struct PickleArgs {
     #[arg(long)]
     pub exclude: Vec<String>,
 
+    /// Keep export include directories from excluded packages
+    #[arg(long)]
+    pub keep_excluded_incdirs: bool,
+
     /// Exclude all dependencies, i.e. only top level or specified package(s)
     #[arg(long)]
     pub no_deps: bool,
@@ -117,7 +121,7 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
     let srcs = srcs
         .filter_targets(&targets)
         .unwrap_or_default()
-        .filter_packages(&packages)
+        .filter_packages(&packages, args.keep_excluded_incdirs)
         .unwrap_or_default();
 
     // Flatten and validate the sources.

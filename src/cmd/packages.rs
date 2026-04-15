@@ -57,7 +57,7 @@ pub fn run(sess: &Session, args: &PackagesArgs) -> Result<()> {
                 target_str.push_str(&format!(
                     "{}:\t{:?}\n",
                     pkg_name,
-                    srcs.filter_packages(&IndexSet::from([pkg_name.into()]))
+                    srcs.filter_packages(&IndexSet::from([pkg_name.into()]), false)
                         .unwrap_or_default()
                         .get_avail_targets()
                 ));
@@ -66,7 +66,7 @@ pub fn run(sess: &Session, args: &PackagesArgs) -> Result<()> {
         target_str.push_str(&format!(
             "{}:\t{:?}\n",
             &sess.manifest.package.name,
-            srcs.filter_packages(&IndexSet::from([sess.manifest.package.name.clone()]))
+            srcs.filter_packages(&IndexSet::from([sess.manifest.package.name.clone()]), false)
                 .unwrap_or_default()
                 .get_avail_targets()
         ));
