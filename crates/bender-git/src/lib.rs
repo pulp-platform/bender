@@ -28,11 +28,14 @@
 //!   directly. They are synchronous and do not acquire the throttle semaphore,
 //!   so they can run concurrently without limit.
 //!
-//! - **Subprocess operations** (`fetch`, `clone_into`, `add_remote`) spawn the
-//!   system `git` binary. They are async and acquire the shared semaphore.
-//!   `fetch` and `clone_into` require credential handling; `add_remote` is local
-//!   but gix has no public API for persisting a remote to `.git/config`
-//!   (the relevant helper is `pub(crate)` in gix).
+//! - **Subprocess operations** (`fetch`, `clone_into`) spawn the system `git`
+//!   binary. They are async and acquire the shared semaphore because they
+//!   require credential handling or other network-facing behavior.
+//!
+//! - **Pure `gix` local operations** (`add_remote`, `tag_commit`, `list_tags`,
+//!   `list_branches`, `list_revs`, `read_file`, `resolve`, `current_checkout`,
+//!   `remote_url`) avoid subprocesses and operate directly on repository data
+//!   and config.
 //!
 //! ## Typical usage
 //!
