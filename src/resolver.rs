@@ -950,7 +950,30 @@ impl<'ctx> DependencyResolver<'ctx> {
                     break (decision.0.clone(), *decision.1);
                 }
             };
-            let indices = self.req_indices(name, &decision.0, sources.get(&decision.1).unwrap());
+            let source = match sources.get(&decision.1) {
+                Some(src) => src,
+                None => {
+                    // This may happen if the choice is from the provided lockfile.
+                    // Check for the source among the locked dependencies.
+                    if let Ok(new_versions) =
+                        rt.block_on(io.dependency_versions(decision.1, None, None))
+                    {
+                        sources.insert(
+                            decision.1,
+                            DependencyReference::new(decision.1, new_versions.clone()),
+                        );
+                        &DependencyReference::new(decision.1, new_versions.clone())
+                    } else {
+                        bail!(
+                            "Dependency `{}` from `{}` not found among sources for `{}`",
+                            name,
+                            self.sess.dependency_source(decision.1),
+                            name
+                        )
+                    }
+                }
+            };
+            let indices = self.req_indices(name, &decision.0, source);
             match indices {
                 Ok(ref v) if !v.is_empty() => Ok((decision.1, v.clone())),
                 _ => {
