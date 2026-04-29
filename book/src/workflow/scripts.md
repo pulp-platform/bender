@@ -54,7 +54,7 @@ The `script` command provides several flags to fine-tune the generated output:
 - **`-e/--exclude <PKG>`**: Exclude a specific package from the generated script.
 
 ### RTL Assumption
-- **`--assume-rtl`**: Automatically adds the `rtl` target to any source group that does not have an explicit target specification. This is a common shorthand for generating synthesis scripts without having to tag every RTL file.
+- **`--assume-rtl`**: Automatically adds the `rtl` target to any source group that does not have an explicit target specification. This is an optional shorthand for generating synthesis scripts without having to tag every RTL file.
 
 ### Compilation Control
 - **`--compilation-mode <separate|common>`**: 

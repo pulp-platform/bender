@@ -84,8 +84,8 @@ workspace:
 
   # Directory where dependencies will be checked out. Optional.
   # Once set, Bender performs the initial checkout and then leaves the directory
-  # untouched. Useful for chip packages that commit all dependencies into their
-  # own version control.
+  # untouched if any modification is detected. Useful for chip packages that commit
+  # all dependencies into their own version control.
   checkout_dir: deps
 ```
 

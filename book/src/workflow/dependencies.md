@@ -3,13 +3,17 @@
 As working with dependencies is one of bender's main features, there are a few commands to ensure functionality and assist with understanding the dependency structure.
 
 ## New dependencies
-Once new dependencies are added to the manifest, bender needs to first be made aware of their existence. Otherwise, some commands will not work correctly and return an error. To update dependencies, run the following command:
+Once new dependencies are added to the manifest, bender needs to first be made aware of their existence. Otherwise, the internally used dependency tree will be incorrect or mismatched, and some commands will not work correctly, returning an error. To update dependencies, run the following command:
 
 ```sh
 bender update
 ```
 
 In case other dependencies already exist and you do not want to re-resolve these, you can add the `--new-only` flag to the update command.
+
+> **Note:** On update, bender creates or modifies the [`Bender.lock` lockfile](./lockfile.md), which keeps track of the currently selected dependency versions.
+
+> **Note:** Most bender commands will automatically run an update if no `Bender.lock` lockfile is found.
 
 ## Updating dependencies
 Similar to when adding new dependencies, updating existing dependencies to more recent versions is also done with the `update` command.
@@ -40,7 +44,7 @@ Bender will download the exact revisions specified in `Bender.lock`. This comman
 
 > **Note:** Many other commands (like `sources` or `script`) will automatically trigger a checkout if they detect missing dependencies.
 
-## Inspecting the Dependency Tree
+## Inspecting the Dependency Tree (`packages`)
 
 To see the full list of dependencies and how they relate to each other, use the `packages` command:
 
@@ -50,7 +54,7 @@ bender packages
 
 This prints a tree structure showing every package in your project, its resolved version, and its source. Use the `-f/--flat` flag if you just want a simple list of names and versions.
 
-## Finding Package Paths
+## Finding Package Paths (`path`)
 
 If you need to know where a specific dependency is stored (e.g., to point an external tool to it), use:
 

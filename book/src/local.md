@@ -40,5 +40,5 @@ git: /usr/local/bin/git-wrapper.sh
 
 ## Best Practices
 
-- **Don't Commit It:** `Bender.local` should **rarely** be checked into version control. It contains paths and settings specific to your local machine. Always add it to your `.gitignore`.
+- **Don't Commit It:** `Bender.local` should **rarely** be checked into version control. It can contain paths and settings specific to your local machine. Always add it to your `.gitignore`.
 - **Use for Development:** Think of it as your "scratchpad" for multi-package development. Once your changes to a dependency are stable and released (tagged), remember to remove the override from `Bender.local` and update your `Bender.yml` with the new version.

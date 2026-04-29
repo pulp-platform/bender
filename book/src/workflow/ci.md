@@ -32,7 +32,7 @@ steps:
 
 ## GitLab CI
 
-For GitLab CI, you can use the standard [installation script](../installation.md) to fetch the Bender binary at the start of your job.
+For GitLab CI, you can use the standard [installation script](../installation.md) to fetch the Bender binary at the start of your job if bender is not already installed in the system.
 
 ### Example Workflow
 

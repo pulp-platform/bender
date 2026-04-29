@@ -41,6 +41,6 @@ The main benefit of a snapshot is portability. Because the lockfile is updated w
 Once your changes are stable and you are ready to "release" them:
 
 1.  **Tag the Dependency:** Push your changes to the remote repository and create a new version tag (e.g., `v1.2.2`).
-2.  **Update Manifest:** Update the version requirement in your top-level `Bender.yml` to include the new version.
+2.  **Update Manifest:** Update the version requirement in your `Bender.yml` to include the new version.
 3.  **Clean Up:** Remove the local overrides from your `Bender.local` file.
 4.  **Resolve:** Run `bender update` to re-resolve the dependency tree and update `Bender.lock` to point to the new official version.

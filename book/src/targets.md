@@ -1,6 +1,6 @@
 # Targets
 
-Targets are the primary mechanism in Bender for managing project configurations. They allow you to conditionally include source files, include directories, and dependencies based on the current context (e.g., simulation vs. synthesis, or FPGA vs. ASIC).
+Targets are the primary mechanism in Bender for managing project configurations. They allow you to conditionally include source files, include directories, and dependencies based on the current context (e.g., simulation vs. synthesis, or FPGA vs. ASIC) or the desired configuration (e.g., with/without cache).
 
 ## Target Expressions
 

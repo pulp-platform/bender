@@ -6,10 +6,10 @@ Bender helps you manage complex hardware IP hierarchies, ensuring that every mem
 
 ## Key Features
 
-- **Hierarchical Dependency Management:** Resolve and manage transitive dependencies across multiple Git repositories or local paths.
-- **Reproducible Builds:** A precise lockfile mechanism (`Bender.lock`) ensures bit-identical design states across environments.
+- **Hierarchical Dependency Management:** Resolve and manage transitive dependencies across multiple Git repositories or local paths, allowing for IPs to be used across projects.
+- **Reproducible Builds:** A precise lockfile mechanism (`Bender.lock`) ensures identical design states across environments.
 - **HDL-Aware Source Collection:** Automatically manages file ordering, include directories, and preprocessor defines for SystemVerilog and VHDL.
-- **Target-Based Filtering:** Use powerful boolean expressions to include or exclude files based on your flow (simulation, synthesis, etc.).
+- **Target-Based Filtering:** Use powerful boolean expressions to include or exclude files based on your flow (simulation, synthesis, etc.) or design configuration.
 - **Local Development Workflow:** Easily modify dependencies in-place using the `clone` and `snapshot` flow without breaking official manifests.
 - **Tool Script Generation:** Generate compilation and simulation scripts for major EDA tools like QuestaSim, VCS, Vivado, Verilator, and more.
 

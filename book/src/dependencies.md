@@ -12,7 +12,7 @@ Git is the primary way to distribute Bender packages. You can specify them in tw
 > **Important:** The shorthand notation (e.g., `common_cells: "1.21.0"`) is only available if you have defined at least one [remote](#remotes) in your manifest. If no remote is specified, you must use the full `git` URL (see [revision](#revision-based))
 
 #### Version-based (Recommended)
-Bender uses [Semantic Versioning (SemVer)](https://semver.org/) to find the best compatible version. You can use standard [SemVer operators](https://docs.rs/semver/latest/semver/enum.Op.html) to specify version ranges:
+Bender uses [Semantic Versioning (SemVer)](https://semver.org/) to find the best compatible version. You can use [SemVer operators](https://docs.rs/semver/latest/semver/enum.Op.html) to specify version ranges:
 
 ```yaml
 dependencies:
