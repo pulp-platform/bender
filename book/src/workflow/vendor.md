@@ -6,7 +6,7 @@ This flow is heavily inspired by the `vendor.py` script used in the [OpenTitan](
 
 ## Configuration
 
-Vendorized packages are defined in the `vendor_package` section of your `Bender.yml`:
+Vendorized packages are defined in the `vendor_package` section of your [`Bender.yml`](../manifest.md):
 
 ```yaml
 vendor_package:
@@ -86,6 +86,6 @@ If you want to contribute your fix back to the upstream repository:
 ## When to use Vendor?
 
 Use the vendor flow when:
-- The external IP does not have its own `Bender.yml`.
+- The external IP does not have its own [`Bender.yml`](../manifest.md).
 - You need to include only a small subset of a massive repository.
 - You must maintain local modifications (bug fixes or tool workarounds) that haven't been merged upstream yet.

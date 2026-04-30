@@ -9,9 +9,9 @@ Bender looks for configuration files in the following order, merging them as the
 1.  **System-wide:** `/etc/bender.yml`
 2.  **User-specific:** `$HOME/.config/bender.yml` (or the equivalent on your OS)
 3.  **Project-specific (checked in):** `.bender.yml` in your project root.
-4.  **Local Workspace (ignored):** `Bender.local` in your project root.
+4.  **Local Workspace (ignored):** [`Bender.local`](./local.md) in your project root.
 
-The contents of these files are merged such that a configuration in a lower-level file (like `Bender.local`) will overwrite a configuration in a higher-level file (like `/etc/bender.yml`).
+The contents of these files are merged such that a configuration in a lower-level file (like [`Bender.local`](./local.md)) will overwrite a configuration in a higher-level file (like `/etc/bender.yml`).
 
 ## Configuration Fields
 
@@ -38,7 +38,7 @@ Enable or disable Git Large File Storage (LFS) support.
 - **Example:** `git_lfs: false`
 
 ### `overrides`
-Forces specific dependencies to use a particular version or local path. This is primarily used in `Bender.local` for development.
+Forces specific dependencies to use a particular version or local path. This is primarily used in [`Bender.local`](./local.md) for development.
 - **Example:**
   ```yaml
   overrides:
@@ -50,7 +50,7 @@ Auxiliary plugin dependencies that are loaded for every package. These allow you
 
 ## Usage Example
 
-A typical `Bender.local` file used for local development might look like this:
+A typical [`Bender.local`](./local.md) file used for local development might look like this:
 
 ```yaml
 # Speed up git operations locally

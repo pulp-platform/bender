@@ -1,10 +1,10 @@
 # Sources
 
-The `sources` section in `Bender.yml` defines the source files, include directories, and preprocessor definitions that make up your package.
+The `sources` section in [`Bender.yml`](./manifest.md) defines the source files, include directories, and preprocessor definitions that make up your package.
 
 ## Basic File Listing
 
-The simplest way to include files is to list them as strings. All paths are relative to the location of the `Bender.yml` file.
+The simplest way to include files is to list them as strings. All paths are relative to the location of the [`Bender.yml`](./manifest.md) file.
 
 ```yaml
 sources:

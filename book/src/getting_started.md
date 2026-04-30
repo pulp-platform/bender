@@ -12,11 +12,11 @@ cd my_new_ip
 bender init
 ```
 
-This creates a default `Bender.yml` file. Bender will automatically try to fill in your name and email from your Git configuration.
+This creates a default [`Bender.yml`](./manifest.md) file. Bender will automatically try to fill in your name and email from your Git configuration.
 
 ## 2. Add a Dependency
 
-Open `Bender.yml` in your editor and add the `common_cells` library to the `dependencies` section:
+Open [`Bender.yml`](./manifest.md) in your editor and add the `common_cells` library to the `dependencies` section:
 
 ```yaml
 package:
@@ -38,7 +38,7 @@ Now, tell Bender to resolve the version of `common_cells` and download it:
 bender update
 ```
 
-This command creates a `Bender.lock` file (the "exact" version chosen) and downloads the source code into a hidden `.bender` directory.
+This command creates a [`Bender.lock`](./lockfile.md) file (the "exact" version chosen) and downloads the source code into a hidden `.bender` directory.
 
 ## 4. Add Source Code
 

@@ -26,7 +26,7 @@ Target names can contain alphanumeric characters, dots (`.`), underscores (`_`),
 - `not(simulation)`: Matches only when 'simulation' is **not** set.
 - `any(test, all(rtl, simulation))`: Matches for testbenches, or for RTL code during simulation.
 
-## Usage in Bender.yml
+## Usage in [`Bender.yml`](./manifest.md)
 
 ### Source Groups
 You can wrap a group of files in a `target` specification. This allows you to manage different implementations or verification components within the same package.

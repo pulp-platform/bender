@@ -4,9 +4,9 @@ Integrating Bender into your CI/CD pipeline ensures that your hardware project i
 
 ## Reproducibility
 
-In a CI environment, you should never run `bender update`. Instead, your pipeline should rely on the `Bender.lock` file to fetch the exact revisions of your dependencies.
+In a CI environment, you should never run `bender update`. Instead, your pipeline should rely on the [`Bender.lock`](../lockfile.md) file to fetch the exact revisions of your dependencies.
 
-1.  **Commit** `Bender.lock`: Ensure the lockfile is checked into your repository.
+1.  **Commit** [`Bender.lock`](../lockfile.md): Ensure the lockfile is checked into your repository.
 2.  **Use** `bender checkout`: This command reads the lockfile and reconstructs the dependency tree without changing any versions.
 
 ## GitHub Actions
@@ -55,7 +55,7 @@ sim_job:
 
 ## Caching
 
-Since `Bender.lock` uniquely identifies the state of all dependencies, it is theoretically possible to cache the `.bender` directory to speed up pipelines. However, for most projects, the overhead of managing the cache (uploading/downloading) might outweigh the time saved by `bender checkout`, especially with fast network connections to Git remotes.
+Since [`Bender.lock`](../lockfile.md) uniquely identifies the state of all dependencies, it is theoretically possible to cache the `.bender` directory to speed up pipelines. However, for most projects, the overhead of managing the cache (uploading/downloading) might outweigh the time saved by `bender checkout`, especially with fast network connections to Git remotes.
 
 Caching is only recommended for projects with exceptionally large dependency trees or slow network access.
 
@@ -80,4 +80,4 @@ cache:
     - .bender/
 ```
 
-> **Note on Cache Keys:** We use the hash of `Bender.lock` as the cache key. This ensures the cache is only reused when the dependencies haven't changed.
+> **Note on Cache Keys:** We use the hash of [`Bender.lock`](../lockfile.md) as the cache key. This ensures the cache is only reused when the dependencies haven't changed.

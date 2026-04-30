@@ -11,9 +11,9 @@ bender update
 
 In case other dependencies already exist and you do not want to re-resolve these, you can add the `--new-only` flag to the update command.
 
-> **Note:** On update, bender creates or modifies the [`Bender.lock` lockfile](./lockfile.md), which keeps track of the currently selected dependency versions.
+> **Note:** On update, bender creates or modifies the [`Bender.lock`](../lockfile.md), which keeps track of the currently selected dependency versions.
 
-> **Note:** Most bender commands will automatically run an update if no `Bender.lock` lockfile is found.
+> **Note:** Most bender commands will automatically run an update if no [`Bender.lock`](../lockfile.md) is found.
 
 ## Updating dependencies
 Similar to when adding new dependencies, updating existing dependencies to more recent versions is also done with the `update` command.
@@ -34,13 +34,13 @@ bender update <PKG_NAME> --recursive
 
 ## Checking out Dependencies
 
-While `bender update` resolves versions and updates the lockfile, it does not necessarily download all the source code. To ensure all dependencies are locally available, use:
+While `bender update` resolves versions and updates the [`Bender.lock`](../lockfile.md), it does not necessarily download all the source code. To ensure all dependencies are locally available, use:
 
 ```sh
 bender checkout
 ```
 
-Bender will download the exact revisions specified in `Bender.lock`. This command is safe to run multiple times; it will only download missing packages or update those that have changed in the lockfile.
+Bender will download the exact revisions specified in [`Bender.lock`](../lockfile.md). This command is safe to run multiple times; it will only download missing packages or update those that have changed in the [`Bender.lock`](../lockfile.md).
 
 > **Note:** Many other commands (like `sources` or `script`) will automatically trigger a checkout if they detect missing dependencies.
 

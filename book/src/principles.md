@@ -5,11 +5,11 @@ Bender was created to solve the challenges of managing large-scale hardware desi
 ## 1. Modular and Opt-in
 Bender is designed to be a "pre-build" tool. It does not replace your EDA tools (synthesis, simulation, formal); it helps orchestrate them. 
 - **Tool Agnostic:** Whether you use Vivado, Questa, VCS, or Verilator, Bender provides the necessary file lists and configurations.
-- **Flexible Layout:** We do not enforce a strict directory structure. As long as a `Bender.yml` is present, Bender can manage it.
+- **Flexible Layout:** We do not enforce a strict directory structure. As long as a [`Bender.yml`](./manifest.md) is present, Bender can manage it.
 
 ## 2. Reproducibility as Ground Truth
 In hardware design, knowing exactly what was taped out or simulated is critical.
-- **Precise Locking:** The `Bender.lock` file tracks every dependency down to its specific Git commit hash.
+- **Precise Locking:** The [`Bender.lock`](./lockfile.md) file tracks every dependency down to its specific Git commit hash.
 - **Immutable States:** By committing the lockfile, you ensure that everyone on the team—and every CI runner—is using identical source code.
 
 ## 3. Decentralized and Secure
@@ -19,7 +19,7 @@ Unlike many software package managers (like npm or cargo), Bender does not rely 
 
 ## 4. Local-First Development
 Hardware development often requires modifying an IP and its dependencies simultaneously.
-- **Zero-Friction Overrides:** The `Bender.local` mechanism allows you to temporarily swap a remote dependency for a local working copy without changing the project's official manifest.
+- **Zero-Friction Overrides:** The [`Bender.local`](./local.md) mechanism allows you to temporarily swap a remote dependency for a local working copy without changing the project's official manifest.
 - **Seamless Snapshots:** Captured states can be shared or moved to CI easily, bridging the gap between local development and official releases.
 
 ---

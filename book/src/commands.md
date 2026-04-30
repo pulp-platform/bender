@@ -1,6 +1,6 @@
 # Commands
 
-`bender` is the entry point to the dependency management system. Bender always operates within a package; starting at the current working directory, search upwards the file hierarchy until a `Bender.yml` is found, which marks the package.
+`bender` is the entry point to the dependency management system. Bender always operates within a package; starting at the current working directory, search upwards the file hierarchy until a [`Bender.yml`](./manifest.md) is found, which marks the package.
 
 
 ## `path` --- Get the path of a checked-out package
@@ -69,7 +69,7 @@ Furthermore, similar flags to the `sources` command exist.
 
 ## `update` --- Re-resolve dependencies
 
-Whenever you update the list of dependencies, you likely have to run `bender update` to re-resolve the dependency versions, and recreate the `Bender.lock` file.
+Whenever you update the list of dependencies, you likely have to run `bender update` to re-resolve the dependency versions, and recreate the [`Bender.lock`](./lockfile.md) file.
 
 Calling update with the `--fetch/-f` flag will force all git dependencies to be re-fetched from their corresponding urls.
 
@@ -79,21 +79,21 @@ Calling update with the `--fetch/-f` flag will force all git dependencies to be 
 ## `clone` --- Clone dependency to make modifications
 
 The `bender clone <PKG>` command checks out the package `PKG` into a directory (default `working_dir`, can be overridden with `-p / --path <DIR>`).
-To ensure the package is correctly linked in bender, the `Bender.local` file is modified to include a `path` dependency override, linking to the corresponding package.
+To ensure the package is correctly linked in bender, the [`Bender.local`](./local.md) file is modified to include a `path` dependency override, linking to the corresponding package.
 
 This can be used for development of dependent packages within the parent repository, allowing to test uncommitted and committed changes, without the worry that bender would update the dependency.
 
-To clean up once the changes are added, ensure the correct version is referenced by the calling packages and remove the path dependency in `Bender.local`, or have a look at `bender snapshot`.
+To clean up once the changes are added, ensure the correct version is referenced by the calling packages and remove the path dependency in [`Bender.local`](./local.md), or have a look at `bender snapshot`.
 
-> Note: The location of the override may be updated in the future to prevent modifying the human-editable `Bender.local` file by adding a persistent section to `Bender.lock`.
+> Note: The location of the override may be updated in the future to prevent modifying the human-editable [`Bender.local`](./local.md) file by adding a persistent section to [`Bender.lock`](./lockfile.md).
 
-> Note: The newly created directory will be a git repo with a remote origin pointing to the `git` tag of the resolved dependency (usually evaluated from the manifest (`Bender.yml`)). You may need to adjust the git remote URL to properly work with your remote repository.
+> Note: The newly created directory will be a git repo with a remote origin pointing to the `git` tag of the resolved dependency (usually evaluated from the manifest ([`Bender.yml`](./manifest.md))). You may need to adjust the git remote URL to properly work with your remote repository.
 
 ## `snapshot` --- Relinks current checkout of cloned dependencies
 
 After working on a dependency cloned with `bender clone <PKG>`, modifications are generally committed to the parent git repository. Once committed, this new hash can be quickly used by bender by calling `bender snapshot`.
 
-With `bender snapshot`, all dependencies previously cloned to a working directory are linked to the git repositories and commit hashes currently checked out. The `Bender.local` is modified correspondingly to ensure reproducibility. Once satisfied with the changes, it is encouraged to properly tag the dependency with a version, remove the override in the `Bender.local`, and update the required version in the `Bender.yml`.
+With `bender snapshot`, all dependencies previously cloned to a working directory are linked to the git repositories and commit hashes currently checked out. The [`Bender.local`](./local.md) is modified correspondingly to ensure reproducibility. Once satisfied with the changes, it is encouraged to properly tag the dependency with a version, remove the override in the [`Bender.local`](./local.md), and update the required version in the [`Bender.yml`](./manifest.md).
 
 ## `parents` --- Lists packages calling the specified package
 
@@ -107,9 +107,9 @@ This command will ensure all dependencies are downloaded from remote repositorie
 
 This command will generate FuseSoC `.core` files from the bender representation for open-source compatibility to the FuseSoC tool. It is intended to provide a basic manifest file in a compatible format, such that any project wanting to include a bender package can do so without much overhead.
 
-If the `--single` argument is provided, only to top-level `Bender.yml` file will be parsed and a `.core` file generated.
+If the `--single` argument is provided, only to top-level [`Bender.yml`](./manifest.md) file will be parsed and a `.core` file generated.
 
-If the `--single` argument is *not* provided, bender will walk through all the dependencies and generate a FuseSoC `.core` file where none is present. If a `.core` file is already present in the same directory as the `Bender.yml` for the corresponding dependency, this will be used to link dependencies (if multiple are available, the user will be prompted to select one). Previously generated `.core` files will be overwritten, based on the included `Created by bender from the available manifest file.` comment in the `.core` file.
+If the `--single` argument is *not* provided, bender will walk through all the dependencies and generate a FuseSoC `.core` file where none is present. If a `.core` file is already present in the same directory as the [`Bender.yml`](./manifest.md) for the corresponding dependency, this will be used to link dependencies (if multiple are available, the user will be prompted to select one). Previously generated `.core` files will be overwritten, based on the included `Created by bender from the available manifest file.` comment in the `.core` file.
 
 The `--license` argument will allow you to add multiple comment lines at the top of the generated `.core` files, e.g. a License header string.
 
@@ -126,7 +126,7 @@ This is in part based on [lowRISC's `vendor.py` script](https://github.com/lowRI
 
 ### `vendor init` --- (Re-)initialize the vendorized dependencies
 
-This command will (re-)initialize the dependencies listed in the `vendor_package` section of the `Bender.yml` file, fetching the files from the remote repositories, applying the necessary patch files, and writing them to the respective `target_dir`.
+This command will (re-)initialize the dependencies listed in the `vendor_package` section of the [`Bender.yml`](./manifest.md) file, fetching the files from the remote repositories, applying the necessary patch files, and writing them to the respective `target_dir`.
 
 If the `-n/--no-patch` argument is passed, the dependency is initialized without applying any patches.
 
@@ -143,7 +143,7 @@ If the `--plain` argument is passed, this command will *not* prompt for a commit
 ### Example workflow
 
 Let's assume we would like to vendor a dependency `my_ip` into a project `monorepo`.
-A simple configuration in a `Bender.yml` could look as follows (see the `Bender.yml` description above for more information on this):
+A simple configuration in a [`Bender.yml`](./manifest.md) could look as follows (see the [`Bender.yml`](./manifest.md) description above for more information on this):
 
 ```yaml
 vendor_package:

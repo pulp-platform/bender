@@ -8,14 +8,14 @@ bender init
 
 ## How it Works
 
-Bender attempts to intelligently pre-fill your `Bender.yml` with the following information:
+Bender attempts to intelligently pre-fill your [`Bender.yml`](../manifest.md) with the following information:
 
 - **Package Name:** Set to the name of the current working directory.
 - **Authors:** Pulled automatically from your global Git configuration (`git config user.name` and `git config user.email`).
 
 ## The Generated Manifest
 
-The command creates a `Bender.yml` file with a structure similar to this:
+The command creates a [`Bender.yml`](../manifest.md) file with a structure similar to this:
 
 ```yaml
 package:

@@ -4,7 +4,7 @@ The lockfile, named `Bender.lock`, is a machine-generated file that records the 
 
 ## Why a Lockfile?
 
-While `Bender.yml` specifies your *intent* (e.g., "I need `common_cells` version 1.21.x"), the lockfile specifies the *reality* (e.g., "`common_cells` is version 1.21.5 at commit `a1b2c3d`").
+While [`Bender.yml`](./manifest.md) specifies your *intent* (e.g., "I need `common_cells` version 1.21.x"), the lockfile specifies the *reality* (e.g., "`common_cells` is version 1.21.5 at commit `a1b2c3d`").
 
 The lockfile ensures:
 - **Reproducible Builds:** Everyone on your team is working with the exact same code.
@@ -15,8 +15,8 @@ The lockfile ensures:
 
 The lockfile is managed by two primary commands:
 
-- **[`bender update`](./workflow/dependencies.md#updating-dependencies):** Scans manifests, resolves constraints, and **updates** the `Bender.lock`.
-- **[`bender checkout`](./workflow/dependencies.md#checking-out-dependencies):** Reads the `Bender.lock` and ensures the local state matches the exact recorded revisions.
+- [`bender update`](./workflow/dependencies.md#updating-dependencies): Scans manifests, resolves constraints, and **updates** the `Bender.lock`.
+- [`bender checkout`](./workflow/dependencies.md#checking-out-dependencies): Reads the `Bender.lock` and ensures the local state matches the exact recorded revisions.
 
 ## Structure of the Lockfile
 
@@ -46,7 +46,7 @@ packages:
 
 ## Frozen Manifests
 
-If you want to prevent accidental updates to your project's dependency tree, you can set `frozen: true` in your `Bender.yml`. 
+If you want to prevent accidental updates to your project's dependency tree, you can set `frozen: true` in your [`Bender.yml`](./manifest.md). 
 
 ```yaml
 package:

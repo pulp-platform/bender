@@ -1,10 +1,10 @@
 # Dependencies
 
-Bender is designed to manage complex, hierarchical dependency trees for hardware projects. A dependency is any external package that provides its own `Bender.yml` manifest.
+Bender is designed to manage complex, hierarchical dependency trees for hardware projects. A dependency is any external package that provides its own [`Bender.yml`](./manifest.md) manifest.
 
 ## Dependency Types
 
-Dependencies are defined in the `dependencies` section of your `Bender.yml`.
+Dependencies are defined in the `dependencies` section of your [`Bender.yml`](./manifest.md).
 
 ### Git Dependencies
 Git is the primary way to distribute Bender packages. You can specify them in two ways:
@@ -85,4 +85,4 @@ When you run `bender update`, Bender performs the following:
 
 For details on updating dependencies, see [Adding and Updating Dependencies](./workflow/dependencies.md)
 
-**Reproducibility:** Once a `Bender.lock` exists, running `bender checkout` will always download the exact same code, even if newer compatible versions have been released. Always commit your `Bender.lock` to version control.
+**Reproducibility:** Once a [`Bender.lock`](./lockfile.md) exists, running `bender checkout` will always download the exact same code, even if newer compatible versions have been released. Always commit your [`Bender.lock`](./lockfile.md) to version control.

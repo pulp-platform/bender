@@ -1,6 +1,6 @@
 # Local Configuration (`Bender.local`)
 
-`Bender.local` is an optional, user-specific configuration file used to override the project's default settings. Its primary purpose is to allow local development of dependencies without modifying the shared `Bender.yml` or `Bender.lock`.
+`Bender.local` is an optional, user-specific configuration file used to override the project's default settings. Its primary purpose is to allow local development of dependencies without modifying the shared [`Bender.yml`](./manifest.md) or [`Bender.lock`](./lockfile.md).
 
 ## Overriding Dependencies
 
@@ -21,8 +21,8 @@ When an override is present, Bender will prioritize it over any other version re
 
 `Bender.local` can be managed both manually and automatically. Several Bender commands manage it for you during the development process:
 
-- **[`bender clone`](./workflow/package_dev.md#cloning-dependencies):** Automates moving a dependency to a local working directory and adds a `path` override.
-- **[`bender snapshot`](./workflow/package_dev.md#snapshotting):** Updates `Bender.local` with the current Git hashes of your local checkouts.
+- [`bender clone`](./workflow/package_dev.md#cloning-dependencies): Automates moving a dependency to a local working directory and adds a `path` override.
+- [`bender snapshot`](./workflow/package_dev.md#snapshotting): Updates `Bender.local` with the current Git hashes of your local checkouts.
 
 For a detailed guide on using these commands for multi-package development, see the [Package Development Workflow](./workflow/package_dev.md).
 
@@ -41,4 +41,4 @@ git: /usr/local/bin/git-wrapper.sh
 ## Best Practices
 
 - **Don't Commit It:** `Bender.local` should **rarely** be checked into version control. It can contain paths and settings specific to your local machine. Always add it to your `.gitignore`.
-- **Use for Development:** Think of it as your "scratchpad" for multi-package development. Once your changes to a dependency are stable and released (tagged), remember to remove the override from `Bender.local` and update your `Bender.yml` with the new version.
+- **Use for Development:** Think of it as your "scratchpad" for multi-package development. Once your changes to a dependency are stable and released (tagged), remember to remove the override from `Bender.local` and update your [`Bender.yml`](./manifest.md) with the new version.
