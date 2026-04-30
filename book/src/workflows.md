@@ -7,3 +7,4 @@ This section provides practical guides on how to use Bender for common hardware 
 - **[Generating Tool Scripts](./workflow/scripts.md):** Creating compilation and simulation scripts for various EDA tools.
 - **[Package Development](./workflow/package_dev.md):** Developing multiple packages simultaneously using the `clone` and `snapshot` flow.
 - **[Vendorizing External Code](./workflow/vendor.md):** Managing external repositories that don't natively support Bender.
+- **[Continuous Integration](./workflow/ci.md):** Optimizing CI pipelines.
