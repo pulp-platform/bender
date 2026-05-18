@@ -9,16 +9,23 @@ Dependencies are defined in the `dependencies` section of your [`Bender.yml`](./
 ### Git Dependencies
 Git is the primary way to distribute Bender packages. You can specify them in two ways:
 
-> **Important:** The shorthand notation (e.g., `common_cells: "1.21.0"`) is only available if you have defined at least one [remote](#remotes) in your manifest. If no remote is specified, you must use the full `git` URL (see [revision](#revision-based))
-
 #### Version-based (Recommended)
 Bender uses [Semantic Versioning (SemVer)](https://semver.org/) to find the best compatible version. You can use [SemVer operators](https://docs.rs/semver/latest/semver/enum.Op.html) to specify version ranges:
+
+```yaml
+dependencies:
+  common_cells: { git: "https://github.com/pulp-platform/common_cells.git", version: "1.21.0" }
+  axi: { git: "https://github.com/pulp-platform/axi.git", version: ">=0.23.0, <0.26.0" }
+```
+
+If you have defined a [remote](#remotes) in your manifest, you can use the shorthand notation instead:
 
 ```yaml
 dependencies:
   common_cells: "1.21.0"
   axi: { version: ">=0.23.0, <0.26.0" }
 ```
+
 > **Note:** Bender only recognizes Git tags that follow the `vX.Y.Z` format (e.g., `v1.2.1`).
 
 #### Revision-based
@@ -65,6 +72,26 @@ dependencies:
   cva6: { version: "4.0.0", remote: openhw } # Explicitly uses 'openhw'
 ```
 
+### Differing Repository Name
+
+By default, Bender appends the dependency's local name to the remote URL when resolving the Git URL. If the upstream repository is named differently from how you want to refer to the dependency locally, use `upstream_name`:
+
+```yaml
+remotes:
+  pulp: "https://github.com/pulp-platform"
+
+dependencies:
+  cells: { version: "1.21.0", upstream_name: "common_cells" }
+  # Resolves to https://github.com/pulp-platform/common_cells.git
+```
+
+You can also embed the dependency name explicitly in the remote URL using the `{}` placeholder, which is useful for non-trivial URL patterns:
+
+```yaml
+remotes:
+  pulp: "https://gitlab.example.com/scm/{}.git"
+```
+
 ## Targets
 
 Dependencies can be conditionally included or configured using targets. For details on how to use target expressions or pass targets to dependencies, see the [Targets](./targets.md) documentation.
@@ -75,7 +102,7 @@ Bender automatically detects if a dependency uses **Git Large File Storage (LFS)
 
 ## Submodules
 
-TODO
+If a dependency contains a `.gitmodules` file, Bender will automatically initialize and update its Git submodules recursively after checkout. No additional configuration is required.
 
 ## Version Resolution and the Lockfile
 

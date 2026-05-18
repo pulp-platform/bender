@@ -2,9 +2,13 @@
 
 `Bender.local` is an optional, user-specific configuration file used to override the project's default settings. Its primary purpose is to allow local development of dependencies without modifying the shared [`Bender.yml`](./manifest.md) or [`Bender.lock`](./lockfile.md).
 
+`Bender.local` is one entry in Bender's configuration file chain. See [Configuration](./configuration.md) for the full precedence order, the list of available fields, and the equivalent environment variables and CLI flags.
+
 ## Overriding Dependencies
 
 The most common use for `Bender.local` is the `overrides` section. This forces Bender to use a specific version or a local path for a dependency, regardless of what the manifest requires.
+
+Entries in `overrides` use the same syntax as entries in the `dependencies` section of [`Bender.yml`](./manifest.md) (see [Dependencies](./dependencies.md)), with the exception that target expressions are not supported.
 
 ```yaml
 overrides:
@@ -16,6 +20,8 @@ overrides:
 ```
 
 When an override is present, Bender will prioritize it over any other version resolution.
+
+> **Note:** `overrides` only replace dependencies that already exist somewhere in the resolved dependency tree. They cannot be used to introduce new dependencies that are not pulled in by any package's [`Bender.yml`](./manifest.md).
 
 ## Management
 

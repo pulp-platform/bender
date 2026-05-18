@@ -1,6 +1,6 @@
 # Global and Local Configuration
 
-Bender uses a flexible configuration system that combines files, environment variables, and command-line flags.
+Bender uses a flexible configuration system that combines files, environment variables, and command-line flags. This page documents the configuration fields and their resolution order; for the role of [`Bender.local`](./local.md) within this system and its use as a per-workspace override file, see [Local Configuration](./local.md).
 
 ## Configuration Methods and Precedence
 
