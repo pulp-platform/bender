@@ -22,10 +22,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install mdBook
-        uses: cargo-bins/cargo-binstall@v1
-        with:
-          packages: mdbook
+      - name: Setup mdBook
+        uses: peaceiris/actions-mdbook@v2
 
       - name: Build book
         run: mdbook build book/
