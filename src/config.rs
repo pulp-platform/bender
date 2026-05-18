@@ -1572,8 +1572,14 @@ impl PrefixPaths for PathBuf {
 
 impl PrefixPaths for String {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
-        // env is resolved later, convert back to string here.
-        Ok(prefix.join(PathBuf::from(&self)).display().to_string())
+        // Resolve env vars first so absolute results bypass the prefix.
+        let substituted = env_string_from_string(&self)?;
+        let path = PathBuf::from(&substituted);
+        if path.is_absolute() {
+            Ok(substituted)
+        } else {
+            Ok(prefix.join(&path).display().to_string())
+        }
     }
 }
 
