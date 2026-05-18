@@ -39,11 +39,35 @@ If you have cloned the repository, you can install the local version by running 
 cargo install --path .
 ```
 
-## Linux Distributions
+## Package Managers
 
-Some Linux distributions provide Bender through their package managers:
+Bender is also available through several third-party package managers:
 
-- **ArchLinux:** [Bender on the AUR](https://aur.archlinux.org/packages/bender)
+### Homebrew (macOS / Linux)
+```sh
+brew install bender
+```
+See the [Homebrew formula](https://formulae.brew.sh/formula/bender) for more details.
+
+### Nix
+Bender is packaged in [nixpkgs](https://github.com/NixOS/nixpkgs/blob/master/pkgs/by-name/be/bender/package.nix):
+```sh
+nix-env -iA nixpkgs.bender
+# or, on a flake-enabled system:
+nix profile install nixpkgs#bender
+```
+The repository also ships its own [`flake.nix`](https://github.com/pulp-platform/bender/blob/master/flake.nix), so you can run Bender directly from the latest source without installing:
+```sh
+nix run github:pulp-platform/bender
+```
+
+### Arch Linux (AUR)
+```sh
+yay -S bender   # or any other AUR helper
+```
+See [Bender on the AUR](https://aur.archlinux.org/packages/bender) for the package page.
+
+> **Note:** Third-party packages may lag behind the latest [GitHub release](https://github.com/pulp-platform/bender/releases). For the most recent version, prefer the shell installer or `cargo install`.
 
 ## Verifying Installation
 
