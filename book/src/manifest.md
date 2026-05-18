@@ -2,6 +2,8 @@
 
 The package manifest describes the package, its metadata, its dependencies, and its source files. All paths in the manifest may be relative, in which case they are understood to be relative to the directory that contains the manifest. A manifest is required for each bender package.
 
+> **Note:** The [`Bender.yml`](./manifest.md) should be located at the root of the Git repository. Git-based dependency resolution currently relies on this assumption, and placing the manifest in a subdirectory of the repository may cause dependencies to not resolve correctly.
+
 It is strongly recommended to start the Manifest file with a license header (open-source or proprietary) as a comment. This provides clarity on the project's usage.
 
 ```yaml

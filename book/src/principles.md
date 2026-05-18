@@ -4,7 +4,7 @@ Bender was created to solve the challenges of managing large-scale hardware desi
 
 ## 1. Modular and Opt-in
 Bender is designed to be a "pre-build" tool. It does not replace your EDA tools (synthesis, simulation, formal); it helps orchestrate them. 
-- **Tool Agnostic:** Whether you use Vivado, Questa, VCS, or Verilator, Bender provides the necessary file lists and configurations.
+- **Tool Agnostic:** Bender provides file lists and tool-specific scripts for a wide range of simulation, synthesis, and implementation tools (see [Generating Tool Scripts](./workflow/scripts.md)).
 - **Flexible Layout:** We do not enforce a strict directory structure. As long as a [`Bender.yml`](./manifest.md) is present, Bender can manage it.
 
 ## 2. Reproducibility as Ground Truth

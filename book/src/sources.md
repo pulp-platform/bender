@@ -31,7 +31,7 @@ sources:
       - src/rtl/top.sv
 ```
 
-- **include_dirs**: Paths added to the `+incdir+` flag during compilation.
+- **include_dirs**: Paths added to the `+incdir+` flag during compilation. These directories apply only to the files in this source group and any nested child groups; they are generally *not* visible to sibling groups or to dependents of the package. To expose headers to other packages, use [`export_include_dirs`](#exported-include-directories) instead.
 - **defines**: Preprocessor macros added via `+define+`.
 - **target**: A [target expression](./targets.md) that determines if this entire group is included in the current flow.
 

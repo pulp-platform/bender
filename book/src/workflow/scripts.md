@@ -84,3 +84,11 @@ Bender uses the [Tera](https://keats.github.io/tera/) templating engine for its 
 ```sh
 bender script template --template my_custom_format.tera > output.txt
 ```
+
+To help develop a custom template, you can inspect the JSON structure that Bender passes to the template engine using:
+
+```sh
+bender script template_json
+```
+
+This prints the same data that would be exposed to your `.tera` template, making it easy to discover available fields.

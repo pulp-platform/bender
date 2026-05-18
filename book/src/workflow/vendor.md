@@ -2,7 +2,7 @@
 
 Bender's `vendor` command allows you to manage external dependencies that aren't natively packaged for Bender. It works by copying a subset of files from an upstream Git repository into a local directory within your project, allowing you to track changes and maintain local patches.
 
-This flow is heavily inspired by the `vendor.py` script used in the [OpenTitan](https://opentitan.org/) project.
+This flow is heavily inspired by the [`vendor.py`](https://github.com/lowRISC/opentitan/blob/master/util/vendor.py) script used in the [OpenTitan](https://opentitan.org/) project.
 
 ## Configuration
 
@@ -44,6 +44,8 @@ bender vendor init
 ```
 
 Bender clones the upstream repository, filters the files based on your rules, and copies them to your project. If a `patch_dir` is specified, any existing patches are applied automatically.
+
+> **Important:** Vendored files are not automatically picked up as compilation sources. After `bender vendor init`, you still need to list the relevant files (or globs matching them) in the [`sources`](../sources.md) section of your [`Bender.yml`](../manifest.md) for them to participate in script generation and source collection.
 
 ### 2. Make Local Changes and Diff
 Assume you need to fix a bug in `deps/my_ip/src/top.sv`. You edit the file directly in your workspace. You can see how your local code differs from the upstream source (plus existing patches) by running:
