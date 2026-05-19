@@ -1,0 +1,17 @@
+[package]
+name = "bender-kg-models"
+version = "0.1.0"
+edition = "2024"
+description = "Internal bender crate: kg.v1 IR types for the bender knowledge-graph subsystem"
+license = "Apache-2.0"
+authors = ["Alessandro Ottaviano <aottaviano@tenstorrent.com>"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+indexmap = { workspace = true }
+
+[package.metadata.dist]
+dist = false

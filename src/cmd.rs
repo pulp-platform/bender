@@ -16,6 +16,8 @@ pub mod completion;
 pub mod config;
 pub mod fusesoc;
 pub mod init;
+#[cfg(feature = "slang")]
+pub mod kg;
 pub mod packages;
 pub mod parents;
 pub mod path;

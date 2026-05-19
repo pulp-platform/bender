@@ -1,0 +1,25 @@
+[package]
+name = "bender-kg-core"
+version = "0.1.0"
+edition = "2024"
+description = "Internal bender crate: kg orchestrator (extract + grafeo store/vectors)"
+license = "Apache-2.0"
+authors = ["Alessandro Ottaviano <aottaviano@tenstorrent.com>"]
+
+[dependencies]
+bender-kg-models = { workspace = true }
+bender-kg-extract = { workspace = true }
+bender-kg-store = { workspace = true }
+bender-kg-similarity = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+indexmap = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.5"
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[package.metadata.dist]
+dist = false

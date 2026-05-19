@@ -18,7 +18,10 @@ include = [
 ]
 
 [dependencies]
-cxx = "1.0.194"
+# Kuzu (used by bender-kg-store-kuzu) hard-pins `cxx = =1.0.138`.
+# Keep both bender-slang and kuzu on the same cxx to avoid duplicate
+# C++ runtime symbols / version conflicts.
+cxx = "=1.0.138"
 thiserror = "2.0.12"
 
 [target.'cfg(windows)'.dependencies]
@@ -26,7 +29,7 @@ dunce = "1.0.4"
 
 [build-dependencies]
 cmake = "0.1.57"
-cxx-build = "1.0.194"
+cxx-build = "=1.0.138"
 
 [package.metadata.dist]
 dist = false

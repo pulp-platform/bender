@@ -11,10 +11,47 @@ description = "A dependency management tool for hardware projects."
 readme = "README.md"
 license = "Apache-2.0 OR MIT"
 edition = "2024"
-rust-version = "1.87.0"
+# 1.91.1 matches Grafeo's MSRV.
+rust-version = "1.91.1"
 
 [workspace]
-members = ["crates/bender-slang"]
+members = [
+    "crates/bender-slang",
+    "crates/bender-kg-models",
+    "crates/bender-kg-extract",
+    "crates/bender-kg-store",
+    "crates/bender-kg-similarity",
+    "crates/bender-kg-core",
+    "crates/bender-kg-mcp",
+]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2.0.18"
+miette = "7.6.0"
+log = "0.4"
+sha2 = "0.10"
+clap = { version = "4.0", features = ["derive", "env"] }
+indexmap = { version = "2", features = ["serde"] }
+anyhow = "1"
+tokio = { version = "1.27", features = ["macros", "rt", "rt-multi-thread"] }
+# Embedded graph + vector + text store. The `embedded` profile bakes in
+# the LPG model + GQL parser + HNSW vectors + BM25 text index + algos +
+# parallel execution + single-file `.grafeo` storage; we add `cypher` for
+# our query strings and `wal` for crash-safe writes. We use a path dep
+# to the vendored Grafeo checkout next to the workspace.
+grafeo = { path = "../grafeo/crates/grafeo", default-features = false, features = ["embedded", "cypher", "wal"] }
+grafeo-common = { path = "../grafeo/crates/grafeo-common" }
+rmcp = { version = "1", features = ["server", "macros", "transport-io"] }
+schemars = "1"
+bender-slang = { path = "crates/bender-slang", version = "0.1.0" }
+bender-kg-models = { path = "crates/bender-kg-models", version = "0.1.0" }
+bender-kg-extract = { path = "crates/bender-kg-extract", version = "0.1.0" }
+bender-kg-store = { path = "crates/bender-kg-store", version = "0.1.0" }
+bender-kg-similarity = { path = "crates/bender-kg-similarity", version = "0.1.0" }
+bender-kg-core = { path = "crates/bender-kg-core", version = "0.1.0" }
+bender-kg-mcp = { path = "crates/bender-kg-mcp", version = "0.1.0" }
 
 [profile.dist]
 inherits = "release"
@@ -22,6 +59,11 @@ lto = "thin"
 
 [dependencies]
 bender-slang = { version = "0.1.0", path = "crates/bender-slang", optional = true }
+bender-kg-core = { version = "0.1.0", path = "crates/bender-kg-core", optional = true }
+bender-kg-extract = { version = "0.1.0", path = "crates/bender-kg-extract", optional = true }
+bender-kg-similarity = { version = "0.1.0", path = "crates/bender-kg-similarity", optional = true }
+bender-kg-mcp = { version = "0.1.0", path = "crates/bender-kg-mcp", optional = true }
+bender-kg-models = { version = "0.1.0", path = "crates/bender-kg-models", optional = true }
 
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
@@ -63,4 +105,11 @@ pretty_assertions = "1.4"
 
 [features]
 default = ["slang"]
-slang = ["dep:bender-slang"]
+slang = [
+    "dep:bender-slang",
+    "dep:bender-kg-core",
+    "dep:bender-kg-extract",
+    "dep:bender-kg-similarity",
+    "dep:bender-kg-mcp",
+    "dep:bender-kg-models",
+]

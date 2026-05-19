@@ -20,7 +20,7 @@ jobs:
       matrix:
         # Linux runs the full Rust version matrix; Windows and macOS test stable only.
         os: [ubuntu-latest]
-        rust: [stable, beta, nightly, "1.87.0"]
+        rust: [stable, beta, nightly, "1.91.0"]
         include:
           - os: windows-latest
             rust: stable

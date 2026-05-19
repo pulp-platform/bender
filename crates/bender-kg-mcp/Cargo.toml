@@ -1,0 +1,25 @@
+[package]
+name = "bender-kg-mcp"
+version = "0.1.0"
+edition = "2024"
+description = "Internal bender crate: rmcp-based MCP adapter for the knowledge graph"
+license = "Apache-2.0"
+authors = ["Alessandro Ottaviano <aottaviano@tenstorrent.com>"]
+
+[dependencies]
+bender-kg-core = { workspace = true }
+bender-kg-models = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+rmcp = { workspace = true }
+schemars = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.5"
+
+[package.metadata.dist]
+dist = false
