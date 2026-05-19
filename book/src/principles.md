@@ -1,44 +1,44 @@
 # Principles
 
-Bender was created to solve the challenges of managing large-scale hardware designs with complex, nested dependencies. It is built around four core principles that guide its development and usage.
+Bender is built around two core principles, supported by three feature tiers that build on each other.
 
-## 1. Modular and Opt-in
-Bender is designed to be a "pre-build" tool. It does not replace your EDA tools (synthesis, simulation, formal); it helps orchestrate them. 
-- **Tool Agnostic:** Bender provides file lists and tool-specific scripts for a wide range of simulation, synthesis, and implementation tools (see [Generating Tool Scripts](./workflow/scripts.md)).
-- **Flexible Layout:** We do not enforce a strict directory structure. As long as a [`Bender.yml`](./manifest.md) is present, Bender can manage it.
+## Be as opt-in as possible
 
-## 2. Reproducibility as Ground Truth
-In hardware design, knowing exactly what was taped out or simulated is critical.
-- **Precise Locking:** The [`Bender.lock`](./lockfile.md) file tracks every dependency down to its specific Git commit hash.
-- **Immutable States:** By committing the lockfile, you ensure that everyone on the team—and every CI runner—is using identical source code.
+Bender does not assume a specific EDA tool, workflow, or directory layout beyond a few key files. All features are designed to be modular, so they can be picked up individually and integrated into an existing flow. As long as a [`Bender.yml`](./manifest.md) is present, Bender can manage the package.
 
-## 3. Decentralized and Secure
-Unlike many software package managers (like npm or cargo), Bender does not rely on a central, public registry.
-- **Git-Centric:** Dependencies are resolved directly from Git repositories.
-- **NDA Friendly:** This allows projects to use internal, private repositories or even local paths, ensuring sensitive IP remains protected and within your infrastructure.
+## Allow for reproducible builds
 
-## 4. Local-First Development
-Hardware development often requires modifying an IP and its dependencies simultaneously.
-- **Zero-Friction Overrides:** The [`Bender.local`](./local.md) mechanism allows you to temporarily swap a remote dependency for a local working copy without changing the project's official manifest.
-- **Seamless Snapshots:** Captured states can be shared or moved to CI easily, bridging the gap between local development and official releases.
+Bender maintains a precise [lockfile](./lockfile.md) which records the exact Git revision each dependency was resolved to. Committing this file alongside the manifest lets the exact source state of a package — for example at a tape-out or a release — be reconstructed after the fact.
 
 ---
 
-## The Three Tiers of Bender
+## Feature Tiers
 
-Bender's functionality can be categorized into three distinct tiers, each building upon the other:
+Bender's functionality is organized into three tiers, each building on the previous one. A package only needs to opt into the tiers it uses.
 
 ### Tier 1: Source Collection
-At its simplest level, Bender is a tool for collecting and organizing HDL source files.
-- **Ordering:** Maintains the required order across source files (e.g., packages before modules).
-- **Organization:** Allows files to be organized into recursive groups with specific targets, defines, and include directories.
+
+Collect and organize the HDL source files of a hardware IP:
+
+- Maintain the required order across files, e.g. for package declarations before their use.
+- Stay language-agnostic across SystemVerilog and VHDL.
+- Allow files to be organized into recursive groups.
+- Track defines and include directories individually for each group.
+
+See [Sources](./sources.md) for the manifest format.
 
 ### Tier 2: Dependency Management
-Bender resolves and manages transitive dependencies between different hardware IPs.
-- **Version Resolution:** Enforces Semantic Versioning (SemVer) to ensure compatibility.
-- **Lifecycle Management:** Automates the fetching, checking out, and updating of external packages.
+
+Manage other packages an IP depends on and provide a local checkout of their sources:
+
+- Support transitive dependencies.
+- Resolve dependencies directly from Git rather than a central package registry. Projects containing IP under NDA can therefore use private repositories or local paths without exposing them.
+- Use [Semantic Versioning](https://semver.org/) to constrain compatible revisions.
+
+See [Dependencies](./dependencies.md) for details.
 
 ### Tier 3: Tool Script Generation
-The final tier provides the ability to generate the actual scripts and file lists used by vendor tools.
-- **Automation:** Eliminates the need to manually maintain tool-specific file lists (like `.f` files or TCL scripts).
-- **Consistency:** Ensures that the exact same set of sources is used across all stages of the design flow.
+
+Generate source file listings and compilation scripts for various EDA tools, so the same set of resolved sources can be fed into simulation, synthesis, and downstream flows without manually maintaining tool-specific file lists.
+
+See [Generating Tool Scripts](./workflow/scripts.md) for the supported formats and options.
