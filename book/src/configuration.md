@@ -75,7 +75,7 @@ Sets a custom root working directory. This directory is used as the starting poi
 - **Default:** Current working directory.
 
 ### `local`
-Disables fetching of remotes. Useful for working on air-gapped computers or when you want to ensure no network operations occur.
+Disables fetching of remotes. Useful for working on air-gapped computers or when you want to ensure no network operations occur. When set, Bender emits warning `W14` to remind you that resolution may not pick up newly available versions.
 - **CLI Flag:** `--local`
 - **Env Var:** `BENDER_LOCAL`
 

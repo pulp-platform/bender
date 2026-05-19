@@ -74,7 +74,7 @@ dependencies:
 
 ### Differing Repository Name
 
-By default, Bender appends the dependency's local name to the remote URL when resolving the Git URL. If the upstream repository is named differently from how you want to refer to the dependency locally, use `upstream_name`:
+By default, Bender appends the dependency's local name to the remote URL when resolving the Git URL. If the upstream repository is named differently from how you want to refer to the dependency locally, use `upstream_name`. Without this field, a mismatch between a dependency's local name and the `package.name` declared inside the dependency's own [`Bender.yml`](./manifest.md) triggers warning `W11`.
 
 ```yaml
 remotes:

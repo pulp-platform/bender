@@ -67,7 +67,7 @@ export_include_dirs:
   - include
 ```
 
-Setting `frozen` to `true` prevents Bender from updating dependencies beyond what is recorded in the lockfile. This is useful for chip packages in tapeout mode where dependency changes would require disastrous amounts of re-verification.
+Setting `frozen` to `true` prevents Bender from updating dependencies beyond what is recorded in the lockfile. This is useful for chip packages in tape-out mode where dependency changes would require disastrous amounts of re-verification.
 
 ```yaml
 # Freeze dependency updates. Optional. Defaults to false.
@@ -91,7 +91,9 @@ workspace:
   checkout_dir: deps
 ```
 
-Packages can expose shell scripts as bender subcommands using the `plugins` section. These commands are available to packages that depend on this one and can be invoked as `bender <cmd>`.
+> **Note:** If a `package_links` target already exists and is not a symlink to the expected destination, Bender skips it and emits warning `W01` rather than overwriting it. If a dependency under a custom `checkout_dir` is not a Git working tree or has uncommitted changes, Bender emits warning `W06` and leaves it alone — use `bender snapshot --checkout --force` to refresh it (see [Package Development](./workflow/package_dev.md)).
+
+Packages can expose shell scripts as [`bender` subcommands](./commands.md) using the `plugins` section. These commands are available to packages that depend on this one and can be invoked as `bender <cmd>`.
 
 ```yaml
 # Package-provided commands callable as `bender <cmd>`. Optional.

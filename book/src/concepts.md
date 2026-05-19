@@ -5,7 +5,7 @@ This section explains the core ideas and files that make Bender work. Understand
 - **[Principles](./principles.md):** The high-level goals and design philosophy behind Bender.
 - **[Manifest](./manifest.md):** How to define your package's metadata, dependencies, and sources.
 - **[Lockfile](./lockfile.md):** How Bender ensures reproducible builds across different environments.
-- **[Workspace](./local.md):** Overriding settings for your local development workspace.
+- **[Local Configuration](./local.md):** Overriding settings for your local development workspace via `Bender.local`.
 - **[Comparing the Files](./bender_files.md):** A quick comparison of the three core files (`.yml`, `.lock`, `.local`).
 - **[Dependencies](./dependencies.md):** How Bender handles hierarchical and transitive dependencies.
 - **[Sources](./sources.md):** Managing HDL source files, include directories, and defines.

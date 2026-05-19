@@ -92,4 +92,7 @@ The output classifies each package as one of:
 - **Path:** the dependency points to a local directory.
 - **Conflict:** the dependency tree has incompatible version requirements or remote URLs — use `bender parents <PKG>` to investigate.
 
-Pass `--only-update` to show only packages that have a possible update, or `-f/--fetch` to force a re-fetch of all Git remotes before auditing.
+Useful flags:
+- `--only-update`: show only packages that have a possible update.
+- `-f/--fetch`: force a re-fetch of all Git remotes before auditing.
+- `--ignore-url-conflict`: suppress conflict reporting when the same dependency is reached via different remote URLs (e.g. an HTTPS and an SSH URL for the same repository).

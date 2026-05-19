@@ -51,7 +51,10 @@ If you want to prevent accidental updates to your project's dependency tree, you
 ```yaml
 package:
   name: my_chip
-  frozen: true # Prevents 'bender update' from running
+
+frozen: true # Prevents 'bender update' from running
 ```
 
-When `frozen: true` is set, `bender update` will fail, ensuring that your `Bender.lock` remains unchanged until you explicitly unfreeze the manifest. This is mostly recommended for late-stage tapeouts.
+`frozen` is a top-level manifest field, not a member of the `package` block.
+
+When `frozen: true` is set, `bender update` will fail, ensuring that your `Bender.lock` remains unchanged until you explicitly unfreeze the manifest. This is mostly recommended for late-stage tape-outs.

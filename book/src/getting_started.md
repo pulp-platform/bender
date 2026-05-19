@@ -62,4 +62,4 @@ Finally, generate a compilation script for your EDA tool (e.g., QuestaSim/ModelS
 bender script vsim > compile.tcl
 ```
 
-You can now run `vsim -do compile.tcl` in your terminal to compile the entire project.
+You can now run `vsim -do compile.tcl` in your terminal to compile the entire project. See [Generating Tool Scripts](./workflow/scripts.md) for the full set of output formats and flags.

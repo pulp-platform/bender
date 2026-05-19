@@ -19,7 +19,7 @@ overrides:
   axi: { git: "https://github.com/my_fork/axi.git", rev: "experimental_branch" }
 ```
 
-When an override is present, Bender will prioritize it over any other version resolution.
+When an override is present, Bender will prioritize it over any other version resolution and emit warning `W18` listing the package and the override target, so you can spot accidental overrides in `Bender.local`.
 
 > **Note:** `overrides` only replace dependencies that already exist somewhere in the resolved dependency tree. They cannot be used to introduce new dependencies that are not pulled in by any package's [`Bender.yml`](./manifest.md).
 

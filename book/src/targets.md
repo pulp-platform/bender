@@ -155,7 +155,7 @@ bender script vivado -t synthesis -t fpga
 
 ## Passing Targets Hierarchically
 
-Bender allows you to "configure" your dependencies by passing specific targets down to them using the `pass_targets` field. This is a powerful way to propagate global settings or select implementations in sub-modules.
+Bender allows you to configure your dependencies by passing specific targets down to them using the `pass_targets` field. This lets you propagate global settings or select alternative implementations within sub-modules.
 
 ### Simple Passing
 You can pass a target name as a string, which will then always be active for that specific dependency:

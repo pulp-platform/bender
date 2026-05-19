@@ -5,25 +5,29 @@
 
 ## `path` --- Get the path of a checked-out package
 
-The `bender path <PKG>` prints the path of the checked-out version of package `PKG`.
+The `bender path <PKG>` prints the path of the checked-out version of package `PKG`. One or more package names may be passed.
 
 Useful in scripts:
 
     #!/bin/bash
     cat `bender path mydep`/src/hello.txt
 
+If a package has not been checked out yet, `bender path` checks it out before printing. Pass `--checkout` to force a re-checkout even when the directory already exists.
+
 
 ## `packages` --- Display the dependency graph
 
-- `bender packages`: List the package dependencies. The list is sorted and grouped according to a topological sorting of the dependencies. That is, leaf dependencies are compiled first, then dependent ones.
-- `bender packages -f`: Produces the same list, but flattened.
-- `bender packages -g`: Produces a graph description of the dependencies of the form `<pkg>TAB<dependencies...>`.
+- `bender packages`: List the package [dependencies](./dependencies.md). The list is sorted and grouped according to a topological sorting of the dependencies. That is, leaf dependencies are compiled first, then dependent ones.
+- `bender packages -f/--flat`: Produces the same list, but flattened.
+- `bender packages -g/--graph`: Produces a graph description of the dependencies of the form `<pkg>TAB<dependencies...>`.
+- `bender packages --version` (alias `--versions`): Print the resolved version of each package. Implies `--flat`.
+- `bender packages --targets` (alias `--target`): Print the available [targets](./targets.md) for each package.
 
 
 ## `sources` --- List source files
 [Code](https://github.com/pulp-platform/bender/blob/master/src/cmd/sources.rs)
 
-Produces a *sources manifest*, a JSON description of all files needed to build the project.
+Produces a *sources manifest*, a JSON description of all files needed to build the project. See [Sources](./sources.md) for the manifest format and [Dependencies](./dependencies.md) for how dependencies contribute their sources.
 
 The manifest is recursive by default; meaning that dependencies and groups are nested. Use the `-f`/`--flatten` switch to produce a simple flat listing.
 
@@ -36,6 +40,10 @@ To get the sources for a subset of packages, exclude specific packages and their
 - `-n`/`--no-deps`: Exclude all dependencies, i.e. only top level or specified package(s).
 
 For multiple packages (or excludes), multiple `-p` (or `-e`) arguments can be added to the command.
+
+Additional flags:
+- `--raw`: Output the raw internal source tree as JSON, useful for debugging Bender itself.
+- `--ignore-passed-targets`: Ignore any targets that would otherwise be inherited via `pass_targets` from a parent package.
 
 
 ## `config` --- Emit the current configuration
@@ -71,7 +79,7 @@ Furthermore, similar flags to the `sources` command exist.
 
 The `bender pickle` command parses SystemVerilog sources with [Slang](https://github.com/MikePopoloski/slang) and prints the resulting source again. It supports optional renaming and trimming of unreachable files for specified top modules.
 
-This command is only available when Bender is built with Slang support (the default; pass `--all-features` if building without defaults).
+This command is only available when Bender is built with the `slang` feature, which is part of the default feature set. If you previously installed Bender with `--no-default-features`, rebuild with `--features slang` (or the default feature set) to enable `pickle`.
 
 Useful options:
 - `--top <MODULE>`: Trim output to files reachable from one or more top modules.
@@ -101,7 +109,7 @@ Whenever you update the list of dependencies, you likely have to run `bender upd
 
 Calling update with the `--fetch/-f` flag will force all git dependencies to be re-fetched from their corresponding urls.
 
-> Note: Actually this should be done automatically if you add a new dependency. But due to the lack of coding time, this has to be done manually as of now.
+> **Note:** `bender update` should ideally be run automatically when dependencies are added; for now this has to be done manually.
 
 
 ## `clone` --- Clone dependency to make modifications
@@ -125,7 +133,9 @@ With `bender snapshot`, all dependencies previously cloned to a working director
 
 ## `parents` --- Lists packages calling the specified package
 
-The `bender parents <PKG>` command lists all packages calling the `PKG` package.
+The `bender parents <PKG>` command lists all packages calling the `PKG` package, along with the version requirement each parent imposes.
+
+Pass `--targets` to additionally print the [targets](./targets.md) each parent passes down to `PKG` via `pass_targets`.
 
 ## `checkout` --- Checkout all dependencies referenced in the Lock file
 

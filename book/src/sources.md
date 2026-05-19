@@ -90,7 +90,7 @@ sources:
 
 ## File Overrides
 
-The `override_files: true` flag allows a source group to replace files with the same basename from other parts of the dependency tree. This is a powerful mechanism for "patching" dependencies or swapping implementations at the top level.
+The `override_files: true` flag allows a source group to replace files with the same basename from other parts of the dependency tree. Use it to "patch" dependencies or swap implementations at the top level.
 
 ```yaml
 sources:

@@ -36,6 +36,11 @@ Bender will:
 **Why use Snapshot?**
 The main benefit of a snapshot is portability. Because the lockfile is updated with the specific commit hashes, you can commit [`Bender.lock`](../lockfile.md) and share it with colleagues or run it in CI. The other environments will download the exact revisions you were working on from the Git remotes, without needing access to your local development paths.
 
+Useful flags:
+- `--working-dir <DIR>`: scan a different directory for local checkouts (defaults to `working_dir`, matching `bender clone`'s default).
+- `--checkout`: after writing the lockfile, also check out the resolved revisions into the configured `checkout_dir` (if any). Dependencies with uncommitted changes are skipped by default; warning [`W25`](#) is emitted for each one. Pass `--no-skip` to snapshot them anyway.
+- `--force`: combined with `--checkout`, overwrite an existing custom `checkout_dir`. Use with care, as this can discard local work.
+
 ## Finalizing Changes
 
 Once your changes are stable and you are ready to "release" them:
