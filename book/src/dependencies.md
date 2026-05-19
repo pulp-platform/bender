@@ -10,7 +10,7 @@ Dependencies are defined in the `dependencies` section of your [`Bender.yml`](./
 Git is the primary way to distribute Bender packages. You can specify them in two ways:
 
 #### Version-based (Recommended)
-Bender uses [Semantic Versioning (SemVer)](https://semver.org/) to find the best compatible version. You can use [SemVer operators](https://docs.rs/semver/latest/semver/enum.Op.html) to specify version ranges:
+Bender uses [Semantic Versioning (SemVer)](https://semver.org/) to find the best compatible version. You can use [SemVer operators](https://docs.rs/semver/latest/semver/enum.Op.html) to specify version ranges — the syntax matches Cargo's, see the [Cargo dependency reference](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html) for a more accessible overview:
 
 ```yaml
 dependencies:
@@ -96,9 +96,16 @@ remotes:
 
 Dependencies can be conditionally included or configured using targets. For details on how to use target expressions or pass targets to dependencies, see the [Targets](./targets.md) documentation.
 
+> **Note:** A `target` on a dependency only filters that dependency out of *source listings and generated scripts*. It does **not** affect dependency resolution: every dependency declared in [`Bender.yml`](./manifest.md) is still resolved and recorded in [`Bender.lock`](./lockfile.md) regardless of which targets are active.
+
 ## Git LFS Support
 
-Bender automatically detects if a dependency uses **Git Large File Storage (LFS)**. If `git-lfs` is installed on your system, Bender will automatically pull the required large files during the checkout process.
+Bender detects whether a dependency uses **Git Large File Storage (LFS)** via its `.gitattributes` and reacts as follows:
+
+- If LFS is detected and `git-lfs` is installed, Bender configures LFS and pulls the required files automatically.
+- If LFS is detected but `git-lfs` is **not** installed, Bender emits warning `W26` and continues the checkout. You may end up with pointer files instead of the actual large files, which can cause downstream build failures — install `git-lfs` to resolve this.
+- If LFS is disabled in your configuration (`git_lfs: false`) but the dependency appears to use LFS, Bender emits warning `W27`.
+- If the repository does not use LFS, Bender skips LFS operations entirely.
 
 ## Submodules
 

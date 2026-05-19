@@ -35,6 +35,27 @@ sources:
 - **defines**: Preprocessor macros added via `+define+`.
 - **target**: A [target expression](./targets.md) that determines if this entire group is included in the current flow.
 
+### Target-Conditional Include Dirs and Defines
+
+Individual entries in `include_dirs` and `defines` can also be filtered by target. Use the `{ target: <expr>, dir: <path> }` form for include directories, and `{ target: <expr>, value: <value> }` for define values:
+
+```yaml
+sources:
+  - include_dirs:
+      - include
+      # Only added when the `fpga` target is active
+      - { target: fpga, dir: include/fpga }
+    defines:
+      # Static define
+      BIT_WIDTH: 64
+      # Only set when the `test` target is active
+      TEST_COMPONENTS: { target: any(test, regression_test), value: "all" }
+    files:
+      - src/rtl/top.sv
+```
+
+The same `{ target: <expr>, dir: <path> }` form is accepted in [`export_include_dirs`](#exported-include-directories).
+
 ## Glob Patterns
 
 Bender supports glob patterns for automatically including multiple files without listing them individually:

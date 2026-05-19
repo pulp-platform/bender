@@ -127,6 +127,16 @@ The `bender script` command activates the following targets based on the chosen 
 - **RTL:** If you use the `--assume-rtl` flag, Bender will automatically assign the `rtl` target to any source group that does not have an explicit target specification.
 - **ASIC:** While `asic` is a common convention, it is **not** set automatically by Bender. It should be manually activated via `-t asic` when needed.
 
+### Recommended Conventions
+
+Bender does not enforce these, but the following user-defined targets are widely used across PULP projects and are a good default for new packages:
+
+- **`test`** — testbench code and verification IP, kept out of synthesis flows.
+- **`rtl`** — synthesizable RTL code.
+- **`gate`** — gate-level netlists, used in post-synthesis simulation and timing flows.
+
+Similarly, `asic` vs. `fpga` is the conventional way to swap between technology-specific implementations.
+
 ## Activating Targets via CLI
 
 Use the `-t` or `--target` flag with Bender commands:

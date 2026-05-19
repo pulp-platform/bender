@@ -67,6 +67,34 @@ Supported formats:
 Furthermore, similar flags to the `sources` command exist.
 
 
+## `pickle` --- Parse and rewrite SystemVerilog sources with Slang
+
+The `bender pickle` command parses SystemVerilog sources with [Slang](https://github.com/MikePopoloski/slang) and prints the resulting source again. It supports optional renaming and trimming of unreachable files for specified top modules.
+
+This command is only available when Bender is built with Slang support (the default; pass `--all-features` if building without defaults).
+
+Useful options:
+- `--top <MODULE>`: Trim output to files reachable from one or more top modules.
+- `--prefix <PFX>` / `--suffix <SFX>`: Add a prefix and/or suffix to renamed symbols. Both require `--expand-macros`.
+- `--exclude-rename <NAME>`: Exclude specific symbols from renaming.
+- `--ast-json`: Emit AST JSON instead of source code.
+- `--expand-macros`, `--strip-comments`, `--squash-newlines`: Control output formatting.
+- `-I <DIR>`, `-D <DEFINE>`: Add extra include directories and preprocessor defines beyond those declared in the manifest.
+- `-o/--output <FILE>`: Write to a file instead of standard output.
+
+The `-t/--target`, `-p/--package`, `--exclude`, and `--no-deps` flags work like for [`sources`](#sources-list-source-files).
+
+Examples:
+
+```sh
+# Keep only files reachable from top module `my_top`.
+bender pickle --top my_top
+
+# Rename symbols, but keep selected names unchanged.
+bender pickle --top my_top --expand-macros --prefix p_ --suffix _s --exclude-rename my_top
+```
+
+
 ## `update` --- Re-resolve dependencies
 
 Whenever you update the list of dependencies, you likely have to run `bender update` to re-resolve the dependency versions, and recreate the [`Bender.lock`](./lockfile.md) file.

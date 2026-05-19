@@ -57,8 +57,10 @@ Forces specific dependencies to use a particular version or local path. This is 
   ```
 
 ### `plugins`
-Auxiliary plugin dependencies that are loaded for every package. These allow you to provide additional Bender subcommands across your entire environment.
+Auxiliary plugin dependencies that are loaded for every package. These allow you to provide additional Bender subcommands across your entire environment. The entry uses the same format as the `dependencies` section of a manifest.
 - **Config Key:** `plugins`
+
+> **Deprecated:** Configuring `plugins` from the configuration file is deprecated and may be removed in a future release. Prefer declaring `plugins` in the package manifest ([`Bender.yml`](./manifest.md)).
 
 ---
 
