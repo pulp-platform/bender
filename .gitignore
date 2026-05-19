@@ -1,9 +1,13 @@
 # Cargo build files
 target
 
+# Local-only Cargo config (copy from .cargo/config.toml.iis)
+.cargo/config.toml
+
 # Temporary test files
 tests/**/tmp
 tests/**/.bender
+tests/**/.bender-kg
 
 # clangd
 .cache/clangd

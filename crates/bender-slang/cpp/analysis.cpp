@@ -3,7 +3,6 @@
 
 #include "slang_bridge.h"
 
-#include <functional>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -51,20 +50,32 @@ rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, con
         startIndices.push_back(it->second);
     }
 
-    // Perform a DFS from the top modules to find all reachable trees.
+    // Perform an iterative DFS from the top modules to find all reachable
+    // trees. We use an explicit stack rather than recursion because the
+    // dependency graph can be deep (notably in single-unit + lenient mode
+    // where macros propagate across hundreds of trees), and recursive DFS
+    // overflows the thread stack on real designs (e.g. ws-tensix with
+    // ~470+ trees and dense `\`define` dependencies).
     std::vector<bool> reachable(treeVec.size(), false);
-    std::function<void(size_t)> dfs = [&](size_t index) {
-        if (reachable[index]) {
-            return;
-        }
-        reachable[index] = true;
-        for (auto dep : deps[index]) {
-            dfs(dep);
-        }
-    };
-
+    std::vector<size_t> stack;
+    stack.reserve(treeVec.size());
     for (auto start : startIndices) {
-        dfs(start);
+        if (start < reachable.size() && !reachable[start]) {
+            stack.push_back(start);
+            while (!stack.empty()) {
+                size_t cur = stack.back();
+                stack.pop_back();
+                if (reachable[cur]) {
+                    continue;
+                }
+                reachable[cur] = true;
+                for (auto dep : deps[cur]) {
+                    if (!reachable[dep]) {
+                        stack.push_back(dep);
+                    }
+                }
+            }
+        }
     }
 
     rust::Vec<std::uint32_t> result;

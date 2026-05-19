@@ -587,6 +587,56 @@ bender pickle --top my_top --prefix p_ --suffix _s --exclude-rename my_top
 ```
 
 
+### `kg` --- Build and query the design knowledge graph
+
+The `bender kg` command builds and queries a knowledge graph of the design's module hierarchy. The graph stores module declarations, port lists, parameters, package imports, and instantiation edges extracted from SystemVerilog sources using Slang.
+
+This command is only available when Bender is built with Slang support (for example via `cargo install bender --all-features`).
+
+#### Subcommands
+
+- **`bender kg build`** — extract the design and populate the knowledge graph. Re-run after source changes to keep the graph in sync.
+- **`bender kg query <OP>`** — query the graph. See query operations below.
+- **`bender kg mcp-server`** — start a stdio MCP server exposing all query operations as MCP tools for use with AI assistants (Claude, Cursor, etc.).
+
+#### Query operations
+
+- `search-modules <QUERY>` — semantic and keyword search for modules matching a natural-language description.
+- `get-module <MODULE>` — full module record: ports, parameters, imports, instantiation count.
+- `get-subgraph <MODULE>` — instantiation sub-graph rooted at a module.
+- `get-instance-context <PARENT> <CHILD> <INSTANCE>` — parameter and port binding details for a specific instantiation.
+- `get-parents <MODULE>` — modules that instantiate the given module.
+- `get-children <MODULE>` — modules instantiated by the given module.
+- `get-ports <MODULE>` — port list with resolved widths and types.
+- `find-by-protocol <MODULE>` — find modules by port protocol pattern.
+- `get-source-snippet <MODULE>` — source file excerpt for a module.
+- `trace-hierarchy-path <FROM> <TO>` — shortest instantiation path between two modules.
+- `check-connectivity <PARENT> <CHILD>` — validate port connectivity between two modules.
+- `trace-parameter <MODULE> <PARAM> [--recursive [--depth N]]` — trace parameter propagation down the hierarchy.
+- `trace-signal <MODULE> <SIGNAL> [--recursive [--depth N]]` — trace signal connectivity down the hierarchy.
+- `match-interfaces <MODULE>` — find modules with matching port lists.
+- `find-structurally-similar <MODULE>` — structurally similar module candidates.
+
+Examples:
+
+```sh
+# Build the knowledge graph for the current design.
+bender kg build
+
+# Search for AXI crossbar modules.
+bender kg query search-modules "AXI crossbar"
+
+# Trace a clock signal recursively up to 3 hops.
+bender kg query trace-signal smu clk_smu_i --recursive --depth 3
+
+# Trace a configuration struct parameter.
+bender kg query trace-parameter smu Cfg --recursive
+
+# Start the MCP server for AI assistant integration.
+bender kg mcp-server
+```
+
+
 ### `update` --- Re-resolve dependencies
 
 Whenever you update the list of dependencies, you likely have to run `bender update` to re-resolve the dependency versions, and recreate the `Bender.lock` file.

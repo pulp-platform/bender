@@ -112,6 +112,9 @@ enum Commands {
     Audit(cmd::audit::AuditArgs),
     #[cfg(feature = "slang")]
     Pickle(cmd::pickle::PickleArgs),
+    /// Build, query, and serve the local knowledge graph.
+    #[cfg(feature = "slang")]
+    Kg(cmd::kg::KgArgs),
     #[command(external_subcommand)]
     Plugin(Vec<String>),
 }
@@ -338,6 +341,8 @@ pub fn main() -> Result<()> {
         Commands::Audit(args) => cmd::audit::run(&sess, &args),
         #[cfg(feature = "slang")]
         Commands::Pickle(args) => cmd::pickle::run(&sess, args),
+        #[cfg(feature = "slang")]
+        Commands::Kg(args) => cmd::kg::run(&sess, args),
         Commands::Plugin(args) => {
             let (plugin_name, plugin_args) = args
                 .split_first()

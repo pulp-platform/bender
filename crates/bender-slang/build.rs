@@ -147,6 +147,8 @@ fn main() {
         .file("cpp/rewriter.cpp")
         .file("cpp/print.cpp")
         .file("cpp/analysis.cpp")
+        .file("cpp/walker.cpp")
+        .file("cpp/elab.cpp")
         .flag_if_supported("-std=c++20")
         .include(&slang_include_dir)
         .include(&slang_generated_include_dir)
@@ -169,4 +171,6 @@ fn main() {
     println!("cargo:rerun-if-changed=cpp/rewriter.cpp");
     println!("cargo:rerun-if-changed=cpp/print.cpp");
     println!("cargo:rerun-if-changed=cpp/analysis.cpp");
+    println!("cargo:rerun-if-changed=cpp/walker.cpp");
+    println!("cargo:rerun-if-changed=cpp/elab.cpp");
 }
