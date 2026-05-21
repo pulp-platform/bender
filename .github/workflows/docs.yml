@@ -28,8 +28,8 @@ jobs:
       - name: Build book
         run: mdbook build book/
 
-      - name: Copy init script
-        run: cp website/init book/book/init
+      - name: Copy init scripts
+        run: cp website/init website/init-legacy book/book/
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
