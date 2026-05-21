@@ -19,6 +19,9 @@
 set -eu
 
 REPO="pulp-platform/bender"
+# Derive the GitHub Pages base from $REPO so a fork only needs to edit one
+# variable to retarget both release artifacts and the legacy installer.
+PAGES_URL="https://${REPO%%/*}.github.io/${REPO##*/}"
 # v0.32.0 is the first release with cargo-dist installers
 CARGO_DIST_MIN_MINOR=32
 
@@ -67,7 +70,7 @@ elif [ "$GLOBAL" -eq 1 ]; then
     _tmpdir=$(mktemp -d)
     trap 'rm -rf "$_tmpdir"' EXIT
     ( cd "$_tmpdir" && curl --proto '=https' --tlsv1.2 -LsSf \
-        "https://pulp-platform.github.io/bender/init-legacy" | sh -s -- "$VERSION" )
+        "$PAGES_URL/init-legacy" | sh -s -- "$VERSION" )
     mv "$_tmpdir/bender" "$_dest/"
     echo "Installed bender to $_dest/bender"
     case ":${PATH:-}:" in
@@ -77,5 +80,5 @@ elif [ "$GLOBAL" -eq 1 ]; then
 else
     # Delegate to the legacy installer for versions before cargo-dist was introduced
     curl --proto '=https' --tlsv1.2 -LsSf \
-        "https://pulp-platform.github.io/bender/init-legacy" | sh -s -- "$VERSION"
+        "$PAGES_URL/init-legacy" | sh -s -- "$VERSION"
 fi
