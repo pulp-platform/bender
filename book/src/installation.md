@@ -4,17 +4,32 @@ Bender is a single standalone binary. You can either use our recommended shell i
 
 ## Recommended: Shell Installer
 
-The fastest way to install Bender is using our shell script. It detects your operating system and architecture, downloads the latest release, and places it in your path (typically `~/.cargo/bin`).
+The fastest way to install Bender is using our shell script. It detects your operating system and architecture, downloads the matching release, and places the `bender` binary in the current directory:
 
 ```sh
 curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh
 ```
 
+After the script finishes, you'll find a `bender` executable in your current directory. Move it onto your `PATH` (e.g. `mv bender ~/.local/bin/`) or invoke it as `./bender`.
+
 ### Installing a Specific Version
-If you need a specific version of Bender (e.g., `0.31.0`), you can pass it as an argument:
+Pass the desired version (e.g. `0.31.0`) as a positional argument:
 ```sh
 curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh -s -- 0.31.0
 ```
+
+### Global Install
+Pass `global` to install into `${CARGO_HOME:-$HOME/.cargo}/bin` instead of the current directory. For v0.32.0 and newer, this also adds the install directory to your `PATH` automatically via the underlying [cargo-dist](https://opensource.axo.dev/cargo-dist/) installer; for older versions, the binary is moved into place but you may need to add the directory to `PATH` manually.
+
+```sh
+# Latest release, global install
+curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh -s -- global
+
+# Specific version, global install (order of arguments is interchangeable)
+curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh -s -- global 0.32.0
+```
+
+> **Note:** The installer always overwrites an existing `bender` at the target location without prompting.
 
 ## Alternative: Build from Source
 

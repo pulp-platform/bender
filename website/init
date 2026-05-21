@@ -5,12 +5,16 @@
 
 # Installer entry point for Bender.
 # Routes to the cargo-dist installer (v0.32.0+) or the legacy installer for
-# older versions. The interface is unchanged: pass a version as the first
-# argument to pin to a specific release, or omit it for the latest release.
+# older versions. Pass a version to pin to a specific release, or omit it for
+# the latest. By default, drops the `bender` binary into the current directory
+# (matching legacy behavior); pass `global` to install into $CARGO_HOME and
+# update PATH via the cargo-dist installer (v0.32.0+ only).
 #
 # Usage:
 #   curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh
 #   curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh -s -- 0.31.0
+#   curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh -s -- global
+#   curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh -s -- global 0.32.0
 
 set -eu
 
@@ -18,7 +22,14 @@ REPO="pulp-platform/bender"
 # v0.32.0 is the first release with cargo-dist installers
 CARGO_DIST_MIN_MINOR=32
 
-VERSION=${1:-latest}
+GLOBAL=0
+VERSION=latest
+for arg in "$@"; do
+    case "$arg" in
+        global) GLOBAL=1 ;;
+        *) VERSION="$arg" ;;
+    esac
+done
 
 # Returns 0 (true) if VERSION should use the cargo-dist installer.
 # Uses cargo-dist for latest, any v1.x.y+, or v0.32.0+.
@@ -37,7 +48,32 @@ if uses_cargo_dist; then
     else
         URL="https://github.com/$REPO/releases/download/v$VERSION/bender-installer.sh"
     fi
-    curl --proto '=https' --tlsv1.2 -LsSf "$URL" | sh
+    if [ "$GLOBAL" -eq 1 ]; then
+        curl --proto '=https' --tlsv1.2 -LsSf "$URL" | sh
+    else
+        # Default: have cargo-dist install into a temp dir without touching PATH,
+        # then move the binary into the current directory to mirror legacy behavior.
+        _tmpdir=$(mktemp -d)
+        trap 'rm -rf "$_tmpdir"' EXIT
+        curl --proto '=https' --tlsv1.2 -LsSf "$URL" | \
+            CARGO_DIST_FORCE_INSTALL_DIR="$_tmpdir" INSTALLER_NO_MODIFY_PATH=1 sh
+        mv "$_tmpdir/bin/bender" .
+    fi
+elif [ "$GLOBAL" -eq 1 ]; then
+    # Legacy installer drops the binary in CWD; run it in a temp dir, then
+    # relocate to $CARGO_HOME/bin to match the v0.32+ global install layout.
+    _dest="${CARGO_HOME:-$HOME/.cargo}/bin"
+    mkdir -p "$_dest"
+    _tmpdir=$(mktemp -d)
+    trap 'rm -rf "$_tmpdir"' EXIT
+    ( cd "$_tmpdir" && curl --proto '=https' --tlsv1.2 -LsSf \
+        "https://pulp-platform.github.io/bender/init-legacy" | sh -s -- "$VERSION" )
+    mv "$_tmpdir/bender" "$_dest/"
+    echo "Installed bender to $_dest/bender"
+    case ":${PATH:-}:" in
+        *":$_dest:"*) ;;
+        *) echo "Note: '$_dest' is not on PATH; add it to use 'bender' from anywhere." >&2 ;;
+    esac
 else
     # Delegate to the legacy installer for versions before cargo-dist was introduced
     curl --proto '=https' --tlsv1.2 -LsSf \
