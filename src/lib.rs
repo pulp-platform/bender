@@ -5,6 +5,7 @@ pub mod cmd;
 pub mod config;
 pub mod diagnostic;
 pub mod git;
+pub mod lock;
 pub mod lockfile;
 pub mod progress;
 pub mod resolver;

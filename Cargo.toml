@@ -53,6 +53,7 @@ indicatif = "0.18.3"
 regex = "1.12.2"
 log = "0.4"
 env_logger = { version = "0.11", default-features = false, features = ["auto-color"] }
+fs4 = "1.1"
 
 [target.'cfg(windows)'.dependencies]
 dunce = "1.0.4"

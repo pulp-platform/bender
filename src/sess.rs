@@ -37,6 +37,7 @@ use crate::cli::read_manifest;
 use crate::config::{self, Config, Manifest, PartialManifest};
 use crate::diagnostic::{Diagnostics, Errors, Warnings};
 use crate::git::Git;
+use crate::lock::FsLock;
 use crate::progress::{GitProgressOps, ProgressHandler};
 use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::TargetSpec;
@@ -560,6 +561,19 @@ impl<'ctx> Session<'ctx> {
         let db_name = format!("{}-{}", name, hash);
         db_name
     }
+
+    /// Path of the cross-process advisory lock file for a git dependency.
+    ///
+    /// The same file guards both the bare database under `git/db/` and the
+    /// working checkout under `git/checkouts/` for this dependency.
+    pub fn dep_lock_path(&self, name: &str, url: &str) -> PathBuf {
+        let key = self.git_db_name(name, url);
+        self.config
+            .database
+            .join("git")
+            .join("locks")
+            .join(format!("{}.lock", key))
+    }
 }
 
 /// A wrapper around a `Session` that provides async IO operations.
@@ -642,9 +656,28 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
     /// Access the git database for a dependency.
     ///
+    /// Acquires the per-dependency filesystem lock and delegates to
+    /// [`git_database_locked`]. Callers that already hold the lock for this
+    /// dependency should call [`git_database_locked`] directly to avoid
+    /// deadlocking.
+    async fn git_database(
+        &'io self,
+        name: &str,
+        url: &str,
+        force_fetch: Option<bool>,
+        fetch_ref: Option<&str>,
+    ) -> Result<Git<'ctx>> {
+        let _lock = FsLock::acquire_exclusive(self.sess.dep_lock_path(name, url)).await?;
+        self.git_database_locked(name, url, force_fetch, fetch_ref)
+            .await
+    }
+
+    /// Access the git database for a dependency, assuming the per-dependency
+    /// filesystem lock is already held by the caller.
+    ///
     /// If the database does not exist, it is created. If the database has not
     /// been updated recently, the remote is fetched.
-    async fn git_database(
+    async fn git_database_locked(
         &'io self,
         name: &str,
         url: &str,
@@ -929,6 +962,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         force: bool,
         update_list: &[String],
     ) -> Result<&'ctx Path> {
+        // Serialize concurrent bender invocations operating on the same
+        // dependency. The lock covers both the bare database (touched via the
+        // `git_database_locked` calls below) and the working checkout.
+        let _lock = FsLock::acquire_exclusive(self.sess.dep_lock_path(name, url)).await?;
+
         #[derive(Eq, PartialEq)]
         enum CheckoutState {
             Clean,
@@ -944,7 +982,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     log::debug!("currently `{}` (want `{}`)", current, revision);
                     if current == revision {
                         CheckoutState::Clean
-                    } else if let Ok(db) = self.git_database(name, url, Some(false), None).await {
+                    } else if let Ok(db) =
+                        self.git_database_locked(name, url, Some(false), None).await
+                    {
                         if let Ok(remote) = local_git.clone().remote_url("origin").await {
                             if remote == db.path.to_str().unwrap() {
                                 CheckoutState::ToCheckout
@@ -1010,7 +1050,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             let tag_name_1 = tag_name_0.clone();
             let tag_name_2 = tag_name_0.clone();
             let git = self
-                .git_database(name, url, Some(false), Some(revision))
+                .git_database_locked(name, url, Some(false), Some(revision))
                 .await?;
             match git
                 .clone()
