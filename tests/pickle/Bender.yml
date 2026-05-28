@@ -16,6 +16,7 @@ sources:
   - target: top
     include_dirs:
       - include
+      - include_unused
     files:
       - src/top.sv
 

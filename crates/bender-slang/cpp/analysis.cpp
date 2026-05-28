@@ -144,3 +144,32 @@ rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, con
     }
     return result;
 }
+
+// Returns the deduped, canonical filesystem paths of every header file that was actually loaded
+// via `include directives while parsing the requested trees. Trees from different parse groups
+// may live in different SourceManagers, so the lookup is per-tree.
+rust::Vec<rust::String> resolved_include_paths_for(const SlangSession& session,
+                                                   const rust::Vec<std::uint32_t>& tree_indices) {
+    const auto& treeVec = session.trees();
+    std::unordered_set<std::string> uniquePaths;
+    for (auto idx : tree_indices) {
+        if (idx >= treeVec.size())
+            continue;
+        const auto& tree = treeVec[idx];
+        const auto& sm = tree->sourceManager();
+        for (const auto& inc : tree->getIncludeDirectives()) {
+            if (!inc.buffer.id.valid())
+                continue;
+            const auto& fullPath = sm.getFullPath(inc.buffer.id);
+            if (!fullPath.empty()) {
+                uniquePaths.insert(fullPath.string());
+            }
+        }
+    }
+    rust::Vec<rust::String> out;
+    out.reserve(uniquePaths.size());
+    for (const auto& p : uniquePaths) {
+        out.push_back(rust::String(p));
+    }
+    return out;
+}

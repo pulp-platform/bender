@@ -37,6 +37,16 @@ mod tests {
             .collect()
     }
 
+    /// Extract the basenames of `+incdir+` directories from a flist-plus output.
+    fn incdir_basenames(output: &str) -> HashSet<&str> {
+        output
+            .lines()
+            .map(str::trim)
+            .filter_map(|l| l.strip_prefix("+incdir+"))
+            .map(|l| l.rsplit('/').next().unwrap_or(l))
+            .collect()
+    }
+
     #[test]
     fn script_top_filters_unreachable_files() {
         // Without --top: all files present
@@ -81,6 +91,73 @@ mod tests {
         assert!(full.contains("leaf.sv"));
         assert!(full.contains("unused_top.sv"));
         assert!(full.contains("unused_leaf.sv"));
+    }
+
+    /// Default (`--trim-incdirs auto`) trims include dirs iff `--top` is set.
+    /// `include/` is used by top.sv (`include "macros.svh"`); `include_unused/` is declared in
+    /// the Bender.yml but never resolved through.
+    #[test]
+    fn script_trim_incdirs_auto() {
+        // No --top: both dirs survive.
+        let full_out = run_script(&["--target", "top", "flist-plus"]);
+        let full_incs = incdir_basenames(&full_out);
+        assert!(full_incs.contains("include"));
+        assert!(full_incs.contains("include_unused"));
+
+        // With --top: include_unused is dropped, include survives.
+        let trimmed_out = run_script(&["--target", "top", "--top", "top", "flist-plus"]);
+        let trimmed_incs = incdir_basenames(&trimmed_out);
+        assert!(
+            trimmed_incs.contains("include"),
+            "include/ should survive: {trimmed_incs:?}"
+        );
+        assert!(
+            !trimmed_incs.contains("include_unused"),
+            "include_unused/ should be dropped: {trimmed_incs:?}"
+        );
+    }
+
+    /// `--trim-incdirs always` prunes unused incdirs even without `--top`.
+    #[test]
+    fn script_trim_incdirs_always_without_top() {
+        let out = run_script(&["--target", "top", "--trim-incdirs", "always", "flist-plus"]);
+        let incs = incdir_basenames(&out);
+        assert!(incs.contains("include"));
+        assert!(
+            !incs.contains("include_unused"),
+            "include_unused/ should be dropped: {incs:?}"
+        );
+
+        // File list is untouched — no --top means no reachability filter.
+        let files = source_basenames(&out);
+        assert!(files.contains("top.sv"));
+        assert!(files.contains("unused_top.sv"));
+        assert!(files.contains("unused_leaf.sv"));
+    }
+
+    /// `--trim-incdirs never` keeps all incdirs even with `--top`.
+    #[test]
+    fn script_trim_incdirs_never_with_top() {
+        let out = run_script(&[
+            "--target",
+            "top",
+            "--top",
+            "top",
+            "--trim-incdirs",
+            "never",
+            "flist-plus",
+        ]);
+        let incs = incdir_basenames(&out);
+        assert!(incs.contains("include"));
+        assert!(
+            incs.contains("include_unused"),
+            "include_unused/ should be retained with --trim-incdirs never: {incs:?}"
+        );
+
+        // File filtering still happens — unreachable files are still dropped.
+        let files = source_basenames(&out);
+        assert!(files.contains("top.sv"));
+        assert!(!files.contains("unused_top.sv"));
     }
 
     /// Regression test: when two files define the same module name, last-wins semantics apply.
