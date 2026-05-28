@@ -30,8 +30,7 @@ static bool stderr_is_tty() {
 // Diagnostic for "a later top-level declaration shadows an earlier one with the same name".
 // Lives in the General subsystem; the code is arbitrary but stable.
 static const slang::DiagCode kDuplicateTopLevelDecl(slang::DiagSubsystem::General, 9999);
-static constexpr std::string_view kDuplicateTopLevelDeclFormat =
-    "module '{}' overwrites previous definition in '{}'";
+static constexpr std::string_view kDuplicateTopLevelDeclFormat = "module '{}' overwrites previous definition in '{}'";
 
 rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, const rust::Vec<rust::String>& tops) {
     const auto& treeVec = session.trees();
@@ -73,8 +72,8 @@ rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, con
 
             const auto& prevBufferIds = treeVec[it->second]->getSourceBufferIds();
             std::string_view prevFile = prevBufferIds.empty()
-                ? std::string_view("<unknown>")
-                : treeVec[it->second]->sourceManager().getRawFileName(prevBufferIds[0]);
+                                            ? std::string_view("<unknown>")
+                                            : treeVec[it->second]->sourceManager().getRawFileName(prevBufferIds[0]);
 
             auto& state = diagFor(treeVec[i]->sourceManager());
             slang::Diagnostic diag(kDuplicateTopLevelDecl, loc);
@@ -115,10 +114,8 @@ rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, con
         std::string_view name(top.data(), top.size());
         auto it = nameToTreeIndex.find(name);
         if (it == nameToTreeIndex.end()) {
-            throw std::runtime_error(
-                "Top module '" + std::string(name) + "' not found among "
-                + std::to_string(nameToTreeIndex.size())
-                + " known top-level declarations.");
+            throw std::runtime_error("Top module '" + std::string(name) + "' not found among " +
+                                     std::to_string(nameToTreeIndex.size()) + " known top-level declarations.");
         }
         startIndices.push_back(it->second);
     }
