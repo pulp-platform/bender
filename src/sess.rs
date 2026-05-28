@@ -873,8 +873,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 versions.sort_by(|a, b| b.cmp(a));
 
                 // Merge tags and branches.
-                let refs: IndexMap<&str, &str> =
-                    branches.into_iter().chain(tags.into_iter()).collect();
+                let refs: IndexMap<&str, &str> = branches.into_iter().chain(tags).collect();
 
                 let git_path = git.path;
 

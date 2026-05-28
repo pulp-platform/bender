@@ -374,13 +374,13 @@ impl<'ctx> SourceGroup<'ctx> {
                         .include_dirs
                         .iter()
                         .cloned()
-                        .chain(grp.include_dirs.into_iter())
+                        .chain(grp.include_dirs)
                         .collect();
                     grp.defines = self
                         .defines
                         .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
-                        .chain(grp.defines.into_iter())
+                        .chain(grp.defines)
                         .collect();
                     grp.flatten_into(into);
                 }

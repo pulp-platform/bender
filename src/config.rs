@@ -1177,7 +1177,7 @@ impl Validate for PartialSources {
 
                 let post_env_files: Vec<PartialSourceFile> = if let Some(fls) = files {
                     fls.into_iter()
-                        .chain(external_flist_groups?.into_iter())
+                        .chain(external_flist_groups?)
                         .filter_map(|file| match file {
                             PartialSourceFile::File(ref filename)
                             | PartialSourceFile::SvFile(ref filename)
@@ -1447,46 +1447,38 @@ impl GlobFile for PartialSourceFile {
             PartialSourceFile::File(ref path)
             | PartialSourceFile::SvFile(ref path)
             | PartialSourceFile::VerilogFile(ref path)
-            | PartialSourceFile::VhdlFile(ref path) => {
-                // Check if glob patterns used
-                if path.contains("*") || path.contains("?") {
-                    let glob_matches = glob(path)
-                        .into_diagnostic()
-                        .wrap_err_with(|| format!("Invalid glob pattern for {:?}", path))?;
-                    let out = glob_matches
-                        .map(|glob_match| {
-                            let file_str = glob_match
-                                .into_diagnostic()
-                                .wrap_err_with(|| format!("Glob match failed for {:?}", path))?
-                                .to_str()
-                                .unwrap()
-                                .to_string();
-                            Ok(match self {
-                                PartialSourceFile::File(_) => PartialSourceFile::File(file_str),
-                                PartialSourceFile::SvFile(_) => PartialSourceFile::SvFile(file_str),
-                                PartialSourceFile::VerilogFile(_) => {
-                                    PartialSourceFile::VerilogFile(file_str)
-                                }
-                                PartialSourceFile::VhdlFile(_) => {
-                                    PartialSourceFile::VhdlFile(file_str)
-                                }
-                                _ => unreachable!(),
-                            })
+            | PartialSourceFile::VhdlFile(ref path)
+                if path.contains("*") || path.contains("?") =>
+            {
+                let glob_matches = glob(path)
+                    .into_diagnostic()
+                    .wrap_err_with(|| format!("Invalid glob pattern for {:?}", path))?;
+                let out = glob_matches
+                    .map(|glob_match| {
+                        let file_str = glob_match
+                            .into_diagnostic()
+                            .wrap_err_with(|| format!("Glob match failed for {:?}", path))?
+                            .to_str()
+                            .unwrap()
+                            .to_string();
+                        Ok(match self {
+                            PartialSourceFile::File(_) => PartialSourceFile::File(file_str),
+                            PartialSourceFile::SvFile(_) => PartialSourceFile::SvFile(file_str),
+                            PartialSourceFile::VerilogFile(_) => {
+                                PartialSourceFile::VerilogFile(file_str)
+                            }
+                            PartialSourceFile::VhdlFile(_) => PartialSourceFile::VhdlFile(file_str),
+                            _ => unreachable!(),
                         })
-                        .collect::<Result<Vec<PartialSourceFile>>>()?;
-                    if out.is_empty() {
-                        Warnings::NoFilesForGlobPattern { path: path.clone() }.emit();
-                    }
-                    Ok(out)
-                } else {
-                    // Return self if not a glob pattern
-                    Ok(vec![self])
+                    })
+                    .collect::<Result<Vec<PartialSourceFile>>>()?;
+                if out.is_empty() {
+                    Warnings::NoFilesForGlobPattern { path: path.clone() }.emit();
                 }
+                Ok(out)
             }
-            _ => {
-                // Return self if not a glob pattern
-                Ok(vec![self])
-            }
+            // Return self if not a glob pattern (also matches non-file variants).
+            _ => Ok(vec![self]),
         }
     }
 }

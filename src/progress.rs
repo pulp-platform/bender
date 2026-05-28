@@ -209,69 +209,67 @@ impl ProgressHandler {
         match progress {
             // This case is only relevant for submodule operations i.e. `git submodule update`
             // It indicates that a new submodule has been registered, and we create a new progress bar for it.
-            GitProgress::SubmoduleRegistered { name } => {
-                if self.git_op == GitProgressOps::Submodule {
-                    // The main bar simply becomes a spinner since the sub-bar will show progress
-                    // on the subsequent line.
-                    state.pb.set_style(
-                        ProgressStyle::with_template("{spinner:>3.cyan} {prefix:<40!}").unwrap(),
-                    );
+            GitProgress::SubmoduleRegistered { name }
+                if self.git_op == GitProgressOps::Submodule =>
+            {
+                // The main bar simply becomes a spinner since the sub-bar will show progress
+                // on the subsequent line.
+                state.pb.set_style(
+                    ProgressStyle::with_template("{spinner:>3.cyan} {prefix:<40!}").unwrap(),
+                );
 
-                    // The submodule style is similar to the main bar, but indented and without spinner
-                    let style = ProgressStyle::with_template(
-                        "     {prefix:<24!} {bar:40.cyan/blue} {percent:>3}% {msg}",
-                    )
+                // The submodule style is similar to the main bar, but indented and without spinner
+                let style = ProgressStyle::with_template(
+                    "     {prefix:<24!} {bar:40.cyan/blue} {percent:>3}% {msg}",
+                )
+                .unwrap()
+                .progress_chars("-- ");
+
+                // We can have multiple sub-bars, and we insert them after the last one.
+                // In order to maintain proper tree-like structure, we need to update the previous last bar
+                // to have a "T" connector (├─) instead of an "L"
+                let prev_bar = match state.sub_bars.last() {
+                    Some((last_name, last_pb)) => {
+                        let prev_prefix = format!("{} {}", fmt_dim!("├─"), last_name);
+                        last_pb.set_prefix(prev_prefix);
+                        last_pb // Insert the new one after this one
+                    }
+                    None => &state.pb, // Insert the first one after the main bar
+                };
+
+                // Create the new sub-bar and insert it in the multi-progress *after* the previous sub-bar
+                let sub_pb = self
+                    .multiprogress
+                    .as_ref()
                     .unwrap()
-                    .progress_chars("-- ");
+                    .insert_after(prev_bar, ProgressBar::new(100).with_style(style));
+                // Set the prefix and initial message
+                let sub_prefix = format!("{} {}", fmt_dim!("╰─"), &name);
+                sub_pb.set_prefix(sub_prefix);
+                sub_pb.set_message(format!("{}", fmt_dim!("Waiting...")));
 
-                    // We can have multiple sub-bars, and we insert them after the last one.
-                    // In order to maintain proper tree-like structure, we need to update the previous last bar
-                    // to have a "T" connector (├─) instead of an "L"
-                    let prev_bar = match state.sub_bars.last() {
-                        Some((last_name, last_pb)) => {
-                            let prev_prefix = format!("{} {}", fmt_dim!("├─"), last_name);
-                            last_pb.set_prefix(prev_prefix);
-                            last_pb // Insert the new one after this one
-                        }
-                        None => &state.pb, // Insert the first one after the main bar
-                    };
-
-                    // Create the new sub-bar and insert it in the multi-progress *after* the previous sub-bar
-                    let sub_pb = self
-                        .multiprogress
-                        .as_ref()
-                        .unwrap()
-                        .insert_after(prev_bar, ProgressBar::new(100).with_style(style));
-                    // Set the prefix and initial message
-                    let sub_prefix = format!("{} {}", fmt_dim!("╰─"), &name);
-                    sub_pb.set_prefix(sub_prefix);
-                    sub_pb.set_message(format!("{}", fmt_dim!("Waiting...")));
-
-                    // Store the sub-bar in the state for later updates
-                    state.sub_bars.insert(name, sub_pb);
-                }
+                // Store the sub-bar in the state for later updates
+                state.sub_bars.insert(name, sub_pb);
             }
             // This indicates that we are starting to clone a submodule.
             // Again, it is only relevant for submodule operations. For normal
             // clones, we just update the main bar.
-            GitProgress::CloningInto { name } => {
-                if self.git_op == GitProgressOps::Submodule {
-                    // Logic to handle missing 'checked out' lines:
-                    // If we are activating 'bar', but 'foo' was active, assume 'foo' is done.
-                    if let Some(prev) = &state.active_sub {
-                        if prev != &name {
-                            if let Some(b) = state.sub_bars.get(prev) {
-                                b.finish_and_clear();
-                            }
+            GitProgress::CloningInto { name } if self.git_op == GitProgressOps::Submodule => {
+                // Logic to handle missing 'checked out' lines:
+                // If we are activating 'bar', but 'foo' was active, assume 'foo' is done.
+                if let Some(prev) = &state.active_sub {
+                    if prev != &name {
+                        if let Some(b) = state.sub_bars.get(prev) {
+                            b.finish_and_clear();
                         }
                     }
-                    // Set the new bar to active
-                    if let Some(bar) = state.sub_bars.get(&name) {
-                        // Switch style to the active progress bar style
-                        bar.set_message(format!("{}", fmt_dim!("Cloning...")));
-                    }
-                    state.active_sub = Some(name);
                 }
+                // Set the new bar to active
+                if let Some(bar) = state.sub_bars.get(&name) {
+                    // Switch style to the active progress bar style
+                    bar.set_message(format!("{}", fmt_dim!("Cloning...")));
+                }
+                state.active_sub = Some(name);
             }
             // Indicates that we have finished processing a submodule.
             GitProgress::SubmoduleEnd { name } => {

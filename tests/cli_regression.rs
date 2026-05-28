@@ -66,7 +66,7 @@ fn get_test_env() -> &'static (PathBuf, PathBuf) {
             std::fs::create_dir_all(&install_root).expect("Failed to create install dir");
 
             let status = SysCommand::new("cargo")
-                .args(&[
+                .args([
                     "install",
                     "--git",
                     "https://github.com/pulp-platform/bender",
