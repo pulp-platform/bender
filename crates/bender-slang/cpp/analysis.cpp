@@ -6,26 +6,60 @@
 
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string_view>
 #ifdef _WIN32
 #include <io.h>
-#define STDERR_IS_TTY _isatty(_fileno(stderr))
 #else
 #include <unistd.h>
-#define STDERR_IS_TTY isatty(STDERR_FILENO)
 #endif
 #include <unordered_map>
 #include <unordered_set>
 
 using namespace slang;
 
+static bool stderr_is_tty() {
+#ifdef _WIN32
+    return _isatty(_fileno(stderr)) != 0;
+#else
+    return isatty(STDERR_FILENO) != 0;
+#endif
+}
+
+// Diagnostic for "a later top-level declaration shadows an earlier one with the same name".
+// Lives in the General subsystem; the code is arbitrary but stable.
+static const slang::DiagCode kDuplicateTopLevelDecl(slang::DiagSubsystem::General, 9999);
+static constexpr std::string_view kDuplicateTopLevelDeclFormat =
+    "module '{}' overwrites previous definition in '{}'";
+
 rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, const rust::Vec<rust::String>& tops) {
     const auto& treeVec = session.trees();
 
+    // One engine+client per distinct SourceManager. Each parse group creates its own
+    // SourceManager (see SlangContext), so trees from different groups need different
+    // engines; trees within a group share one.
+    struct DiagState {
+        std::unique_ptr<slang::DiagnosticEngine> engine;
+        std::shared_ptr<slang::TextDiagnosticClient> client;
+    };
+    std::unordered_map<const slang::SourceManager*, DiagState> diagStates;
+    const bool tty = stderr_is_tty();
+    auto diagFor = [&](const slang::SourceManager& sm) -> DiagState& {
+        auto [it, inserted] = diagStates.try_emplace(&sm);
+        if (inserted) {
+            it->second.engine = std::make_unique<slang::DiagnosticEngine>(sm);
+            it->second.client = std::make_shared<slang::TextDiagnosticClient>();
+            it->second.client->showColors(tty);
+            it->second.engine->addClient(it->second.client);
+            it->second.engine->setMessage(kDuplicateTopLevelDecl, std::string(kDuplicateTopLevelDeclFormat));
+            it->second.engine->setSeverity(kDuplicateTopLevelDecl, slang::DiagnosticSeverity::Warning);
+        }
+        return it->second;
+    };
+
     // Build the name-to-tree-index map with last-wins semantics, emitting a warning
     // whenever a later definition overwrites an earlier one.
-    slang::DiagCode overwriteCode(slang::DiagSubsystem::General, 9999);
     std::unordered_map<std::string_view, size_t> nameToTreeIndex;
     for (size_t i = 0; i < treeVec.size(); ++i) {
         const auto& metadata = treeVec[i]->getMetadata();
@@ -34,25 +68,22 @@ rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, con
             if (name.empty())
                 return;
             auto [it, inserted] = nameToTreeIndex.emplace(name, i);
-            if (!inserted) {
-                slang::DiagnosticEngine engine(treeVec[i]->sourceManager());
-                auto client = std::make_shared<slang::TextDiagnosticClient>();
-                client->showColors(STDERR_IS_TTY);
-                engine.addClient(client);
-                engine.setMessage(overwriteCode, "module '{}' overwrites previous definition in '{}'");
-                engine.setSeverity(overwriteCode, slang::DiagnosticSeverity::Warning);
+            if (inserted)
+                return;
 
-                slang::Diagnostic diag(overwriteCode, loc);
-                diag << name;
-                const auto& prevBufferIds = treeVec[it->second]->getSourceBufferIds();
-                std::string_view prevFile = prevBufferIds.empty()
-                    ? std::string_view("<unknown>")
-                    : treeVec[it->second]->sourceManager().getRawFileName(prevBufferIds[0]);
-                diag << prevFile;
-                engine.issue(diag);
-                std::cerr << client->getString();
-                it->second = i;
-            }
+            const auto& prevBufferIds = treeVec[it->second]->getSourceBufferIds();
+            std::string_view prevFile = prevBufferIds.empty()
+                ? std::string_view("<unknown>")
+                : treeVec[it->second]->sourceManager().getRawFileName(prevBufferIds[0]);
+
+            auto& state = diagFor(treeVec[i]->sourceManager());
+            slang::Diagnostic diag(kDuplicateTopLevelDecl, loc);
+            diag << name;
+            diag << prevFile;
+            state.client->clear();
+            state.engine->issue(diag);
+            std::cerr << state.client->getString();
+            it->second = i;
         };
 
         for (const auto& [decl, _] : metadata.nodeMeta)
@@ -84,7 +115,10 @@ rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, con
         std::string_view name(top.data(), top.size());
         auto it = nameToTreeIndex.find(name);
         if (it == nameToTreeIndex.end()) {
-            throw std::runtime_error("Top module not found in any parsed source file: " + std::string(name));
+            throw std::runtime_error(
+                "Top module '" + std::string(name) + "' not found among "
+                + std::to_string(nameToTreeIndex.size())
+                + " known top-level declarations.");
         }
         startIndices.push_back(it->second);
     }

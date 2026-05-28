@@ -81,7 +81,8 @@ pub struct ScriptArgs {
     #[arg(long, global = true, help_heading = "General Script Options")]
     pub no_abort_on_error: bool,
 
-    /// One or more top-level modules used to trim unreachable source files.
+    /// One or more top-level modules used to trim unreachable Verilog files.
+    /// VHDL and untyped files are always retained.
     #[cfg(feature = "slang")]
     #[arg(long, global = true, help_heading = "General Script Options")]
     pub top: Vec<String>,
@@ -247,6 +248,9 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
 
     // Format-specific target specifiers.
     let vivado_targets = &["vivado", "fpga", "xilinx"];
+    fn concat<T: Clone>(a: &[T], b: &[T]) -> Vec<T> {
+        a.iter().chain(b).cloned().collect()
+    }
     let format_targets: Vec<&str> = if !args.no_default_target {
         match args.format {
             ScriptFormat::Flist { .. } => vec!["flist"],
@@ -258,8 +262,8 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             ScriptFormat::Formality => vec!["synopsys", "synthesis", "formality"],
             ScriptFormat::Riviera { .. } => vec!["riviera", "simulation"],
             ScriptFormat::Genus => vec!["genus", "synthesis"],
-            ScriptFormat::Vivado { .. } => [vivado_targets as &[_], &["synthesis"]].concat(),
-            ScriptFormat::VivadoSim { .. } => [vivado_targets as &[_], &["simulation"]].concat(),
+            ScriptFormat::Vivado { .. } => concat(vivado_targets, &["synthesis"]),
+            ScriptFormat::VivadoSim { .. } => concat(vivado_targets, &["simulation"]),
             ScriptFormat::Precision => vec!["precision", "fpga", "synthesis"],
             ScriptFormat::Template { .. } => vec![],
             ScriptFormat::TemplateJson => vec![],
