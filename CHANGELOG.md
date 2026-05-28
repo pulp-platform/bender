@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Added
 - Add new `crates/bender-slang` crate that integrates the vendored Slang parser via a Rust/C++ bridge.
 - Add new `pickle` command (behind feature `slang`) to parse and re-emit SystemVerilog sources.
+- Add cross-process filesystem locks around git database and checkout operations so concurrent `bender` invocations against the same dependency serialize safely.
+- Add `db_dir` config field to share bare-repo and lock storage across projects without relocating per-project checkouts; older Bender versions silently ignore the field and fall back to their per-project default.
 
 ## 0.31.0 - 2026-03-03
 ### Fixed

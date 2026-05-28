@@ -1623,6 +1623,11 @@ where
 pub struct Config {
     /// The path to the database directory.
     pub database: PathBuf,
+    /// Optional override for the directory containing bare git repositories
+    /// and their lock files. When set, takes precedence over `database` for
+    /// these two specific paths; checkouts and everything else still derive
+    /// from `database`.
+    pub db_dir: Option<PathBuf>,
     /// The git command or path to the binary.
     pub git: String,
     /// The dependency overrides.
@@ -1640,6 +1645,8 @@ pub struct Config {
 pub struct PartialConfig {
     /// The path to the database directory.
     pub database: Option<String>,
+    /// Optional override for the bare-repo and lock directory.
+    pub db_dir: Option<String>,
     /// The git command or path to the binary.
     pub git: Option<String>,
     /// The dependency overrides.
@@ -1663,6 +1670,7 @@ impl PrefixPaths for PartialConfig {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         Ok(PartialConfig {
             database: self.database.prefix_paths(prefix)?,
+            db_dir: self.db_dir.prefix_paths(prefix)?,
             overrides: self.overrides.prefix_paths(prefix)?,
             plugins: self.plugins.prefix_paths(prefix)?,
             ..self
@@ -1674,6 +1682,7 @@ impl Merge for PartialConfig {
     fn merge(self, other: PartialConfig) -> PartialConfig {
         PartialConfig {
             database: self.database.or(other.database),
+            db_dir: self.db_dir.or(other.db_dir),
             git: self.git.or(other.git),
             overrides: match (self.overrides, other.overrides) {
                 (Some(o), None) | (None, Some(o)) => Some(o),
@@ -1709,6 +1718,10 @@ impl Validate for PartialConfig {
             database: match self.database {
                 Some(db) => env_path_from_string(&db)?,
                 None => bail!("Database directory not configured"),
+            },
+            db_dir: match self.db_dir {
+                Some(d) => Some(env_path_from_string(&d)?),
+                None => None,
             },
             git: match self.git {
                 Some(git) => git,

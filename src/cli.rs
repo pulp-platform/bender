@@ -508,6 +508,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
     // Assemble and merge the default configuration.
     let default_cfg = PartialConfig {
         database: Some(from.join(".bender").to_str().unwrap().to_string()),
+        db_dir: None,
         git: Some("git".into()),
         overrides: None,
         plugins: None,

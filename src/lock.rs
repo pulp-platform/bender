@@ -53,16 +53,14 @@ impl FsLock {
                 Ok(()) => Ok(file),
                 Err(TryLockError::WouldBlock) => {
                     log::info!("waiting for lock on {:?}", path_for_blocking);
-                    FileExt::lock(&file)
-                        .into_diagnostic()
-                        .wrap_err_with(|| {
-                            format!("Failed to acquire lock on {:?}.", path_for_blocking)
-                        })?;
+                    FileExt::lock(&file).into_diagnostic().wrap_err_with(|| {
+                        format!("Failed to acquire lock on {:?}.", path_for_blocking)
+                    })?;
                     Ok(file)
                 }
-                Err(TryLockError::Error(e)) => Err(e).into_diagnostic().wrap_err_with(|| {
-                    format!("Failed to try-lock {:?}.", path_for_blocking)
-                }),
+                Err(TryLockError::Error(e)) => Err(e)
+                    .into_diagnostic()
+                    .wrap_err_with(|| format!("Failed to try-lock {:?}.", path_for_blocking)),
             }
         })
         .await

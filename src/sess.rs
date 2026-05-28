@@ -568,11 +568,22 @@ impl<'ctx> Session<'ctx> {
     /// working checkout under `git/checkouts/` for this dependency.
     pub fn dep_lock_path(&self, name: &str, url: &str) -> PathBuf {
         let key = self.git_db_name(name, url);
-        self.config
-            .database
+        self.db_parent()
             .join("git")
             .join("locks")
             .join(format!("{}.lock", key))
+    }
+
+    /// The directory under which bare git databases and lock files live.
+    ///
+    /// Uses `db_dir` if configured (the recommended way to share bare repos
+    /// across projects without relocating checkouts), otherwise falls back to
+    /// `database`.
+    pub fn db_parent(&self) -> &Path {
+        self.config
+            .db_dir
+            .as_deref()
+            .unwrap_or(&self.config.database)
     }
 }
 
@@ -694,13 +705,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         // Determine the location of the git database and create it if its does
         // not yet exist.
-        let db_dir = self
-            .sess
-            .config
-            .database
-            .join("git")
-            .join("db")
-            .join(db_name);
+        let db_dir = self.sess.db_parent().join("git").join("db").join(db_name);
         let db_dir = self.sess.intern_path(db_dir);
         std::fs::create_dir_all(db_dir)
             .into_diagnostic()

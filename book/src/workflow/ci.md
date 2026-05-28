@@ -87,16 +87,24 @@ cache:
 
 ## Sharing the Database Across Runs and Projects
 
-When jobs run on a persistent runner, the `database` directory (where Bender stores cloned repositories) can be shared across CI runs and even across projects to drastically reduce fetch times and disk usage.
+When jobs run on a persistent runner, the bare git repositories Bender clones can be shared across CI runs and even across projects to drastically reduce fetch times and disk usage. The recommended way is the [`db_dir`](../configuration.md#db_dir) setting, which relocates *only* the bare repos and lock files; per-project working-tree checkouts stay under each project's own `.bender/` directory and cannot collide.
 
-To enable this, point Bender at a shared location via a [`Bender.local`](../local.md) file (for example placed in a parent directory of the project so it is picked up automatically):
+Place a [`Bender.local`](../local.md) in a parent directory of your projects so it is picked up automatically:
+
+```yaml
+db_dir: /var/cache/bender_shared
+```
+
+Every job on the runner now reuses the already-fetched Git data and serializes safely against concurrent jobs via per-dependency filesystem locks living next to the bare repos (`<db_dir>/git/locks/`).
+
+> **Older Bender versions** silently ignore `db_dir` and fall back to their normal per-project `.bender/` cache, so the shared config above is safe to deploy on a runner that still hosts pinned-to-old-bender projects — those projects simply won't benefit from the shared cache, but they won't misbehave either.
+
+### Legacy `database:` recipe
+
+Earlier docs recommended sharing via [`database`](../configuration.md#database), which relocates both the bare repos *and* the checkouts:
 
 ```yaml
 database: /var/cache/bender_shared
 ```
 
-This way, every job that runs in the runner reuses the already-fetched Git data instead of re-cloning from scratch. See [Configuration](../configuration.md) for more on the `database` setting.
-
-> **Caveats:**
-> - **Checkout collisions:** When sharing the database, checkouts from different projects can collide if the top-level [`Bender.yml`](../manifest.md) does not specify a project-specific `workspace.checkout_dir`. Make sure each top-level project sets its own `checkout_dir` so that checkouts remain isolated even when the database is shared.
-> - **Concurrent runs:** Bender does not currently take a lock before performing Git operations on the shared database. Concurrent jobs that touch the same database may occasionally fail with Git errors. This is unlikely, but worth keeping in mind when sizing parallelism.
+This still works, but it has a known footgun: two top-level projects that share the same name will collide on the same `<database>/git/checkouts/<name>-<hash>/` directory. If you keep this recipe, give each top-level project its own `workspace.checkout_dir` in [`Bender.yml`](../manifest.md) so the checkouts remain isolated. Prefer `db_dir` for new setups.
