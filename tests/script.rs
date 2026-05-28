@@ -3,6 +3,8 @@
 
 #[cfg(feature = "slang")]
 mod tests {
+    use std::collections::HashSet;
+
     use assert_cmd::cargo;
 
     fn run_script(args: &[&str]) -> String {
@@ -24,15 +26,28 @@ mod tests {
         String::from_utf8(out.stdout).expect("stdout must be utf-8")
     }
 
+    /// Extract the set of source-file basenames from a flist-plus output.
+    /// Filters out `+incdir+` / `+define+` lines so only path lines remain.
+    fn source_basenames(output: &str) -> HashSet<&str> {
+        output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("+incdir+") && !l.starts_with("+define+"))
+            .map(|l| l.rsplit('/').next().unwrap_or(l))
+            .collect()
+    }
+
     #[test]
     fn script_top_filters_unreachable_files() {
         // Without --top: all files present
-        let full = run_script(&["--target", "top", "flist-plus"]);
+        let full_out = run_script(&["--target", "top", "flist-plus"]);
+        let full = source_basenames(&full_out);
         assert!(full.contains("unused_top.sv"));
         assert!(full.contains("unused_leaf.sv"));
 
         // With --top top: unreachable files removed
-        let trimmed = run_script(&["--target", "top", "--top", "top", "flist-plus"]);
+        let trimmed_out = run_script(&["--target", "top", "--top", "top", "flist-plus"]);
+        let trimmed = source_basenames(&trimmed_out);
         assert!(trimmed.contains("top.sv"));
         assert!(trimmed.contains("core.sv"));
         assert!(trimmed.contains("leaf.sv"));
@@ -42,7 +57,7 @@ mod tests {
 
     #[test]
     fn script_top_multiple_tops() {
-        let trimmed = run_script(&[
+        let out = run_script(&[
             "--target",
             "top",
             "--top",
@@ -51,6 +66,7 @@ mod tests {
             "unused_top",
             "flist-plus",
         ]);
+        let trimmed = source_basenames(&out);
         assert!(trimmed.contains("top.sv"));
         assert!(trimmed.contains("unused_top.sv"));
     }
@@ -58,7 +74,8 @@ mod tests {
     #[test]
     fn script_top_empty_keeps_all_files() {
         // Without --top: all files appear
-        let full = run_script(&["--target", "top", "flist-plus"]);
+        let out = run_script(&["--target", "top", "flist-plus"]);
+        let full = source_basenames(&out);
         assert!(full.contains("top.sv"));
         assert!(full.contains("core.sv"));
         assert!(full.contains("leaf.sv"));
@@ -71,21 +88,23 @@ mod tests {
     #[test]
     fn script_top_duplicate_module_name_last_wins() {
         // Without --top: both dup files appear (no filtering applied)
-        let full = run_script(&["--target", "dup", "flist-plus"]);
+        let full_out = run_script(&["--target", "dup", "flist-plus"]);
+        let full = source_basenames(&full_out);
         assert!(full.contains("dup_a.sv"));
         assert!(full.contains("dup_b.sv"));
         assert!(full.contains("dup_top.sv"));
 
         // With --top dup_top: only dup_b.sv (last-wins) and dup_top.sv appear
-        let trimmed = run_script(&["--target", "dup", "--top", "dup_top", "flist-plus"]);
+        let trimmed_out = run_script(&["--target", "dup", "--top", "dup_top", "flist-plus"]);
+        let trimmed = source_basenames(&trimmed_out);
         assert!(trimmed.contains("dup_top.sv"));
         assert!(
             trimmed.contains("dup_b.sv"),
-            "dup_b.sv (last-wins) missing:\n{trimmed}"
+            "dup_b.sv (last-wins) missing: {trimmed:?}"
         );
         assert!(
             !trimmed.contains("dup_a.sv"),
-            "dup_a.sv (overwritten) should be absent:\n{trimmed}"
+            "dup_a.sv (overwritten) should be absent: {trimmed:?}"
         );
     }
 }

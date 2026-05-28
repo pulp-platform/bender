@@ -44,8 +44,11 @@ rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, con
 
                 slang::Diagnostic diag(overwriteCode, loc);
                 diag << name;
-                diag << treeVec[it->second]->sourceManager().getRawFileName(
-                    treeVec[it->second]->getSourceBufferIds()[0]);
+                const auto& prevBufferIds = treeVec[it->second]->getSourceBufferIds();
+                std::string_view prevFile = prevBufferIds.empty()
+                    ? std::string_view("<unknown>")
+                    : treeVec[it->second]->sourceManager().getRawFileName(prevBufferIds[0]);
+                diag << prevFile;
                 engine.issue(diag);
                 std::cerr << client->getString();
                 it->second = i;

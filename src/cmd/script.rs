@@ -3,7 +3,6 @@
 
 //! The `script` subcommand.
 
-use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -447,7 +446,7 @@ fn filter_srcs_by_top<'a>(
     srcs: Vec<SourceGroup<'a>>,
     top: &[String],
 ) -> Result<Vec<SourceGroup<'a>>> {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     let mut session = SlangSession::new();
     let mut index_to_path: HashMap<usize, &Path> = HashMap::new();
