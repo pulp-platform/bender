@@ -1101,6 +1101,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .arg("clone")
                                 .arg(git.path)
                                 .arg(path)
+                                .arg("--shared")
                                 .arg("--branch")
                                 .arg(tag_name_2)
                                 .arg("--progress")
