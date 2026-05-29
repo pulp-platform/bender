@@ -97,7 +97,9 @@ db_dir: /var/cache/bender_shared
 
 Every job on the runner now reuses the already-fetched Git data and serializes safely against concurrent jobs via per-dependency filesystem locks living next to the bare repos (`<db_dir>/git/locks/`).
 
-> **Older Bender versions** silently ignore `db_dir` and fall back to their normal per-project `.bender/` cache, so the shared config above is safe to deploy on a runner that still hosts pinned-to-old-bender projects — those projects simply won't benefit from the shared cache, but they won't misbehave either.
+If you'd rather not place a `Bender.local` on the runner at all, exporting `BENDER_DB_DIR=/var/cache/bender_shared` in the job environment has the same effect — any project that explicitly sets `db_dir` in its own configuration overrides the env var.
+
+> **Older Bender versions** silently ignore both `db_dir` and `BENDER_DB_DIR` and fall back to their normal per-project `.bender/` cache, so the shared config above is safe to deploy on a runner that still hosts pinned-to-old-bender projects — those projects simply won't benefit from the shared cache, but they won't misbehave either.
 
 ### Legacy `database:` recipe
 
