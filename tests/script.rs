@@ -26,6 +26,17 @@ mod tests {
         String::from_utf8(out.stdout).expect("stdout must be utf-8")
     }
 
+    /// Return the path component after the last `/` or `\`. On Windows, bender's source paths
+    /// can come out mixed (e.g. `D:\workspace\tests\pickle/src/top.sv`) while incdir paths are
+    /// all-backslash because the Bender.yml entry has no embedded separator — so splitting on
+    /// `/` alone misses the latter.
+    fn basename(path: &str) -> &str {
+        match path.rfind(|c: char| c == '/' || c == '\\') {
+            Some(i) => &path[i + 1..],
+            None => path,
+        }
+    }
+
     /// Extract the set of source-file basenames from a flist-plus output.
     /// Filters out `+incdir+` / `+define+` lines so only path lines remain.
     fn source_basenames(output: &str) -> HashSet<&str> {
@@ -33,7 +44,7 @@ mod tests {
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty() && !l.starts_with("+incdir+") && !l.starts_with("+define+"))
-            .map(|l| l.rsplit('/').next().unwrap_or(l))
+            .map(basename)
             .collect()
     }
 
@@ -43,7 +54,7 @@ mod tests {
             .lines()
             .map(str::trim)
             .filter_map(|l| l.strip_prefix("+incdir+"))
-            .map(|l| l.rsplit('/').next().unwrap_or(l))
+            .map(basename)
             .collect()
     }
 
