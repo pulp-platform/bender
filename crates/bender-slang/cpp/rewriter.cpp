@@ -1,7 +1,7 @@
 // Copyright (c) 2025 ETH Zurich
 // Tim Fischer <fischeti@iis.ee.ethz.ch>
 
-#include "slang/syntax/SyntaxVisitor.h"
+#include "slang/syntax/SyntaxRewriter.h"
 #include "slang_bridge.h"
 
 #include <unordered_map>

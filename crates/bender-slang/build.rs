@@ -127,14 +127,15 @@ fn main() {
     println!("cargo:rustc-link-lib=static=svlang");
 
     // Link the additional libraries based on build profile.
-    let (fmt_lib, mimalloc_lib) = match (target_env.as_str(), build_profile.as_str()) {
-        ("msvc", _) => ("fmt", "mimalloc"),
-        (_, "debug") => ("fmtd", "mimalloc-debug"),
-        _ => ("fmt", "mimalloc"),
+    // Slang v11 bundles mimalloc directly into libsvlang.a (via mimalloc-obj),
+    // so only fmt needs an explicit link line.
+    let fmt_lib = match (target_env.as_str(), build_profile.as_str()) {
+        ("msvc", _) => "fmt",
+        (_, "debug") => "fmtd",
+        _ => "fmt",
     };
 
     println!("cargo:rustc-link-lib=static={fmt_lib}");
-    println!("cargo:rustc-link-lib=static={mimalloc_lib}");
 
     if target_os == "windows" {
         println!("cargo:rustc-link-lib=advapi32");
