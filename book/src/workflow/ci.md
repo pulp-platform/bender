@@ -41,10 +41,11 @@ variables:
   BENDER_VERSION: "0.31.0"
 
 before_script:
-  # Install Bender using the init script. The default install drops `bender` in
-  # the current directory; add it to PATH for subsequent steps. Alternatively,
-  # pass `global` to install into $CARGO_HOME/bin instead.
-  - curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh -s -- $BENDER_VERSION
+  # Install Bender locally so the binary lands in the current directory across
+  # all versions, then add CWD to PATH. (For v0.32.0+ the installer would
+  # otherwise default to a global install; --local pins the project-local
+  # behavior. For pre-v0.32.0 versions --local is a no-op.)
+  - curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh -s -- --local $BENDER_VERSION
   - export PATH=$PATH:$(pwd)
 
 sim_job:

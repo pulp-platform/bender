@@ -4,13 +4,13 @@ Bender is a single standalone binary. You can either use our recommended shell i
 
 ## Recommended: Shell Installer
 
-The fastest way to install Bender is using our shell script. It detects your operating system and architecture, downloads the matching release, and places the `bender` binary in the current directory:
+The fastest way to install Bender is using our shell script. It detects your operating system and architecture, downloads the matching release, installs the `bender` binary into `${CARGO_HOME:-$HOME/.cargo}/bin`, and adds that directory to your `PATH`:
 
 ```sh
 curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh
 ```
 
-After the script finishes, you'll find a `bender` executable in your current directory. Move it onto your `PATH` (e.g. `mv bender ~/.local/bin/`) or invoke it as `./bender`.
+After the script finishes, open a new shell (or `source` the env file it prints) and `bender --version` should work from anywhere.
 
 ### Installing a Specific Version
 Pass the desired version (e.g. `0.31.0`) as a positional argument:
@@ -18,16 +18,23 @@ Pass the desired version (e.g. `0.31.0`) as a positional argument:
 curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh -s -- 0.31.0
 ```
 
-### Global Install
-Pass `global` to install into `${CARGO_HOME:-$HOME/.cargo}/bin` instead of the current directory. For v0.32.0 and newer, this also adds the install directory to your `PATH` automatically via the underlying [cargo-dist](https://opensource.axo.dev/cargo-dist/) installer; for older versions, the binary is moved into place but you may need to add the directory to `PATH` manually.
+> **Note:** Releases prior to v0.32.0 use a different (legacy) installer that drops the `bender` binary into the current directory by default. The `--local` / `--global` flags below let you pin a specific install location regardless of which installer is in play.
+
+### Forcing the Install Location
+The defaults differ between installers (v0.32.0+ installs globally; pre-v0.32.0 installs into the current directory). Pass one of the following flags to pin the location explicitly:
+
+- `--local`: drop the `bender` binary into the current directory. Useful for CI jobs that prefer a project-local install or for trying Bender without modifying your shell environment. After a `--local` install, invoke Bender as `./bender` or move the binary onto your `PATH`.
+- `--global`: install into `${CARGO_HOME:-$HOME/.cargo}/bin`. For v0.32.0+ this also adds the directory to your `PATH` (default behavior); for older versions the binary is relocated there but you may need to add the directory to `PATH` manually.
 
 ```sh
-# Latest release, global install
-curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh -s -- global
+# Latest release, local install
+curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh -s -- --local
 
-# Specific version, global install (order of arguments is interchangeable)
-curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh -s -- global 0.32.0
+# Specific (legacy) version, global install
+curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh -s -- --global 0.31.0
 ```
+
+The position of the flag and version is interchangeable. `--local` and `--global` are mutually exclusive.
 
 > **Note:** The installer always overwrites an existing `bender` at the target location without prompting.
 
