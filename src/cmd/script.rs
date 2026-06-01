@@ -6,6 +6,12 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
+use std::fs::canonicalize;
+
+#[cfg(windows)]
+use dunce::canonicalize;
+
 use clap::{ArgAction, Args, Subcommand, ValueEnum};
 use indexmap::{IndexMap, IndexSet};
 use miette::{Context as _, IntoDiagnostic as _};
@@ -571,7 +577,7 @@ fn apply_slang_filters<'a>(
         Vec::new()
     };
     let dir_is_used = |dir: &Path| -> bool {
-        let canon = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+        let canon = canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
         resolved_includes.iter().any(|f| f.starts_with(&canon))
     };
 
