@@ -145,6 +145,20 @@ rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, con
     return result;
 }
 
+// Returns the indices of trees whose parse reported slang errors. Used by the Rust side to
+// force-keep such files in the output regardless of reachability — useful for IEEE-1735
+// encrypted IP that slang can't fully digest.
+rust::Vec<std::uint32_t> failed_tree_indices(const SlangSession& session) {
+    const auto& errs = session.tree_parse_errors();
+    rust::Vec<std::uint32_t> out;
+    for (size_t i = 0; i < errs.size(); ++i) {
+        if (errs[i]) {
+            out.push_back(static_cast<std::uint32_t>(i));
+        }
+    }
+    return out;
+}
+
 // Returns the deduped, canonical filesystem paths of every header file that was actually loaded
 // via `include directives while parsing the requested trees. Trees from different parse groups
 // may live in different SourceManagers, so the lookup is per-tree.

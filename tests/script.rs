@@ -171,6 +171,35 @@ mod tests {
         assert!(!files.contains("unused_top.sv"));
     }
 
+    /// Encrypted RTL (IEEE-1735 protect envelopes) makes slang trip at the surrounding
+    /// `endmodule` even though the envelope itself is skipped. The filter must:
+    ///  * not abort `bender script --top` because of slang errors in encrypted IP, and
+    ///  * preserve the encrypted file in the output even though no internal reference resolves
+    ///    to it (its module symbol is hidden behind the protect envelope).
+    #[test]
+    fn script_top_keeps_encrypted_file() {
+        let out = run_script(&[
+            "--target",
+            "encrypted",
+            "--top",
+            "encrypted_top",
+            "flist-plus",
+        ]);
+        let files = source_basenames(&out);
+        assert!(
+            files.contains("encrypted_top.sv"),
+            "top file missing: {files:?}"
+        );
+        assert!(
+            files.contains("encrypted_user.sv"),
+            "user of encrypted IP missing: {files:?}"
+        );
+        assert!(
+            files.contains("encrypted_ip.sv"),
+            "encrypted IP must be force-kept despite parse errors: {files:?}"
+        );
+    }
+
     /// Regression test: when two files define the same module name, last-wins semantics apply.
     /// The file parsed last (dup_b.sv) wins; the earlier definition (dup_a.sv) is dropped.
     #[test]

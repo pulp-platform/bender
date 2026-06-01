@@ -545,6 +545,21 @@ fn apply_slang_filters<'a>(
         }
     }
 
+    // Files whose slang parse failed get force-kept regardless of reachability. IEEE-1735
+    // encrypted IP routinely trips the parser at the end of the protect envelope; we can't
+    // analyze those modules, but we mustn't drop them from the script either.
+    let failed_indices = session.failed_indices().into_diagnostic()?;
+    let force_kept_paths: HashSet<&Path> = failed_indices
+        .iter()
+        .filter_map(|i| index_to_path.get(i).copied())
+        .collect();
+    for p in &force_kept_paths {
+        eprintln!(
+            "warning: slang reported parse errors in {}; preserving in script output regardless of reachability",
+            p.display()
+        );
+    }
+
     // Determine which trees feed into the include / file-retention questions. With `--top` we
     // only look at trees reachable from those top modules; without `--top` we use every tree
     // (relevant when the caller asked for include-dir trimming but no file filtering).
@@ -586,7 +601,9 @@ fn apply_slang_filters<'a>(
         .map(|mut group| {
             if filter_files {
                 group.files.retain(|f| match f {
-                    SourceFile::File(p, Some(SourceType::Verilog)) => kept_paths.contains(p),
+                    SourceFile::File(p, Some(SourceType::Verilog)) => {
+                        kept_paths.contains(p) || force_kept_paths.contains(p)
+                    }
                     _ => true,
                 });
             }

@@ -25,3 +25,9 @@ sources:
       - src/dup_a.sv
       - src/dup_b.sv
       - src/dup_top.sv
+
+  - target: encrypted
+    files:
+      - src/encrypted_ip.sv
+      - src/encrypted_user.sv
+      - src/encrypted_top.sv

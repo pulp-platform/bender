@@ -3,6 +3,7 @@
 
 #include "slang_bridge.h"
 
+#include <iostream>
 #include <stdexcept>
 
 using namespace slang;
@@ -42,11 +43,15 @@ std::vector<std::shared_ptr<SyntaxTree>> SlangContext::parse_files(const rust::V
 
     std::vector<std::shared_ptr<SyntaxTree>> out;
     out.reserve(paths.size());
+    parseErrors.clear();
+    parseErrors.reserve(paths.size());
 
     for (const auto& path : paths) {
         string_view pathView(path.data(), path.size());
         auto result = SyntaxTree::fromFile(pathView, sourceManager, options);
 
+        // A system-level failure (file unreadable, etc.) is still fatal: the caller asked for
+        // this path and we couldn't even open it. Parse errors are tolerated below.
         if (!result) {
             auto& err = result.error();
             std::string msg = "System Error loading '" + std::string(err.second) + "': " + err.first.message();
@@ -63,15 +68,16 @@ std::vector<std::shared_ptr<SyntaxTree>> SlangContext::parse_files(const rust::V
             diagEngine.issue(diag);
         }
 
+        // Surface diagnostics for any file with errors, but keep going — the Rust side decides
+        // what to do with the (possibly partial) tree. This matters for IEEE-1735 encrypted IP:
+        // slang skips the protect envelope but still trips on the surrounding endmodule, and
+        // those files shouldn't sink the whole `bender script` invocation.
         if (hasErrors) {
-            std::string rendered = diagClient->getString();
-            if (rendered.empty()) {
-                rendered = "Failed to parse '" + std::string(pathView) + "'.";
-            }
-            throw std::runtime_error(rendered);
+            std::cerr << diagClient->getString();
         }
 
         out.push_back(tree);
+        parseErrors.push_back(hasErrors);
     }
 
     return out;
@@ -86,11 +92,15 @@ void SlangSession::parse_group(const rust::Vec<rust::String>& files, const rust:
     ctx->set_includes(includes);
     ctx->set_defines(defines);
 
-    // Parse the files and store the resulting syntax trees in the session.
+    // Parse the files and store the resulting syntax trees in the session, alongside their
+    // pass/fail status so callers can decide how to handle partially-parsed files.
     auto parsed = ctx->parse_files(files);
+    const auto& errs = ctx->last_parse_errors();
     allTrees.reserve(allTrees.size() + parsed.size());
-    for (const auto& tree : parsed) {
-        allTrees.push_back(tree);
+    treeParseErrors.reserve(treeParseErrors.size() + parsed.size());
+    for (size_t i = 0; i < parsed.size(); ++i) {
+        allTrees.push_back(parsed[i]);
+        treeParseErrors.push_back(i < errs.size() && errs[i]);
     }
 
     contexts.push_back(std::move(ctx));

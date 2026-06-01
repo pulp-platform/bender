@@ -30,11 +30,16 @@ class SlangContext {
 
     std::vector<std::shared_ptr<slang::syntax::SyntaxTree>> parse_files(const rust::Vec<rust::String>& paths);
 
+    // For each tree returned by the last parse_files call, whether slang reported parse errors.
+    // Parallel to that return vector.
+    const std::vector<bool>& last_parse_errors() const { return parseErrors; }
+
   private:
     slang::SourceManager sourceManager;
     slang::parsing::PreprocessorOptions ppOptions;
     slang::DiagnosticEngine diagEngine;
     std::shared_ptr<slang::TextDiagnosticClient> diagClient;
+    std::vector<bool> parseErrors;
 };
 
 class SlangSession {
@@ -43,10 +48,13 @@ class SlangSession {
                      const rust::Vec<rust::String>& defines);
 
     const std::vector<std::shared_ptr<slang::syntax::SyntaxTree>>& trees() const { return allTrees; }
+    // Parallel to trees(): true if slang reported parse errors for that tree.
+    const std::vector<bool>& tree_parse_errors() const { return treeParseErrors; }
 
   private:
     std::vector<std::unique_ptr<SlangContext>> contexts;
     std::vector<std::shared_ptr<slang::syntax::SyntaxTree>> allTrees;
+    std::vector<bool> treeParseErrors;
 };
 
 class SyntaxTreeRewriter {
@@ -80,6 +88,7 @@ rust::String dump_tree_json(std::shared_ptr<slang::syntax::SyntaxTree> tree);
 rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, const rust::Vec<rust::String>& tops);
 rust::Vec<rust::String> resolved_include_paths_for(const SlangSession& session,
                                                    const rust::Vec<std::uint32_t>& tree_indices);
+rust::Vec<std::uint32_t> failed_tree_indices(const SlangSession& session);
 std::size_t tree_count(const SlangSession& session);
 std::shared_ptr<slang::syntax::SyntaxTree> tree_at(const SlangSession& session, std::size_t index);
 std::uint64_t renamed_declarations(const SyntaxTreeRewriter& rewriter);

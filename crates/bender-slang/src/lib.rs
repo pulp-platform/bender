@@ -67,6 +67,8 @@ mod ffi {
             tree_indices: &Vec<u32>,
         ) -> Result<Vec<String>>;
 
+        fn failed_tree_indices(session: &SlangSession) -> Result<Vec<u32>>;
+
         fn tree_count(session: &SlangSession) -> usize;
 
         fn tree_at(session: &SlangSession, index: usize) -> Result<SharedPtr<SyntaxTree>>;
@@ -200,6 +202,18 @@ impl SlangSession {
                     message: cause.to_string(),
                 }
             })?;
+        Ok(indices.into_iter().map(|i| i as usize).collect())
+    }
+
+    /// Returns the indices of trees that slang reported parse errors for. Such trees are kept
+    /// in the session (their partial metadata is still available) so callers can decide how to
+    /// handle them — typically by force-keeping the underlying file in any filtered output.
+    pub fn failed_indices(&self) -> Result<Vec<usize>> {
+        let indices = ffi::failed_tree_indices(self.inner.as_ref().unwrap()).map_err(|cause| {
+            SlangError::TrimByTop {
+                message: cause.to_string(),
+            }
+        })?;
         Ok(indices.into_iter().map(|i| i as usize).collect())
     }
 
