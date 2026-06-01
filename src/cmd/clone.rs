@@ -101,6 +101,27 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
             if !command.unwrap().success() {
                 bail!("Copying {} failed", dep);
             }
+
+            // The checkout borrows its objects from the bare git database
+            // (cloned with `--shared`), so the copy is not yet self-contained.
+            // Absorb the borrowed objects into a local pack and drop the
+            // alternates link so the working copy is a standalone repository.
+            let dst = path.join(path_mod).join(dep);
+            if !SysCommand::new(&sess.config.git)
+                .arg("repack")
+                .arg("-a")
+                .arg("-d")
+                .current_dir(&dst)
+                .status()
+                .unwrap()
+                .success()
+            {
+                bail!(
+                    "git repack failed while detaching {} from the object cache",
+                    dep
+                );
+            }
+            let _ = std::fs::remove_file(dst.join(".git/objects/info/alternates"));
         }
 
         // rename and update git remotes for easier handling
