@@ -113,6 +113,16 @@ impl<'ctx> Git<'ctx> {
         // This ensures git fails immediately with a specific error message
         // instead of hanging indefinitely if auth is missing.
         cmd.env("GIT_TERMINAL_PROMPT", "0");
+
+        // `GIT_TERMINAL_PROMPT` only covers git's own prompts. SSH prompts
+        // (host key, password, passphrase) are emitted by `ssh` straight to the
+        // terminal, where they hide behind the progress bars and look like a
+        // hang. Force ssh into batch mode so it fails fast instead. Appended so a
+        // user's own `GIT_SSH_COMMAND` (and any `BatchMode` therein) still wins.
+        let mut ssh_command =
+            std::env::var("GIT_SSH_COMMAND").unwrap_or_else(|_| "ssh".to_string());
+        ssh_command.push_str(" -o BatchMode=yes");
+        cmd.env("GIT_SSH_COMMAND", ssh_command);
         let command = format_command(&cmd);
 
         log::info!("git: {:?} in {:?}", cmd, self.path);
