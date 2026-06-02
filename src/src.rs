@@ -269,7 +269,14 @@ impl<'ctx> SourceGroup<'ctx> {
     }
 
     /// Filter the sources, keeping only the ones that apply to the selected packages.
-    pub fn filter_packages(&self, packages: &IndexSet<String>) -> Option<SourceGroup<'ctx>> {
+    ///
+    /// If `keep_excluded_incdirs` is false, export include directories from packages
+    /// not in `packages` are removed. If true, all export include directories are kept.
+    pub fn filter_packages(
+        &self,
+        packages: &IndexSet<String>,
+        keep_excluded_incdirs: bool,
+    ) -> Option<SourceGroup<'ctx>> {
         let mut files = Vec::new();
 
         if self.package.is_none() || packages.contains(self.package.unwrap()) {
@@ -278,14 +285,22 @@ impl<'ctx> SourceGroup<'ctx> {
                 .iter()
                 .filter_map(|file| match *file {
                     SourceFile::Group(ref group) => group
-                        .filter_packages(packages)
+                        .filter_packages(packages, keep_excluded_incdirs)
                         .map(|g| SourceFile::Group(Box::new(g))),
                     ref other => Some(other.clone()),
                 })
                 .collect();
         }
 
-        let export_incdirs = self.export_incdirs.clone();
+        let export_incdirs = if keep_excluded_incdirs {
+            self.export_incdirs.clone()
+        } else {
+            self.export_incdirs
+                .iter()
+                .filter(|(pkg, _)| packages.contains(pkg.as_str()))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect()
+        };
         Some(
             SourceGroup {
                 export_incdirs,

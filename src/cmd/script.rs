@@ -52,6 +52,10 @@ pub struct ScriptArgs {
     #[arg(short, long, action = ArgAction::Append, global = true, help_heading = "General Script Options")]
     pub exclude: Vec<String>,
 
+    /// Keep export include directories from excluded packages
+    #[arg(long, global = true, help_heading = "General Script Options")]
+    pub keep_excluded_incdirs: bool,
+
     /// Add the `rtl` target to any fileset without a target specification
     #[arg(long, global = true, help_heading = "General Script Options")]
     pub assume_rtl: bool,
@@ -297,7 +301,9 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
 
     srcs = srcs.filter_targets(&targets).unwrap_or_default();
 
-    srcs = srcs.filter_packages(&packages).unwrap_or_default();
+    srcs = srcs
+        .filter_packages(&packages, args.keep_excluded_incdirs)
+        .unwrap_or_default();
 
     // Flatten and validate the sources.
     let srcs = srcs

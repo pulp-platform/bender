@@ -299,7 +299,7 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
     // Generate new `.core` files
     for pkg in generate_files.keys() {
         let src_packages = &srcs
-            .filter_packages(&vec![pkg.to_string()].into_iter().collect())
+            .filter_packages(&vec![pkg.to_string()].into_iter().collect(), false)
             .unwrap_or_default()
             .flatten();
 
@@ -481,7 +481,7 @@ fn get_fuse_depend_string(
     version_string: Option<semver::Version>,
 ) -> String {
     let src_packages = srcs
-        .filter_packages(&vec![pkg.to_string()].into_iter().collect())
+        .filter_packages(&vec![pkg.to_string()].into_iter().collect(), false)
         .unwrap_or_default()
         .flatten();
 
