@@ -103,6 +103,11 @@ pub struct ScriptArgs {
     )]
     pub trim_incdirs: TrimIncdirs,
 
+    /// Drop files slang could not parse (default: keep them)
+    #[cfg(feature = "slang")]
+    #[arg(long, global = true, help_heading = "General Script Options")]
+    pub drop_unparseable: bool,
+
     /// Format of the generated script
     #[command(subcommand)]
     pub format: ScriptFormat,
@@ -352,20 +357,23 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
 
     // Slang-based filtering: trim unreachable Verilog files (when `--top` is given) and/or
-    // unused include directories (per `--trim-incdirs`).
+    // unused include directories (per `--trim-incdirs`), and optionally drop files that slang
+    // could not parse (per `--drop-unparseable`).
     #[cfg(feature = "slang")]
-    let srcs = {
+    let (srcs, unparseable_paths) = {
         let trim_incdirs = match args.trim_incdirs {
             TrimIncdirs::Always => true,
             TrimIncdirs::Never => false,
             TrimIncdirs::Auto => !args.top.is_empty(),
         };
-        if args.top.is_empty() && !trim_incdirs {
-            srcs
+        if args.top.is_empty() && !trim_incdirs && !args.drop_unparseable {
+            (srcs, std::collections::HashSet::<PathBuf>::new())
         } else {
-            apply_slang_filters(srcs, &args.top, trim_incdirs)?
+            apply_slang_filters(srcs, &args.top, trim_incdirs, args.drop_unparseable)?
         }
     };
+    #[cfg(not(feature = "slang"))]
+    let unparseable_paths = std::collections::HashSet::<PathBuf>::new();
 
     let mut tera_context = Context::new();
     let mut only_args = OnlyArgs {
@@ -448,7 +456,15 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         ScriptFormat::TemplateJson => JSON,
     };
 
-    emit_template(sess, tera_context, template_content, args, only_args, srcs)
+    emit_template(
+        sess,
+        tera_context,
+        template_content,
+        args,
+        only_args,
+        srcs,
+        &unparseable_paths,
+    )
 }
 
 /// Subdivide the source files in a group.
@@ -487,12 +503,18 @@ where
 /// dropped (VHDL and untyped files are always retained, and any group that ends up with no
 /// files is dropped). When `trim_incdirs` is true, include directories slang did not resolve
 /// an `include through are dropped from `include_dirs` and `export_incdirs`.
+///
+/// Files that slang reported parse errors on (typical for IEEE-1735 encrypted IP) are kept in
+/// the output regardless of reachability by default; pass `drop_unparseable=true` to drop them.
+/// Returns the filtered groups plus the set of unparseable file paths that survived filtering,
+/// so the caller can annotate them in `source_annotations` output.
 #[cfg(feature = "slang")]
 fn apply_slang_filters<'a>(
     srcs: Vec<SourceGroup<'a>>,
     top: &[String],
     trim_incdirs: bool,
-) -> Result<Vec<SourceGroup<'a>>> {
+    drop_unparseable: bool,
+) -> Result<(Vec<SourceGroup<'a>>, std::collections::HashSet<PathBuf>)> {
     use std::collections::{HashMap, HashSet};
 
     let mut session = SlangSession::new();
@@ -545,20 +567,15 @@ fn apply_slang_filters<'a>(
         }
     }
 
-    // Files whose slang parse failed get force-kept regardless of reachability. IEEE-1735
-    // encrypted IP routinely trips the parser at the end of the protect envelope; we can't
-    // analyze those modules, but we mustn't drop them from the script either.
+    // Files whose slang parse failed get force-kept by default. IEEE-1735 encrypted IP
+    // routinely trips the parser at the end of the protect envelope; we can't analyze those
+    // modules, but we mustn't drop them from the script either. `drop_unparseable=true` flips
+    // that to drop them.
     let failed_indices = session.failed_indices().into_diagnostic()?;
-    let force_kept_paths: HashSet<&Path> = failed_indices
+    let unparseable_paths: HashSet<&Path> = failed_indices
         .iter()
         .filter_map(|i| index_to_path.get(i).copied())
         .collect();
-    for p in &force_kept_paths {
-        eprintln!(
-            "warning: slang reported parse errors in {}; preserving in script output regardless of reachability",
-            p.display()
-        );
-    }
 
     // Determine which trees feed into the include / file-retention questions. With `--top` we
     // only look at trees reachable from those top modules; without `--top` we use every tree
@@ -596,14 +613,24 @@ fn apply_slang_filters<'a>(
         resolved_includes.iter().any(|f| f.starts_with(&canon))
     };
 
-    Ok(srcs
+    // Single retention rule per Verilog file:
+    //   * unparseable files keep iff !drop_unparseable (regardless of reachability)
+    //   * everything else keep iff no --top filter is active, or it's reachable from one
+    let retain_verilog = |p: &Path| -> bool {
+        if unparseable_paths.contains(p) {
+            !drop_unparseable
+        } else {
+            !filter_files || kept_paths.contains(p)
+        }
+    };
+    let run_file_filter = filter_files || drop_unparseable;
+
+    let filtered: Vec<SourceGroup<'a>> = srcs
         .into_iter()
         .map(|mut group| {
-            if filter_files {
+            if run_file_filter {
                 group.files.retain(|f| match f {
-                    SourceFile::File(p, Some(SourceType::Verilog)) => {
-                        kept_paths.contains(p) || force_kept_paths.contains(p)
-                    }
+                    SourceFile::File(p, Some(SourceType::Verilog)) => retain_verilog(p),
                     _ => true,
                 });
             }
@@ -617,7 +644,33 @@ fn apply_slang_filters<'a>(
         })
         // Remove empty groups that may have resulted from filtering out all Verilog files.
         .filter(|group| !group.files.is_empty())
-        .collect())
+        .collect();
+
+    // Summary: surface what slang couldn't parse without spamming one line per file.
+    let kept_unparseable: HashSet<PathBuf> = if drop_unparseable {
+        HashSet::new()
+    } else {
+        unparseable_paths.iter().map(|p| p.to_path_buf()).collect()
+    };
+    if !unparseable_paths.is_empty() {
+        let names: Vec<String> = unparseable_paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect();
+        let verb = if drop_unparseable {
+            "dropped"
+        } else {
+            "kept in script output"
+        };
+        eprintln!(
+            "warning: slang reported parse errors in {} file(s); {}: {}",
+            names.len(),
+            verb,
+            names.join(", "),
+        );
+    }
+
+    Ok((filtered, kept_unparseable))
 }
 
 static HEADER_AUTOGEN: &str = "This script was generated automatically by bender.";
@@ -640,7 +693,17 @@ fn emit_template(
     args: &ScriptArgs,
     only: OnlyArgs,
     srcs: Vec<SourceGroup>,
+    unparseable_paths: &std::collections::HashSet<PathBuf>,
 ) -> Result<()> {
+    // Helper for annotating FileEntry.comment on files that survived filtering despite slang
+    // failing to parse them; visible to users with `--source-annotations`.
+    let unparseable_comment = |p: &Path| -> Option<String> {
+        if unparseable_paths.contains(p) {
+            Some("UNPARSEABLE: slang reported parse errors".to_string())
+        } else {
+            None
+        }
+    };
     tera_context.insert("HEADER_AUTOGEN", HEADER_AUTOGEN);
     tera_context.insert("root", sess.root);
     // tera_context.insert("srcs", &srcs);
@@ -731,7 +794,7 @@ fn emit_template(
                 },
                 None => FileEntry {
                     file: file.0.to_path_buf(),
-                    comment: file.1,
+                    comment: file.1.or_else(|| unparseable_comment(file.0)),
                 },
             }
         })
@@ -798,7 +861,7 @@ fn emit_template(
                                     },
                                     None => FileEntry {
                                         file: p.to_path_buf(),
-                                        comment: None,
+                                        comment: unparseable_comment(p),
                                     },
                                 }
                             }

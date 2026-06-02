@@ -200,6 +200,44 @@ mod tests {
         );
     }
 
+    /// `--drop-unparseable` drops files slang couldn't parse, even when `--top` keeps the rest.
+    #[test]
+    fn script_drop_unparseable_excludes_encrypted_file() {
+        let out = run_script(&[
+            "--target",
+            "encrypted",
+            "--top",
+            "encrypted_top",
+            "--drop-unparseable",
+            "flist-plus",
+        ]);
+        let files = source_basenames(&out);
+        assert!(files.contains("encrypted_top.sv"));
+        assert!(files.contains("encrypted_user.sv"));
+        assert!(
+            !files.contains("encrypted_ip.sv"),
+            "encrypted IP should be dropped by --drop-unparseable: {files:?}"
+        );
+    }
+
+    /// `--source-annotations` adds a `// UNPARSEABLE: ...` comment above the kept encrypted file
+    /// so users reading the script can tell which entries slang couldn't analyze.
+    #[test]
+    fn script_source_annotations_marks_unparseable() {
+        let out = run_script(&[
+            "--target",
+            "encrypted",
+            "--top",
+            "encrypted_top",
+            "--source-annotations",
+            "flist-plus",
+        ]);
+        assert!(
+            out.contains("// UNPARSEABLE: slang reported parse errors"),
+            "expected UNPARSEABLE annotation in output:\n{out}"
+        );
+    }
+
     /// Regression test: when two files define the same module name, last-wins semantics apply.
     /// The file parsed last (dup_b.sv) wins; the earlier definition (dup_a.sv) is dropped.
     #[test]
