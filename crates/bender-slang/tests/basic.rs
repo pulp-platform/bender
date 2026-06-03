@@ -22,28 +22,27 @@ fn parse_valid_file_succeeds() {
 }
 
 #[test]
-fn parse_invalid_file_reports_via_failed_indices() {
-    // The new contract: parse_group is lenient — system errors still throw, but per-file parse
-    // errors are surfaced via failed_indices(). Callers (bender script, bender pickle) layer
-    // their own policy (allow / refuse / discriminate) on top.
+fn parse_invalid_file_reported_via_parsed_ok() {
+    // The contract: parse_group is lenient — system errors still throw, but per-file parse
+    // errors are surfaced via ParsedTree::parsed_ok. Callers (bender script, bender pickle)
+    // layer their own policy (allow / refuse / discriminate) on top.
     let mut session = bender_slang::SlangSession::new();
     let files = vec![fixture_path("src/broken.sv")];
     let includes = vec![];
     let defines = vec![];
-    let indices = session
+    session
         .parse_group(&files, &includes, &defines)
         .expect("parse_group is lenient and should return Ok even on parse errors");
-    assert_eq!(indices.len(), 1);
 
-    let failed = session.failed_indices().expect("failed_indices query");
-    assert_eq!(failed, vec![0], "broken.sv should be reported as failed");
-
-    let protected = session
-        .protected_indices()
-        .expect("protected_indices query");
+    let trees = session.all_trees();
+    assert_eq!(trees.len(), 1);
     assert!(
-        protected.is_empty(),
-        "broken.sv has no pragma protect envelope: {protected:?}"
+        !trees[0].parsed_ok,
+        "broken.sv should be reported as a failed parse"
+    );
+    assert!(
+        !trees[0].encrypted,
+        "broken.sv has no pragma protect envelope"
     );
 }
 
@@ -57,13 +56,13 @@ fn rewriter_build_from_trees_is_repeatable() {
         .parse_group(&files, &includes, &defines)
         .expect("parse should succeed");
 
-    let trees = session.all_trees().expect("tree collection should succeed");
+    let trees = session.all_trees();
     let mut rewriter_once = bender_slang::SyntaxTreeRewriter::new();
     rewriter_once.set_prefix("p_");
     rewriter_once.set_suffix("_s");
     let first_pass_trees: Vec<_> = trees
         .iter()
-        .map(|t| rewriter_once.rewrite_declarations(t))
+        .map(|t| rewriter_once.rewrite_declarations(&t.tree))
         .collect();
     let renamed_once = rewriter_once.rewrite_references(
         first_pass_trees
@@ -87,7 +86,7 @@ fn rewriter_build_from_trees_is_repeatable() {
     rewriter_twice.set_suffix("_s");
     let first_pass_trees: Vec<_> = trees
         .iter()
-        .map(|t| rewriter_twice.rewrite_declarations(t))
+        .map(|t| rewriter_twice.rewrite_declarations(&t.tree))
         .collect();
     let renamed_twice = rewriter_twice.rewrite_references(
         first_pass_trees

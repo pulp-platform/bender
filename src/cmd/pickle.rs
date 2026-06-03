@@ -5,7 +5,7 @@
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use clap::Args;
 use indexmap::{IndexMap, IndexSet};
@@ -171,7 +171,6 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
     };
 
     let mut session = SlangSession::new();
-    let mut all_paths: Vec<PathBuf> = Vec::new();
     for src_group in srcs {
         // Collect include directories from the source group and command line arguments.
         let include_dirs: Vec<String> = src_group
@@ -216,7 +215,6 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
             })
             .collect();
 
-        all_paths.extend(file_paths.iter().map(PathBuf::from));
         session
             .parse_group(&file_paths, &include_dirs, &defines)
             .into_diagnostic()?;
@@ -224,23 +222,25 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
 
     // Pickle rewrites and reprints each tree, so a partial parse silently emits broken output
     // (encrypted protect envelopes get mangled, etc.). Refuse rather than corrupt — the file
-    // filter in `bender script` is fine with partial trees, but pickle is not.
-    let failed = session.failed_indices().into_diagnostic()?;
+    // filter in `bender script` is fine with partial trees, but pickle is not. Each tree carries
+    // its own source path, so we can name the offenders directly.
+    let all_trees = session.all_trees();
+    let failed: Vec<&str> = all_trees
+        .iter()
+        .filter(|t| !t.parsed_ok)
+        .map(|t| t.path.as_str())
+        .collect();
     if !failed.is_empty() {
-        let names: Vec<String> = failed
-            .iter()
-            .filter_map(|i| all_paths.get(*i).map(|p| p.display().to_string()))
-            .collect();
         return Err(miette::miette!(
             "pickle cannot rewrite {} file(s) with slang parse errors (output would be corrupt): {}\n\
              see diagnostics above; use `bender script --top ...` if you only need a file list",
-            names.len(),
-            names.join(", ")
+            failed.len(),
+            failed.join(", ")
         ));
     }
 
     let trees = if args.top.is_empty() {
-        session.all_trees().into_diagnostic()?
+        all_trees
     } else {
         session.reachable_trees(&args.top).into_diagnostic()?
     };
@@ -253,7 +253,7 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
     // Pass 1: build rename map across all trees.
     let trees: Vec<_> = trees
         .iter()
-        .map(|tree| rewriter.rewrite_declarations(tree))
+        .map(|parsed| rewriter.rewrite_declarations(&parsed.tree))
         .collect();
 
     // Pass 2: rewrite declarations and references using the complete map.

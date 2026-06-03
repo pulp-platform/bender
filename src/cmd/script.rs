@@ -536,10 +536,9 @@ fn apply_slang_filters<'a>(
     drop_unparseable: bool,
     allow_broken: bool,
 ) -> Result<(Vec<SourceGroup<'a>>, std::collections::HashSet<PathBuf>)> {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashSet;
 
     let mut session = SlangSession::new();
-    let mut index_to_path: HashMap<usize, &Path> = HashMap::new();
 
     for src_group in &srcs {
         // Collect include dirs
@@ -579,33 +578,27 @@ fn apply_slang_filters<'a>(
                 .iter()
                 .map(|p| p.to_string_lossy().into_owned())
                 .collect();
-            let indices = session
+            session
                 .parse_group(&file_paths, &include_dirs, &defines)
                 .into_diagnostic()?;
-            for (idx, path) in indices.into_iter().zip(&paths) {
-                index_to_path.insert(idx, path);
-            }
         }
     }
 
     // Discriminate encrypted IP (legal SystemVerilog, just hard to parse — auto-tolerated)
     // from genuinely broken files (real syntax bugs — abort unless `--allow-broken`).
-    // Encrypted ⇔ slang emitted a `ProtectedEnvelope` diag on that tree.
-    let failed_indices = session.failed_indices().into_diagnostic()?;
-    let protected_indices: HashSet<usize> = session
-        .protected_indices()
-        .into_diagnostic()?
-        .into_iter()
-        .collect();
-    let mut encrypted_paths: HashSet<&Path> = HashSet::new();
-    let mut broken_paths: Vec<&Path> = Vec::new();
-    for i in &failed_indices {
-        if let Some(p) = index_to_path.get(i).copied() {
-            if protected_indices.contains(i) {
-                encrypted_paths.insert(p);
-            } else {
-                broken_paths.push(p);
-            }
+    // Encrypted ⇔ slang emitted a `ProtectedEnvelope` diag on that tree. Each tree carries its
+    // own source path, so we identify files by path without a separate index map.
+    let all_trees = session.all_trees();
+    let mut encrypted_paths: HashSet<PathBuf> = HashSet::new();
+    let mut broken_paths: Vec<PathBuf> = Vec::new();
+    for parsed in &all_trees {
+        if parsed.parsed_ok {
+            continue;
+        }
+        if parsed.encrypted {
+            encrypted_paths.insert(PathBuf::from(&parsed.path));
+        } else {
+            broken_paths.push(PathBuf::from(&parsed.path));
         }
     }
 
@@ -625,25 +618,25 @@ fn apply_slang_filters<'a>(
 
     // From here on, both encrypted (always) and broken (only with --allow-broken) survive as
     // "unparseable" — kept or dropped per `drop_unparseable`.
-    let unparseable_paths: HashSet<&Path> = encrypted_paths
+    let unparseable_paths: HashSet<PathBuf> = encrypted_paths
         .iter()
-        .copied()
-        .chain(broken_paths.iter().copied())
+        .cloned()
+        .chain(broken_paths.iter().cloned())
         .collect();
 
     // Determine which trees feed into the include / file-retention questions. With `--top` we
     // only look at trees reachable from those top modules; without `--top` we use every tree
     // (relevant when the caller asked for include-dir trimming but no file filtering).
     let filter_files = !top.is_empty();
-    let kept_indices: Vec<usize> = if filter_files {
-        session.reachable_indices(top).into_diagnostic()?
+    let kept_trees = if filter_files {
+        session.reachable_trees(top).into_diagnostic()?
     } else {
-        (0..session.tree_count()).collect()
+        all_trees
     };
     let kept_paths: HashSet<&Path> = if filter_files {
-        kept_indices
+        kept_trees
             .iter()
-            .filter_map(|i| index_to_path.get(i).copied())
+            .map(|t| Path::new(t.path.as_str()))
             .collect()
     } else {
         HashSet::new()
@@ -654,8 +647,7 @@ fn apply_slang_filters<'a>(
     // cause spurious mismatches.
     let resolved_includes: Vec<PathBuf> = if trim_incdirs {
         session
-            .resolved_include_paths(&kept_indices)
-            .into_diagnostic()?
+            .resolved_include_paths(&kept_trees)
             .into_iter()
             .map(PathBuf::from)
             .collect()
