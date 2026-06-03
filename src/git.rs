@@ -6,6 +6,7 @@
 #![deny(missing_docs)]
 
 use std::ffi::OsStr;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -109,10 +110,33 @@ impl<'ctx> Git<'ctx> {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
-        // Disable interactive terminal prompts.
-        // This ensures git fails immediately with a specific error message
-        // instead of hanging indefinitely if auth is missing.
-        cmd.env("GIT_TERMINAL_PROMPT", "0");
+        // Interactive auth prompts (git's HTTP credentials, and ssh's host-key
+        // confirmation / password / passphrase) are written by git and ssh
+        // directly to the controlling terminal, bypassing the stdout/stderr we
+        // capture here. While progress bars are rendered, such a prompt is hidden
+        // behind them and the operation looks like it hangs forever. We therefore
+        // suppress prompts whenever progress bars are active and let the command
+        // fail fast instead; the error path below tells the user to re-run with
+        // `--no-progress` to authenticate interactively.
+        //
+        // Prompts are only allowed when there is genuinely someone to answer
+        // them: an interactive terminal with progress bars turned off
+        // (`--no-progress`). In every other case (bars active, or no terminal at
+        // all such as CI) we suppress prompts so the command fails fast instead
+        // of blocking on input nobody can see or provide.
+        let interactive = std::io::stderr().is_terminal();
+        let prompts_suppressed = !interactive || crate::diagnostic::Diagnostics::progress_active();
+        if prompts_suppressed {
+            // Make git fail instead of prompting for HTTP credentials.
+            cmd.env("GIT_TERMINAL_PROMPT", "0");
+            // Make ssh fail instead of prompting (host key, password, passphrase).
+            // Appended so a user's own `GIT_SSH_COMMAND` settings take precedence
+            // (ssh uses the first value seen for an option).
+            let mut ssh_command =
+                std::env::var("GIT_SSH_COMMAND").unwrap_or_else(|_| "ssh".to_string());
+            ssh_command.push_str(" -o BatchMode=yes");
+            cmd.env("GIT_SSH_COMMAND", ssh_command);
+        }
         let command = format_command(&cmd);
 
         log::info!("git: {:?} in {:?}", cmd, self.path);
@@ -187,8 +211,34 @@ impl<'ctx> Git<'ctx> {
                 Some(code) => format!("exit code {}", code),
                 None => String::from("unknown exit status"),
             };
+
+            // When prompts are suppressed (progress bars active), an auth failure
+            // surfaces here as a hard error rather than a hidden prompt. Detect
+            // it and tell the user how to authenticate interactively instead of
+            // just dumping git's stderr.
+            let lower = collected_stderr.to_lowercase();
+            let is_auth_failure = lower.contains("permission denied")
+                || lower.contains("authentication failed")
+                || lower.contains("could not read username")
+                || lower.contains("host key verification failed");
+
+            let help = if is_auth_failure && prompts_suppressed {
+                format!(
+                    "Authentication failed. Interactive prompts (credentials and host-key \
+                     confirmation) are disabled while progress bars are shown, because they \
+                     cannot be displayed safely during a parallel fetch. Re-run with \
+                     `--no-progress` to authenticate interactively; also pass `--git-throttle 1` \
+                     so prompts from concurrent fetches don't interleave on the terminal. \
+                     Alternatively, configure access non-interactively (e.g. add your key to \
+                     `ssh-agent`).\n\ngit stderr:\n{}",
+                    collected_stderr
+                )
+            } else {
+                format!("git failed with stderr output:\n{}", collected_stderr)
+            };
+
             Err(err!(
-                help = format!("git failed with stderr output:\n{}", collected_stderr),
+                help = help,
                 "Git command `{}` failed in directory {:?} with {}.",
                 command,
                 self.path,

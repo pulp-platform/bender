@@ -80,6 +80,15 @@ impl Diagnostics {
         *guard = multiprogress;
     }
 
+    /// Whether progress bars are currently being rendered.
+    ///
+    /// When this is true, interactive git/ssh prompts must be suppressed, since
+    /// they would be drawn over by the progress bars. When false (e.g. with
+    /// `--no-progress`), prompts can be shown and answered normally.
+    pub fn progress_active() -> bool {
+        Diagnostics::get().multiprogress.lock().unwrap().is_some()
+    }
+
     /// Get the global diagnostics manager.
     fn get() -> &'static Diagnostics {
         GLOBAL_DIAGNOSTICS
