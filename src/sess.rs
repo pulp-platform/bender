@@ -37,6 +37,7 @@ use crate::cli::read_manifest;
 use crate::config::{self, Config, Manifest, PartialManifest};
 use crate::diagnostic::{Diagnostics, Errors, Warnings};
 use crate::git::Git;
+use crate::lock::FsLock;
 use crate::progress::{GitProgressOps, ProgressHandler};
 use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::TargetSpec;
@@ -560,6 +561,30 @@ impl<'ctx> Session<'ctx> {
         let db_name = format!("{}-{}", name, hash);
         db_name
     }
+
+    /// Path of the cross-process advisory lock file for a git dependency.
+    ///
+    /// The same file guards both the bare database under `git/db/` and the
+    /// working checkout under `git/checkouts/` for this dependency.
+    pub fn dep_lock_path(&self, name: &str, url: &str) -> PathBuf {
+        let key = self.git_db_name(name, url);
+        self.db_parent()
+            .join("git")
+            .join("locks")
+            .join(format!("{}.lock", key))
+    }
+
+    /// The directory under which bare git databases and lock files live.
+    ///
+    /// Uses `db_dir` if configured (the recommended way to share bare repos
+    /// across projects without relocating checkouts), otherwise falls back to
+    /// `database`.
+    pub fn db_parent(&self) -> &Path {
+        self.config
+            .db_dir
+            .as_deref()
+            .unwrap_or(&self.config.database)
+    }
 }
 
 /// A wrapper around a `Session` that provides async IO operations.
@@ -642,9 +667,28 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
     /// Access the git database for a dependency.
     ///
+    /// Acquires the per-dependency filesystem lock and delegates to
+    /// [`git_database_locked`]. Callers that already hold the lock for this
+    /// dependency should call [`git_database_locked`] directly to avoid
+    /// deadlocking.
+    async fn git_database(
+        &'io self,
+        name: &str,
+        url: &str,
+        force_fetch: Option<bool>,
+        fetch_ref: Option<&str>,
+    ) -> Result<Git<'ctx>> {
+        let _lock = FsLock::acquire_exclusive(self.sess.dep_lock_path(name, url)).await?;
+        self.git_database_locked(name, url, force_fetch, fetch_ref)
+            .await
+    }
+
+    /// Access the git database for a dependency, assuming the per-dependency
+    /// filesystem lock is already held by the caller.
+    ///
     /// If the database does not exist, it is created. If the database has not
     /// been updated recently, the remote is fetched.
-    async fn git_database(
+    async fn git_database_locked(
         &'io self,
         name: &str,
         url: &str,
@@ -661,13 +705,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         // Determine the location of the git database and create it if its does
         // not yet exist.
-        let db_dir = self
-            .sess
-            .config
-            .database
-            .join("git")
-            .join("db")
-            .join(db_name);
+        let db_dir = self.sess.db_parent().join("git").join("db").join(db_name);
         let db_dir = self.sess.intern_path(db_dir);
         std::fs::create_dir_all(db_dir)
             .into_diagnostic()
@@ -835,8 +873,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 versions.sort_by(|a, b| b.cmp(a));
 
                 // Merge tags and branches.
-                let refs: IndexMap<&str, &str> =
-                    branches.into_iter().chain(tags.into_iter()).collect();
+                let refs: IndexMap<&str, &str> = branches.into_iter().chain(tags).collect();
 
                 let git_path = git.path;
 
@@ -929,6 +966,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         force: bool,
         update_list: &[String],
     ) -> Result<&'ctx Path> {
+        // Serialize concurrent bender invocations operating on the same
+        // dependency. The lock covers both the bare database (touched via the
+        // `git_database_locked` calls below) and the working checkout.
+        let _lock = FsLock::acquire_exclusive(self.sess.dep_lock_path(name, url)).await?;
+
         #[derive(Eq, PartialEq)]
         enum CheckoutState {
             Clean,
@@ -944,7 +986,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     log::debug!("currently `{}` (want `{}`)", current, revision);
                     if current == revision {
                         CheckoutState::Clean
-                    } else if let Ok(db) = self.git_database(name, url, Some(false), None).await {
+                    } else if let Ok(db) =
+                        self.git_database_locked(name, url, Some(false), None).await
+                    {
                         if let Ok(remote) = local_git.clone().remote_url("origin").await {
                             if remote == db.path.to_str().unwrap() {
                                 CheckoutState::ToCheckout
@@ -1010,7 +1054,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             let tag_name_1 = tag_name_0.clone();
             let tag_name_2 = tag_name_0.clone();
             let git = self
-                .git_database(name, url, Some(false), Some(revision))
+                .git_database_locked(name, url, Some(false), Some(revision))
                 .await?;
             match git
                 .clone()
@@ -1213,91 +1257,90 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         used_git_rev: &str,
     ) -> Result<()> {
         for dep in (dep_iter_mut).iter_mut() {
-            if let (_, config::Dependency::Path { path, .. }) = dep {
-                if !path.starts_with("/") {
-                    Warnings::PathDepInGitDep {
-                        pkg: dep.0.clone(),
-                        top_pkg: top_package_name.clone(),
-                    }
-                    .emit();
+            if let (_, config::Dependency::Path { path, .. }) = dep
+                && !path.starts_with("/")
+            {
+                Warnings::PathDepInGitDep {
+                    pkg: dep.0.clone(),
+                    top_pkg: top_package_name.clone(),
+                }
+                .emit();
 
-                    let sub_entries = db
-                        .clone()
-                        .list_files(
+                let sub_entries = db
+                    .clone()
+                    .list_files(
+                        used_git_rev,
+                        Some(
+                            reference_path
+                                .strip_prefix(dep_base_path)
+                                .unwrap()
+                                .join(&mut *path)
+                                .join("Bender.yml"),
+                        ),
+                    )
+                    .await?;
+                let sub_data = match sub_entries.into_iter().next() {
+                    None => Ok(None),
+                    Some(sub_entry) => db.clone().cat_file(sub_entry.hash).await.map(Some),
+                }?;
+
+                let sub_dep_path = reference_path.join(path);
+
+                let tmp_path = self.sess.root.join(".bender").join("tmp");
+
+                if let Some(ref full_sub_data) = sub_data {
+                    if !tmp_path.exists() {
+                        std::fs::create_dir_all(&tmp_path).into_diagnostic()?;
+                    }
+                    let mut sub_file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .truncate(true)
+                        .create(true)
+                        .open(tmp_path.join(format!("{}_manifest.yml", dep.0)))
+                        .into_diagnostic()?;
+                    writeln!(&mut sub_file, "{}", full_sub_data).into_diagnostic()?;
+                    sub_file.flush().into_diagnostic()?;
+                }
+
+                *dep.1 = config::Dependency::Path {
+                    target: TargetSpec::Wildcard,
+                    path: sub_dep_path.clone(),
+                    pass_targets: Vec::new(),
+                };
+
+                // Further dependencies
+                let _manifest: Result<_> = match sub_data {
+                    Some(data) => {
+                        let partial: config::PartialManifest = serde_yaml_ng::from_str(&data)
+                            .into_diagnostic()
+                            .wrap_err_with(|| {
+                                format!(
+                                    "Syntax error in manifest of dependency `{}` at \
+                                                 revision `{}`.",
+                                    dep.0, used_git_rev
+                                )
+                            })?;
+                        let mut full = partial.validate_ignore_sources().wrap_err_with(|| {
+                            format!(
+                                "Error in manifest of dependency `{}` at revision \
+                                             `{}`.",
+                                dep.0, used_git_rev
+                            )
+                        })?;
+                        self.sub_dependency_fixing(
+                            &mut full.dependencies,
+                            full.package.name.clone(),
+                            &sub_dep_path,
+                            dep_base_path,
+                            db.clone(),
                             used_git_rev,
-                            Some(
-                                reference_path
-                                    .strip_prefix(dep_base_path)
-                                    .unwrap()
-                                    .join(&mut *path)
-                                    .join("Bender.yml"),
-                            ),
                         )
                         .await?;
-                    let sub_data = match sub_entries.into_iter().next() {
-                        None => Ok(None),
-                        Some(sub_entry) => db.clone().cat_file(sub_entry.hash).await.map(Some),
-                    }?;
 
-                    let sub_dep_path = reference_path.join(path);
-
-                    let tmp_path = self.sess.root.join(".bender").join("tmp");
-
-                    if let Some(ref full_sub_data) = sub_data {
-                        if !tmp_path.exists() {
-                            std::fs::create_dir_all(&tmp_path).into_diagnostic()?;
-                        }
-                        let mut sub_file = std::fs::OpenOptions::new()
-                            .write(true)
-                            .truncate(true)
-                            .create(true)
-                            .open(tmp_path.join(format!("{}_manifest.yml", dep.0)))
-                            .into_diagnostic()?;
-                        writeln!(&mut sub_file, "{}", full_sub_data).into_diagnostic()?;
-                        sub_file.flush().into_diagnostic()?;
+                        Ok(())
                     }
-
-                    *dep.1 = config::Dependency::Path {
-                        target: TargetSpec::Wildcard,
-                        path: sub_dep_path.clone(),
-                        pass_targets: Vec::new(),
-                    };
-
-                    // Further dependencies
-                    let _manifest: Result<_> = match sub_data {
-                        Some(data) => {
-                            let partial: config::PartialManifest = serde_yaml_ng::from_str(&data)
-                                .into_diagnostic()
-                                .wrap_err_with(|| {
-                                    format!(
-                                        "Syntax error in manifest of dependency `{}` at \
-                                                 revision `{}`.",
-                                        dep.0, used_git_rev
-                                    )
-                                })?;
-                            let mut full =
-                                partial.validate_ignore_sources().wrap_err_with(|| {
-                                    format!(
-                                        "Error in manifest of dependency `{}` at revision \
-                                             `{}`.",
-                                        dep.0, used_git_rev
-                                    )
-                                })?;
-                            self.sub_dependency_fixing(
-                                &mut full.dependencies,
-                                full.package.name.clone(),
-                                &sub_dep_path,
-                                dep_base_path,
-                                db.clone(),
-                                used_git_rev,
-                            )
-                            .await?;
-
-                            Ok(())
-                        }
-                        None => Ok(()),
-                    };
-                }
+                    None => Ok(()),
+                };
             }
         }
         Ok(())
@@ -1929,10 +1972,10 @@ impl<'ctx> DependencyTable<'ctx> {
             log::debug!("reusing {:?}", id);
             id
         } else {
-            if let DependencySource::Path(path) = &entry.source {
-                if !path.exists() {
-                    Warnings::DepSourcePathMissing(entry.name.clone(), path.clone()).emit();
-                }
+            if let DependencySource::Path(path) = &entry.source
+                && !path.exists()
+            {
+                Warnings::DepSourcePathMissing(entry.name.clone(), path.clone()).emit();
             }
             let id = DependencyRef(self.list.len());
             log::debug!("adding {:?} as {:?}", entry, id);

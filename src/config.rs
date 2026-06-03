@@ -1177,7 +1177,7 @@ impl Validate for PartialSources {
 
                 let post_env_files: Vec<PartialSourceFile> = if let Some(fls) = files {
                     fls.into_iter()
-                        .chain(external_flist_groups?.into_iter())
+                        .chain(external_flist_groups?)
                         .filter_map(|file| match file {
                             PartialSourceFile::File(ref filename)
                             | PartialSourceFile::SvFile(ref filename)
@@ -1447,46 +1447,38 @@ impl GlobFile for PartialSourceFile {
             PartialSourceFile::File(ref path)
             | PartialSourceFile::SvFile(ref path)
             | PartialSourceFile::VerilogFile(ref path)
-            | PartialSourceFile::VhdlFile(ref path) => {
-                // Check if glob patterns used
-                if path.contains("*") || path.contains("?") {
-                    let glob_matches = glob(path)
-                        .into_diagnostic()
-                        .wrap_err_with(|| format!("Invalid glob pattern for {:?}", path))?;
-                    let out = glob_matches
-                        .map(|glob_match| {
-                            let file_str = glob_match
-                                .into_diagnostic()
-                                .wrap_err_with(|| format!("Glob match failed for {:?}", path))?
-                                .to_str()
-                                .unwrap()
-                                .to_string();
-                            Ok(match self {
-                                PartialSourceFile::File(_) => PartialSourceFile::File(file_str),
-                                PartialSourceFile::SvFile(_) => PartialSourceFile::SvFile(file_str),
-                                PartialSourceFile::VerilogFile(_) => {
-                                    PartialSourceFile::VerilogFile(file_str)
-                                }
-                                PartialSourceFile::VhdlFile(_) => {
-                                    PartialSourceFile::VhdlFile(file_str)
-                                }
-                                _ => unreachable!(),
-                            })
+            | PartialSourceFile::VhdlFile(ref path)
+                if path.contains("*") || path.contains("?") =>
+            {
+                let glob_matches = glob(path)
+                    .into_diagnostic()
+                    .wrap_err_with(|| format!("Invalid glob pattern for {:?}", path))?;
+                let out = glob_matches
+                    .map(|glob_match| {
+                        let file_str = glob_match
+                            .into_diagnostic()
+                            .wrap_err_with(|| format!("Glob match failed for {:?}", path))?
+                            .to_str()
+                            .unwrap()
+                            .to_string();
+                        Ok(match self {
+                            PartialSourceFile::File(_) => PartialSourceFile::File(file_str),
+                            PartialSourceFile::SvFile(_) => PartialSourceFile::SvFile(file_str),
+                            PartialSourceFile::VerilogFile(_) => {
+                                PartialSourceFile::VerilogFile(file_str)
+                            }
+                            PartialSourceFile::VhdlFile(_) => PartialSourceFile::VhdlFile(file_str),
+                            _ => unreachable!(),
                         })
-                        .collect::<Result<Vec<PartialSourceFile>>>()?;
-                    if out.is_empty() {
-                        Warnings::NoFilesForGlobPattern { path: path.clone() }.emit();
-                    }
-                    Ok(out)
-                } else {
-                    // Return self if not a glob pattern
-                    Ok(vec![self])
+                    })
+                    .collect::<Result<Vec<PartialSourceFile>>>()?;
+                if out.is_empty() {
+                    Warnings::NoFilesForGlobPattern { path: path.clone() }.emit();
                 }
+                Ok(out)
             }
-            _ => {
-                // Return self if not a glob pattern
-                Ok(vec![self])
-            }
+            // Return self if not a glob pattern (also matches non-file variants).
+            _ => Ok(vec![self]),
         }
     }
 }
@@ -1623,6 +1615,11 @@ where
 pub struct Config {
     /// The path to the database directory.
     pub database: PathBuf,
+    /// Optional override for the directory containing bare git repositories
+    /// and their lock files. When set, takes precedence over `database` for
+    /// these two specific paths; checkouts and everything else still derive
+    /// from `database`.
+    pub db_dir: Option<PathBuf>,
     /// The git command or path to the binary.
     pub git: String,
     /// The dependency overrides.
@@ -1640,6 +1637,8 @@ pub struct Config {
 pub struct PartialConfig {
     /// The path to the database directory.
     pub database: Option<String>,
+    /// Optional override for the bare-repo and lock directory.
+    pub db_dir: Option<String>,
     /// The git command or path to the binary.
     pub git: Option<String>,
     /// The dependency overrides.
@@ -1663,6 +1662,7 @@ impl PrefixPaths for PartialConfig {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         Ok(PartialConfig {
             database: self.database.prefix_paths(prefix)?,
+            db_dir: self.db_dir.prefix_paths(prefix)?,
             overrides: self.overrides.prefix_paths(prefix)?,
             plugins: self.plugins.prefix_paths(prefix)?,
             ..self
@@ -1674,6 +1674,7 @@ impl Merge for PartialConfig {
     fn merge(self, other: PartialConfig) -> PartialConfig {
         PartialConfig {
             database: self.database.or(other.database),
+            db_dir: self.db_dir.or(other.db_dir),
             git: self.git.or(other.git),
             overrides: match (self.overrides, other.overrides) {
                 (Some(o), None) | (None, Some(o)) => Some(o),
@@ -1709,6 +1710,10 @@ impl Validate for PartialConfig {
             database: match self.database {
                 Some(db) => env_path_from_string(&db)?,
                 None => bail!("Database directory not configured"),
+            },
+            db_dir: match self.db_dir {
+                Some(d) => Some(env_path_from_string(&d)?),
+                None => None,
             },
             git: match self.git {
                 Some(git) => git,

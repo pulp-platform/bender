@@ -505,9 +505,14 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
         out = out.merge(cfg);
     }
 
-    // Assemble and merge the default configuration.
+    // Assemble and merge the default configuration. Env-var-supplied `db_dir`
+    // lives here so that any configuration file value still wins via
+    // `PartialConfig::merge` (which uses `self.or(other)`).
     let default_cfg = PartialConfig {
         database: Some(from.join(".bender").to_str().unwrap().to_string()),
+        db_dir: std::env::var("BENDER_DB_DIR")
+            .ok()
+            .filter(|s| !s.is_empty()),
         git: Some("git".into()),
         overrides: None,
         plugins: None,

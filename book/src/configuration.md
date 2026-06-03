@@ -27,6 +27,15 @@ The directory where Bender stores cloned and checked-out dependencies.
 - **Default:** `.bender` in the project root.
 - **Example:** `database: /var/cache/bender_dependencies`
 
+### `db_dir`
+Optional override for the directory that holds bare git repositories and their lock files (i.e. `<db_dir>/git/db/` and `<db_dir>/git/locks/`). When set, it takes precedence over `database` (whether explicitly configured or left at its default) for these two paths only; the working-tree checkouts continue to follow `database` (or [`workspace.checkout_dir`](./manifest.md) in the project manifest). This makes it possible to share the heavy git data across projects on a persistent runner without also relocating per-project checkouts. See [Continuous Integration › Sharing the Database](./workflow/ci.md#sharing-the-database-across-runs-and-projects) for the recommended setup.
+- **Config Key:** `db_dir`
+- **Env Var:** `BENDER_DB_DIR` (used only when no configuration file sets `db_dir`; configuration files always take precedence).
+- **Default:** unset (falls back to `database`).
+- **Example:** `db_dir: /var/cache/bender_shared`
+
+> **Note:** Bender versions before 0.32 silently ignore this field and fall back to their per-project default, so it is safe to ship in a shared configuration that mixed bender versions may read.
+
 ### `git`
 The command or path used to invoke Git.
 - **Config Key:** `git`

@@ -150,47 +150,41 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
         }
 
         // if up-to-date:
-        if let Some(ref current_version) = current_version {
-            if version_req_exists {
-                if let Some(highest_version) = highest_version {
-                    if *highest_version == *current_version && !args.only_update {
-                        audit_str.push_str(&format!(
-                            "  is \x1B[32;1mUp-to-date\x1B[m:\t@ {}\n",
-                            current_version_unwrapped
-                        ));
-                    }
-                }
-            }
+        if let Some(ref current_version) = current_version
+            && version_req_exists
+            && let Some(highest_version) = highest_version
+            && *highest_version == *current_version
+            && !args.only_update
+        {
+            audit_str.push_str(&format!(
+                "  is \x1B[32;1mUp-to-date\x1B[m:\t@ {}\n",
+                current_version_unwrapped
+            ));
         }
 
         // if not up-to-date but newest compatible:
-        if let Some(ref current_version) = current_version {
-            if version_req_exists {
-                if let Some(max_compatible) = max_compatible {
-                    if *max_compatible > *current_version {
-                        audit_str.push_str(&format!(
-                            "can \x1B[32;1mAuto-update\x1B[m:\t{} -> {}\n",
-                            current_version_unwrapped, max_compatible
-                        ));
-                    }
-                }
-            }
+        if let Some(ref current_version) = current_version
+            && version_req_exists
+            && let Some(max_compatible) = max_compatible
+            && *max_compatible > *current_version
+        {
+            audit_str.push_str(&format!(
+                "can \x1B[32;1mAuto-update\x1B[m:\t{} -> {}\n",
+                current_version_unwrapped, max_compatible
+            ));
         }
 
         // if not up-to-date and newest incompatible:
-        if let Some(current_version) = current_version {
-            if version_req_exists {
-                if let Some(highest_version) = highest_version {
-                    if *highest_version > current_version
-                        && (max_compatible.is_none() || *max_compatible.unwrap() < *highest_version)
-                    {
-                        audit_str.push_str(&format!(
-                            "     can \x1B[33;1mUpdate\x1B[m:\t{} -> {}\n",
-                            current_version_unwrapped, highest_version
-                        ));
-                    }
-                }
-            }
+        if let Some(current_version) = current_version
+            && version_req_exists
+            && let Some(highest_version) = highest_version
+            && *highest_version > current_version
+            && (max_compatible.is_none() || *max_compatible.unwrap() < *highest_version)
+        {
+            audit_str.push_str(&format!(
+                "     can \x1B[33;1mUpdate\x1B[m:\t{} -> {}\n",
+                current_version_unwrapped, highest_version
+            ));
         }
     }
 

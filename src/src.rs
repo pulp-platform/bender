@@ -223,11 +223,11 @@ impl<'ctx> SourceGroup<'ctx> {
     ) -> IndexSet<String> {
         let mut result = packages.clone();
 
-        if let Some(x) = self.package {
-            if result.contains(x) {
-                result.extend(self.dependencies.iter().cloned());
-                result = &result - excludes;
-            }
+        if let Some(x) = self.package
+            && result.contains(x)
+        {
+            result.extend(self.dependencies.iter().cloned());
+            result = &result - excludes;
         }
 
         for file in &self.files {
@@ -374,13 +374,13 @@ impl<'ctx> SourceGroup<'ctx> {
                         .include_dirs
                         .iter()
                         .cloned()
-                        .chain(grp.include_dirs.into_iter())
+                        .chain(grp.include_dirs)
                         .collect();
                     grp.defines = self
                         .defines
                         .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
-                        .chain(grp.defines.into_iter())
+                        .chain(grp.defines)
                         .collect();
                     grp.flatten_into(into);
                 }
@@ -425,10 +425,10 @@ pub struct FilteredSourceGroup<'ctx> {
 
 impl<'ctx> From<SourceGroup<'ctx>> for FilteredSourceGroup<'ctx> {
     fn from(group: SourceGroup<'ctx>) -> Self {
-        if group.override_files {
-            if let Some(pkg) = group.package {
-                Warnings::OverrideFilesIgnored(pkg.to_string()).emit();
-            }
+        if group.override_files
+            && let Some(pkg) = group.package
+        {
+            Warnings::OverrideFilesIgnored(pkg.to_string()).emit();
         }
         let include_dirs = group
             .include_dirs

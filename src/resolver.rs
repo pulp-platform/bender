@@ -84,59 +84,58 @@ impl<'ctx> DependencyResolver<'ctx> {
         }
 
         // Store path dependencies already in checkout_dir
-        if let Some(ref checkout) = self.sess.manifest.workspace.checkout_dir {
-            if checkout.exists() {
-                for dir in fs::read_dir(checkout).into_diagnostic()? {
-                    let depname = dir
-                        .as_ref()
-                        .unwrap()
-                        .path()
-                        .file_name()
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                        .to_string();
+        if let Some(ref checkout) = self.sess.manifest.workspace.checkout_dir
+            && checkout.exists()
+        {
+            for dir in fs::read_dir(checkout).into_diagnostic()? {
+                let depname = dir
+                    .as_ref()
+                    .unwrap()
+                    .path()
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string();
 
-                    let is_git_repo = dir.as_ref().unwrap().path().join(".git").exists();
+                let is_git_repo = dir.as_ref().unwrap().path().join(".git").exists();
 
-                    // Only act if the avoiding flag is not set and any of the following match
-                    //  - the dependency is not a git repo
-                    //  - the dependency is not in a clean state (i.e., was modified)
-                    if !ignore_checkout {
-                        if !is_git_repo {
-                            Warnings::NotAGitDependency(depname.clone(), checkout.clone()).emit();
-                            self.checked_out.insert(
-                                depname,
-                                config::Dependency::Path {
-                                    target: TargetSpec::Wildcard,
-                                    path: dir.unwrap().path(),
-                                    pass_targets: vec![],
-                                },
-                            );
-                        } else if !(SysCommand::new(&self.sess.config.git) // If not in a clean state
-                            .arg("status")
-                            .arg("--porcelain")
-                            .current_dir(dir.as_ref().unwrap().path())
-                            .output()
-                            .into_diagnostic()?
-                            .stdout
-                            .is_empty())
-                        {
-                            Warnings::DirtyGitDependency(depname.clone(), checkout.clone()).emit();
-                            self.checked_out.insert(
-                                depname,
-                                config::Dependency::Path {
-                                    target: TargetSpec::Wildcard,
-                                    path: dir.unwrap().path(),
-                                    pass_targets: vec![],
-                                },
-                            );
-                        }
+                // Only act if the avoiding flag is not set and any of the following match
+                //  - the dependency is not a git repo
+                //  - the dependency is not in a clean state (i.e., was modified)
+                if !ignore_checkout {
+                    if !is_git_repo {
+                        Warnings::NotAGitDependency(depname.clone(), checkout.clone()).emit();
+                        self.checked_out.insert(
+                            depname,
+                            config::Dependency::Path {
+                                target: TargetSpec::Wildcard,
+                                path: dir.unwrap().path(),
+                                pass_targets: vec![],
+                            },
+                        );
+                    } else if !(SysCommand::new(&self.sess.config.git) // If not in a clean state
+                        .arg("status")
+                        .arg("--porcelain")
+                        .current_dir(dir.as_ref().unwrap().path())
+                        .output()
+                        .into_diagnostic()?
+                        .stdout
+                        .is_empty())
+                    {
+                        Warnings::DirtyGitDependency(depname.clone(), checkout.clone()).emit();
+                        self.checked_out.insert(
+                            depname,
+                            config::Dependency::Path {
+                                target: TargetSpec::Wildcard,
+                                path: dir.unwrap().path(),
+                                pass_targets: vec![],
+                            },
+                        );
                     }
                 }
             }
         }
-
         // Load the plugin dependencies.
         self.register_dependencies_in_manifest(
             &self.sess.config.plugins,
@@ -708,17 +707,15 @@ impl<'ctx> DependencyResolver<'ctx> {
                     indices_list?
                 };
                 if indices_list.is_empty() {
-                    if let DependencyConstraint::Revision(rev) = con {
-                        if !self.refetched.contains(&(*id, Some(rev.clone()))) {
-                            // attempt refetch with rev
-                            self.refetched.insert((*id, Some(rev.clone())));
-                            if let Ok(new_versions) = rt.block_on(io.dependency_versions(
-                                *id,
-                                Some(true),
-                                Some(rev.as_str()),
-                            )) {
-                                src.versions = new_versions;
-                            }
+                    if let DependencyConstraint::Revision(rev) = con
+                        && !self.refetched.contains(&(*id, Some(rev.clone())))
+                    {
+                        // attempt refetch with rev
+                        self.refetched.insert((*id, Some(rev.clone())));
+                        if let Ok(new_versions) =
+                            rt.block_on(io.dependency_versions(*id, Some(true), Some(rev.as_str())))
+                        {
+                            src.versions = new_versions;
                         }
                     }
                 } else {

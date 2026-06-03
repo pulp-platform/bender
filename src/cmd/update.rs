@@ -88,15 +88,15 @@ pub fn run<'ctx>(
     }
 
     // Unlock dependencies recursively
-    if args.recursive {
-        if let Some(existing_locked) = existing {
-            let mut nochange = true;
-            while nochange {
-                nochange = false;
-                for dep in requested.clone().iter() {
-                    for needed_dep in existing_locked.packages[dep].dependencies.iter() {
-                        nochange |= requested.insert(needed_dep.clone());
-                    }
+    if args.recursive
+        && let Some(existing_locked) = existing
+    {
+        let mut nochange = true;
+        while nochange {
+            nochange = false;
+            for dep in requested.clone().iter() {
+                for needed_dep in existing_locked.packages[dep].dependencies.iter() {
+                    nochange |= requested.insert(needed_dep.clone());
                 }
             }
         }
