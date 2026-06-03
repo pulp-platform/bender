@@ -33,6 +33,9 @@ class SlangContext {
     // For each tree returned by the last parse_files call, whether slang reported parse errors.
     // Parallel to that return vector.
     const std::vector<bool>& last_parse_errors() const { return parseErrors; }
+    // For each tree, whether slang emitted at least one `pragma protect` envelope diagnostic
+    // (the lexer/preprocessor signal that the file contains IEEE-1735 encrypted content).
+    const std::vector<bool>& last_protect_diags() const { return protectDiags; }
 
   private:
     slang::SourceManager sourceManager;
@@ -40,6 +43,7 @@ class SlangContext {
     slang::DiagnosticEngine diagEngine;
     std::shared_ptr<slang::TextDiagnosticClient> diagClient;
     std::vector<bool> parseErrors;
+    std::vector<bool> protectDiags;
 };
 
 class SlangSession {
@@ -50,11 +54,16 @@ class SlangSession {
     const std::vector<std::shared_ptr<slang::syntax::SyntaxTree>>& trees() const { return allTrees; }
     // Parallel to trees(): true if slang reported parse errors for that tree.
     const std::vector<bool>& tree_parse_errors() const { return treeParseErrors; }
+    // Parallel to trees(): true if slang emitted a `pragma protect` envelope diag for that tree.
+    // Used by the Rust side to discriminate "encrypted IP" (auto-tolerated) from "real syntax
+    // bug" (fail by default; tolerate with --allow-broken).
+    const std::vector<bool>& tree_protect_diags() const { return treeProtectDiags; }
 
   private:
     std::vector<std::unique_ptr<SlangContext>> contexts;
     std::vector<std::shared_ptr<slang::syntax::SyntaxTree>> allTrees;
     std::vector<bool> treeParseErrors;
+    std::vector<bool> treeProtectDiags;
 };
 
 class SyntaxTreeRewriter {
@@ -89,6 +98,7 @@ rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, con
 rust::Vec<rust::String> resolved_include_paths_for(const SlangSession& session,
                                                    const rust::Vec<std::uint32_t>& tree_indices);
 rust::Vec<std::uint32_t> failed_tree_indices(const SlangSession& session);
+rust::Vec<std::uint32_t> protected_tree_indices(const SlangSession& session);
 std::size_t tree_count(const SlangSession& session);
 std::shared_ptr<slang::syntax::SyntaxTree> tree_at(const SlangSession& session, std::size_t index);
 std::uint64_t renamed_declarations(const SyntaxTreeRewriter& rewriter);

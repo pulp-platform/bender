@@ -26,6 +26,26 @@ mod tests {
         String::from_utf8(out.stdout).expect("stdout must be utf-8")
     }
 
+    /// Run the script subcommand expecting failure; returns the captured stderr.
+    fn run_script_failing(args: &[&str]) -> String {
+        let mut full_args = vec!["-d", "tests/pickle", "script"];
+        full_args.extend(args);
+
+        let out = cargo::cargo_bin_cmd!()
+            .args(&full_args)
+            .output()
+            .expect("Failed to execute bender binary");
+
+        assert!(
+            !out.status.success(),
+            "script command unexpectedly succeeded.\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+
+        String::from_utf8(out.stderr).expect("stderr must be utf-8")
+    }
+
     /// Return the path component after the last `/` or `\`. On Windows, bender's source paths
     /// can come out mixed (e.g. `D:\workspace\tests\pickle/src/top.sv`) while incdir paths are
     /// all-backslash because the Bender.yml entry has no embedded separator — so splitting on
@@ -235,6 +255,40 @@ mod tests {
         assert!(
             out.contains("// UNPARSEABLE: slang reported parse errors"),
             "expected UNPARSEABLE annotation in output:\n{out}"
+        );
+    }
+
+    /// A file with a real syntax error (no `pragma protect` envelope) should abort the run by
+    /// default — that's the discrimination from encrypted IP, which is auto-tolerated.
+    #[test]
+    fn script_broken_file_fails_by_default() {
+        let stderr = run_script_failing(&["--target", "broken", "--top", "broken", "flist-plus"]);
+        assert!(
+            stderr.contains("looks like real syntax bugs"),
+            "expected real-bug error message, got stderr:\n{stderr}"
+        );
+        assert!(
+            stderr.contains("--allow-broken"),
+            "error should mention --allow-broken escape hatch:\n{stderr}"
+        );
+    }
+
+    /// `--allow-broken` lets users opt into tolerance for non-encrypted parse errors. The
+    /// broken file is kept in the output with a warning instead of aborting.
+    #[test]
+    fn script_broken_file_allow_broken_keeps_it() {
+        let out = run_script(&[
+            "--target",
+            "broken",
+            "--top",
+            "broken",
+            "--allow-broken",
+            "flist-plus",
+        ]);
+        let files = source_basenames(&out);
+        assert!(
+            files.contains("broken.sv"),
+            "broken.sv should survive with --allow-broken: {files:?}"
         );
     }
 

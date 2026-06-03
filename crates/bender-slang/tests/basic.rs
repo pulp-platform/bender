@@ -22,18 +22,29 @@ fn parse_valid_file_succeeds() {
 }
 
 #[test]
-fn parse_invalid_file_returns_parse_error() {
+fn parse_invalid_file_reports_via_failed_indices() {
+    // The new contract: parse_group is lenient — system errors still throw, but per-file parse
+    // errors are surfaced via failed_indices(). Callers (bender script, bender pickle) layer
+    // their own policy (allow / refuse / discriminate) on top.
     let mut session = bender_slang::SlangSession::new();
     let files = vec![fixture_path("src/broken.sv")];
     let includes = vec![];
     let defines = vec![];
-    let result = session.parse_group(&files, &includes, &defines);
+    let indices = session
+        .parse_group(&files, &includes, &defines)
+        .expect("parse_group is lenient and should return Ok even on parse errors");
+    assert_eq!(indices.len(), 1);
 
-    match result {
-        Err(bender_slang::SlangError::ParseGroup { .. }) => {}
-        Err(other) => panic!("expected SlangError::ParseGroup, got {other}"),
-        Ok(_) => panic!("expected parse to fail"),
-    }
+    let failed = session.failed_indices().expect("failed_indices query");
+    assert_eq!(failed, vec![0], "broken.sv should be reported as failed");
+
+    let protected = session
+        .protected_indices()
+        .expect("protected_indices query");
+    assert!(
+        protected.is_empty(),
+        "broken.sv has no pragma protect envelope: {protected:?}"
+    );
 }
 
 #[test]

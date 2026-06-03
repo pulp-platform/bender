@@ -108,6 +108,11 @@ pub struct ScriptArgs {
     #[arg(long, global = true, help_heading = "General Script Options")]
     pub drop_unparseable: bool,
 
+    /// Tolerate slang parse errors in non-encrypted files instead of failing
+    #[cfg(feature = "slang")]
+    #[arg(long, global = true, help_heading = "General Script Options")]
+    pub allow_broken: bool,
+
     /// Format of the generated script
     #[command(subcommand)]
     pub format: ScriptFormat,
@@ -366,10 +371,21 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             TrimIncdirs::Never => false,
             TrimIncdirs::Auto => !args.top.is_empty(),
         };
+        // The slang pass also enforces "no broken non-encrypted parse errors" unless
+        // --allow-broken, so even with no top / no trim / no drop, we still need to invoke
+        // it when a strict check is desired. For now we keep the short-circuit consistent
+        // with the original "do nothing if no slang-driven action requested" — the strict
+        // check kicks in whenever the slang pass already runs for another reason.
         if args.top.is_empty() && !trim_incdirs && !args.drop_unparseable {
             (srcs, std::collections::HashSet::<PathBuf>::new())
         } else {
-            apply_slang_filters(srcs, &args.top, trim_incdirs, args.drop_unparseable)?
+            apply_slang_filters(
+                srcs,
+                &args.top,
+                trim_incdirs,
+                args.drop_unparseable,
+                args.allow_broken,
+            )?
         }
     };
     #[cfg(not(feature = "slang"))]
@@ -504,8 +520,12 @@ where
 /// files is dropped). When `trim_incdirs` is true, include directories slang did not resolve
 /// an `include through are dropped from `include_dirs` and `export_incdirs`.
 ///
-/// Files that slang reported parse errors on (typical for IEEE-1735 encrypted IP) are kept in
-/// the output regardless of reachability by default; pass `drop_unparseable=true` to drop them.
+/// IEEE-1735 encrypted IP is auto-tolerated: slang emits a `ProtectedEnvelope` diag whenever
+/// it skips a protect block, and any parse errors on those files are treated as expected
+/// fallout. Files with parse errors but no protect-envelope diag look like real syntax bugs
+/// and abort the run unless `allow_broken=true`. Tolerated files are kept in the output
+/// regardless of reachability; pass `drop_unparseable=true` to drop them instead.
+///
 /// Returns the filtered groups plus the set of unparseable file paths that survived filtering,
 /// so the caller can annotate them in `source_annotations` output.
 #[cfg(feature = "slang")]
@@ -514,6 +534,7 @@ fn apply_slang_filters<'a>(
     top: &[String],
     trim_incdirs: bool,
     drop_unparseable: bool,
+    allow_broken: bool,
 ) -> Result<(Vec<SourceGroup<'a>>, std::collections::HashSet<PathBuf>)> {
     use std::collections::{HashMap, HashSet};
 
@@ -567,14 +588,47 @@ fn apply_slang_filters<'a>(
         }
     }
 
-    // Files whose slang parse failed get force-kept by default. IEEE-1735 encrypted IP
-    // routinely trips the parser at the end of the protect envelope; we can't analyze those
-    // modules, but we mustn't drop them from the script either. `drop_unparseable=true` flips
-    // that to drop them.
+    // Discriminate encrypted IP (legal SystemVerilog, just hard to parse — auto-tolerated)
+    // from genuinely broken files (real syntax bugs — abort unless `--allow-broken`).
+    // Encrypted ⇔ slang emitted a `ProtectedEnvelope` diag on that tree.
     let failed_indices = session.failed_indices().into_diagnostic()?;
-    let unparseable_paths: HashSet<&Path> = failed_indices
+    let protected_indices: HashSet<usize> = session
+        .protected_indices()
+        .into_diagnostic()?
+        .into_iter()
+        .collect();
+    let mut encrypted_paths: HashSet<&Path> = HashSet::new();
+    let mut broken_paths: Vec<&Path> = Vec::new();
+    for i in &failed_indices {
+        if let Some(p) = index_to_path.get(i).copied() {
+            if protected_indices.contains(i) {
+                encrypted_paths.insert(p);
+            } else {
+                broken_paths.push(p);
+            }
+        }
+    }
+
+    if !broken_paths.is_empty() && !allow_broken {
+        let listed = broken_paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join("\n  ");
+        return Err(miette::miette!(
+            "slang reported parse errors in {} file(s) with no `pragma protect` envelope (looks like real syntax bugs):\n  {}\n\
+             see diagnostics above; pass --allow-broken to tolerate these errors and continue",
+            broken_paths.len(),
+            listed
+        ));
+    }
+
+    // From here on, both encrypted (always) and broken (only with --allow-broken) survive as
+    // "unparseable" — kept or dropped per `drop_unparseable`.
+    let unparseable_paths: HashSet<&Path> = encrypted_paths
         .iter()
-        .filter_map(|i| index_to_path.get(i).copied())
+        .copied()
+        .chain(broken_paths.iter().copied())
         .collect();
 
     // Determine which trees feed into the include / file-retention questions. With `--top` we
@@ -646,24 +700,38 @@ fn apply_slang_filters<'a>(
         .filter(|group| !group.files.is_empty())
         .collect();
 
-    // Summary: surface what slang couldn't parse without spamming one line per file.
+    // Summary lines: report encrypted and broken files separately so users can tell apart the
+    // automatic tolerance (encrypted) from the explicit one (broken, only here if
+    // --allow-broken was set since we'd have errored out otherwise).
     let kept_unparseable: HashSet<PathBuf> = if drop_unparseable {
         HashSet::new()
     } else {
         unparseable_paths.iter().map(|p| p.to_path_buf()).collect()
     };
-    if !unparseable_paths.is_empty() {
-        let names: Vec<String> = unparseable_paths
+    let verb = if drop_unparseable {
+        "dropped"
+    } else {
+        "kept in script output"
+    };
+    if !encrypted_paths.is_empty() {
+        let names: Vec<String> = encrypted_paths
             .iter()
             .map(|p| p.display().to_string())
             .collect();
-        let verb = if drop_unparseable {
-            "dropped"
-        } else {
-            "kept in script output"
-        };
         eprintln!(
-            "warning: slang reported parse errors in {} file(s); {}: {}",
+            "warning: {} encrypted file(s) ({}): {}",
+            names.len(),
+            verb,
+            names.join(", "),
+        );
+    }
+    if !broken_paths.is_empty() {
+        let names: Vec<String> = broken_paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect();
+        eprintln!(
+            "warning: {} broken file(s) ({} via --allow-broken): {}",
             names.len(),
             verb,
             names.join(", "),

@@ -69,6 +69,8 @@ mod ffi {
 
         fn failed_tree_indices(session: &SlangSession) -> Result<Vec<u32>>;
 
+        fn protected_tree_indices(session: &SlangSession) -> Result<Vec<u32>>;
+
         fn tree_count(session: &SlangSession) -> usize;
 
         fn tree_at(session: &SlangSession, index: usize) -> Result<SharedPtr<SyntaxTree>>;
@@ -214,6 +216,19 @@ impl SlangSession {
                 message: cause.to_string(),
             }
         })?;
+        Ok(indices.into_iter().map(|i| i as usize).collect())
+    }
+
+    /// Returns the indices of trees for which slang emitted at least one `pragma protect`
+    /// envelope diagnostic. Lets callers tell IEEE-1735 encrypted IP apart from genuinely
+    /// broken source files (which produce parse errors without any protect-envelope diag).
+    pub fn protected_indices(&self) -> Result<Vec<usize>> {
+        let indices =
+            ffi::protected_tree_indices(self.inner.as_ref().unwrap()).map_err(|cause| {
+                SlangError::TrimByTop {
+                    message: cause.to_string(),
+                }
+            })?;
         Ok(indices.into_iter().map(|i| i as usize).collect())
     }
 

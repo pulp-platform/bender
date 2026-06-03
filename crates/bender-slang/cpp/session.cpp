@@ -1,6 +1,7 @@
 // Copyright (c) 2025 ETH Zurich
 // Tim Fischer <fischeti@iis.ee.ethz.ch>
 
+#include "slang/diagnostics/PreprocessorDiags.h"
 #include "slang_bridge.h"
 
 #include <iostream>
@@ -36,7 +37,8 @@ void SlangContext::set_defines(const rust::Vec<rust::String>& defs) {
 }
 
 // Parses a list of source files and returns the resulting syntax trees as a vector (of shared pointers).
-// If any file fails to parse, an exception is thrown with the error message(s) from the diagnostic engine.
+// System-level errors (file unreadable, etc.) throw; per-file parse errors are surfaced
+// non-fatally via last_parse_errors() / last_protect_diags() so the caller can apply policy.
 std::vector<std::shared_ptr<SyntaxTree>> SlangContext::parse_files(const rust::Vec<rust::String>& paths) {
     Bag options;
     options.set(ppOptions);
@@ -45,6 +47,8 @@ std::vector<std::shared_ptr<SyntaxTree>> SlangContext::parse_files(const rust::V
     out.reserve(paths.size());
     parseErrors.clear();
     parseErrors.reserve(paths.size());
+    protectDiags.clear();
+    protectDiags.reserve(paths.size());
 
     for (const auto& path : paths) {
         string_view pathView(path.data(), path.size());
@@ -63,21 +67,26 @@ std::vector<std::shared_ptr<SyntaxTree>> SlangContext::parse_files(const rust::V
         diagEngine.clearIncludeStack();
 
         bool hasErrors = false;
+        bool hasProtectDiag = false;
         for (const auto& diag : tree->diagnostics()) {
             hasErrors |= diag.isError();
+            if (diag.code == slang::diag::ProtectedEnvelope) {
+                hasProtectDiag = true;
+            }
             diagEngine.issue(diag);
         }
 
         // Surface diagnostics for any file with errors, but keep going — the Rust side decides
-        // what to do with the (possibly partial) tree. This matters for IEEE-1735 encrypted IP:
-        // slang skips the protect envelope but still trips on the surrounding endmodule, and
-        // those files shouldn't sink the whole `bender script` invocation.
+        // what to do with the (possibly partial) tree. The hasProtectDiag flag lets the Rust
+        // side discriminate IEEE-1735 encrypted IP (auto-tolerated) from real syntax bugs
+        // (fail by default; tolerate with --allow-broken).
         if (hasErrors) {
             std::cerr << diagClient->getString();
         }
 
         out.push_back(tree);
         parseErrors.push_back(hasErrors);
+        protectDiags.push_back(hasProtectDiag);
     }
 
     return out;
@@ -93,14 +102,18 @@ void SlangSession::parse_group(const rust::Vec<rust::String>& files, const rust:
     ctx->set_defines(defines);
 
     // Parse the files and store the resulting syntax trees in the session, alongside their
-    // pass/fail status so callers can decide how to handle partially-parsed files.
+    // pass/fail status and `pragma protect` diagnostic presence, so callers can decide how to
+    // handle partially-parsed files.
     auto parsed = ctx->parse_files(files);
     const auto& errs = ctx->last_parse_errors();
+    const auto& protects = ctx->last_protect_diags();
     allTrees.reserve(allTrees.size() + parsed.size());
     treeParseErrors.reserve(treeParseErrors.size() + parsed.size());
+    treeProtectDiags.reserve(treeProtectDiags.size() + parsed.size());
     for (size_t i = 0; i < parsed.size(); ++i) {
         allTrees.push_back(parsed[i]);
         treeParseErrors.push_back(i < errs.size() && errs[i]);
+        treeProtectDiags.push_back(i < protects.size() && protects[i]);
     }
 
     contexts.push_back(std::move(ctx));

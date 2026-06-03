@@ -31,3 +31,7 @@ sources:
       - src/encrypted_ip.sv
       - src/encrypted_user.sv
       - src/encrypted_top.sv
+
+  - target: broken
+    files:
+      - src/broken.sv

@@ -159,6 +159,21 @@ rust::Vec<std::uint32_t> failed_tree_indices(const SlangSession& session) {
     return out;
 }
 
+// Returns the indices of trees for which slang emitted at least one `pragma protect` envelope
+// diagnostic. These are the files that look like IEEE-1735 encrypted IP — even if they also
+// have parse errors, those errors are downstream of the protect block and should be tolerated
+// without `--allow-broken`.
+rust::Vec<std::uint32_t> protected_tree_indices(const SlangSession& session) {
+    const auto& flags = session.tree_protect_diags();
+    rust::Vec<std::uint32_t> out;
+    for (size_t i = 0; i < flags.size(); ++i) {
+        if (flags[i]) {
+            out.push_back(static_cast<std::uint32_t>(i));
+        }
+    }
+    return out;
+}
+
 // Returns the deduped, canonical filesystem paths of every header file that was actually loaded
 // via `include directives while parsing the requested trees. Trees from different parse groups
 // may live in different SourceManagers, so the lookup is per-tree.
