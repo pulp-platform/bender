@@ -16,5 +16,12 @@ sources:
   - target: top
     include_dirs:
       - include
+      - include_unused
     files:
       - src/top.sv
+
+  - target: dup
+    files:
+      - src/dup_a.sv
+      - src/dup_b.sv
+      - src/dup_top.sv

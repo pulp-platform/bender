@@ -6,6 +6,12 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
+use std::fs::canonicalize;
+
+#[cfg(windows)]
+use dunce::canonicalize;
+
 use clap::{ArgAction, Args, Subcommand, ValueEnum};
 use indexmap::{IndexMap, IndexSet};
 use miette::{Context as _, IntoDiagnostic as _};
@@ -20,6 +26,9 @@ use crate::diagnostic::Warnings;
 use crate::sess::{Session, SessionIo};
 use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::TargetSet;
+
+#[cfg(feature = "slang")]
+use bender_slang::SlangSession;
 
 /// Emit tool scripts for the package
 #[derive(Args, Debug)]
@@ -78,6 +87,22 @@ pub struct ScriptArgs {
     #[arg(long, global = true, help_heading = "General Script Options")]
     pub no_abort_on_error: bool,
 
+    /// Trim unreachable Verilog files via the given top-level module(s)
+    #[cfg(feature = "slang")]
+    #[arg(long, global = true, help_heading = "General Script Options")]
+    pub top: Vec<String>,
+
+    /// Drop unused include directories from the generated script
+    #[cfg(feature = "slang")]
+    #[arg(
+        long,
+        value_enum,
+        default_value_t,
+        global = true,
+        help_heading = "General Script Options"
+    )]
+    pub trim_incdirs: TrimIncdirs,
+
     /// Format of the generated script
     #[command(subcommand)]
     pub format: ScriptFormat,
@@ -92,6 +117,20 @@ pub enum CompilationMode {
     Separate,
     /// Compile all source file groups together in a common compilation unit
     Common,
+}
+
+/// Controls whether unused include directories are dropped.
+#[cfg(feature = "slang")]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TrimIncdirs {
+    /// Drop iff `--top` is set
+    #[default]
+    Auto,
+    /// Always drop unused directories
+    Always,
+    /// Keep every declared directory
+    Never,
 }
 
 /// Common arguments for Vivado scripts
@@ -312,6 +351,22 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         .map(|f| f.validate(&ValidationContext::default()))
         .collect::<Result<Vec<_>>>()?;
 
+    // Slang-based filtering: trim unreachable Verilog files (when `--top` is given) and/or
+    // unused include directories (per `--trim-incdirs`).
+    #[cfg(feature = "slang")]
+    let srcs = {
+        let trim_incdirs = match args.trim_incdirs {
+            TrimIncdirs::Always => true,
+            TrimIncdirs::Never => false,
+            TrimIncdirs::Auto => !args.top.is_empty(),
+        };
+        if args.top.is_empty() && !trim_incdirs {
+            srcs
+        } else {
+            apply_slang_filters(srcs, &args.top, trim_incdirs)?
+        }
+    };
+
     let mut tera_context = Context::new();
     let mut only_args = OnlyArgs {
         defines: false,
@@ -424,6 +479,128 @@ where
     if !files.is_empty() {
         consume(&src, category.unwrap(), files);
     }
+}
+
+/// Filter source groups using slang's view of the design.
+///
+/// When `top` is non-empty, Verilog files not reachable from any of those top modules are
+/// dropped (VHDL and untyped files are always retained, and any group that ends up with no
+/// files is dropped). When `trim_incdirs` is true, include directories slang did not resolve
+/// an `include through are dropped from `include_dirs` and `export_incdirs`.
+#[cfg(feature = "slang")]
+fn apply_slang_filters<'a>(
+    srcs: Vec<SourceGroup<'a>>,
+    top: &[String],
+    trim_incdirs: bool,
+) -> Result<Vec<SourceGroup<'a>>> {
+    use std::collections::{HashMap, HashSet};
+
+    let mut session = SlangSession::new();
+    let mut index_to_path: HashMap<usize, &Path> = HashMap::new();
+
+    for src_group in &srcs {
+        // Collect include dirs
+        let include_dirs: Vec<String> = src_group
+            .include_dirs
+            .iter()
+            .chain(src_group.export_incdirs.values().flatten())
+            .map(|(_, path)| path.to_string_lossy().into_owned())
+            .collect::<IndexSet<_>>()
+            .into_iter()
+            .collect();
+
+        // Collect defines
+        let defines: Vec<String> = src_group
+            .defines
+            .iter()
+            .map(|(def, (_, value))| match value {
+                Some(v) => format!("{def}={v}"),
+                None => def.to_string(),
+            })
+            .collect::<IndexSet<_>>()
+            .into_iter()
+            .collect();
+
+        // Collect only Verilog file paths.
+        let paths: Vec<&Path> = src_group
+            .files
+            .iter()
+            .filter_map(|f| match f {
+                SourceFile::File(p, Some(SourceType::Verilog)) => Some(*p),
+                _ => None,
+            })
+            .collect();
+
+        if !paths.is_empty() {
+            let file_paths: Vec<String> = paths
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect();
+            let indices = session
+                .parse_group(&file_paths, &include_dirs, &defines)
+                .into_diagnostic()?;
+            for (idx, path) in indices.into_iter().zip(&paths) {
+                index_to_path.insert(idx, path);
+            }
+        }
+    }
+
+    // Determine which trees feed into the include / file-retention questions. With `--top` we
+    // only look at trees reachable from those top modules; without `--top` we use every tree
+    // (relevant when the caller asked for include-dir trimming but no file filtering).
+    let filter_files = !top.is_empty();
+    let kept_indices: Vec<usize> = if filter_files {
+        session.reachable_indices(top).into_diagnostic()?
+    } else {
+        (0..session.tree_count()).collect()
+    };
+    let kept_paths: HashSet<&Path> = if filter_files {
+        kept_indices
+            .iter()
+            .filter_map(|i| index_to_path.get(i).copied())
+            .collect()
+    } else {
+        HashSet::new()
+    };
+
+    // Strict include-dir trimming: a directory survives only if slang actually resolved at least
+    // one `include directive through it. Canonicalize both sides so symlinks / `.` / `..` don't
+    // cause spurious mismatches.
+    let resolved_includes: Vec<PathBuf> = if trim_incdirs {
+        session
+            .resolved_include_paths(&kept_indices)
+            .into_diagnostic()?
+            .into_iter()
+            .map(PathBuf::from)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let dir_is_used = |dir: &Path| -> bool {
+        let canon = canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+        resolved_includes.iter().any(|f| f.starts_with(&canon))
+    };
+
+    Ok(srcs
+        .into_iter()
+        .map(|mut group| {
+            if filter_files {
+                group.files.retain(|f| match f {
+                    SourceFile::File(p, Some(SourceType::Verilog)) => kept_paths.contains(p),
+                    _ => true,
+                });
+            }
+            if trim_incdirs {
+                group.include_dirs.retain(|(_, p)| dir_is_used(p));
+                for paths in group.export_incdirs.values_mut() {
+                    paths.retain(|(_, p)| dir_is_used(p));
+                }
+            }
+            group
+        })
+        // Remove empty groups that may have resulted from filtering out all Verilog files.
+        .filter(|group| !group.files.is_empty())
+        .collect())
 }
 
 static HEADER_AUTOGEN: &str = "This script was generated automatically by bender.";

@@ -62,6 +62,11 @@ mod ffi {
 
         fn reachable_tree_indices(session: &SlangSession, tops: &Vec<String>) -> Result<Vec<u32>>;
 
+        fn resolved_include_paths_for(
+            session: &SlangSession,
+            tree_indices: &Vec<u32>,
+        ) -> Result<Vec<String>>;
+
         fn tree_count(session: &SlangSession) -> usize;
 
         fn tree_at(session: &SlangSession, index: usize) -> Result<SharedPtr<SyntaxTree>>;
@@ -196,6 +201,18 @@ impl SlangSession {
                 }
             })?;
         Ok(indices.into_iter().map(|i| i as usize).collect())
+    }
+
+    /// Returns the canonical filesystem paths of every header that was actually loaded via an
+    /// `include directive while parsing the given trees. Useful for figuring out which include
+    /// directories were actually consulted.
+    pub fn resolved_include_paths(&self, tree_indices: &[usize]) -> Result<Vec<String>> {
+        let indices: Vec<u32> = tree_indices.iter().map(|&i| i as u32).collect();
+        let paths = ffi::resolved_include_paths_for(self.inner.as_ref().unwrap(), &indices)
+            .map_err(|cause| SlangError::TrimByTop {
+                message: cause.to_string(),
+            })?;
+        Ok(paths.into_iter().collect())
     }
 
     /// Returns syntax trees reachable from the given top modules.

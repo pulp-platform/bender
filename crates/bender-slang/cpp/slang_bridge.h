@@ -78,6 +78,8 @@ rust::String print_tree(std::shared_ptr<slang::syntax::SyntaxTree> tree, SlangPr
 rust::String dump_tree_json(std::shared_ptr<slang::syntax::SyntaxTree> tree);
 
 rust::Vec<std::uint32_t> reachable_tree_indices(const SlangSession& session, const rust::Vec<rust::String>& tops);
+rust::Vec<rust::String> resolved_include_paths_for(const SlangSession& session,
+                                                   const rust::Vec<std::uint32_t>& tree_indices);
 std::size_t tree_count(const SlangSession& session);
 std::shared_ptr<slang::syntax::SyntaxTree> tree_at(const SlangSession& session, std::size_t index);
 std::uint64_t renamed_declarations(const SyntaxTreeRewriter& rewriter);
