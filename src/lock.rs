@@ -9,10 +9,9 @@
 
 #![deny(missing_docs)]
 
-use std::fs::{File, OpenOptions};
+use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 
-use fs4::{FileExt, TryLockError};
 use miette::{Context as _, IntoDiagnostic as _};
 
 use crate::Result;
@@ -49,11 +48,11 @@ impl FsLock {
 
         let path_for_blocking = path.clone();
         let file = tokio::task::spawn_blocking(move || -> Result<File> {
-            match FileExt::try_lock(&file) {
+            match file.try_lock() {
                 Ok(()) => Ok(file),
                 Err(TryLockError::WouldBlock) => {
                     log::info!("waiting for lock on {:?}", path_for_blocking);
-                    FileExt::lock(&file).into_diagnostic().wrap_err_with(|| {
+                    file.lock().into_diagnostic().wrap_err_with(|| {
                         format!("Failed to acquire lock on {:?}.", path_for_blocking)
                     })?;
                     Ok(file)
@@ -84,7 +83,7 @@ impl Drop for FsLock {
         if let Some(file) = self.file.take() {
             // Best-effort: errors here are not actionable, and the OS releases
             // the lock automatically when the file handle closes.
-            let _ = FileExt::unlock(&file);
+            let _ = file.unlock();
         }
     }
 }
