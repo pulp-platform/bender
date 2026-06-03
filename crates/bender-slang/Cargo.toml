@@ -1,6 +1,6 @@
 [package]
 name = "bender-slang"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Internal bender crate: Rust bindings for the Slang SystemVerilog parser"
 license = "Apache-2.0"
