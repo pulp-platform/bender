@@ -34,7 +34,7 @@ Optional override for the directory that holds bare git repositories and their l
 - **Default:** unset (falls back to `database`).
 - **Example:** `db_dir: /var/cache/bender_shared`
 
-> **Note:** Older Bender versions (pre-`db_dir`) silently ignore this field and fall back to their per-project default, so it is safe to ship in a shared configuration that mixed bender versions may read.
+> **Note:** Bender versions before 0.32 silently ignore this field and fall back to their per-project default, so it is safe to ship in a shared configuration that mixed bender versions may read.
 
 ### `git`
 The command or path used to invoke Git.

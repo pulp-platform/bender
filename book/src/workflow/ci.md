@@ -99,14 +99,14 @@ Every job on the runner now reuses the already-fetched Git data and serializes s
 
 If you'd rather not place a `Bender.local` on the runner at all, exporting `BENDER_DB_DIR=/var/cache/bender_shared` in the job environment has the same effect — any project that explicitly sets `db_dir` in its own configuration overrides the env var.
 
-> **Older Bender versions** silently ignore both `db_dir` and `BENDER_DB_DIR` and fall back to their normal per-project `.bender/` cache, so the shared config above is safe to deploy on a runner that still hosts pinned-to-old-bender projects — those projects simply won't benefit from the shared cache, but they won't misbehave either.
+> **Bender versions before 0.32** silently ignore both `db_dir` and `BENDER_DB_DIR` and fall back to their normal per-project `.bender/` cache, so the shared config above is safe to deploy on a runner that still hosts pinned-to-old-bender projects — those projects simply won't benefit from the shared cache, but they won't misbehave either.
 
-### Legacy `database:` recipe
+### Sharing working-tree checkouts too
 
-Earlier docs recommended sharing via [`database`](../configuration.md#database), which relocates both the bare repos *and* the checkouts:
+If you want to share the bare repos *and* the per-dependency working-tree checkouts (uncommon), use [`database`](../configuration.md#database) instead of `db_dir`:
 
 ```yaml
 database: /var/cache/bender_shared
 ```
 
-This still works, but it has a known footgun: two top-level projects that share the same name will collide on the same `<database>/git/checkouts/<name>-<hash>/` directory. If you keep this recipe, give each top-level project its own `workspace.checkout_dir` in [`Bender.yml`](../manifest.md) so the checkouts remain isolated. Prefer `db_dir` for new setups.
+Caveat: two top-level projects with the same name will collide on the same `<database>/git/checkouts/<name>-<hash>/` directory. Give each top-level project its own `workspace.checkout_dir` in [`Bender.yml`](../manifest.md) so the checkouts remain isolated.

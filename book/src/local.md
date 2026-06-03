@@ -42,7 +42,7 @@ database: my_deps_cache
 
 # Share only the bare git repos and lock files across projects, while
 # keeping per-project checkouts under each project's own .bender/.
-# Older Bender versions silently ignore this field.
+# Bender versions before 0.32 silently ignore this field.
 db_dir: /var/cache/bender_shared
 
 # Use a custom git binary or wrapper
