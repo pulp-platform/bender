@@ -92,9 +92,9 @@ rust::Vec<ParsedTree> reachable_trees(const SlangSession& session, const rust::V
                 return;
 
             const auto& prevBufferIds = entries[it->second].tree->getSourceBufferIds();
-            std::string_view prevFile = prevBufferIds.empty()
-                                            ? std::string_view("<unknown>")
-                                            : entries[it->second].tree->sourceManager().getRawFileName(prevBufferIds[0]);
+            std::string_view prevFile =
+                prevBufferIds.empty() ? std::string_view("<unknown>")
+                                      : entries[it->second].tree->sourceManager().getRawFileName(prevBufferIds[0]);
 
             auto& state = diagFor(entries[i].tree->sourceManager());
             slang::Diagnostic diag(kDuplicateTopLevelDecl, loc);
