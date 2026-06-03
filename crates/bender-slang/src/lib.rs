@@ -16,8 +16,6 @@ pub enum SlangError {
     ParseGroup { message: String },
     #[error("Failed to trim files by top modules: {message}")]
     TrimByTop { message: String },
-    #[error("Failed to rewrite syntax trees: {message}")]
-    Rewrite { message: String },
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -69,8 +67,6 @@ mod ffi {
             includes: &Vec<String>,
             defines: &Vec<String>,
         ) -> Result<()>;
-
-        fn tree_count(session: &SlangSession) -> usize;
 
         fn all_trees(session: &SlangSession) -> Vec<ParsedTree>;
 
@@ -204,11 +200,6 @@ impl SlangSession {
             .map_err(|cause| SlangError::ParseGroup {
                 message: cause.to_string(),
             })
-    }
-
-    /// Returns the total number of parsed syntax trees in the session.
-    pub fn tree_count(&self) -> usize {
-        ffi::tree_count(self.inner.as_ref().unwrap())
     }
 
     /// Returns every parsed tree in the session, each bundled with its per-file facts (path,

@@ -106,6 +106,3 @@ void SlangSession::parse_group(const rust::Vec<rust::String>& files, const rust:
 
     contexts.push_back(std::move(ctx));
 }
-
-// Returns the number of syntax trees currently stored in the session.
-std::size_t tree_count(const SlangSession& session) { return session.entries().size(); }

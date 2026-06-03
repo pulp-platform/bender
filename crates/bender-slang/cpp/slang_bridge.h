@@ -95,7 +95,6 @@ rust::String print_tree(std::shared_ptr<slang::syntax::SyntaxTree> tree, SlangPr
 
 rust::String dump_tree_json(std::shared_ptr<slang::syntax::SyntaxTree> tree);
 
-std::size_t tree_count(const SlangSession& session);
 rust::Vec<ParsedTree> all_trees(const SlangSession& session);
 rust::Vec<ParsedTree> reachable_trees(const SlangSession& session, const rust::Vec<rust::String>& tops);
 rust::Vec<rust::String> resolved_include_paths_for(const rust::Vec<ParsedTree>& trees);

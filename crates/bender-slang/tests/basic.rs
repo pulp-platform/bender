@@ -18,7 +18,7 @@ fn parse_valid_file_succeeds() {
     let includes = vec![fixture_path("include")];
     let defines = vec![];
     assert!(session.parse_group(&files, &includes, &defines).is_ok());
-    assert_eq!(session.tree_count(), 1);
+    assert_eq!(session.all_trees().len(), 1);
 }
 
 #[test]
