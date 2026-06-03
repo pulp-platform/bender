@@ -257,12 +257,11 @@ impl ProgressHandler {
             GitProgress::CloningInto { name } if self.git_op == GitProgressOps::Submodule => {
                 // Logic to handle missing 'checked out' lines:
                 // If we are activating 'bar', but 'foo' was active, assume 'foo' is done.
-                if let Some(prev) = &state.active_sub {
-                    if prev != &name {
-                        if let Some(b) = state.sub_bars.get(prev) {
-                            b.finish_and_clear();
-                        }
-                    }
+                if let Some(prev) = &state.active_sub
+                    && prev != &name
+                    && let Some(b) = state.sub_bars.get(prev)
+                {
+                    b.finish_and_clear();
                 }
                 // Set the new bar to active
                 if let Some(bar) = state.sub_bars.get(&name) {

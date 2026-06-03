@@ -51,60 +51,56 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
             path: override_path,
             ..
         } = dep
+            && override_path.starts_with(sess.root.join(&args.working_dir))
+            && let DependencySource::Path(dep_path) =
+                sess.dependency_source(sess.dependency_with_name(name)?)
+            && dep_path == *override_path
         {
-            if override_path.starts_with(sess.root.join(&args.working_dir)) {
-                if let DependencySource::Path(dep_path) =
-                    sess.dependency_source(sess.dependency_with_name(name)?)
-                {
-                    if dep_path == *override_path {
-                        // check state, skip & warn if dirty
-                        if !SysCommand::new(&sess.config.git)
-                            .arg("status")
-                            .arg("--porcelain")
-                            .current_dir(&dep_path)
-                            .output()
-                            .into_diagnostic()?
-                            .stdout
-                            .is_empty()
-                            && !args.no_skip
-                        {
-                            Warnings::SkippingDirtyDep { pkg: name.clone() }.emit();
-                            continue;
-                        }
-
-                        // Get the git url and hash of the dependency
-                        let url = match String::from_utf8(
-                            SysCommand::new(&sess.config.git)
-                                .arg("remote")
-                                .arg("get-url")
-                                .arg("origin")
-                                .current_dir(&dep_path)
-                                .output()
-                                .into_diagnostic()?
-                                .stdout,
-                        ) {
-                            Ok(url) => url.trim_end_matches(&['\r', '\n'][..]).to_string(),
-                            Err(_) => bail!("Failed to get git url."),
-                        };
-                        let hash = match String::from_utf8(
-                            SysCommand::new(&sess.config.git)
-                                .arg("rev-parse")
-                                .arg("HEAD")
-                                .current_dir(&dep_path)
-                                .output()
-                                .into_diagnostic()?
-                                .stdout,
-                        ) {
-                            Ok(hash) => hash.trim_end_matches(&['\r', '\n'][..]).to_string(),
-                            Err(_) => bail!("Failed to get git hash."),
-                        };
-
-                        eprintln!("Snapshotting {} at {} from {}", name, hash, url);
-
-                        snapshot_list.push((name.clone(), url, hash));
-                    }
-                }
+            // check state, skip & warn if dirty
+            if !SysCommand::new(&sess.config.git)
+                .arg("status")
+                .arg("--porcelain")
+                .current_dir(&dep_path)
+                .output()
+                .into_diagnostic()?
+                .stdout
+                .is_empty()
+                && !args.no_skip
+            {
+                Warnings::SkippingDirtyDep { pkg: name.clone() }.emit();
+                continue;
             }
+
+            // Get the git url and hash of the dependency
+            let url = match String::from_utf8(
+                SysCommand::new(&sess.config.git)
+                    .arg("remote")
+                    .arg("get-url")
+                    .arg("origin")
+                    .current_dir(&dep_path)
+                    .output()
+                    .into_diagnostic()?
+                    .stdout,
+            ) {
+                Ok(url) => url.trim_end_matches(&['\r', '\n'][..]).to_string(),
+                Err(_) => bail!("Failed to get git url."),
+            };
+            let hash = match String::from_utf8(
+                SysCommand::new(&sess.config.git)
+                    .arg("rev-parse")
+                    .arg("HEAD")
+                    .current_dir(&dep_path)
+                    .output()
+                    .into_diagnostic()?
+                    .stdout,
+            ) {
+                Ok(hash) => hash.trim_end_matches(&['\r', '\n'][..]).to_string(),
+                Err(_) => bail!("Failed to get git hash."),
+            };
+
+            eprintln!("Snapshotting {} at {} from {}", name, hash, url);
+
+            snapshot_list.push((name.clone(), url, hash));
         }
     }
 

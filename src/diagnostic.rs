@@ -116,10 +116,10 @@ impl Warnings {
         let diag = Diagnostics::get();
 
         // Check whether the command is suppressed
-        if let Some(code) = self.code() {
-            if diag.all_suppressed || diag.suppressed.contains(&code.to_string()) {
-                return;
-            }
+        if let Some(code) = self.code()
+            && (diag.all_suppressed || diag.suppressed.contains(&code.to_string()))
+        {
+            return;
         }
 
         // Check whether the warning was already emitted

@@ -223,11 +223,11 @@ impl<'ctx> SourceGroup<'ctx> {
     ) -> IndexSet<String> {
         let mut result = packages.clone();
 
-        if let Some(x) = self.package {
-            if result.contains(x) {
-                result.extend(self.dependencies.iter().cloned());
-                result = &result - excludes;
-            }
+        if let Some(x) = self.package
+            && result.contains(x)
+        {
+            result.extend(self.dependencies.iter().cloned());
+            result = &result - excludes;
         }
 
         for file in &self.files {
@@ -425,10 +425,10 @@ pub struct FilteredSourceGroup<'ctx> {
 
 impl<'ctx> From<SourceGroup<'ctx>> for FilteredSourceGroup<'ctx> {
     fn from(group: SourceGroup<'ctx>) -> Self {
-        if group.override_files {
-            if let Some(pkg) = group.package {
-                Warnings::OverrideFilesIgnored(pkg.to_string()).emit();
-            }
+        if group.override_files
+            && let Some(pkg) = group.package
+        {
+            Warnings::OverrideFilesIgnored(pkg.to_string()).emit();
         }
         let include_dirs = group
             .include_dirs

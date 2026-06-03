@@ -1257,91 +1257,90 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         used_git_rev: &str,
     ) -> Result<()> {
         for dep in (dep_iter_mut).iter_mut() {
-            if let (_, config::Dependency::Path { path, .. }) = dep {
-                if !path.starts_with("/") {
-                    Warnings::PathDepInGitDep {
-                        pkg: dep.0.clone(),
-                        top_pkg: top_package_name.clone(),
-                    }
-                    .emit();
+            if let (_, config::Dependency::Path { path, .. }) = dep
+                && !path.starts_with("/")
+            {
+                Warnings::PathDepInGitDep {
+                    pkg: dep.0.clone(),
+                    top_pkg: top_package_name.clone(),
+                }
+                .emit();
 
-                    let sub_entries = db
-                        .clone()
-                        .list_files(
+                let sub_entries = db
+                    .clone()
+                    .list_files(
+                        used_git_rev,
+                        Some(
+                            reference_path
+                                .strip_prefix(dep_base_path)
+                                .unwrap()
+                                .join(&mut *path)
+                                .join("Bender.yml"),
+                        ),
+                    )
+                    .await?;
+                let sub_data = match sub_entries.into_iter().next() {
+                    None => Ok(None),
+                    Some(sub_entry) => db.clone().cat_file(sub_entry.hash).await.map(Some),
+                }?;
+
+                let sub_dep_path = reference_path.join(path);
+
+                let tmp_path = self.sess.root.join(".bender").join("tmp");
+
+                if let Some(ref full_sub_data) = sub_data {
+                    if !tmp_path.exists() {
+                        std::fs::create_dir_all(&tmp_path).into_diagnostic()?;
+                    }
+                    let mut sub_file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .truncate(true)
+                        .create(true)
+                        .open(tmp_path.join(format!("{}_manifest.yml", dep.0)))
+                        .into_diagnostic()?;
+                    writeln!(&mut sub_file, "{}", full_sub_data).into_diagnostic()?;
+                    sub_file.flush().into_diagnostic()?;
+                }
+
+                *dep.1 = config::Dependency::Path {
+                    target: TargetSpec::Wildcard,
+                    path: sub_dep_path.clone(),
+                    pass_targets: Vec::new(),
+                };
+
+                // Further dependencies
+                let _manifest: Result<_> = match sub_data {
+                    Some(data) => {
+                        let partial: config::PartialManifest = serde_yaml_ng::from_str(&data)
+                            .into_diagnostic()
+                            .wrap_err_with(|| {
+                                format!(
+                                    "Syntax error in manifest of dependency `{}` at \
+                                                 revision `{}`.",
+                                    dep.0, used_git_rev
+                                )
+                            })?;
+                        let mut full = partial.validate_ignore_sources().wrap_err_with(|| {
+                            format!(
+                                "Error in manifest of dependency `{}` at revision \
+                                             `{}`.",
+                                dep.0, used_git_rev
+                            )
+                        })?;
+                        self.sub_dependency_fixing(
+                            &mut full.dependencies,
+                            full.package.name.clone(),
+                            &sub_dep_path,
+                            dep_base_path,
+                            db.clone(),
                             used_git_rev,
-                            Some(
-                                reference_path
-                                    .strip_prefix(dep_base_path)
-                                    .unwrap()
-                                    .join(&mut *path)
-                                    .join("Bender.yml"),
-                            ),
                         )
                         .await?;
-                    let sub_data = match sub_entries.into_iter().next() {
-                        None => Ok(None),
-                        Some(sub_entry) => db.clone().cat_file(sub_entry.hash).await.map(Some),
-                    }?;
 
-                    let sub_dep_path = reference_path.join(path);
-
-                    let tmp_path = self.sess.root.join(".bender").join("tmp");
-
-                    if let Some(ref full_sub_data) = sub_data {
-                        if !tmp_path.exists() {
-                            std::fs::create_dir_all(&tmp_path).into_diagnostic()?;
-                        }
-                        let mut sub_file = std::fs::OpenOptions::new()
-                            .write(true)
-                            .truncate(true)
-                            .create(true)
-                            .open(tmp_path.join(format!("{}_manifest.yml", dep.0)))
-                            .into_diagnostic()?;
-                        writeln!(&mut sub_file, "{}", full_sub_data).into_diagnostic()?;
-                        sub_file.flush().into_diagnostic()?;
+                        Ok(())
                     }
-
-                    *dep.1 = config::Dependency::Path {
-                        target: TargetSpec::Wildcard,
-                        path: sub_dep_path.clone(),
-                        pass_targets: Vec::new(),
-                    };
-
-                    // Further dependencies
-                    let _manifest: Result<_> = match sub_data {
-                        Some(data) => {
-                            let partial: config::PartialManifest = serde_yaml_ng::from_str(&data)
-                                .into_diagnostic()
-                                .wrap_err_with(|| {
-                                    format!(
-                                        "Syntax error in manifest of dependency `{}` at \
-                                                 revision `{}`.",
-                                        dep.0, used_git_rev
-                                    )
-                                })?;
-                            let mut full =
-                                partial.validate_ignore_sources().wrap_err_with(|| {
-                                    format!(
-                                        "Error in manifest of dependency `{}` at revision \
-                                             `{}`.",
-                                        dep.0, used_git_rev
-                                    )
-                                })?;
-                            self.sub_dependency_fixing(
-                                &mut full.dependencies,
-                                full.package.name.clone(),
-                                &sub_dep_path,
-                                dep_base_path,
-                                db.clone(),
-                                used_git_rev,
-                            )
-                            .await?;
-
-                            Ok(())
-                        }
-                        None => Ok(()),
-                    };
-                }
+                    None => Ok(()),
+                };
             }
         }
         Ok(())
@@ -1973,10 +1972,10 @@ impl<'ctx> DependencyTable<'ctx> {
             log::debug!("reusing {:?}", id);
             id
         } else {
-            if let DependencySource::Path(path) = &entry.source {
-                if !path.exists() {
-                    Warnings::DepSourcePathMissing(entry.name.clone(), path.clone()).emit();
-                }
+            if let DependencySource::Path(path) = &entry.source
+                && !path.exists()
+            {
+                Warnings::DepSourcePathMissing(entry.name.clone(), path.clone()).emit();
             }
             let id = DependencyRef(self.list.len());
             log::debug!("adding {:?} as {:?}", entry, id);
