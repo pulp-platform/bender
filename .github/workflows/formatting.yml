@@ -32,4 +32,3 @@ jobs:
         with:
           source: "."
           extensions: "h,hpp,c,cc,cpp,cxx"
-          exclude: "./crates/bender-slang/vendor"
