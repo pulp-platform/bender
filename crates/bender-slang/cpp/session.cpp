@@ -10,7 +10,6 @@
 using namespace slang;
 using namespace slang::syntax;
 
-using std::shared_ptr;
 using std::string;
 using std::string_view;
 
