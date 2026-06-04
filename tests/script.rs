@@ -220,15 +220,17 @@ mod tests {
         );
     }
 
-    /// `--drop-unparseable` drops files slang couldn't parse, even when `--top` keeps the rest.
+    /// `--encrypted drop` removes encrypted files from the output even when `--top` keeps
+    /// the rest of the reachable design.
     #[test]
-    fn script_drop_unparseable_excludes_encrypted_file() {
+    fn script_encrypted_drop_excludes_encrypted_file() {
         let out = run_script(&[
             "--target",
             "encrypted",
             "--top",
             "encrypted_top",
-            "--drop-unparseable",
+            "--encrypted",
+            "drop",
             "flist-plus",
         ]);
         let files = source_basenames(&out);
@@ -236,7 +238,24 @@ mod tests {
         assert!(files.contains("encrypted_user.sv"));
         assert!(
             !files.contains("encrypted_ip.sv"),
-            "encrypted IP should be dropped by --drop-unparseable: {files:?}"
+            "encrypted IP should be dropped by --encrypted drop: {files:?}"
+        );
+    }
+
+    /// `--encrypted error` makes the run abort when any encrypted file is encountered — useful
+    /// as a CI lint for codebases that should be encryption-free.
+    #[test]
+    fn script_encrypted_error_aborts() {
+        let stderr = run_script_failing(&[
+            "--target",
+            "encrypted",
+            "--encrypted",
+            "error",
+            "flist-plus",
+        ]);
+        assert!(
+            stderr.contains("encrypted file(s)") && stderr.contains("--encrypted error"),
+            "expected encrypted-lint abort message, got stderr:\n{stderr}"
         );
     }
 
@@ -259,7 +278,7 @@ mod tests {
     }
 
     /// A file with a real syntax error (no `pragma protect` envelope) should abort the run by
-    /// default — that's the discrimination from encrypted IP, which is auto-tolerated.
+    /// default — `--broken` defaults to `error`, while encrypted IP is auto-tolerated.
     #[test]
     fn script_broken_file_fails_by_default() {
         let stderr = run_script_failing(&["--target", "broken", "--top", "broken", "flist-plus"]);
@@ -268,27 +287,72 @@ mod tests {
             "expected real-bug error message, got stderr:\n{stderr}"
         );
         assert!(
-            stderr.contains("--allow-broken"),
-            "error should mention --allow-broken escape hatch:\n{stderr}"
+            stderr.contains("--broken keep") || stderr.contains("--broken drop"),
+            "error should point at the --broken keep/drop escape hatches:\n{stderr}"
         );
     }
 
-    /// `--allow-broken` lets users opt into tolerance for non-encrypted parse errors. The
-    /// broken file is kept in the output with a warning instead of aborting.
+    /// `--broken keep` lets users opt into tolerance for non-encrypted parse errors. The broken
+    /// file is kept in the output with a warning instead of aborting.
     #[test]
-    fn script_broken_file_allow_broken_keeps_it() {
+    fn script_broken_keep_includes_broken_file() {
         let out = run_script(&[
             "--target",
             "broken",
             "--top",
             "broken",
-            "--allow-broken",
+            "--broken",
+            "keep",
             "flist-plus",
         ]);
         let files = source_basenames(&out);
         assert!(
             files.contains("broken.sv"),
-            "broken.sv should survive with --allow-broken: {files:?}"
+            "broken.sv should survive with --broken keep: {files:?}"
+        );
+    }
+
+    /// `--broken drop` tolerates broken files but excludes them from the script — useful when
+    /// the downstream tool would choke on the broken file but you still want bender to finish.
+    #[test]
+    fn script_broken_drop_excludes_broken_file() {
+        let out = run_script(&[
+            "--target",
+            "broken",
+            "--top",
+            "broken",
+            "--broken",
+            "drop",
+            "flist-plus",
+        ]);
+        let files = source_basenames(&out);
+        assert!(
+            !files.contains("broken.sv"),
+            "broken.sv should be dropped with --broken drop: {files:?}"
+        );
+    }
+
+    /// Explicit `--broken drop` triggers slang even without `--top`, so users can drop broken
+    /// files from a plain `bender script` output without setting up reachability filtering.
+    #[test]
+    fn script_broken_drop_without_top_excludes_broken_file() {
+        let out = run_script(&["--target", "broken", "--broken", "drop", "flist-plus"]);
+        let files = source_basenames(&out);
+        assert!(
+            !files.contains("broken.sv"),
+            "broken.sv should be dropped without --top when --broken drop is set: {files:?}"
+        );
+    }
+
+    /// `--broken keep` is a no-op without `--top` (keeping is what happens anyway when slang
+    /// doesn't run). Verifies broken.sv passes through with no warnings emitted.
+    #[test]
+    fn script_broken_keep_without_top_no_slang() {
+        let out = run_script(&["--target", "broken", "--broken", "keep", "flist-plus"]);
+        let files = source_basenames(&out);
+        assert!(
+            files.contains("broken.sv"),
+            "broken.sv should pass through with --broken keep: {files:?}"
         );
     }
 
