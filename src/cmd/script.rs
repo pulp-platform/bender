@@ -6,10 +6,10 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "slang"))]
 use std::fs::canonicalize;
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "slang"))]
 use dunce::canonicalize;
 
 use clap::{ArgAction, Args, Subcommand, ValueEnum};
@@ -89,7 +89,7 @@ pub struct ScriptArgs {
 
     /// Trim unreachable Verilog files via the given top-level module(s)
     #[cfg(feature = "slang")]
-    #[arg(long, global = true, help_heading = "General Script Options")]
+    #[arg(long, global = true, help_heading = "Slang Options")]
     pub top: Vec<String>,
 
     /// Drop unused include directories from the generated script
@@ -99,9 +99,21 @@ pub struct ScriptArgs {
         value_enum,
         default_value_t,
         global = true,
-        help_heading = "General Script Options"
+        help_heading = "Slang Options"
     )]
     pub trim_incdirs: TrimIncdirs,
+
+    /// What to do with files slang reports parse errors on with no `pragma protect` envelope
+    /// [implicit default: error when slang runs; no effect otherwise]
+    #[cfg(feature = "slang")]
+    #[arg(long, value_enum, global = true, help_heading = "Slang Options")]
+    pub broken: Option<ParsePolicy>,
+
+    /// What to do with IEEE-1735 encrypted files slang cannot fully parse
+    /// [implicit default: keep when slang runs; no effect otherwise]
+    #[cfg(feature = "slang")]
+    #[arg(long, value_enum, global = true, help_heading = "Slang Options")]
+    pub encrypted: Option<ParsePolicy>,
 
     /// Format of the generated script
     #[command(subcommand)]
@@ -131,6 +143,19 @@ pub enum TrimIncdirs {
     Always,
     /// Keep every declared directory
     Never,
+}
+
+/// What to do with a class of files slang reports parse errors on.
+#[cfg(feature = "slang")]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ParsePolicy {
+    /// Abort the run if any file of this class is found
+    Error,
+    /// Tolerate these files and include them in the script
+    Keep,
+    /// Tolerate these files but drop them from the script
+    Drop,
 }
 
 /// Common arguments for Vivado scripts
@@ -352,20 +377,42 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
 
     // Slang-based filtering: trim unreachable Verilog files (when `--top` is given) and/or
-    // unused include directories (per `--trim-incdirs`).
+    // unused include directories (per `--trim-incdirs`), with per-class policies for files
+    // slang couldn't fully parse (`--broken`, `--encrypted`).
     #[cfg(feature = "slang")]
-    let srcs = {
+    let (srcs, unparseable_paths) = {
         let trim_incdirs = match args.trim_incdirs {
             TrimIncdirs::Always => true,
             TrimIncdirs::Never => false,
             TrimIncdirs::Auto => !args.top.is_empty(),
         };
-        if args.top.is_empty() && !trim_incdirs {
-            srcs
+        // Skip the slang pass entirely when no flag requires it. `Keep` (the implicit default
+        // for encrypted, and what an explicit `--broken keep` / `--encrypted keep` says) is a
+        // no-op without slang — we'd keep the file anyway since no filter touched it. Only an
+        // explicit `error` or `drop` value needs slang to actually classify files.
+        let broken_policy = args.broken.unwrap_or(ParsePolicy::Error);
+        let encrypted_policy = args.encrypted.unwrap_or(ParsePolicy::Keep);
+        let policies_need_slang = matches!(
+            args.broken,
+            Some(ParsePolicy::Error) | Some(ParsePolicy::Drop)
+        ) || matches!(
+            args.encrypted,
+            Some(ParsePolicy::Error) | Some(ParsePolicy::Drop)
+        );
+        if args.top.is_empty() && !trim_incdirs && !policies_need_slang {
+            (srcs, std::collections::HashSet::<PathBuf>::new())
         } else {
-            apply_slang_filters(srcs, &args.top, trim_incdirs)?
+            apply_slang_filters(
+                srcs,
+                &args.top,
+                trim_incdirs,
+                broken_policy,
+                encrypted_policy,
+            )?
         }
     };
+    #[cfg(not(feature = "slang"))]
+    let unparseable_paths = std::collections::HashSet::<PathBuf>::new();
 
     let mut tera_context = Context::new();
     let mut only_args = OnlyArgs {
@@ -448,7 +495,15 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         ScriptFormat::TemplateJson => JSON,
     };
 
-    emit_template(sess, tera_context, template_content, args, only_args, srcs)
+    emit_template(
+        sess,
+        tera_context,
+        template_content,
+        args,
+        only_args,
+        srcs,
+        &unparseable_paths,
+    )
 }
 
 /// Subdivide the source files in a group.
@@ -487,16 +542,30 @@ where
 /// dropped (VHDL and untyped files are always retained, and any group that ends up with no
 /// files is dropped). When `trim_incdirs` is true, include directories slang did not resolve
 /// an `include through are dropped from `include_dirs` and `export_incdirs`.
+///
+/// Files slang couldn't fully parse are classified into:
+///   * encrypted — slang emitted a `ProtectedEnvelope` diag (IEEE-1735 protect block)
+///   * broken    — parse errors with no such diag (looks like a real syntax bug)
+/// Each class is handled per its `ParsePolicy`: `Error` aborts the run, `Keep` includes the
+/// file in the script, `Drop` tolerates but excludes it. Sensible defaults are `broken=Error`
+/// and `encrypted=Keep`.
+///
+/// Non-Verilog files (VHDL, untyped) intentionally bypass every filter here — slang doesn't
+/// process them, so we have no reachability information and conservatively retain them all.
+///
+/// Returns the filtered groups plus the set of unparseable file paths that survived filtering,
+/// so the caller can annotate them in `source_annotations` output.
 #[cfg(feature = "slang")]
 fn apply_slang_filters<'a>(
     srcs: Vec<SourceGroup<'a>>,
     top: &[String],
     trim_incdirs: bool,
-) -> Result<Vec<SourceGroup<'a>>> {
-    use std::collections::{HashMap, HashSet};
+    broken_policy: ParsePolicy,
+    encrypted_policy: ParsePolicy,
+) -> Result<(Vec<SourceGroup<'a>>, std::collections::HashSet<PathBuf>)> {
+    use std::collections::HashSet;
 
     let mut session = SlangSession::new();
-    let mut index_to_path: HashMap<usize, &Path> = HashMap::new();
 
     for src_group in &srcs {
         // Collect include dirs
@@ -536,28 +605,69 @@ fn apply_slang_filters<'a>(
                 .iter()
                 .map(|p| p.to_string_lossy().into_owned())
                 .collect();
-            let indices = session
+            session
                 .parse_group(&file_paths, &include_dirs, &defines)
                 .into_diagnostic()?;
-            for (idx, path) in indices.into_iter().zip(&paths) {
-                index_to_path.insert(idx, path);
-            }
         }
     }
+
+    // Discriminate encrypted IP (legal SystemVerilog, just hard to parse) from genuinely broken
+    // files (real syntax bugs). Encrypted ⇔ slang emitted a `ProtectedEnvelope` diag on that
+    // tree. Each tree carries its own source path, so we identify files by path directly.
+    let all_trees = session.all_trees();
+    let mut encrypted_paths: HashSet<PathBuf> = HashSet::new();
+    let mut broken_paths: HashSet<PathBuf> = HashSet::new();
+    for parsed in &all_trees {
+        if parsed.parsed_ok {
+            continue;
+        }
+        if parsed.encrypted {
+            encrypted_paths.insert(PathBuf::from(&parsed.path));
+        } else {
+            broken_paths.insert(PathBuf::from(&parsed.path));
+        }
+    }
+
+    let list = |set: &HashSet<PathBuf>| -> String {
+        let mut v: Vec<String> = set.iter().map(|p| p.display().to_string()).collect();
+        v.sort();
+        v.join("\n  ")
+    };
+
+    // Policy enforcement: abort up front for any `Error` class.
+    if broken_policy == ParsePolicy::Error && !broken_paths.is_empty() {
+        return Err(miette::miette!(
+            "slang reported parse errors in {} file(s) with no `pragma protect` envelope (looks like real syntax bugs):\n  {}\n\
+             see diagnostics above; pass --broken keep or --broken drop to continue",
+            broken_paths.len(),
+            list(&broken_paths)
+        ));
+    }
+    if encrypted_policy == ParsePolicy::Error && !encrypted_paths.is_empty() {
+        return Err(miette::miette!(
+            "slang reported parse errors in {} encrypted file(s) and --encrypted error was requested:\n  {}",
+            encrypted_paths.len(),
+            list(&encrypted_paths)
+        ));
+    }
+
+    // After Error-class abort: any remaining unparseable file is either Kept or Dropped.
+    let broken_kept = broken_policy == ParsePolicy::Keep;
+    let encrypted_kept = encrypted_policy == ParsePolicy::Keep;
 
     // Determine which trees feed into the include / file-retention questions. With `--top` we
     // only look at trees reachable from those top modules; without `--top` we use every tree
     // (relevant when the caller asked for include-dir trimming but no file filtering).
     let filter_files = !top.is_empty();
-    let kept_indices: Vec<usize> = if filter_files {
-        session.reachable_indices(top).into_diagnostic()?
+    let kept_trees = if filter_files {
+        session.reachable_trees(top).into_diagnostic()?
     } else {
-        (0..session.tree_count()).collect()
+        all_trees
     };
     let kept_paths: HashSet<&Path> = if filter_files {
-        kept_indices
+        kept_trees
             .iter()
-            .filter_map(|i| index_to_path.get(i).copied())
+            .map(|t| Path::new(t.path.as_str()))
             .collect()
     } else {
         HashSet::new()
@@ -568,8 +678,7 @@ fn apply_slang_filters<'a>(
     // cause spurious mismatches.
     let resolved_includes: Vec<PathBuf> = if trim_incdirs {
         session
-            .resolved_include_paths(&kept_indices)
-            .into_diagnostic()?
+            .resolved_include_paths(&kept_trees)
             .into_iter()
             .map(PathBuf::from)
             .collect()
@@ -581,12 +690,28 @@ fn apply_slang_filters<'a>(
         resolved_includes.iter().any(|f| f.starts_with(&canon))
     };
 
-    Ok(srcs
+    // Single retention rule per Verilog file:
+    //   * broken    files keep iff `broken_policy == Keep`    (regardless of reachability)
+    //   * encrypted files keep iff `encrypted_policy == Keep` (regardless of reachability)
+    //   * everything else keep iff no --top filter is active, or it's reachable from one
+    let retain_verilog = |p: &Path| -> bool {
+        if broken_paths.contains(p) {
+            broken_kept
+        } else if encrypted_paths.contains(p) {
+            encrypted_kept
+        } else {
+            !filter_files || kept_paths.contains(p)
+        }
+    };
+    let drop_anything = broken_policy == ParsePolicy::Drop || encrypted_policy == ParsePolicy::Drop;
+    let run_file_filter = filter_files || drop_anything;
+
+    let filtered: Vec<SourceGroup<'a>> = srcs
         .into_iter()
         .map(|mut group| {
-            if filter_files {
+            if run_file_filter {
                 group.files.retain(|f| match f {
-                    SourceFile::File(p, Some(SourceType::Verilog)) => kept_paths.contains(p),
+                    SourceFile::File(p, Some(SourceType::Verilog)) => retain_verilog(p),
                     _ => true,
                 });
             }
@@ -600,7 +725,40 @@ fn apply_slang_filters<'a>(
         })
         // Remove empty groups that may have resulted from filtering out all Verilog files.
         .filter(|group| !group.files.is_empty())
-        .collect())
+        .collect();
+
+    // Summary lines: report encrypted and broken classes separately so users can tell apart
+    // automatic vs explicit tolerance and the inclusion verdict at a glance.
+    let kept_unparseable: HashSet<PathBuf> = encrypted_paths
+        .iter()
+        .filter(|_| encrypted_kept)
+        .chain(broken_paths.iter().filter(|_| broken_kept))
+        .cloned()
+        .collect();
+    let class_summary = |label: &str, set: &HashSet<PathBuf>, policy: ParsePolicy| {
+        if set.is_empty() || policy == ParsePolicy::Error {
+            // Error was handled above; Keep/Drop are the only branches that reach here.
+            return;
+        }
+        let verb = match policy {
+            ParsePolicy::Keep => "kept in script output",
+            ParsePolicy::Drop => "dropped",
+            ParsePolicy::Error => unreachable!(),
+        };
+        let mut names: Vec<String> = set.iter().map(|p| p.display().to_string()).collect();
+        names.sort();
+        eprintln!(
+            "warning: {} {} file(s) ({}): {}",
+            names.len(),
+            label,
+            verb,
+            names.join(", "),
+        );
+    };
+    class_summary("encrypted", &encrypted_paths, encrypted_policy);
+    class_summary("broken", &broken_paths, broken_policy);
+
+    Ok((filtered, kept_unparseable))
 }
 
 static HEADER_AUTOGEN: &str = "This script was generated automatically by bender.";
@@ -623,7 +781,17 @@ fn emit_template(
     args: &ScriptArgs,
     only: OnlyArgs,
     srcs: Vec<SourceGroup>,
+    unparseable_paths: &std::collections::HashSet<PathBuf>,
 ) -> Result<()> {
+    // Helper for annotating FileEntry.comment on files that survived filtering despite slang
+    // failing to parse them; visible to users with `--source-annotations`.
+    let unparseable_comment = |p: &Path| -> Option<String> {
+        if unparseable_paths.contains(p) {
+            Some("UNPARSEABLE: slang reported parse errors".to_string())
+        } else {
+            None
+        }
+    };
     tera_context.insert("HEADER_AUTOGEN", HEADER_AUTOGEN);
     tera_context.insert("root", sess.root);
     // tera_context.insert("srcs", &srcs);
@@ -714,7 +882,7 @@ fn emit_template(
                 },
                 None => FileEntry {
                     file: file.0.to_path_buf(),
-                    comment: file.1,
+                    comment: file.1.or_else(|| unparseable_comment(file.0)),
                 },
             }
         })
@@ -781,7 +949,7 @@ fn emit_template(
                                     },
                                     None => FileEntry {
                                         file: p.to_path_buf(),
-                                        comment: None,
+                                        comment: unparseable_comment(p),
                                     },
                                 }
                             }

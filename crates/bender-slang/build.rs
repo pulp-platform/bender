@@ -1,38 +1,6 @@
 // Copyright (c) 2025 ETH Zurich
 // Tim Fischer <fischeti@iis.ee.ethz.ch>
 
-// Generates cpp/compile_flags.txt so that clangd gets the correct include paths
-// for the C++ bridge files. The file is written to the cpp/ directory and should
-// be gitignored. It is picked up automatically by clangd for all files in that directory.
-fn generate_compile_flags(
-    manifest_dir: &std::path::Path,
-    dst: &std::path::Path,
-    includes: &[&std::path::Path],
-    defines: &[(&str, &str)],
-) {
-    use std::ffi::OsStr;
-
-    let Some(target_root) = dst
-        .ancestors()
-        .find(|p| p.file_name() == Some(OsStr::new("target")))
-    else {
-        return;
-    };
-
-    let flags: Vec<String> = ["-x", "c++", "-std=c++20", "-fno-cxx-modules"]
-        .map(str::to_string)
-        .into_iter()
-        .chain(includes.iter().map(|p| format!("-I{}", p.display())))
-        .chain([format!("-I{}", target_root.join("cxxbridge").display())])
-        .chain(defines.iter().map(|(k, v)| format!("-D{}={}", k, v)))
-        .collect();
-
-    let _ = std::fs::write(
-        manifest_dir.join("cpp/compile_flags.txt"),
-        flags.join("\n") + "\n",
-    );
-}
-
 fn main() {
     let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
 
@@ -170,4 +138,40 @@ fn main() {
     println!("cargo:rerun-if-changed=cpp/rewriter.cpp");
     println!("cargo:rerun-if-changed=cpp/print.cpp");
     println!("cargo:rerun-if-changed=cpp/analysis.cpp");
+}
+
+// Generates cpp/compile_flags.txt so that clangd gets the correct include paths
+// for the C++ bridge files. The file is written to the cpp/ directory and should
+// be gitignored. It is picked up automatically by clangd for all files in that directory.
+fn generate_compile_flags(
+    manifest_dir: &std::path::Path,
+    dst: &std::path::Path,
+    includes: &[&std::path::Path],
+    defines: &[(&str, &str)],
+) {
+    use std::ffi::OsStr;
+
+    let Some(target_root) = dst
+        .ancestors()
+        .find(|p| p.file_name() == Some(OsStr::new("target")))
+    else {
+        return;
+    };
+
+    let bridge_crate_include = manifest_dir.parent().unwrap_or(manifest_dir);
+    let flags: Vec<String> = ["-x", "c++", "-std=c++20", "-fno-cxx-modules"]
+        .map(str::to_string)
+        .into_iter()
+        .chain(includes.iter().map(|p| format!("-I{}", p.display())))
+        .chain([
+            format!("-I{}", target_root.join("cxxbridge").display()),
+            format!("-I{}", bridge_crate_include.display()),
+        ])
+        .chain(defines.iter().map(|(k, v)| format!("-D{}={}", k, v)))
+        .collect();
+
+    let _ = std::fs::write(
+        manifest_dir.join("cpp/compile_flags.txt"),
+        flags.join("\n") + "\n",
+    );
 }

@@ -18,22 +18,32 @@ fn parse_valid_file_succeeds() {
     let includes = vec![fixture_path("include")];
     let defines = vec![];
     assert!(session.parse_group(&files, &includes, &defines).is_ok());
-    assert_eq!(session.tree_count(), 1);
+    assert_eq!(session.all_trees().len(), 1);
 }
 
 #[test]
-fn parse_invalid_file_returns_parse_error() {
+fn parse_invalid_file_reported_via_parsed_ok() {
+    // The contract: parse_group is lenient — system errors still throw, but per-file parse
+    // errors are surfaced via ParsedTree::parsed_ok. Callers (bender script, bender pickle)
+    // layer their own policy (allow / refuse / discriminate) on top.
     let mut session = bender_slang::SlangSession::new();
     let files = vec![fixture_path("src/broken.sv")];
     let includes = vec![];
     let defines = vec![];
-    let result = session.parse_group(&files, &includes, &defines);
+    session
+        .parse_group(&files, &includes, &defines)
+        .expect("parse_group is lenient and should return Ok even on parse errors");
 
-    match result {
-        Err(bender_slang::SlangError::ParseGroup { .. }) => {}
-        Err(other) => panic!("expected SlangError::ParseGroup, got {other}"),
-        Ok(_) => panic!("expected parse to fail"),
-    }
+    let trees = session.all_trees();
+    assert_eq!(trees.len(), 1);
+    assert!(
+        !trees[0].parsed_ok,
+        "broken.sv should be reported as a failed parse"
+    );
+    assert!(
+        !trees[0].encrypted,
+        "broken.sv has no pragma protect envelope"
+    );
 }
 
 #[test]
@@ -46,13 +56,13 @@ fn rewriter_build_from_trees_is_repeatable() {
         .parse_group(&files, &includes, &defines)
         .expect("parse should succeed");
 
-    let trees = session.all_trees().expect("tree collection should succeed");
+    let trees = session.all_trees();
     let mut rewriter_once = bender_slang::SyntaxTreeRewriter::new();
     rewriter_once.set_prefix("p_");
     rewriter_once.set_suffix("_s");
     let first_pass_trees: Vec<_> = trees
         .iter()
-        .map(|t| rewriter_once.rewrite_declarations(t))
+        .map(|t| rewriter_once.rewrite_declarations(&t.tree))
         .collect();
     let renamed_once = rewriter_once.rewrite_references(
         first_pass_trees
@@ -76,7 +86,7 @@ fn rewriter_build_from_trees_is_repeatable() {
     rewriter_twice.set_suffix("_s");
     let first_pass_trees: Vec<_> = trees
         .iter()
-        .map(|t| rewriter_twice.rewrite_declarations(t))
+        .map(|t| rewriter_twice.rewrite_declarations(&t.tree))
         .collect();
     let renamed_twice = rewriter_twice.rewrite_references(
         first_pass_trees

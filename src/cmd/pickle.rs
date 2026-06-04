@@ -220,8 +220,27 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
             .into_diagnostic()?;
     }
 
+    // Pickle rewrites and reprints each tree, so a partial parse silently emits broken output
+    // (encrypted protect envelopes get mangled, etc.). Refuse rather than corrupt — the file
+    // filter in `bender script` is fine with partial trees, but pickle is not. Each tree carries
+    // its own source path, so we can name the offenders directly.
+    let all_trees = session.all_trees();
+    let failed: Vec<&str> = all_trees
+        .iter()
+        .filter(|t| !t.parsed_ok)
+        .map(|t| t.path.as_str())
+        .collect();
+    if !failed.is_empty() {
+        return Err(miette::miette!(
+            "pickle cannot rewrite {} file(s) with slang parse errors (output would be corrupt): {}\n\
+             see diagnostics above; use `bender script --top ...` if you only need a file list",
+            failed.len(),
+            failed.join(", ")
+        ));
+    }
+
     let trees = if args.top.is_empty() {
-        session.all_trees().into_diagnostic()?
+        all_trees
     } else {
         session.reachable_trees(&args.top).into_diagnostic()?
     };
@@ -234,7 +253,7 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
     // Pass 1: build rename map across all trees.
     let trees: Vec<_> = trees
         .iter()
-        .map(|tree| rewriter.rewrite_declarations(tree))
+        .map(|parsed| rewriter.rewrite_declarations(&parsed.tree))
         .collect();
 
     // Pass 2: rewrite declarations and references using the complete map.
