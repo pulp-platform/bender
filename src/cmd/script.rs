@@ -89,7 +89,7 @@ pub struct ScriptArgs {
 
     /// Trim unreachable Verilog files via the given top-level module(s)
     #[cfg(feature = "slang")]
-    #[arg(long, global = true, help_heading = "General Script Options")]
+    #[arg(long, global = true, help_heading = "Slang Options")]
     pub top: Vec<String>,
 
     /// Drop unused include directories from the generated script
@@ -99,30 +99,20 @@ pub struct ScriptArgs {
         value_enum,
         default_value_t,
         global = true,
-        help_heading = "General Script Options"
+        help_heading = "Slang Options"
     )]
     pub trim_incdirs: TrimIncdirs,
 
     /// What to do with files slang reports parse errors on with no `pragma protect` envelope
     /// [implicit default: error when slang runs; no effect otherwise]
     #[cfg(feature = "slang")]
-    #[arg(
-        long,
-        value_enum,
-        global = true,
-        help_heading = "General Script Options"
-    )]
+    #[arg(long, value_enum, global = true, help_heading = "Slang Options")]
     pub broken: Option<ParsePolicy>,
 
     /// What to do with IEEE-1735 encrypted files slang cannot fully parse
     /// [implicit default: keep when slang runs; no effect otherwise]
     #[cfg(feature = "slang")]
-    #[arg(
-        long,
-        value_enum,
-        global = true,
-        help_heading = "General Script Options"
-    )]
+    #[arg(long, value_enum, global = true, help_heading = "Slang Options")]
     pub encrypted: Option<ParsePolicy>,
 
     /// Format of the generated script
