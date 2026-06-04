@@ -6,10 +6,10 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "slang"))]
 use std::fs::canonicalize;
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "slang"))]
 use dunce::canonicalize;
 
 use clap::{ArgAction, Args, Subcommand, ValueEnum};
