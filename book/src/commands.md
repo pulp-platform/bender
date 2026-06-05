@@ -3,6 +3,13 @@
 `bender` is the entry point to the dependency management system. Bender always operates within a package; starting at the current working directory, search upwards the file hierarchy until a [`Bender.yml`](./manifest.md) is found, which marks the package.
 
 
+## `init` --- Initialize a new package manifest
+
+The `bender init` command creates a [`Bender.yml`](./manifest.md) manifest in the current directory, pre-filled with the package name (derived from the directory name) and author details (read from your `git config`). It refuses to overwrite an existing [`Bender.yml`](./manifest.md).
+
+See [Initialization](./workflow/init.md) for a walkthrough.
+
+
 ## `path` --- Get the path of a checked-out package
 
 The `bender path <PKG>` prints the path of the checked-out version of package `PKG`. One or more package names may be passed.
@@ -74,6 +81,17 @@ Supported formats:
 
 Furthermore, similar flags to the `sources` command exist.
 
+### Slang-based filtering (requires the `slang` feature)
+
+When Bender is built with the `slang` feature (part of the default feature set), `script` can use the [Slang](https://github.com/MikePopoloski/slang) parser to trim the emitted file list and to control how it reacts to sources Slang cannot fully parse. These options work with every format:
+
+- `--top <MODULE>`: Restrict the output to Verilog files reachable from the given top-level module(s). May be passed multiple times. VHDL and untyped files are always retained.
+- `--trim-incdirs <auto|always|never>`: Drop include directories Slang did not resolve an `include` through. `auto` (the default) trims only when `--top` is set, `always` trims unconditionally, and `never` keeps every declared directory.
+- `--broken <error|keep|drop>`: How to treat files Slang reports parse errors on that have no `pragma protect` envelope (i.e. likely genuine syntax errors). Defaults to `error`.
+- `--encrypted <error|keep|drop>`: How to treat IEEE-1735 encrypted files Slang cannot fully parse. Defaults to `keep`.
+
+For `--broken` and `--encrypted`, the policy `error` aborts the run, `keep` tolerates the file and includes it in the script, and `drop` tolerates it but excludes it from the output.
+
 
 ## `pickle` --- Parse and rewrite SystemVerilog sources with Slang
 
@@ -137,9 +155,24 @@ The `bender parents <PKG>` command lists all packages calling the `PKG` package,
 
 Pass `--targets` to additionally print the [targets](./targets.md) each parent passes down to `PKG` via `pass_targets`.
 
+## `audit` --- Check for dependency version conflicts and updates
+
+The `bender audit` command reports version conflicts across the dependency tree and which packages have newer compatible versions available. See [Auditing the Dependency Tree](./workflow/dependencies.md) for example output.
+
+Flags:
+- `--only-update`: Only list packages that can be updated.
+- `-f`/`--fetch`: Force a re-fetch of all Git remotes before auditing.
+- `--ignore-url-conflict`: Ignore remote-URL conflicts while auditing.
+
 ## `checkout` --- Checkout all dependencies referenced in the Lock file
 
 This command will ensure all dependencies are downloaded from remote repositories. This is usually automatically executed by other commands, such as `sources` and `script`.
+
+## `clean` --- Remove Bender's working files
+
+The `bender clean` command removes Bender's local working state: the `.bender` directory and, if a `checkout_dir` is configured, the dependencies checked out into it.
+
+Pass `--all` to additionally remove the [`Bender.lock`](./lockfile.md) file.
 
 ## `fusesoc` --- Create FuseSoC `.core` files
 
