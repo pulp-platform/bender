@@ -546,6 +546,7 @@ where
 /// Files slang couldn't fully parse are classified into:
 ///   * encrypted — slang emitted a `ProtectedEnvelope` diag (IEEE-1735 protect block)
 ///   * broken    — parse errors with no such diag (looks like a real syntax bug)
+///
 /// Each class is handled per its `ParsePolicy`: `Error` aborts the run, `Keep` includes the
 /// file in the script, `Drop` tolerates but excludes it. Sensible defaults are `broken=Error`
 /// and `encrypted=Keep`.

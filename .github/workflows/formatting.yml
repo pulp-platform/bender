@@ -28,7 +28,8 @@ jobs:
         with:
           submodules: recursive
       - name: Check C/C++ formatting
-        uses: DoozyX/clang-format-lint-action@v0.18
+        uses: DoozyX/clang-format-lint-action@v0.20
         with:
           source: "."
           extensions: "h,hpp,c,cc,cpp,cxx"
+          clangFormatVersion: "20"

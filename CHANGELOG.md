@@ -5,11 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+## 0.32.0 - 2026-06-05
+### Breaking Changes
+- Download url script now no longer installs locally by default, but instead places in cargo's default location for binaries, which is typically in the user's PATH. The old behavior can be achieved by using `--local`.
+
 ### Added
-- Add new `crates/bender-slang` crate that integrates the vendored Slang parser via a Rust/C++ bridge.
-- Add new `pickle` command (behind feature `slang`) to parse and re-emit SystemVerilog sources.
-- Add cross-process filesystem locks around git database and checkout operations so concurrent `bender` invocations against the same dependency serialize safely.
-- Add `db_dir` config field to share bare-repo and lock storage across projects without relocating per-project checkouts; older Bender versions silently ignore the field and fall back to their per-project default.
+- Add new `crates/bender-slang` crate that integrates the vendored Slang parser via a Rust/C++ bridge (https://github.com/pulp-platform/bender/pull/264).
+- Add new `pickle` command (behind feature `slang`) to parse and re-emit SystemVerilog sources (https://github.com/pulp-platform/bender/pull/264, https://github.com/pulp-platform/bender/pull/272).
+- Add target filtering for defines (https://github.com/pulp-platform/bender/pull/287).
+- feat: Add -v/--verbose flag and migrate to log crate (https://github.com/pulp-platform/bender/pull/296).
+- Add bender book to repository (https://github.com/pulp-platform/bender/pull/295).
+- Add cross-process filesystem locks around git database and checkout operations so concurrent `bender` invocations against the same dependency serialize safely (https://github.com/pulp-platform/bender/pull/307).
+- Add `db_dir` config field to share bare-repo and lock storage across projects without relocating per-project checkouts; older Bender versions silently ignore the field and fall back to their per-project default (https://github.com/pulp-platform/bender/pull/307).
+- Add `script` filtering by top module for systemverilog sources (https://github.com/pulp-platform/bender/pull/297).
+
+### Fixed
+- Realign `sources` output for consistency with legacy flows (https://github.com/pulp-platform/bender/pull/286).
+- audit: Fix false path conflict for equivalent relative paths (https://github.com/pulp-platform/bender/pull/291).
+- Fix packages with empty sources (https://github.com/pulp-platform/bender/pull/294).
+- fix(paths): Resolve env vars before applying prefix to dependency paths (https://github.com/pulp-platform/bender/pull/303).
+- Fix panic on lockfile choice' source not in any deps (https://github.com/pulp-platform/bender/pull/300).
+- Remove git/ssh prompts behind progress bars (https://github.com/pulp-platform/bender/pull/310).
+
+### Changed
+- Adjust release flow to use cargo-dist (https://github.com/pulp-platform/bender/pull/292).
+- Modernize and improve error handling (https://github.com/pulp-platform/bender/pull/279).
+- Use shared clone for checkouts, dissociate on `bender clone` (https://github.com/pulp-platform/bender/pull/308).
+- installer: replace `init` with version-aware router (https://github.com/pulp-platform/bender/pull/285).
+- feat: filter export_include_dirs of excluded packages by default (https://github.com/pulp-platform/bender/pull/299).
 
 ## 0.31.0 - 2026-03-03
 ### Fixed
