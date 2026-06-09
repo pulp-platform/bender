@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 ### Added
-- Add `git_submodules` config field and `--git-submodules <true|false>` flag (env `BENDER_GIT_SUBMODULES`) to control cloning of dependency submodules; defaults to `true`, the flag overrides the configured value in either direction (https://github.com/pulp-platform/bender/pull/PRNUM).
+- Add `git_submodules` config field and `--git-submodules <true|false>` flag (env `BENDER_GIT_SUBMODULES`) to control cloning of dependency submodules; defaults to `true`, the flag overrides the configured value in either direction (https://github.com/pulp-platform/bender/pull/314).
 
 ## 0.32.0 - 2026-06-05
 ### Breaking Changes
