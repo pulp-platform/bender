@@ -1630,6 +1630,8 @@ pub struct Config {
     pub git_throttle: Option<usize>,
     /// Enable git LFS support, requires git-lfs (default: true)
     pub git_lfs: bool,
+    /// Clone the git submodules of dependencies (default: true)
+    pub git_submodules: bool,
 }
 
 /// A partial configuration.
@@ -1649,6 +1651,8 @@ pub struct PartialConfig {
     pub git_throttle: Option<usize>,
     /// Enable git LFS support, requires git-lfs (default: true)
     pub git_lfs: Option<bool>,
+    /// Clone the git submodules of dependencies (default: true)
+    pub git_submodules: Option<bool>,
 }
 
 impl PartialConfig {
@@ -1698,6 +1702,11 @@ impl Merge for PartialConfig {
                 (Some(v1), Some(v2)) => Some(v1 | v2),
                 (None, None) => None,
             },
+            git_submodules: match (self.git_submodules, other.git_submodules) {
+                (Some(v), None) | (None, Some(v)) => Some(v),
+                (Some(v1), Some(v2)) => Some(v1 | v2),
+                (None, None) => None,
+            },
         }
     }
 }
@@ -1733,6 +1742,7 @@ impl Validate for PartialConfig {
             },
             git_throttle: self.git_throttle,
             git_lfs: self.git_lfs.unwrap_or(true),
+            git_submodules: self.git_submodules.unwrap_or(true),
         })
     }
 }
