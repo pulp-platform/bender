@@ -599,6 +599,16 @@ pub struct SessionIo<'sess, 'ctx: 'sess> {
     git_versions: Mutex<IndexMap<PathBuf, GitVersions<'ctx>>>,
 }
 
+/// What accessing a dependency's git database requires.
+enum DbAction {
+    /// The database exists and is up to date; only read access is needed.
+    Ready,
+    /// The database does not exist yet and must be initialized and fetched.
+    Init,
+    /// The database exists but must be fetched to pick up upstream updates.
+    Fetch,
+}
+
 impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     /// Create a new session wrapper.
     pub fn new(sess: &'sess Session<'ctx>) -> SessionIo<'sess, 'ctx> {
@@ -666,12 +676,19 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         }
     }
 
-    /// Access the git database for a dependency.
+    /// Access the git database for a dependency, creating or updating it as
+    /// needed.
     ///
-    /// Acquires the per-dependency filesystem lock and delegates to
-    /// [`git_database_locked`]. Callers that already hold the lock for this
-    /// dependency should call [`git_database_locked`] directly to avoid
-    /// deadlocking.
+    /// Locking is fine-grained. The common case -- the database already exists
+    /// and is current -- only takes a shared lock, so concurrent read-only
+    /// callers run in parallel instead of serializing. Only when an
+    /// initialization or fetch is actually required is the lock escalated to
+    /// exclusive, and the database state is re-checked under it in case another
+    /// process performed the work while we were briefly unlocked. The lock is
+    /// released before returning; the returned handle is used for read-only
+    /// access. Callers that themselves mutate (e.g. a checkout holding a
+    /// long-lived shared lock and fetching on a fallback path) manage their own
+    /// locking around this call.
     async fn git_database(
         &'io self,
         name: &str,
@@ -679,33 +696,123 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         force_fetch: Option<bool>,
         fetch_ref: Option<&str>,
     ) -> Result<Git<'ctx>> {
-        let _lock = FsLock::acquire_exclusive(self.sess.dep_lock_path(name, url)).await?;
-        self.git_database_locked(name, url, force_fetch, fetch_ref)
-            .await
-    }
-
-    /// Access the git database for a dependency, assuming the per-dependency
-    /// filesystem lock is already held by the caller.
-    ///
-    /// If the database does not exist, it is created. If the database has not
-    /// been updated recently, the remote is fetched.
-    async fn git_database_locked(
-        &'io self,
-        name: &str,
-        url: &str,
-        force_fetch: Option<bool>,
-        fetch_ref: Option<&str>,
-    ) -> Result<Git<'ctx>> {
+        self.sess.stats.num_calls_git_database.increment();
         // TODO: Make the assembled future shared and keep it in a lookup table.
         //       Then use that table to return the future if it already exists.
         //       This ensures that the gitdb is setup only once, and makes the
         //       whole process faster for later calls.
-        self.sess.stats.num_calls_git_database.increment();
+        let lock_path = self.sess.dep_lock_path(name, url);
 
+        // Fast path: under a shared lock, check whether the database is already
+        // present and up to date. If so, nothing has to be mutated and we can
+        // return right away, letting concurrent readers run in parallel.
+        let shared = FsLock::acquire_shared(lock_path.clone()).await?;
+        let (git, action) = self.git_database_action(name, url, force_fetch)?;
+        if let DbAction::Ready = action {
+            return Ok(git);
+        }
+        drop(shared);
+
+        // A mutation (initialization or fetch) is required. Take the exclusive
+        // lock and re-evaluate: another process may have completed the work
+        // while we were briefly unlocked, in which case there is nothing to do.
+        let _exclusive = FsLock::acquire_exclusive(lock_path).await?;
+        let (git, action) = self.git_database_action(name, url, force_fetch)?;
+        match action {
+            DbAction::Ready => Ok(git),
+            DbAction::Init => {
+                ensure!(
+                    !self.sess.local_only,
+                    help = "Re-run without `--local`, or provide a local path dependency.",
+                    "Cannot initialize git dependency while `--local` is enabled."
+                );
+                log::info!("initializing git database for {} from {}", name, url);
+                self.sess.stats.num_database_init.increment();
+                // The progress bar object for cloning. We only use it for the
+                // last fetch operation, which is the only network operation here.
+                let pb = Some(ProgressHandler::new(
+                    self.sess.multiprogress.clone(),
+                    GitProgressOps::Clone,
+                    name,
+                ));
+                git.clone()
+                    .spawn_with(|c| c.arg("init").arg("--bare"), None)
+                    .await?;
+                // Disable automatic garbage collection on the shared database.
+                // Checkouts created with `git clone --shared` borrow objects from
+                // this database via `objects/info/alternates`, so pruning here
+                // could corrupt live checkouts that reference those objects.
+                git.clone()
+                    .spawn_with(|c| c.arg("config").arg("gc.auto").arg("0"), None)
+                    .await?;
+                git.clone()
+                    .spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url), None)
+                    .await?;
+                git.clone()
+                    .fetch("origin", pb)
+                    .and_then(|_| async {
+                        if let Some(reference) = fetch_ref {
+                            git.clone().fetch_ref("origin", reference, None).await
+                        } else {
+                            Ok(())
+                        }
+                    })
+                    .await
+                    .map_err(move |cause| {
+                        Error::from(SessionErrors::GitDatabaseAccess(
+                            "initialize",
+                            url.contains("git@"),
+                            cause.into(),
+                        ))
+                    })
+                    .map(move |_| git)
+            }
+            DbAction::Fetch => {
+                log::info!("fetching updates for {} from {}", name, url);
+                self.sess.stats.num_database_fetch.increment();
+                // The progress bar object for fetching.
+                let pb = Some(ProgressHandler::new(
+                    self.sess.multiprogress.clone(),
+                    GitProgressOps::Fetch,
+                    name,
+                ));
+                git.clone()
+                    .fetch("origin", pb)
+                    .and_then(|_| async {
+                        if let Some(reference) = fetch_ref {
+                            git.clone().fetch_ref("origin", reference, None).await
+                        } else {
+                            Ok(())
+                        }
+                    })
+                    .await
+                    .map_err(move |cause| {
+                        Error::from(SessionErrors::GitDatabaseAccess(
+                            "update",
+                            url.contains("git@"),
+                            cause.into(),
+                        ))
+                    })
+                    .map(move |_| git)
+            }
+        }
+    }
+
+    /// Locate the bare git database for a dependency and decide what, if
+    /// anything, has to be done to bring it up to date.
+    ///
+    /// This only inspects the database (creating its directory if missing); it
+    /// never mutates git objects, so it is safe to evaluate under a shared lock.
+    /// The fetch decision mirrors `force_fetch`: `Some(true)` always fetches,
+    /// `Some(false)` never fetches, and `None` fetches only if the manifest has
+    /// been modified since the last fetch.
+    fn git_database_action(
+        &'io self,
+        name: &str,
+        url: &str,
+        force_fetch: Option<bool>,
+    ) -> Result<(Git<'ctx>, DbAction)> {
         let db_name = self.sess.git_db_name(name, url);
-
-        // Determine the location of the git database and create it if its does
-        // not yet exist.
         let db_dir = self.sess.db_parent().join("git").join("db").join(db_name);
         let db_dir = self.sess.intern_path(db_dir);
         std::fs::create_dir_all(db_dir)
@@ -716,57 +823,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             &self.sess.config.git,
             self.sess.git_throttle.clone(),
         );
-
-        // Either initialize the repository or update it if needed.
-        if !db_dir.join("config").exists() {
-            ensure!(
-                !self.sess.local_only,
-                help = "Re-run without `--local`, or provide a local path dependency.",
-                "Cannot initialize git dependency while `--local` is enabled."
-            );
-            // Initialize.
-            log::info!("initializing git database for {} from {}", name, url);
-            self.sess.stats.num_database_init.increment();
-            // The progress bar object for cloning. We only use it for the
-            // last fetch operation, which is the only network operation here.
-            let pb = Some(ProgressHandler::new(
-                self.sess.multiprogress.clone(),
-                GitProgressOps::Clone,
-                name,
-            ));
-            git.clone()
-                .spawn_with(|c| c.arg("init").arg("--bare"), None)
-                .await?;
-            // Disable automatic garbage collection on the shared database.
-            // Checkouts created with `git clone --shared` borrow objects from
-            // this database via `objects/info/alternates`, so pruning here
-            // could corrupt live checkouts that reference those objects.
-            git.clone()
-                .spawn_with(|c| c.arg("config").arg("gc.auto").arg("0"), None)
-                .await?;
-            git.clone()
-                .spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url), None)
-                .await?;
-            git.clone()
-                .fetch("origin", pb)
-                .and_then(|_| async {
-                    if let Some(reference) = fetch_ref {
-                        git.clone().fetch_ref("origin", reference, None).await
-                    } else {
-                        Ok(())
-                    }
-                })
-                .await
-                .map_err(move |cause| {
-                    Error::from(SessionErrors::GitDatabaseAccess(
-                        "initialize",
-                        url.contains("git@"),
-                        cause.into(),
-                    ))
-                })
-                .map(move |_| git)
+        let action = if !db_dir.join("config").exists() {
+            DbAction::Init
         } else {
-            // Update if the manifest has been modified since the last fetch.
             let db_mtime = try_modification_time(db_dir.join("FETCH_HEAD"));
             let skip_fetch = match force_fetch {
                 Some(true) => false,
@@ -774,41 +833,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 None => self.sess.manifest_mtime < db_mtime,
             };
             if skip_fetch || self.sess.local_only {
-                log::info!(
-                    "skipping fetch of {:?} (skip_fetch={}, local_only={})",
-                    db_dir,
-                    skip_fetch,
-                    self.sess.local_only
-                );
-                return Ok(git);
+                DbAction::Ready
+            } else {
+                DbAction::Fetch
             }
-            log::info!("fetching updates for {} from {}", name, url);
-            self.sess.stats.num_database_fetch.increment();
-            // The progress bar object for fetching.
-            let pb = Some(ProgressHandler::new(
-                self.sess.multiprogress.clone(),
-                GitProgressOps::Fetch,
-                name,
-            ));
-            git.clone()
-                .fetch("origin", pb)
-                .and_then(|_| async {
-                    if let Some(reference) = fetch_ref {
-                        git.clone().fetch_ref("origin", reference, None).await
-                    } else {
-                        Ok(())
-                    }
-                })
-                .await
-                .map_err(move |cause| {
-                    Error::from(SessionErrors::GitDatabaseAccess(
-                        "update",
-                        url.contains("git@"),
-                        cause.into(),
-                    ))
-                })
-                .map(move |_| git)
-        }
+        };
+        Ok((git, action))
     }
 
     /// Determine the list of versions available for a git dependency.
@@ -976,10 +1006,10 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         url: &str,
         revision: &str,
     ) -> Result<()> {
+        // Make sure the database exists, then take the exclusive lock for the
+        // by-hash fetch, which is the only mutation here.
+        let git = self.git_database(name, url, Some(false), None).await?;
         let _wlock = FsLock::acquire_exclusive(self.sess.dep_lock_path(name, url)).await?;
-        let git = self
-            .git_database_locked(name, url, Some(false), None)
-            .await?;
         let pb = Some(ProgressHandler::new(
             self.sess.multiprogress.clone(),
             GitProgressOps::Fetch,
@@ -1051,12 +1081,15 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         force: bool,
         update_list: &[String],
     ) -> Result<&'ctx Path> {
-        // A checkout reads from the shared bare database (via `git clone
-        // --shared`) but never writes to it, so a shared lock is enough and
-        // lets concurrent invocations check out in parallel against a warm,
-        // pre-populated database. The only writer path is the fallback fetch
-        // below (when the locked revision is missing from the database), which
-        // briefly drops this lock and takes an exclusive one of its own.
+        // Resolve (and, if necessary, initialize) the bare database before
+        // taking the lock we hold across the checkout. A checkout reads from the
+        // database (via `git clone --shared`) but never writes to it, so a
+        // shared lock is enough and lets concurrent invocations check out in
+        // parallel against a warm, pre-populated database. The only writer path
+        // is the fallback fetch below (when the locked revision is missing from
+        // the database), which briefly drops this lock and takes an exclusive
+        // one of its own.
+        let db = self.git_database(name, url, Some(false), None).await?;
         let mut db_lock = Some(FsLock::acquire_shared(self.sess.dep_lock_path(name, url)).await?);
 
         #[derive(Eq, PartialEq)]
@@ -1074,15 +1107,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     log::debug!("currently `{}` (want `{}`)", current, revision);
                     if current == revision {
                         CheckoutState::Clean
-                    } else if let Ok(db) =
-                        self.git_database_locked(name, url, Some(false), None).await
-                    {
-                        if let Ok(remote) = local_git.clone().remote_url("origin").await {
-                            if remote == db.path.to_str().unwrap() {
-                                CheckoutState::ToCheckout
-                            } else {
-                                CheckoutState::ToClone
-                            }
+                    } else if let Ok(remote) = local_git.clone().remote_url("origin").await {
+                        if remote == db.path.to_str().unwrap() {
+                            CheckoutState::ToCheckout
                         } else {
                             CheckoutState::ToClone
                         }
@@ -1140,11 +1167,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             // check under the shared lock. If the revision is missing (e.g. the
             // cached database predates the locked commit), it must be fetched,
             // which mutates the database: drop the shared lock, fetch via
-            // `git_database` (which locks exclusively), then re-take the shared
-            // lock and continue.
-            let mut git = self
-                .git_database_locked(name, url, Some(false), None)
-                .await?;
+            // `git_database` (which escalates to an exclusive lock internally),
+            // then re-take the shared lock and continue.
+            let mut git = db.clone();
             let revision_check = revision.to_string();
             let have_commit = git
                 .clone()
