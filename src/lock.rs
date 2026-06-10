@@ -2,10 +2,13 @@
 
 //! Cross-process filesystem advisory locks.
 //!
-//! Bender uses these to serialize concurrent invocations against the same git
-//! database and checkout. The lock is taken on a sentinel file in
-//! `<database>/git/locks/<name>-<hash>.lock` and released automatically when
-//! the [`FsLock`] guard is dropped.
+//! Bender uses these to coordinate concurrent invocations against the same git
+//! database. The lock is taken on a sentinel file in
+//! `<database>/git/locks/<name>-<hash>.lock`: writers (database initialization
+//! and fetches) acquire it exclusively, while readers (version resolution and
+//! checkouts, which never mutate the database) acquire it shared so they can
+//! proceed in parallel. The lock is released automatically when the [`FsLock`]
+//! guard is dropped.
 
 #![deny(missing_docs)]
 
@@ -25,13 +28,33 @@ pub struct FsLock {
 }
 
 impl FsLock {
-    /// Acquire an exclusive lock on `path`, creating the file if missing.
+    /// Acquire an exclusive (writer) lock on `path`, creating the file if
+    /// missing.
+    ///
+    /// Use this for operations that mutate the git database (initialization or
+    /// fetching). See [`acquire`](Self::acquire) for the blocking behavior.
+    pub async fn acquire_exclusive(path: PathBuf) -> Result<Self> {
+        Self::acquire(path, true).await
+    }
+
+    /// Acquire a shared (reader) lock on `path`, creating the file if missing.
+    ///
+    /// Multiple processes may hold a shared lock simultaneously; a shared lock
+    /// only excludes exclusive lockers. Use this for read-only access to the
+    /// git database, such as resolving versions or creating a checkout. This
+    /// is what lets concurrent bender invocations check out in parallel against
+    /// a shared, pre-populated database.
+    pub async fn acquire_shared(path: PathBuf) -> Result<Self> {
+        Self::acquire(path, false).await
+    }
+
+    /// Acquire a lock on `path`, creating the file if missing.
     ///
     /// If the lock is contended, an info message is logged so the user can see
     /// why bender is waiting, and the call then blocks until the lock is
     /// available. The actual lock acquisition runs on a blocking worker so it
     /// does not stall the tokio runtime.
-    pub async fn acquire_exclusive(path: PathBuf) -> Result<Self> {
+    async fn acquire(path: PathBuf, exclusive: bool) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .into_diagnostic()
@@ -48,11 +71,21 @@ impl FsLock {
 
         let path_for_blocking = path.clone();
         let file = tokio::task::spawn_blocking(move || -> Result<File> {
-            match file.try_lock() {
+            let try_lock = if exclusive {
+                file.try_lock()
+            } else {
+                file.try_lock_shared()
+            };
+            match try_lock {
                 Ok(()) => Ok(file),
                 Err(TryLockError::WouldBlock) => {
                     log::info!("waiting for lock on {:?}", path_for_blocking);
-                    file.lock().into_diagnostic().wrap_err_with(|| {
+                    let blocking_lock = if exclusive {
+                        file.lock()
+                    } else {
+                        file.lock_shared()
+                    };
+                    blocking_lock.into_diagnostic().wrap_err_with(|| {
                         format!("Failed to acquire lock on {:?}.", path_for_blocking)
                     })?;
                     Ok(file)
