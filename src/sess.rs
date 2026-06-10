@@ -562,8 +562,11 @@ impl<'ctx> Session<'ctx> {
 
     /// Path of the cross-process advisory lock file for a git dependency.
     ///
-    /// The same file guards both the bare database under `git/db/` and the
-    /// working checkout under `git/checkouts/` for this dependency.
+    /// This single file coordinates access to the bare database under
+    /// `git/db/` for this dependency. Writers (database initialization and
+    /// fetches) take it exclusively; readers (version resolution and checkouts)
+    /// take it shared, so concurrent invocations against a populated database
+    /// do not serialize.
     pub fn dep_lock_path(&self, name: &str, url: &str) -> PathBuf {
         let key = self.git_db_name(name, url);
         self.db_parent()
@@ -733,6 +736,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             ));
             git.clone()
                 .spawn_with(|c| c.arg("init").arg("--bare"), None)
+                .await?;
+            // Disable automatic garbage collection on the shared database.
+            // Checkouts created with `git clone --shared` borrow objects from
+            // this database via `objects/info/alternates`, so pruning here
+            // could corrupt live checkouts that reference those objects.
+            git.clone()
+                .spawn_with(|c| c.arg("config").arg("gc.auto").arg("0"), None)
                 .await?;
             git.clone()
                 .spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url), None)
@@ -951,6 +961,83 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         }
     }
 
+    /// Fetch a single commit by hash into the git database.
+    ///
+    /// This recovers a commit that was force-pushed off every branch and tag
+    /// upstream (so it is not advertised and a normal fetch does not retrieve
+    /// it) but remains reachable on the server and thus fetchable by hash. The
+    /// fetch mutates the database, so the exclusive lock is taken for it. The
+    /// fetch itself is best-effort -- not every server allows fetching an
+    /// unadvertised commit by hash -- so its result is ignored; the caller
+    /// verifies whether the commit became available.
+    async fn fetch_revision_by_hash(
+        &'io self,
+        name: &str,
+        url: &str,
+        revision: &str,
+    ) -> Result<()> {
+        let _wlock = FsLock::acquire_exclusive(self.sess.dep_lock_path(name, url)).await?;
+        let git = self
+            .git_database_locked(name, url, Some(false), None)
+            .await?;
+        let pb = Some(ProgressHandler::new(
+            self.sess.multiprogress.clone(),
+            GitProgressOps::Fetch,
+            name,
+        ));
+        let revision_owned = revision.to_string();
+        let _ = git
+            .clone()
+            .spawn_with(
+                move |c| {
+                    c.arg("fetch")
+                        .arg("origin")
+                        .arg(revision_owned)
+                        .arg("--progress")
+                },
+                pb,
+            )
+            .await;
+        Ok(())
+    }
+
+    /// Check out `revision` in the working copy managed by `local_git`.
+    ///
+    /// LFS smudge filters are disabled here; LFS content is pulled separately
+    /// after the checkout. Returns an error if the revision cannot be checked
+    /// out (e.g. its objects are not available in the database).
+    async fn checkout_revision(
+        &'io self,
+        local_git: &Git<'ctx>,
+        revision: &str,
+        name: &str,
+    ) -> Result<String> {
+        let pb = Some(ProgressHandler::new(
+            self.sess.multiprogress.clone(),
+            GitProgressOps::Checkout,
+            name,
+        ));
+        let revision_owned = revision.to_string();
+        local_git
+            .clone()
+            .spawn_with(
+                move |c| {
+                    c.arg("-c")
+                        .arg("filter.lfs.smudge=")
+                        .arg("-c")
+                        .arg("filter.lfs.process=")
+                        .arg("-c")
+                        .arg("filter.lfs.required=false")
+                        .arg("checkout")
+                        .arg(revision_owned)
+                        .arg("--force")
+                        .arg("--progress")
+                },
+                pb,
+            )
+            .await
+    }
+
     /// Ensure that a proper git checkout exists.
     ///
     /// If the directory is not a proper git repository, it is deleted and
@@ -964,10 +1051,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         force: bool,
         update_list: &[String],
     ) -> Result<&'ctx Path> {
-        // Serialize concurrent bender invocations operating on the same
-        // dependency. The lock covers both the bare database (touched via the
-        // `git_database_locked` calls below) and the working checkout.
-        let _lock = FsLock::acquire_exclusive(self.sess.dep_lock_path(name, url)).await?;
+        // A checkout reads from the shared bare database (via `git clone
+        // --shared`) but never writes to it, so a shared lock is enough and
+        // lets concurrent invocations check out in parallel against a warm,
+        // pre-populated database. The only writer path is the fallback fetch
+        // below (when the locked revision is missing from the database), which
+        // briefly drops this lock and takes an exclusive one of its own.
+        let mut db_lock = Some(FsLock::acquire_shared(self.sess.dep_lock_path(name, url)).await?);
 
         #[derive(Eq, PartialEq)]
         enum CheckoutState {
@@ -1045,65 +1135,38 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         // Perform the checkout if necessary.
         if clear != CheckoutState::Clean {
-            // First generate a tag to be cloned in the database. This is
-            // necessary since `git clone` does not accept commits, but only
-            // branches or tags for shallow clones.
-            let tag_name_0 = format!("bender-tmp-{}", revision);
-            let tag_name_1 = tag_name_0.clone();
-            let tag_name_2 = tag_name_0.clone();
-            let git = self
-                .git_database_locked(name, url, Some(false), Some(revision))
+            // Ensure the requested revision is present in the database. The
+            // database is normally already populated, so this is a read-only
+            // check under the shared lock. If the revision is missing (e.g. the
+            // cached database predates the locked commit), it must be fetched,
+            // which mutates the database: drop the shared lock, fetch via
+            // `git_database` (which locks exclusively), then re-take the shared
+            // lock and continue.
+            let mut git = self
+                .git_database_locked(name, url, Some(false), None)
                 .await?;
-            match git
+            let revision_check = revision.to_string();
+            let have_commit = git
                 .clone()
                 .spawn_with(
                     move |c| {
-                        c.arg("tag")
-                            .arg(tag_name_0)
-                            .arg(revision)
-                            .arg("--force")
-                            .arg("--no-sign")
+                        c.arg("cat-file")
+                            .arg("-e")
+                            .arg(format!("{}^{{commit}}", revision_check))
                     },
                     None,
                 )
                 .await
-            {
-                Ok(r) => Ok(r),
-                Err(_cause) => {
-                    log::debug!("failed to tag commit {:?}, attempting fetch.", _cause);
-                    let pb = Some(ProgressHandler::new(
-                        self.sess.multiprogress.clone(),
-                        GitProgressOps::Checkout,
-                        name,
-                    ));
-                    // Attempt to fetch from remote and retry, as commits seem unavailable.
-                    git.clone()
-                        .spawn_with(move |c| c.arg("fetch").arg("--all").arg("--progress"), pb)
-                        .await?;
-                    git.clone()
-                        .spawn_with(
-                            move |c| {
-                                c.arg("tag")
-                                    .arg(tag_name_1)
-                                    .arg(revision)
-                                    .arg("--force")
-                                    .arg("--no-sign")
-                            },
-                            None,
-                        )
-                        .await
-                        .map_err(|cause| {
-                            Error::from(SessionErrors::LockedRevisionCheckout(
-                                revision.to_string(),
-                                name.to_string(),
-                                cause.into(),
-                            ))
-                        })
-                }
-            }?;
+                .is_ok();
+            if !have_commit {
+                log::debug!("revision {} not in database, fetching.", revision);
+                drop(db_lock.take());
+                git = self.git_database(name, url, Some(true), None).await?;
+                db_lock = Some(FsLock::acquire_shared(self.sess.dep_lock_path(name, url)).await?);
+            }
             // Check if the revision is reachable from any upstream branch or
-            // tag (excluding synthetic bender-tmp-* tags). If not, warn that
-            // the commit may have been removed by a force-push.
+            // tag. If not, warn that the commit may have been removed by a
+            // force-push.
             let revision_owned = revision.to_string();
             if let Ok(ref_output) = git
                 .clone()
@@ -1119,11 +1182,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     None,
                 )
                 .await
+                && ref_output.trim().is_empty()
             {
-                let is_tracked = ref_output.lines().any(|line| !line.contains("bender-tmp-"));
-                if !is_tracked {
-                    Warnings::RevisionNotOnUpstream(revision.to_string(), name.to_string()).emit();
-                }
+                Warnings::RevisionNotOnUpstream(revision.to_string(), name.to_string()).emit();
             }
             if clear == CheckoutState::ToClone {
                 let pb = Some(ProgressHandler::new(
@@ -1131,6 +1192,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     GitProgressOps::Checkout,
                     name,
                 ));
+                // Clone the working tree from the database, borrowing its
+                // objects via `--shared` (alternates) so nothing is copied and
+                // the database is left untouched. `--no-checkout` keeps the
+                // worktree empty so the exact revision can be checked out next;
+                // no temporary tag in the database is needed.
                 git.clone()
                     .spawn_with(
                         move |c| {
@@ -1144,8 +1210,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .arg(git.path)
                                 .arg(path)
                                 .arg("--shared")
-                                .arg("--branch")
-                                .arg(tag_name_2)
+                                .arg("--no-checkout")
                                 .arg("--progress")
                         },
                         pb,
@@ -1170,29 +1235,37 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         pb,
                     )
                     .await?;
-                let pb = Some(ProgressHandler::new(
-                    self.sess.multiprogress.clone(),
-                    GitProgressOps::Checkout,
-                    name,
-                ));
-                local_git
-                    .clone()
-                    .spawn_with(
-                        move |c| {
-                            c.arg("-c")
-                                .arg("filter.lfs.smudge=")
-                                .arg("-c")
-                                .arg("filter.lfs.process=")
-                                .arg("-c")
-                                .arg("filter.lfs.required=false")
-                                .arg("checkout")
-                                .arg(tag_name_2)
-                                .arg("--force")
-                                .arg("--progress")
-                        },
-                        pb,
-                    )
-                    .await?;
+            }
+
+            // Check out the exact revision in the working copy. The object is
+            // normally available from the database via the `--shared`
+            // alternates link. If the checkout fails the commit is missing from
+            // the database -- typically because it was force-pushed off every
+            // branch upstream, so a normal fetch of all branches and tags does
+            // not retrieve it. Such a commit can still be fetched directly by
+            // hash (as long as it remains reachable on the server), so fetch it
+            // into the database by hash and retry once before giving up.
+            if self
+                .checkout_revision(&local_git, revision, name)
+                .await
+                .is_err()
+            {
+                log::debug!(
+                    "checkout of {} failed, fetching the commit by hash and retrying.",
+                    revision
+                );
+                drop(db_lock.take());
+                self.fetch_revision_by_hash(name, url, revision).await?;
+                db_lock = Some(FsLock::acquire_shared(self.sess.dep_lock_path(name, url)).await?);
+                self.checkout_revision(&local_git, revision, name)
+                    .await
+                    .map_err(|cause| {
+                        Error::from(SessionErrors::LockedRevisionCheckout(
+                            revision.to_string(),
+                            name.to_string(),
+                            cause.into(),
+                        ))
+                    })?;
             }
             // Check if the repo uses LFS attributes
             if local_git.clone().uses_lfs_attributes().await? {
@@ -1248,6 +1321,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 }
             }
         }
+        // Hold the database lock until the checkout is fully materialized.
+        drop(db_lock);
         Ok(path)
     }
 
