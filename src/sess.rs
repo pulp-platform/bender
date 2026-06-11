@@ -1212,16 +1212,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 Warnings::RevisionNotOnUpstream(revision.to_string(), name.to_string()).emit();
             }
             if clear == CheckoutState::ToClone {
-                let pb = Some(ProgressHandler::new(
-                    self.sess.multiprogress.clone(),
-                    GitProgressOps::Checkout,
-                    name,
-                ));
                 // Clone the working tree from the database, borrowing its
                 // objects via `--shared` (alternates) so nothing is copied and
                 // the database is left untouched. `--no-checkout` keeps the
                 // worktree empty so the exact revision can be checked out next;
-                // no temporary tag in the database is needed.
+                // no temporary tag in the database is needed. This step
+                // transfers no objects and writes no working-tree files, so it
+                // runs without its own progress handler: the user-facing
+                // progress and finish line come from the checkout below, and a
+                // separate handler here would report the dependency as "Checked
+                // out" twice.
                 git.clone()
                     .spawn_with(
                         move |c| {
@@ -1236,9 +1236,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .arg(path)
                                 .arg("--shared")
                                 .arg("--no-checkout")
-                                .arg("--progress")
                         },
-                        pb,
+                        None,
                     )
                     .await?;
             } else if clear == CheckoutState::ToCheckout {
