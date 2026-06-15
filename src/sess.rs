@@ -1419,19 +1419,26 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         Ok(())
     }
 
-    /// Re-parent the relative path sub-dependencies of a parent-relative path
-    /// dependency so they resolve relative to the same parent checkout.
+    /// Re-parent the relative path sub-dependencies declared in a dependency's
+    /// manifest onto that dependency.
     ///
-    /// A path dependency declared inside another path-in-git dependency belongs
-    /// to the same git parent; its path is accumulated onto the intermediate
-    /// dependency's path relative to the parent checkout root. This is applied
-    /// each time such a manifest is loaded, so nested path dependencies are
-    /// re-parented recursively as they are walked. W09 is not emitted here as it
-    /// is already emitted for every level while the git parent is parsed.
+    /// Every path dependency records the dependency whose manifest declared it
+    /// as its `parent` (identified by `parent_name`), with its path relative to
+    /// that parent's directory (`parent_dir`). The on-disk location is then
+    /// derived from the parent's *current* location by joining, so the path
+    /// follows the parent and the lockfile stays portable. Applied each time a
+    /// manifest is loaded, this re-parents nested path dependencies one level at
+    /// a time as they are walked, so the relationship composes through chains of
+    /// path and git dependencies.
+    ///
+    /// Manifests read from disk have already had their paths prefixed with
+    /// `parent_dir` (which is stripped back off here); manifests read from the
+    /// git object database are still relative to it. Absolute paths that do not
+    /// point inside the parent are left untouched (their `parent` stays `None`).
     fn fixup_parent_path_subdeps(
         deps: &mut IndexMap<String, config::Dependency>,
-        parent: &str,
-        base_rel: &Path,
+        parent_name: &str,
+        parent_dir: &Path,
     ) {
         for (_name, dep) in deps.iter_mut() {
             if let config::Dependency::Path {
@@ -1439,10 +1446,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 parent: dep_parent @ None,
                 ..
             } = dep
-                && !path.starts_with("/")
             {
-                *path = base_rel.join(&*path);
-                *dep_parent = Some(parent.to_string());
+                let rel = if path.is_relative() {
+                    Some(path.clone())
+                } else {
+                    path.strip_prefix(parent_dir).ok().map(|p| p.to_path_buf())
+                };
+                if let Some(rel) = rel {
+                    *path = rel;
+                    *dep_parent = Some(parent_name.to_string());
+                }
             }
         }
     }
@@ -1535,17 +1548,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             )
                             .emit();
                         }
-                        // Propagate parent-relative resolution to any path
-                        // dependencies nested inside this one, so that path
-                        // dependencies of path-in-git dependencies also follow
-                        // the git parent's checkout.
-                        if let DepSrc::Path {
-                            path: rel,
-                            parent: Some(parent),
-                        } = &dep.source
-                        {
-                            Self::fixup_parent_path_subdeps(&mut m.dependencies, parent, rel);
-                        }
+                        // Re-parent this dependency's relative path
+                        // sub-dependencies onto it, so they resolve relative to
+                        // its (possibly parent-derived) location. This applies to
+                        // path dependencies of both path and git dependencies.
+                        Self::fixup_parent_path_subdeps(&mut m.dependencies, &dep.name, &path);
                         Ok(Some(self.sess.intern_manifest(m)))
                     }
                     None => Ok(None),

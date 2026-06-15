@@ -71,15 +71,22 @@ if ! grep -qE '^      Path: libs/mid$' Bender.lock; then
 	echo "expected 'mid' to be locked relative to parent (libs/mid)" >&2
 	exit 2
 fi
-if ! grep -qE '^      Path: libs/mid/deep/leaf$' Bender.lock; then
+# 'leaf' is nested inside 'mid', so its parent is the immediate dependency
+# 'mid' and its path is relative to 'mid' (not the git root).
+if ! grep -qE '^      Path: deep/leaf$' Bender.lock; then
 	cat Bender.lock
-	echo "expected nested 'leaf' to accumulate path (libs/mid/deep/leaf)" >&2
+	echo "expected nested 'leaf' to be relative to its parent 'mid' (deep/leaf)" >&2
 	exit 3
 fi
-if [ "$(grep -cE '^    parent: gitdep$' Bender.lock)" -ne 2 ]; then
+if ! grep -qE '^    parent: gitdep$' Bender.lock; then
 	cat Bender.lock
-	echo "expected both 'mid' and 'leaf' to have parent 'gitdep'" >&2
+	echo "expected 'mid' to have parent 'gitdep'" >&2
 	exit 4
+fi
+if ! grep -qE '^    parent: mid$' Bender.lock; then
+	cat Bender.lock
+	echo "expected 'leaf' to have parent 'mid'" >&2
+	exit 5
 fi
 
 # The derived paths must point inside the parent's checkout and exist.
@@ -89,12 +96,12 @@ case "$LEAF_PATH" in
 	"$GITDEP_PATH"/libs/mid/deep/leaf) ;;
 	*)
 		echo "leaf path '$LEAF_PATH' is not nested under gitdep checkout '$GITDEP_PATH'" >&2
-		exit 5
+		exit 6
 		;;
 esac
 if [ ! -f "$LEAF_PATH/src/leaf.sv" ]; then
 	echo "leaf source not found at derived path '$LEAF_PATH'" >&2
-	exit 6
+	exit 7
 fi
 
 # The lockfile must be portable: copying the project tree elsewhere and
@@ -108,6 +115,6 @@ case "$MOVED_LEAF" in
 	"$DIR"/moved/*) ;;
 	*)
 		echo "moved leaf path '$MOVED_LEAF' is not under the moved project; absolute path was baked in" >&2
-		exit 7
+		exit 8
 		;;
 esac
