@@ -112,6 +112,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                                 target: TargetSpec::Wildcard,
                                 path: dir.unwrap().path(),
                                 pass_targets: vec![],
+                                parent: None,
                             },
                         );
                     } else if !(SysCommand::new(&self.sess.config.git) // If not in a clean state
@@ -130,6 +131,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                                 target: TargetSpec::Wildcard,
                                 path: dir.unwrap().path(),
                                 pass_targets: vec![],
+                                parent: None,
                             },
                         );
                     }
@@ -191,14 +193,15 @@ impl<'ctx> DependencyResolver<'ctx> {
                 let sess_src = sess.dependency_source(src.id);
                 let pkg = match src.versions {
                     DependencyVersions::Path => {
-                        let path = match sess_src {
-                            DependencySource::Path(p) => p,
+                        let (path, parent) = match sess_src {
+                            DependencySource::Path { path, parent } => (path, parent),
                             _ => unreachable!(),
                         };
                         LockedPackage {
                             revision: None,
                             version: None,
                             source: LockedSource::Path(path),
+                            parent,
                             dependencies: deps,
                         }
                     }
@@ -226,6 +229,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                             revision: Some(String::from(rev)),
                             version,
                             source: LockedSource::Git(url),
+                            parent: None,
                             dependencies: deps,
                         }
                     }
@@ -371,6 +375,9 @@ impl<'ctx> DependencyResolver<'ctx> {
                         target: TargetSpec::Wildcard,
                         path: p.clone(),
                         pass_targets: Vec::new(),
+                        // The parent is identified by name; its location is
+                        // resolved from the parent's own (git) entry when needed.
+                        parent: locked_package.parent.clone(),
                     },
                     LockedSource::Registry(..) => {
                         unreachable!("Registry dependencies not yet supported.");
@@ -433,10 +440,11 @@ impl<'ctx> DependencyResolver<'ctx> {
                     unreachable!("Registry dependencies not yet supported.");
                     // TODO should probably be config::Dependeny::Version(vers, str?)
                 }
-                DependencySource::Path(p) => config::Dependency::Path {
+                DependencySource::Path { path, parent } => config::Dependency::Path {
                     target: TargetSpec::Wildcard,
-                    path: p,
+                    path,
                     pass_targets: Vec::new(),
+                    parent,
                 },
                 DependencySource::Git(u) => match &cnstr {
                     DependencyConstraint::Version(v) => config::Dependency::GitVersion {

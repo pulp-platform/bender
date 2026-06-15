@@ -100,7 +100,7 @@ pub fn run(sess: &Session, args: &VendorArgs) -> Result<()> {
         let tmp_dir = TempDir::new().into_diagnostic()?;
         let tmp_path = tmp_dir.path();
         let dep_path = match dep_src {
-            DependencySource::Path(path) => path,
+            DependencySource::Path { path, .. } => path,
             DependencySource::Git(ref url) => {
                 let git = Git::new(tmp_path, &sess.config.git, sess.git_throttle.clone());
                 rt.block_on(async {

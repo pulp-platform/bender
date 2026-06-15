@@ -275,8 +275,14 @@ pub enum Warnings {
     )]
     DirtyGitDependency(String, PathBuf),
 
-    #[error("Path dependency {} inside git dependency {} detected. This is currently not fully supported. Your mileage may vary.", fmt_pkg!(pkg), fmt_pkg!(top_pkg))]
-    #[diagnostic(code(W09))]
+    #[error("Path dependency {} is declared inside git dependency {}.", fmt_pkg!(pkg), fmt_pkg!(top_pkg))]
+    #[diagnostic(
+        code(W09),
+        help(
+            "It is resolved relative to {}'s checkout and updated together with it; it cannot be pinned to a separate revision.",
+            fmt_pkg!(top_pkg)
+        )
+    )]
     PathDepInGitDep { pkg: String, top_pkg: String },
 
     #[error("There may be issues in the path for {}.", fmt_pkg!(.0))]

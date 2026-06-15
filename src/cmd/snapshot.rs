@@ -52,7 +52,7 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
             ..
         } = dep
             && override_path.starts_with(sess.root.join(&args.working_dir))
-            && let DependencySource::Path(dep_path) =
+            && let DependencySource::Path { path: dep_path, .. } =
                 sess.dependency_source(sess.dependency_with_name(name)?)
             && dep_path == *override_path
         {

@@ -204,7 +204,10 @@ impl<'ctx> Session<'ctx> {
         let mut graph_names = IndexMap::new();
         for (name, pkg) in &locked.packages {
             let src = match pkg.source {
-                config::LockedSource::Path(ref path) => DependencySource::Path(path.clone()),
+                config::LockedSource::Path(ref path) => DependencySource::Path {
+                    path: path.clone(),
+                    parent: pkg.parent.clone(),
+                },
                 config::LockedSource::Git(ref url) => DependencySource::Git(url.clone()),
                 config::LockedSource::Registry(ref _ver) => DependencySource::Registry,
             };
@@ -340,6 +343,20 @@ impl<'ctx> Session<'ctx> {
     pub fn dependency_source(&self, dep: DependencyRef) -> DependencySource {
         // TODO: Don't make any clones! Use an arena instead.
         self.deps.lock().unwrap().list[dep.0].source.clone()
+    }
+
+    /// Look up the source of a loaded dependency by name.
+    ///
+    /// Used to resolve the parent of a parent-relative path dependency. The
+    /// name table is not populated during resolution, so this scans the
+    /// dependency table directly. A git parent checks out to the same location
+    /// for every revision, so any matching entry is sufficient.
+    fn dependency_source_by_name(&self, name: &str) -> Option<DependencySource> {
+        let deps = self.deps.lock().unwrap();
+        deps.list
+            .iter()
+            .find(|e| e.name == name)
+            .map(|e| e.source.clone())
     }
 
     /// Resolve a dependency name to a reference.
@@ -520,7 +537,10 @@ impl<'ctx> Session<'ctx> {
             match dep_source {
                 DependencySource::Registry => unimplemented!(),
                 DependencySource::Git(url) => hasher.update(url.as_bytes()),
-                DependencySource::Path(path) => {
+                DependencySource::Path {
+                    path,
+                    parent: None,
+                } => {
                     // Determine and canonicalize the dependency path, and
                     // immediately return it.
                     let path = self.root.join(path);
@@ -529,6 +549,29 @@ impl<'ctx> Session<'ctx> {
                         Err(_) => path,
                     };
                     return path;
+                }
+                DependencySource::Path {
+                    path,
+                    parent: Some(parent),
+                } => {
+                    // Derive the location from the parent's *current* checkout,
+                    // so the path follows the parent if its checkout location
+                    // ever changes. The parent is identified by name; look up
+                    // its source among the loaded dependencies.
+                    return match self.dependency_source_by_name(parent) {
+                        Some(parent_source) => {
+                            self.get_depsource_path(parent, &parent_source).join(path)
+                        }
+                        None => {
+                            log::warn!(
+                                "parent `{}` of path dependency `{}` not found; \
+                                 resolving relative to root",
+                                parent,
+                                dep_name
+                            );
+                            self.root.join(path)
+                        }
+                    };
                 }
             }
             hasher.update(format!("{:?}", self.manifest.package.name).as_bytes());
@@ -626,7 +669,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             DependencySource::Registry => {
                 unimplemented!("determine available versions of registry dependency");
             }
-            DependencySource::Path(_) => Ok(DependencyVersions::Path),
+            DependencySource::Path { .. } => Ok(DependencyVersions::Path),
             DependencySource::Git(ref url) => {
                 let db = self
                     .git_database(&dep.name, url, force_fetch, fetch_ref)
@@ -916,7 +959,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         match dep.source {
             DependencySource::Registry => unimplemented!(),
             DependencySource::Git(..) => {}
-            DependencySource::Path(..) => {
+            DependencySource::Path { .. } => {
                 let path = self
                     .sess
                     .intern_path(self.sess.get_package_path(dep_id).as_path());
@@ -927,7 +970,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         let checkout_dir = self.sess.intern_path(self.sess.get_package_path(dep_id));
 
         match dep.source {
-            DependencySource::Path(..) => unreachable!(),
+            DependencySource::Path { .. } => unreachable!(),
             DependencySource::Registry => unimplemented!(),
             DependencySource::Git(ref url) => {
                 let path = self
@@ -1251,24 +1294,40 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         Ok(path)
     }
 
-    /// Checkout only git dependency's path sub-dependency Bender.yml files
+    /// Fix up path sub-dependencies declared inside a git dependency.
+    ///
+    /// Relative path dependencies found inside a git dependency's manifest are
+    /// rewritten to a *parent-relative* form: the parent (the owning git
+    /// dependency, identified by `parent_name`) and the path relative to its
+    /// checkout root. The on-disk location is then derived from the parent's
+    /// current checkout instead of being baked into an absolute path, so the
+    /// path dependency follows the parent if its checkout moves.
+    ///
+    /// The sub-dependency's `Bender.yml` is also extracted from the git object
+    /// database into `.bender/tmp` so it can be resolved before the parent is
+    /// checked out.
     #[async_recursion(?Send)]
     async fn sub_dependency_fixing(
         &'io self,
         dep_iter_mut: &mut IndexMap<String, config::Dependency>,
-        top_package_name: String,
+        parent_name: &str,
         reference_path: &Path,
         dep_base_path: &Path,
         db: Git<'ctx>,
         used_git_rev: &str,
     ) -> Result<()> {
         for dep in (dep_iter_mut).iter_mut() {
-            if let (_, config::Dependency::Path { path, .. }) = dep
+            if let (
+                _,
+                config::Dependency::Path {
+                    path, parent: None, ..
+                },
+            ) = dep
                 && !path.starts_with("/")
             {
                 Warnings::PathDepInGitDep {
                     pkg: dep.0.clone(),
-                    top_pkg: top_package_name.clone(),
+                    top_pkg: parent_name.to_string(),
                 }
                 .emit();
 
@@ -1280,7 +1339,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             reference_path
                                 .strip_prefix(dep_base_path)
                                 .unwrap()
-                                .join(&mut *path)
+                                .join(&*path)
                                 .join("Bender.yml"),
                         ),
                     )
@@ -1290,7 +1349,14 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     Some(sub_entry) => db.clone().cat_file(sub_entry.hash).await.map(Some),
                 }?;
 
-                let sub_dep_path = reference_path.join(path);
+                let sub_dep_path = reference_path.join(&*path);
+
+                // Path of the sub-dependency relative to the parent's checkout
+                // root, used as the parent-relative source path.
+                let rel = sub_dep_path
+                    .strip_prefix(dep_base_path)
+                    .unwrap()
+                    .to_path_buf();
 
                 let tmp_path = self.sess.root.join(".bender").join("tmp");
 
@@ -1310,8 +1376,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
                 *dep.1 = config::Dependency::Path {
                     target: TargetSpec::Wildcard,
-                    path: sub_dep_path.clone(),
+                    path: rel,
                     pass_targets: Vec::new(),
+                    parent: Some(parent_name.to_string()),
                 };
 
                 // Further dependencies
@@ -1335,7 +1402,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         })?;
                         self.sub_dependency_fixing(
                             &mut full.dependencies,
-                            full.package.name.clone(),
+                            parent_name,
                             &sub_dep_path,
                             dep_base_path,
                             db.clone(),
@@ -1350,6 +1417,34 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
         }
         Ok(())
+    }
+
+    /// Re-parent the relative path sub-dependencies of a parent-relative path
+    /// dependency so they resolve relative to the same parent checkout.
+    ///
+    /// A path dependency declared inside another path-in-git dependency belongs
+    /// to the same git parent; its path is accumulated onto the intermediate
+    /// dependency's path relative to the parent checkout root. This is applied
+    /// each time such a manifest is loaded, so nested path dependencies are
+    /// re-parented recursively as they are walked. W09 is not emitted here as it
+    /// is already emitted for every level while the git parent is parsed.
+    fn fixup_parent_path_subdeps(
+        deps: &mut IndexMap<String, config::Dependency>,
+        parent: &str,
+        base_rel: &Path,
+    ) {
+        for (_name, dep) in deps.iter_mut() {
+            if let config::Dependency::Path {
+                path,
+                parent: dep_parent @ None,
+                ..
+            } = dep
+                && !path.starts_with("/")
+            {
+                *path = base_rel.join(&*path);
+                *dep_parent = Some(parent.to_string());
+            }
+        }
     }
 
     /// Load the manifest for a specific version of a dependency.
@@ -1382,59 +1477,40 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         use self::DependencySource as DepSrc;
         use self::DependencyVersion as DepVer;
         match (&dep.source, version) {
-            (DepSrc::Path(path), DepVer::Path) => {
-                if !path.is_absolute() {
-                    Warnings::MaybePathIssues(dep.name.clone(), path.to_path_buf()).emit();
-                }
-                let manifest_path = path.join("Bender.yml");
-                if manifest_path.exists() {
-                    match read_manifest(&manifest_path) {
-                        Ok(m) => {
-                            if dep.name != m.package.name {
-                                Warnings::DepPkgNameNotMatching(
-                                    dep.name.clone(),
-                                    m.package.name.clone(),
-                                )
-                                .emit();
-                            }
-                            Ok(Some(self.sess.intern_manifest(m)))
+            (DepSrc::Path { .. }, DepVer::Path) => {
+                // For parent-relative path dependencies, derive the directory
+                // from the parent's current checkout location. The manifest is
+                // still available via the `.bender/tmp` extraction below before
+                // the parent is checked out.
+                let path: PathBuf = match &dep.source {
+                    DepSrc::Path {
+                        path,
+                        parent: None,
+                    } => {
+                        if !path.is_absolute() {
+                            Warnings::MaybePathIssues(dep.name.clone(), path.to_path_buf()).emit();
                         }
-                        Err(e) => Err(e),
+                        path.clone()
                     }
-                } else if self
+                    _ => self.sess.get_package_path(dep_id),
+                };
+                let manifest_path = path.join("Bender.yml");
+                let tmp_manifest_path = self
                     .sess
                     .root
                     .join(".bender")
                     .join("tmp")
-                    .join(format!("{}_manifest.yml", dep.name))
-                    .exists()
-                {
-                    let file = std::fs::File::open(
-                        self.sess
-                            .root
-                            .join(".bender")
-                            .join("tmp")
-                            .join(format!("{}_manifest.yml", dep.name)),
-                    )
-                    .into_diagnostic()
-                    .wrap_err_with(|| format!("Cannot open manifest {:?}.", path))?;
+                    .join(format!("{}_manifest.yml", dep.name));
+                let manifest: Option<Manifest> = if manifest_path.exists() {
+                    Some(read_manifest(&manifest_path)?)
+                } else if tmp_manifest_path.exists() {
+                    let file = std::fs::File::open(&tmp_manifest_path)
+                        .into_diagnostic()
+                        .wrap_err_with(|| format!("Cannot open manifest {:?}.", path))?;
                     let partial: PartialManifest = serde_yaml_ng::from_reader(file)
                         .into_diagnostic()
                         .wrap_err_with(|| format!("Syntax error in manifest {:?}.", path))?;
-
-                    match partial.validate_ignore_sources() {
-                        Ok(m) => {
-                            if dep.name != m.package.name {
-                                Warnings::DepPkgNameNotMatching(
-                                    dep.name.clone(),
-                                    m.package.name.clone(),
-                                )
-                                .emit();
-                            }
-                            Ok(Some(self.sess.intern_manifest(m)))
-                        }
-                        Err(e) => Err(e),
-                    }
+                    Some(partial.validate_ignore_sources()?)
                 } else {
                     if !path.exists() {
                         Errors::DepPathMissing {
@@ -1448,7 +1524,31 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         src: manifest_path.display().to_string(),
                     }
                     .emit();
-                    Ok(None)
+                    None
+                };
+                match manifest {
+                    Some(mut m) => {
+                        if dep.name != m.package.name {
+                            Warnings::DepPkgNameNotMatching(
+                                dep.name.clone(),
+                                m.package.name.clone(),
+                            )
+                            .emit();
+                        }
+                        // Propagate parent-relative resolution to any path
+                        // dependencies nested inside this one, so that path
+                        // dependencies of path-in-git dependencies also follow
+                        // the git parent's checkout.
+                        if let DepSrc::Path {
+                            path: rel,
+                            parent: Some(parent),
+                        } = &dep.source
+                        {
+                            Self::fixup_parent_path_subdeps(&mut m.dependencies, parent, rel);
+                        }
+                        Ok(Some(self.sess.intern_manifest(m)))
+                    }
+                    None => Ok(None),
                 }
             }
             (&DepSrc::Registry, DepVer::Registry(_hash)) => {
@@ -1481,10 +1581,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             )
                         })?;
 
-                        // Add base path to path dependencies within git repositories
+                        // Rewrite path dependencies declared inside this git
+                        // dependency to be relative to its checkout (the parent).
                         self.sub_dependency_fixing(
                             &mut full.dependencies,
-                            full.package.name.clone(),
+                            &dep.name,
                             &self.sess.get_package_path(dep_id),
                             &self.sess.get_package_path(dep_id),
                             db.clone(),
@@ -1906,7 +2007,7 @@ impl DependencyEntry {
     pub fn version(&self) -> DependencyVersion<'_> {
         match self.source {
             DependencySource::Registry => unimplemented!(),
-            DependencySource::Path(_) => DependencyVersion::Path,
+            DependencySource::Path { .. } => DependencyVersion::Path,
             DependencySource::Git(_) => DependencyVersion::Git(self.revision.as_ref().unwrap()),
         }
     }
@@ -1917,9 +2018,21 @@ impl DependencyEntry {
 pub enum DependencySource {
     /// The dependency is coming from a registry.
     Registry,
-    /// The dependency is located at a fixed path. No version resolution will be
+    /// The dependency is located at a path. No version resolution will be
     /// performed.
-    Path(PathBuf),
+    ///
+    /// When `parent` is `Some`, the dependency is nested inside that parent
+    /// dependency's checkout: `path` is relative to the parent checkout root and
+    /// the on-disk location is derived from the parent's *current* checkout,
+    /// never baked into an absolute path. Such a dependency tracks its parent.
+    Path {
+        /// The path of the dependency. Relative to the parent checkout root when
+        /// `parent` is set, otherwise as given (relative to the root or
+        /// absolute).
+        path: PathBuf,
+        /// The name of the parent dependency that owns the checkout, if any.
+        parent: Option<String>,
+    },
     /// The dependency is available at a git url.
     Git(String),
 }
@@ -1927,7 +2040,10 @@ pub enum DependencySource {
 impl<'a> From<&'a config::Dependency> for DependencySource {
     fn from(cfg: &'a config::Dependency) -> DependencySource {
         match cfg {
-            config::Dependency::Path { path, .. } => DependencySource::Path(path.clone()),
+            config::Dependency::Path { path, parent, .. } => DependencySource::Path {
+                path: path.clone(),
+                parent: parent.clone(),
+            },
             config::Dependency::GitRevision { url, .. } => DependencySource::Git(url.clone()),
             config::Dependency::GitVersion { url, .. } => DependencySource::Git(url.clone()),
             config::Dependency::Version { .. } => DependencySource::Registry,
@@ -1939,7 +2055,11 @@ impl fmt::Display for DependencySource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             DependencySource::Registry => write!(f, "registry"),
-            DependencySource::Path(ref path) => write!(f, "{:?}", path),
+            DependencySource::Path {
+                ref path,
+                parent: Some(ref parent),
+            } => write!(f, "{:?} (in `{}`)", path, parent),
+            DependencySource::Path { ref path, .. } => write!(f, "{:?}", path),
             DependencySource::Git(ref url) => write!(f, "{}", url),
         }
     }
@@ -1950,7 +2070,11 @@ impl DependencySource {
     pub fn to_str(&self) -> String {
         match *self {
             DependencySource::Registry => "registry".to_string(),
-            DependencySource::Path(ref path) => format!("{:?}", path),
+            DependencySource::Path {
+                ref path,
+                parent: Some(ref parent),
+            } => format!("{:?} (in `{}`)", path, parent),
+            DependencySource::Path { ref path, .. } => format!("{:?}", path),
             DependencySource::Git(ref url) => url.to_string(),
         }
     }
@@ -1978,7 +2102,12 @@ impl<'ctx> DependencyTable<'ctx> {
             log::debug!("reusing {:?}", id);
             id
         } else {
-            if let DependencySource::Path(path) = &entry.source
+            // Only warn for plain path dependencies; parent-relative ones are
+            // resolved from the parent's checkout, which may not exist yet.
+            if let DependencySource::Path {
+                path,
+                parent: None,
+            } = &entry.source
                 && !path.exists()
             {
                 Warnings::DepSourcePathMissing(entry.name.clone(), path.clone()).emit();

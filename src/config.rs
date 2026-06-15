@@ -117,10 +117,17 @@ pub enum Dependency {
     Path {
         /// The targets for which the dependency should be considered.
         target: TargetSpec,
-        /// The path to the dependency.
+        /// The path to the dependency. When `parent` is `Some`, this is relative
+        /// to the parent dependency's checkout root; otherwise it is relative to
+        /// the declaring manifest (or absolute).
         path: PathBuf,
         /// Targets to pass to the dependency
         pass_targets: Vec<PassedTarget>,
+        /// The name of the parent dependency this path dependency is nested in,
+        /// if it originates from inside a git dependency's checkout. The path is
+        /// then interpreted relative to the parent's checkout root. Path
+        /// dependencies of the root package have no parent.
+        parent: Option<String>,
     },
     /// A git dependency specified by a revision.
     GitRevision {
@@ -155,10 +162,18 @@ impl PrefixPaths for Dependency {
                 target,
                 path,
                 pass_targets,
+                parent,
             } => Dependency::Path {
                 target,
-                path: path.prefix_paths(prefix)?,
+                // Parent-relative path dependencies are resolved against the
+                // parent's checkout, not the root package, so leave them as-is.
+                path: if parent.is_some() {
+                    path
+                } else {
+                    path.prefix_paths(prefix)?
+                },
                 pass_targets,
+                parent,
             },
             v => v,
         })
@@ -188,11 +203,15 @@ impl Serialize for Dependency {
                 ref target,
                 ref path,
                 ref pass_targets,
+                ref parent,
             } => {
-                let mut map = serializer.serialize_map(Some(3))?;
+                let mut map = serializer.serialize_map(Some(if parent.is_some() { 4 } else { 3 }))?;
                 map.serialize_entry("target", target)?;
                 map.serialize_entry("path", path)?;
                 map.serialize_entry("pass_targets", pass_targets)?;
+                if let Some(parent) = parent {
+                    map.serialize_entry("parent", parent)?;
+                }
                 map.end()
             }
 
@@ -812,6 +831,7 @@ impl Validate for PartialDependency {
                 target,
                 path: env_path_from_string(&path)?,
                 pass_targets,
+                parent: None,
             }),
             (_, _, Some(_), Some(_), _) => Err(err!(
                 "Dependency `{}` cannot specify both `version` and `rev` fields.",
@@ -2014,6 +2034,11 @@ pub struct LockedPackage {
     /// The source of the dependency.
     #[serde(with = "serde_yaml_ng::with::singleton_map")]
     pub source: LockedSource,
+    /// The name of the parent dependency this package is nested in, if it is a
+    /// path dependency located inside another dependency's checkout. The
+    /// `source` path is then interpreted relative to the parent's checkout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
     /// Other packages this package depends on.
     pub dependencies: BTreeSet<String>,
 }

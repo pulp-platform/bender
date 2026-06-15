@@ -31,7 +31,10 @@ use crate::{fmt_path, fmt_version};
 /// produce the same string representation.
 fn format_dep_source(source: &DependencySource, base_dir: &Path) -> String {
     match source {
-        DependencySource::Path(rel_path) => {
+        DependencySource::Path {
+            path: rel_path,
+            parent: None,
+        } => {
             let abs_path = base_dir.join(rel_path);
             let canonical = canonicalize(&abs_path).unwrap_or(abs_path);
             format!("{:?}", canonical)

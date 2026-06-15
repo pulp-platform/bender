@@ -25,21 +25,25 @@ pub fn read_lockfile(path: &Path, root_dir: &Path) -> Result<Locked> {
             .packages
             .iter()
             .map(|pack| {
-                Ok(if let LockedSource::Path(path) = &pack.1.source {
-                    (
-                        pack.0.clone(),
-                        LockedPackage {
-                            source: LockedSource::Path(if path.is_relative() {
-                                path.clone().prefix_paths(root_dir)?
-                            } else {
-                                path.clone()
-                            }),
-                            ..pack.1.clone()
-                        },
-                    )
-                } else {
-                    (pack.0.clone(), pack.1.clone())
-                })
+                // Parent-relative path dependencies keep their path relative to
+                // the parent's checkout, so they are not rebased onto the root.
+                Ok(
+                    if let (LockedSource::Path(path), None) = (&pack.1.source, &pack.1.parent) {
+                        (
+                            pack.0.clone(),
+                            LockedPackage {
+                                source: LockedSource::Path(if path.is_relative() {
+                                    path.clone().prefix_paths(root_dir)?
+                                } else {
+                                    path.clone()
+                                }),
+                                ..pack.1.clone()
+                            },
+                        )
+                    } else {
+                        (pack.0.clone(), pack.1.clone())
+                    },
+                )
             })
             .collect::<Result<_>>()?,
     })
@@ -54,7 +58,9 @@ pub fn write_lockfile(locked: &Locked, path: &Path, root_dir: &Path) -> Result<(
             .packages
             .iter()
             .map(|pack| {
-                if let LockedSource::Path(path) = &pack.1.source {
+                // Parent-relative path dependencies already store their path
+                // relative to the parent's checkout; leave them untouched.
+                if let (LockedSource::Path(path), None) = (&pack.1.source, &pack.1.parent) {
                     (
                         pack.0.clone(),
                         LockedPackage {
