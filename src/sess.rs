@@ -454,9 +454,7 @@ impl<'ctx> Session<'ctx> {
             .map(|file| match *file {
                 config::SourceFile::File(ref path) => {
                     let ty = match path.extension().and_then(std::ffi::OsStr::to_str) {
-                        Some("sv") | Some("v") | Some("vp") | Some("svh") => {
-                            Some(SourceType::Verilog)
-                        }
+                        Some("sv") | Some("v") | Some("vp") => Some(SourceType::Verilog),
                         Some("vhd") | Some("vhdl") => Some(SourceType::Vhdl),
                         _ => None,
                     };
