@@ -51,7 +51,7 @@ mod tests {
     /// all-backslash because the Bender.yml entry has no embedded separator — so splitting on
     /// `/` alone misses the latter.
     fn basename(path: &str) -> &str {
-        match path.rfind(|c: char| c == '/' || c == '\\') {
+        match path.rfind(['/', '\\']) {
             Some(i) => &path[i + 1..],
             None => path,
         }
@@ -379,5 +379,60 @@ mod tests {
             !trimmed.contains("dup_a.sv"),
             "dup_a.sv (overwritten) should be absent: {trimmed:?}"
         );
+    }
+
+    /// Regression test: files whose extension isn't a recognized HDL type (e.g. `.txt`) must
+    /// still appear in `flist`/`flist-plus` output. They used to be silently dropped once the
+    /// file list switched to iterating per-type source groups.
+    #[test]
+    fn script_untyped_files_kept_in_flist() {
+        for fmt in ["flist", "flist-plus"] {
+            let out = run_script(&["--target", "untyped", fmt]);
+            let files = source_basenames(&out);
+            assert!(
+                files.contains("misc_rtl.sv"),
+                "typed file missing from {fmt}: {files:?}"
+            );
+            assert!(
+                files.contains("misc_notes.txt"),
+                "untyped file must be kept in {fmt}: {files:?}"
+            );
+        }
+    }
+
+    /// Tool scripts that branch on file type must not emit a broken compile command for untyped
+    /// files: they comment them out instead. Verify the untyped file appears only on comment
+    /// lines and that a skip notice is present.
+    #[test]
+    fn script_untyped_files_commented_in_tool_scripts() {
+        for fmt in [
+            "vsim",
+            "vcs",
+            "synopsys",
+            "formality",
+            "riviera",
+            "genus",
+            "precision",
+        ] {
+            let out = run_script(&["--target", "untyped", fmt]);
+            let mentions: Vec<&str> = out
+                .lines()
+                .filter(|l| l.contains("misc_notes.txt"))
+                .collect();
+            assert!(
+                !mentions.is_empty(),
+                "untyped file absent from {fmt} output:\n{out}"
+            );
+            for line in &mentions {
+                assert!(
+                    line.trim_start().starts_with('#'),
+                    "untyped file must only appear in comments for {fmt}, got line {line:?}\nfull:\n{out}"
+                );
+            }
+            assert!(
+                out.contains("Skipping") && out.contains("unknown type"),
+                "expected an unknown-type skip notice in {fmt} output:\n{out}"
+            );
+        }
     }
 }

@@ -900,8 +900,12 @@ fn emit_template(
         }
         separate_files_in_group(
             src,
+            // Categorize by file type. The extra `Some(..)` wrapper means untyped files
+            // (`SourceType` = None, e.g. a `.c`/`.tcl`/`.txt` listed in the sources) form their
+            // own group rather than being dropped: only real `Group` entries — which don't
+            // survive `flatten()` — categorize to `None` and get skipped.
             |f| match f {
-                SourceFile::File(_, fmt) => *fmt,
+                SourceFile::File(_, fmt) => Some(*fmt),
                 _ => None,
             },
             |src, ty, files| {
@@ -957,7 +961,7 @@ fn emit_template(
                             SourceFile::Group(_) => unreachable!(),
                         })
                         .collect(),
-                    file_type: Some(ty),
+                    file_type: ty,
                 });
             },
         );

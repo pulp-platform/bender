@@ -11,7 +11,7 @@ setup_design -defines { \
 
 {% else %} \
     {% endif %}{% endfor %}{# Separate compilation: one block per source group -#}
-{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if group.file_type != '' %}{% if source_annotations %}# {{ group.metadata }}
+{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if group.file_type == 'verilog' or group.file_type == 'vhdl' %}{% if source_annotations %}# {{ group.metadata }}
 {% endif %}{% if abort_on_error %}if {[catch { {% endif %}add_input_file \
     {% if group.file_type == 'verilog' %}-format SystemVerilog2012 \
     {% for incdir in group.incdirs %}{% if loop.first %}-search_path { \
@@ -26,6 +26,10 @@ setup_design -defines { \
         {% endif %}{% endfor %}} \
 {% if abort_on_error %}}]} {return 1}
 {% endif %}
+{% else %}{% if source_annotations %}# {{ group.metadata }}
+{% endif %}# Skipping {{ group.files | length }} file(s) of unknown type (prefix with sv:/v:/vhd: to set one):
+{% for file in group.files %}#   {{ file.file }}
+{% endfor %}
 {% endif %}{% endfor %}
 {# Common compilation: all files in one block -#}
 {% else -%}

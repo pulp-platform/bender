@@ -2,7 +2,7 @@
 set ROOT "{{ root }}"
 {# Separate compilation: one block per source group -#}
 {% if compilation_mode == 'separate' -%}
-{%- for group in srcs %}{% if group.file_type != '' %}
+{%- for group in srcs %}{% if group.file_type == 'verilog' or group.file_type == 'vhdl' %}
 {% if source_annotations %}# {{ group.metadata }}
 {% endif -%}
 {%- if abort_on_error %}if {[catch { {% endif -%}
@@ -24,6 +24,12 @@ set ROOT "{{ root }}"
 {%- endfor -%}
 {%- if abort_on_error %}\
 }]} {return 1}{% endif %}
+{% else %}
+{% if source_annotations %}# {{ group.metadata }}
+{% endif -%}
+# Skipping {{ group.files | length }} file(s) of unknown type (prefix with sv:/v:/vhd: to set one):
+{% for file in group.files %}#   {{ file.file | replace(from=root, to='$ROOT') }}
+{% endfor -%}
 {% endif %}{% endfor -%}
 {# Common compilation: all files in one block -#}
 {%- else -%}

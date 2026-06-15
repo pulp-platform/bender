@@ -35,3 +35,8 @@ sources:
   - target: broken
     files:
       - src/broken.sv
+
+  - target: untyped
+    files:
+      - src/misc_rtl.sv
+      - src/misc_notes.txt
