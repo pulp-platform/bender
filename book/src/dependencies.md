@@ -118,6 +118,8 @@ Cloning submodules is often the slowest part of fetching dependencies, and submo
 
 Only disable submodules when none of your dependencies reference sources that live inside a submodule.
 
+When submodules are disabled, Bender emits a warning for each dependency that carries submodules, listing the unchecked-out submodule paths and the `git submodule update --init --recursive` command to fetch them back into its checkout.
+
 ## Version Resolution and the Lockfile
 
 When you run `bender update`, Bender performs the following:
