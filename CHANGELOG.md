@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## Unreleased
 ### Added
 - Add `git_submodules` config field and `--git-submodules <true|false>` flag (env `BENDER_GIT_SUBMODULES`) to control cloning of dependency submodules; defaults to `true`, the flag overrides the configured value in either direction (https://github.com/pulp-platform/bender/pull/314).
+- Add a per-dependency `git_submodules` list to the manifest (`Bender.yml`) that lets a package restrict which of its submodules are cloned (with optional per-entry `recursive` and `shallow` flags, both defaulting to `true`); when absent, all submodules are cloned recursively as before.
 
 ## 0.32.0 - 2026-06-05
 ### Breaking Changes
