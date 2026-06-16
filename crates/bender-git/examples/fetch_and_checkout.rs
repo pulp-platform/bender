@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -6,7 +5,7 @@ use std::time::Duration;
 
 use bender_git::database::GitDatabase;
 use bender_git::error::Result;
-use bender_git::progress::{GitOp, GitProgress};
+use bender_git::progress::GitProgress;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use tempfile::{Builder, TempDir};
 
@@ -43,9 +42,6 @@ async fn main() -> Result<()> {
     let fetch_style = ProgressStyle::with_template("{spinner} {msg:28} [{wide_bar}] {pos:>3}%")
         .expect("valid progress template")
         .progress_chars("=> ");
-    let submodule_style = ProgressStyle::with_template("{spinner} {msg:28} [{wide_bar}] {pos:>3}%")
-        .expect("valid progress template")
-        .progress_chars("=> ");
     let [repo_a, repo_b, repo_c] = REPOS else {
         panic!("expected exactly three remotes");
     };
@@ -55,30 +51,19 @@ async fn main() -> Result<()> {
             base_dir.clone(),
             *repo_a,
             multi.clone(),
-            ProgressBars::new(multi.clone(), fetch_style.clone(), repo_a.name.to_owned(),),
-            ProgressBars::new(
-                multi.clone(),
-                submodule_style.clone(),
-                repo_a.name.to_owned()
-            ),
+            ProgressBars::new(multi.clone(), fetch_style.clone(), repo_a.name.to_owned()),
         ),
         fetch_repo(
             base_dir.clone(),
             *repo_b,
             multi.clone(),
-            ProgressBars::new(multi.clone(), fetch_style.clone(), repo_b.name.to_owned(),),
-            ProgressBars::new(
-                multi.clone(),
-                submodule_style.clone(),
-                repo_b.name.to_owned()
-            ),
+            ProgressBars::new(multi.clone(), fetch_style.clone(), repo_b.name.to_owned()),
         ),
         fetch_repo(
             base_dir,
             *repo_c,
             multi.clone(),
             ProgressBars::new(multi.clone(), fetch_style, repo_c.name.to_owned()),
-            ProgressBars::new(multi, submodule_style, repo_c.name.to_owned()),
         ),
     );
 
@@ -109,7 +94,6 @@ async fn fetch_repo(
     repo: RepoSpec,
     multi: Arc<MultiProgress>,
     fetch_progress: ProgressBars,
-    submodule_progress: ProgressBars,
 ) -> Result<FetchSummary> {
     let temp = Builder::new()
         .prefix("tmp-bender-git-db-")
@@ -129,7 +113,7 @@ async fn fetch_repo(
     let checkout = db.clone_into(&checkout_path, &checkout_tag).await?;
     let current_checkout = checkout.current_checkout()?;
     assert_eq!(current_checkout.to_string(), checkout_rev.to_string());
-    checkout.update_submodules(submodule_progress).await?;
+    checkout.update_submodules().await?;
     multi.println(format!(
         "{}: checkout ready at {}",
         repo.name,
@@ -171,8 +155,7 @@ struct ProgressBars {
     multi: Arc<MultiProgress>,
     repo_name: String,
     style: ProgressStyle,
-    next_id: usize,
-    entries: HashMap<usize, ProgressEntry>,
+    entry: Option<ProgressEntry>,
 }
 
 impl ProgressBars {
@@ -181,8 +164,7 @@ impl ProgressBars {
             multi,
             repo_name,
             style,
-            next_id: 0,
-            entries: HashMap::new(),
+            entry: None,
         }
     }
 
@@ -193,67 +175,37 @@ impl ProgressBars {
         bar.enable_steady_tick(Duration::from_millis(100));
         bar
     }
-
-    fn entry_mut(&mut self, id: usize) -> &mut ProgressEntry {
-        self.entries
-            .get_mut(&id)
-            .expect("progress id should reference an existing bar")
-    }
 }
 
 impl GitProgress for ProgressBars {
-    type Id = usize;
-
-    fn started(&mut self, op: GitOp, label: &str) -> Self::Id {
-        let id = self.next_id;
-        self.next_id += 1;
-        let full_label = match op {
-            GitOp::Fetch => format!("{}: {} {}", self.repo_name, format_op(op), label),
-            GitOp::SubmoduleUpdate if label.contains(std::path::MAIN_SEPARATOR) => {
-                format!("{}: {} {}", self.repo_name, format_op(op), label)
-            }
-            GitOp::SubmoduleUpdate => format!("{} / {}", self.repo_name, label),
-        };
+    fn started(&mut self, label: &str) {
+        let full_label = format!("{}: fetch {}", self.repo_name, label);
         let bar = self.make_bar(&full_label);
         self.multi
-            .println(format!(
-                "{}: started {} ({label})",
-                self.repo_name,
-                format_op(op)
-            ))
+            .println(format!("{}: started fetch ({label})", self.repo_name))
             .ok();
-        self.entries.insert(
-            id,
-            ProgressEntry {
-                label: full_label,
-                bar,
-                last_percent: None,
-            },
-        );
-        id
+        self.entry = Some(ProgressEntry {
+            label: full_label,
+            bar,
+            last_percent: None,
+        });
     }
 
-    fn progress(&mut self, id: Self::Id, percent: u8) {
-        let entry = self.entry_mut(id);
-        if entry.last_percent != Some(percent) {
+    fn progress(&mut self, percent: u8) {
+        if let Some(entry) = &mut self.entry
+            && entry.last_percent != Some(percent)
+        {
             entry.last_percent = Some(percent);
             entry.bar.set_position(u64::from(percent));
         }
     }
 
-    fn finished(&mut self, id: Self::Id) {
-        if let Some(entry) = self.entries.remove(&id) {
+    fn finished(&mut self) {
+        if let Some(entry) = self.entry.take() {
             entry.bar.set_position(100);
             entry
                 .bar
                 .finish_with_message(format!("{}: finished", entry.label));
         }
-    }
-}
-
-fn format_op(op: GitOp) -> &'static str {
-    match op {
-        GitOp::Fetch => "fetch",
-        GitOp::SubmoduleUpdate => "submodule-update",
     }
 }

@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use crate::error::{GitError, Result, gix_err};
-use crate::progress::{GitProgress, SubmoduleTracker, on_submodule_progress};
 use crate::subprocess::{GIT_LFS, SubprocessRunner};
 use crate::types::ObjectId;
 
@@ -84,23 +83,20 @@ impl GitCheckout {
     }
 
     /// Initialise and update git submodules recursively.
-    pub async fn update_submodules(&self, mut progress: impl GitProgress) -> Result<()> {
+    ///
+    /// Submodule updates are not progress-tracked.
+    pub async fn update_submodules(&self) -> Result<()> {
         let repo = self.repo.to_thread_local();
         if repo.submodules().map_err(gix_err)?.is_none() {
             return Ok(());
         }
 
-        let mut tracker = SubmoduleTracker::new();
-        let result = self
-            .runner()?
-            .run_drain(
-                &["submodule", "update", "--init", "--recursive", "--progress"],
+        self.runner()?
+            .run_discard(
+                &["submodule", "update", "--init", "--recursive"],
                 &[("GIT_TERMINAL_PROMPT", "0"), ("GIT_LFS_SKIP_SMUDGE", "1")],
-                on_submodule_progress(&mut tracker, &mut progress),
             )
-            .await;
-        tracker.finish(&mut progress);
-        result
+            .await
     }
 
     /// Pull LFS objects for the current checkout, pointing git-lfs at `lfs_url`.
