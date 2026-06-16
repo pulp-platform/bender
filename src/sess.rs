@@ -770,6 +770,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             DbAction::Fetch => {
                 log::info!("fetching updates for {} from {}", name, url);
                 self.sess.stats.num_database_fetch.increment();
+                // Disable automatic garbage collection on the shared database
+                // (see init path for rationale). Idempotent and re-applied here
+                // so databases initialized by older bender versions also gain
+                // the setting on their next fetch.
+                git.clone()
+                    .spawn_with(|c| c.arg("config").arg("gc.auto").arg("0"), None)
+                    .await?;
                 // The progress bar object for fetching.
                 let pb = Some(ProgressHandler::new(
                     self.sess.multiprogress.clone(),
