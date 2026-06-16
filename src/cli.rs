@@ -61,6 +61,15 @@ struct Cli {
     )]
     git_throttle: Option<usize>,
 
+    /// Clone the git submodules of dependencies [default: true]
+    #[arg(
+        long,
+        global = true,
+        help_heading = "Global Options",
+        env = "BENDER_GIT_SUBMODULES"
+    )]
+    git_submodules: Option<bool>,
+
     /// Suppresses specific warnings. Use `all` to suppress all warnings.
     #[arg(long, global = true, action = ArgAction::Append, help_heading = "Global Options", env = "BENDER_SUPPRESS_WARNINGS")]
     suppress: Vec<String>,
@@ -198,7 +207,13 @@ pub fn main() -> Result<()> {
     log::debug!("{:#?}", manifest);
 
     // Gather and parse the tool configuration.
-    let config = load_config(&root_dir, matches!(cli.command, Commands::Update(_)))?;
+    let mut config = load_config(&root_dir, matches!(cli.command, Commands::Update(_)))?;
+
+    // The `--git-submodules` CLI flag (or `BENDER_GIT_SUBMODULES`) takes
+    // precedence over the configuration files in both directions.
+    if let Some(v) = cli.git_submodules {
+        config.git_submodules = v;
+    }
     log::debug!("{:#?}", config);
 
     // Determine git throttle. The precedence is: CLI argument, env variable, config file, default (4).
@@ -518,6 +533,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
         plugins: None,
         git_throttle: None,
         git_lfs: None,
+        git_submodules: None,
     };
     out = out.merge(default_cfg);
 

@@ -326,6 +326,29 @@ impl<'ctx> Git<'ctx> {
         .wrap_err("Failed to check for LFS attributes.")?
     }
 
+    /// List the working-tree paths of the submodules declared in the
+    /// repository's `.gitmodules` file.
+    ///
+    /// `.gitmodules` is the authoritative source for what `git submodule update`
+    /// fetches: a submodule must have a `submodule.<name>.path` entry there to be
+    /// cloned. This mirrors how bender decides whether to run a submodule update
+    /// in the first place, namely by checking for the presence of `.gitmodules`.
+    pub async fn submodule_paths(self) -> Result<Vec<String>> {
+        let gitmodules = self.path.join(".gitmodules");
+        let content = tokio::fs::read_to_string(&gitmodules)
+            .await
+            .into_diagnostic()
+            .wrap_err_with(|| format!("Failed to read {:?}.", gitmodules))?;
+        Ok(content
+            .lines()
+            .filter_map(|line| {
+                let rest = line.trim_start().strip_prefix("path")?.trim_start();
+                let value = rest.strip_prefix('=')?.trim();
+                Some(value.to_string())
+            })
+            .collect())
+    }
+
     /// Fetch the tags and refs of a remote.
     pub async fn fetch(self, remote: &str, pb: Option<ProgressHandler>) -> Result<()> {
         self.clone()

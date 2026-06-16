@@ -432,6 +432,20 @@ pub enum Warnings {
     #[error("Source group in package {} uses `override_files`, which is not supported in the simplified source output and will be ignored.", fmt_pkg!(.0))]
     #[diagnostic(code(W35))]
     OverrideFilesIgnored(String),
+
+    #[error(
+        "Git submodules are disabled, dependency {} has submodules that were not checked out:\n{}",
+        fmt_pkg!(.0),
+        .1.iter().map(|p| format!("  - {}", fmt_path!(p))).collect::<Vec<_>>().join("\n")
+    )]
+    #[diagnostic(
+        code(W36),
+        help(
+            "Re-run with `--git-submodules true` (or set `git_submodules: true` in the configuration), or run `git -C \"$(bender path {})\" submodule update --init --recursive` to fetch them manually.",
+            fmt_pkg!(.0)
+        )
+    )]
+    SubmodulesDisabled(String, Vec<String>),
 }
 
 #[derive(Error, Diagnostic, Debug, Clone)]

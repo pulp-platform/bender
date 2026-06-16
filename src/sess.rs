@@ -1220,24 +1220,32 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 }
             }
             if path.join(".gitmodules").exists() {
-                let pb = Some(ProgressHandler::new(
-                    self.sess.multiprogress.clone(),
-                    GitProgressOps::Submodule,
-                    name,
-                ));
-                local_git
-                    .clone()
-                    .spawn_with(
-                        move |c| {
-                            c.arg("submodule")
-                                .arg("update")
-                                .arg("--init")
-                                .arg("--recursive")
-                                .arg("--progress")
-                        },
-                        pb,
-                    )
-                    .await?;
+                if self.sess.config.git_submodules {
+                    let pb = Some(ProgressHandler::new(
+                        self.sess.multiprogress.clone(),
+                        GitProgressOps::Submodule,
+                        name,
+                    ));
+                    local_git
+                        .clone()
+                        .spawn_with(
+                            move |c| {
+                                c.arg("submodule")
+                                    .arg("update")
+                                    .arg("--init")
+                                    .arg("--recursive")
+                                    .arg("--progress")
+                            },
+                            pb,
+                        )
+                        .await?;
+                } else {
+                    // Submodules were disabled via the `--git-submodules` flag,
+                    // so they are left unchecked out. Warn the user, listing the
+                    // affected submodules and how to fetch them back.
+                    let submodules = local_git.clone().submodule_paths().await?;
+                    Warnings::SubmodulesDisabled(name.to_string(), submodules).emit();
+                }
             }
         }
         Ok(path)

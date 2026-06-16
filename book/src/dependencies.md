@@ -109,7 +109,16 @@ Bender detects whether a dependency uses **Git Large File Storage (LFS)** via it
 
 ## Submodules
 
-If a dependency contains a `.gitmodules` file, Bender will automatically initialize and update its Git submodules recursively after checkout. No additional configuration is required.
+If a dependency contains a `.gitmodules` file, Bender initializes and updates its Git submodules recursively after checkout by default.
+
+Cloning submodules is often the slowest part of fetching dependencies, and submodules frequently hold software or tooling that is irrelevant to the hardware build. You can therefore disable submodule cloning:
+
+- Set `git_submodules: false` in your [configuration](./configuration.md#git_submodules) to skip submodules persistently for a project.
+- Pass `--git-submodules false` (or set `BENDER_GIT_SUBMODULES=false`) to skip them for a single invocation. The flag overrides the configured value in either direction.
+
+Only disable submodules when none of your dependencies reference sources that live inside a submodule.
+
+When submodules are disabled, Bender emits a warning for each dependency that carries submodules, listing the unchecked-out submodule paths and the `git submodule update --init --recursive` command to fetch them back into its checkout.
 
 ## Version Resolution and the Lockfile
 
