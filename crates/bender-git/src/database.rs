@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::checkout::GitCheckout;
-use crate::error::{GitError, Result, gix_err};
+use crate::error::{GitError, Result};
 use crate::progress::{GitProgress, on_fetch_progress};
 use crate::subprocess::SubprocessRunner;
 use crate::types::ObjectId;
@@ -38,13 +38,13 @@ impl GitDatabase {
     ///
     /// Equivalent to `git init --bare`. The directory must already exist.
     pub fn init_bare(path: impl Into<PathBuf>) -> Result<Self> {
-        let repo = gix::init_bare(path.into()).map_err(gix_err)?.into_sync();
+        let repo = gix::init_bare(path.into())?.into_sync();
         Ok(Self { repo })
     }
 
     /// Open an existing bare repository at `path`.
     pub fn open(path: impl Into<PathBuf>) -> Result<Self> {
-        let repo = gix::open(path).map_err(gix_err)?.into_sync();
+        let repo = gix::open(path)?.into_sync();
         Ok(Self { repo })
     }
 
@@ -62,21 +62,18 @@ impl GitDatabase {
         let repo = self.repo.to_thread_local();
         let refspec = format!("+refs/heads/*:refs/remotes/{name}/*");
         let mut remote = repo
-            .remote_at(url)
-            .map_err(gix_err)?
-            .with_refspecs(Some(refspec.as_str()), gix::remote::Direction::Fetch)
-            .map_err(gix_err)?;
+            .remote_at(url)?
+            .with_refspecs(Some(refspec.as_str()), gix::remote::Direction::Fetch)?;
 
         let config_path = repo.path().join("config");
         let mut config = gix::config::File::from_path_no_includes(
             config_path.clone(),
             gix::config::Source::Local,
-        )
-        .map_err(gix_err)?;
-        remote.save_as_to(name, &mut config).map_err(gix_err)?;
+        )?;
+        remote.save_as_to(name, &mut config)?;
 
-        let mut out = std::fs::File::create(&config_path).map_err(gix_err)?;
-        config.write_to(&mut out).map_err(gix_err)
+        let mut out = std::fs::File::create(&config_path)?;
+        Ok(config.write_to(&mut out)?)
     }
 
     /// Fetch all tags and branches from `remote`.
@@ -176,8 +173,7 @@ impl GitDatabase {
     pub fn tag_commit(&self, tag_name: &str, commit: &ObjectId) -> Result<()> {
         use gix::refs::transaction::PreviousValue;
         let repo = self.repo.to_thread_local();
-        repo.tag_reference(tag_name, *commit, PreviousValue::Any)
-            .map_err(gix_err)?;
+        repo.tag_reference(tag_name, *commit, PreviousValue::Any)?;
         Ok(())
     }
 
@@ -188,13 +184,8 @@ impl GitDatabase {
     pub fn list_tags(&self) -> Result<Vec<(String, ObjectId)>> {
         let repo = self.repo.to_thread_local();
         let mut result = Vec::new();
-        for reference in repo
-            .references()
-            .map_err(gix_err)?
-            .tags()
-            .map_err(gix_err)?
-        {
-            let mut reference = reference.map_err(gix_err)?;
+        for reference in repo.references()?.tags()? {
+            let mut reference = reference?;
             let name = reference.name().as_bstr().to_string();
             let Ok(id) = reference.peel_to_id() else {
                 continue;
@@ -212,13 +203,8 @@ impl GitDatabase {
     pub fn list_branches(&self) -> Result<Vec<(String, ObjectId)>> {
         let repo = self.repo.to_thread_local();
         let mut result = Vec::new();
-        for reference in repo
-            .references()
-            .map_err(gix_err)?
-            .remote_branches()
-            .map_err(gix_err)?
-        {
-            let mut reference = reference.map_err(gix_err)?;
+        for reference in repo.references()?.remote_branches()? {
+            let mut reference = reference?;
             let name = reference.name().as_bstr().to_string();
             let Ok(id) = reference.peel_to_id() else {
                 continue;
@@ -240,10 +226,8 @@ impl GitDatabase {
         let repo = self.repo.to_thread_local();
 
         let tips: Vec<gix::ObjectId> = repo
-            .references()
-            .map_err(gix_err)?
-            .all()
-            .map_err(gix_err)?
+            .references()?
+            .all()?
             .filter_map(|r| r.ok()?.peel_to_id().ok().map(|id| id.detach()))
             .collect();
 
@@ -251,9 +235,8 @@ impl GitDatabase {
             .sorting(gix::revision::walk::Sorting::ByCommitTime(
                 Default::default(),
             ))
-            .all()
-            .map_err(gix_err)?
-            .map(|info| Ok(ObjectId::from(info.map_err(gix_err)?.id)))
+            .all()?
+            .map(|info| Ok(ObjectId::from(info?.id)))
             .collect()
     }
 
@@ -268,11 +251,11 @@ impl GitDatabase {
             .map_err(|_| GitError::ObjectNotFound {
                 oid: rev.to_string(),
             })?;
-        let tree = commit.tree().map_err(gix_err)?;
-        let Some(entry) = tree.lookup_entry_by_path(path).map_err(gix_err)? else {
+        let tree = commit.tree()?;
+        let Some(entry) = tree.lookup_entry_by_path(path)? else {
             return Ok(None);
         };
-        let blob = entry.object().map_err(gix_err)?;
+        let blob = entry.object()?;
         let content = String::from_utf8(blob.data.to_vec()).map_err(|_| GitError::InvalidUtf8 {
             context: path.display().to_string(),
         })?;
@@ -295,9 +278,7 @@ impl GitDatabase {
         // Fall back to remote-tracking ref — in a bare repo, `git fetch` stores
         // branches as refs/remotes/origin/<name> rather than refs/heads/<name>.
         let remote_spec = format!("refs/remotes/origin/{}^{{commit}}", expr);
-        let id = repo
-            .rev_parse_single(remote_spec.as_str())
-            .map_err(gix_err)?;
+        let id = repo.rev_parse_single(remote_spec.as_str())?;
         Ok(ObjectId::from(id.detach()))
     }
 
@@ -309,8 +290,8 @@ impl GitDatabase {
     /// cached `ThreadSafeRepository`. Remotes may be added after construction,
     /// so the cached config snapshot would not include them.
     pub fn remote_url(&self, remote: &str) -> Result<String> {
-        let repo = gix::open(self.repo.path()).map_err(gix_err)?;
-        let remote = repo.find_remote(remote).map_err(gix_err)?;
+        let repo = gix::open(self.repo.path())?;
+        let remote = repo.find_remote(remote)?;
         let url = remote
             .url(gix::remote::Direction::Fetch)
             .ok_or(GitError::RefNotFound {

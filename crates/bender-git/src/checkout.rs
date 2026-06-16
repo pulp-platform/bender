@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::error::{GitError, Result, gix_err};
+use crate::error::{GitError, Result};
 use crate::subprocess::{GIT_LFS, SubprocessRunner};
 use crate::types::ObjectId;
 
@@ -23,7 +23,7 @@ pub struct GitCheckout {
 impl GitCheckout {
     /// Open an existing working tree at `path`.
     pub fn open(path: impl Into<PathBuf>) -> Result<Self> {
-        let repo = gix::open(path).map_err(gix_err)?.into_sync();
+        let repo = gix::open(path)?.into_sync();
         Ok(Self { repo })
     }
 
@@ -37,7 +37,7 @@ impl GitCheckout {
     /// This is a pure local read implemented via `gix`; no semaphore acquired.
     pub fn current_checkout(&self) -> Result<ObjectId> {
         let repo = self.repo.to_thread_local();
-        let id = repo.head_id().map_err(gix_err)?;
+        let id = repo.head_id()?;
         Ok(ObjectId::from(id.detach()))
     }
 
@@ -47,7 +47,7 @@ impl GitCheckout {
     /// This is a pure local read via `gix`; no semaphore acquired.
     pub fn remote_url(&self, remote: &str) -> Result<String> {
         let repo = self.repo.to_thread_local();
-        let remote = repo.find_remote(remote).map_err(gix_err)?;
+        let remote = repo.find_remote(remote)?;
         let url = remote
             .url(gix::remote::Direction::Fetch)
             .ok_or(GitError::RefNotFound {
@@ -87,7 +87,7 @@ impl GitCheckout {
     /// Submodule updates are not progress-tracked.
     pub async fn update_submodules(&self) -> Result<()> {
         let repo = self.repo.to_thread_local();
-        if repo.submodules().map_err(gix_err)?.is_none() {
+        if repo.submodules()?.is_none() {
             return Ok(());
         }
 
