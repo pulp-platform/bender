@@ -120,6 +120,26 @@ Only disable submodules when none of your dependencies reference sources that li
 
 When submodules are disabled, Bender emits a warning for each dependency that carries submodules, listing the unchecked-out submodule paths and the `git submodule update --init --recursive` command to fetch them back into its checkout.
 
+### Selecting submodules per dependency
+
+A package maintainer who knows which submodules are actually needed can restrict cloning to those submodules by adding a `git_submodules` list to the dependency's own `Bender.yml`:
+
+```yaml
+git_submodules:
+  - sw/deps/printf            # string form: clone this submodule
+  - submodule: sw/deps/cva6-sdk  # map form
+    recursive: false          # skip the submodule's own submodules (default: true)
+    shallow: false            # fetch full history (default: true)
+  # pd/deps/ihp-130-pdk -> omitted, so it is not cloned
+```
+
+- **No `git_submodules` field** (the default): all submodules are cloned recursively.
+- **`git_submodules` present**: only the listed submodules are cloned; an empty list (`git_submodules: []`) clones none.
+- **`recursive`** (default `true`): also update the submodule's own nested submodules. Set it to `false` to fetch only the top-level submodule.
+- **`shallow`** (default `true`): fetch the submodule with `--depth 1`. Set it to `false` to clone the full submodule history.
+
+The global `git_submodules: false` / `--git-submodules false` switch always wins: when submodule cloning is disabled globally, the per-dependency list is ignored and no submodules are cloned.
+
 ## Version Resolution and the Lockfile
 
 When you run `bender update`, Bender performs the following:
