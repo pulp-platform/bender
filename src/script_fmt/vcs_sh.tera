@@ -5,7 +5,7 @@ set -e
 {% endif %}
 ROOT="{{ root }}"
 {# Separate compilation: one block per source group -#}
-{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if group.file_type != '' %}{% if source_annotations %}
+{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if group.file_type == 'verilog' or group.file_type == 'vhdl' %}{% if source_annotations %}
 # {{ group.metadata }}{% endif %}
 {% if group.file_type == 'verilog' %}{{ vlogan_bin }} -sverilog \
     -full64 \
@@ -16,7 +16,11 @@ ROOT="{{ root }}"
     {% for tmp_arg in vhdlan_args %}{{ tmp_arg }} \
     {% endfor %}{% endif %}{% for file in group.files %}"{{ file.file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
     {% endif %}{% endfor %}
-{% endif %}{% endfor %}
+{% else %}{% if source_annotations %}
+# {{ group.metadata }}{% endif %}
+# Skipping {{ group.files | length }} file(s) of unknown type (prefix with sv:/v:/vhd: to set one):
+{% for file in group.files %}#   {{ file.file | replace(from=root, to='$ROOT') }}
+{% endfor %}{% endif %}{% endfor %}
 {# Common compilation: all files in one block -#}
 {% else -%}
 {# Verilog sources -#}

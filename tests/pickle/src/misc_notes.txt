@@ -1,0 +1,2 @@
+This is not an HDL source file. Bender should still list it in flist output
+and comment it out (rather than try to compile it) in tool-specific scripts.

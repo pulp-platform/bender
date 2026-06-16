@@ -6,7 +6,7 @@ if [ info exists search_path ] {
 }
 set ROOT "{{ root }}"
 {# Separate compilation: one block per source group -#}
-{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if group.file_type != '' %}{% if source_annotations %}
+{% if compilation_mode == 'separate' %}{% for group in srcs %}{% if group.file_type == 'verilog' or group.file_type == 'vhdl' %}{% if source_annotations %}
 # {{ group.metadata }}{% endif %}
 set search_path $search_path_initial
 {% for incdir in group.incdirs %}lappend search_path "{{ incdir | replace(from=root, to='$ROOT') }}"
@@ -22,7 +22,11 @@ set search_path $search_path_initial
     {% for file in group.files %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
     {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \
     {% endfor %}]
-{% endif %}{% endfor %}
+{% else %}{% if source_annotations %}
+# {{ group.metadata }}{% endif %}
+# Skipping {{ group.files | length }} file(s) of unknown type (prefix with sv:/v:/vhd: to set one):
+{% for file in group.files %}#   {{ file.file | replace(from=root, to='$ROOT') }}
+{% endfor %}{% endif %}{% endfor %}
 {# Common compilation: all files in one block -#}
 {% else -%}
 {# Verilog sources -#}
