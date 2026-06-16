@@ -202,20 +202,20 @@ impl GitDatabase {
     /// symrefs are silently skipped.
     pub fn list_branches(&self) -> Result<Vec<(String, ObjectId)>> {
         let repo = self.repo.to_thread_local();
-        let mut result = Vec::new();
+        let mut branches = Vec::new();
         for reference in repo.references()?.remote_branches()? {
             let mut reference = reference?;
-            let name = reference.name().as_bstr().to_string();
             let Ok(id) = reference.peel_to_id() else {
                 continue;
             };
+            let name = reference.name().as_bstr().to_string();
             let short = name
                 .strip_prefix("refs/remotes/origin/")
                 .unwrap_or(&name)
                 .to_owned();
-            result.push((short, ObjectId::from(id.detach())));
+            branches.push((short, ObjectId::from(id.detach())));
         }
-        Ok(result)
+        Ok(branches)
     }
 
     /// List all reachable commits in commit-time order (newest first).
