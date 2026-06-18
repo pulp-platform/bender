@@ -575,6 +575,21 @@ impl<'ctx> Session<'ctx> {
             .join(format!("{}.lock", key))
     }
 
+    /// Path of the cross-process advisory lock file for a working-tree
+    /// checkout.
+    ///
+    /// Held exclusively across `checkout_git` so that two bender invocations
+    /// that resolve to the same checkout directory -- e.g. two runs against the
+    /// same project root -- cannot interleave their `remove_dir_all` / `git
+    /// clone` / `git checkout` operations and corrupt the working tree. The
+    /// lock file lives as a sibling of the checkout directory so it travels
+    /// with the project, independent of where the bare database is stored.
+    pub fn checkout_lock_path(&self, checkout_path: &Path) -> PathBuf {
+        let mut p = checkout_path.as_os_str().to_owned();
+        p.push(".lock");
+        PathBuf::from(p)
+    }
+
     /// The directory under which bare git databases and lock files live.
     ///
     /// Uses `db_dir` if configured (the recommended way to share bare repos
@@ -1088,6 +1103,17 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         force: bool,
         update_list: &[String],
     ) -> Result<&'ctx Path> {
+        // Serialize concurrent bender invocations that resolve to the same
+        // checkout directory -- typically two runs against the same project
+        // root. Without this, the shared db lock taken below does not protect
+        // us: shared lockers don't block each other, so two simultaneous
+        // `checkout_git` calls could interleave `remove_dir_all`, `git clone`,
+        // and `git checkout` on the same working tree and corrupt it. The lock
+        // is per checkout path, so unrelated deps (and the same dep across
+        // different projects, which resolve to distinct paths) still run in
+        // parallel.
+        let _checkout_lock = FsLock::acquire_exclusive(self.sess.checkout_lock_path(path)).await?;
+
         // Resolve (and, if necessary, initialize) the bare database before
         // taking the lock we hold across the checkout. A checkout reads from the
         // database (via `git clone --shared`) but never writes to it, so a
