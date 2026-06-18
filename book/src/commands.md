@@ -83,7 +83,7 @@ Furthermore, similar flags to the `sources` command exist.
 
 ### Slang-based filtering (requires the `slang` feature)
 
-When Bender is built with the `slang` feature (part of the default feature set), `script` can use the [Slang](https://github.com/MikePopoloski/slang) parser to trim the emitted file list and to control how it reacts to sources Slang cannot fully parse. These options work with every format:
+When Bender is built with the `slang` feature (part of the default feature set), `script` can use the [Slang](https://github.com/MikePopoloski/slang) parser (library bundled with bender) to trim the emitted file list and to control how it reacts to sources Slang cannot fully parse. These options work with every format:
 
 - `--top <MODULE>`: Restrict the output to Verilog files reachable from the given top-level module(s). May be passed multiple times. VHDL and untyped files are always retained.
 - `--trim-incdirs <auto|always|never>`: Drop include directories Slang did not resolve an `include` through. `auto` (the default) trims only when `--top` is set, `always` trims unconditionally, and `never` keeps every declared directory.
