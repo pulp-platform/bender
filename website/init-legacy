@@ -13,6 +13,11 @@ set -u
 
 readonly GITHUB_API_BENDER_ROOT='https://api.github.com/repos/pulp-platform/bender'
 readonly GITHUB_API_HEADER='Accept: application/vnd.github.v3+json'
+# Last release published with the legacy asset-naming scheme. Releases v0.32.0
+# and newer use cargo-dist (handled by the top-level `init` router) and the
+# GitHub "latest" release no longer carries legacy-named tarballs, so fall back
+# to this version instead of "latest" when a requested asset is missing.
+readonly LATEST_LEGACY_VERSION='0.31.0'
 
 usage() {
     cat 1>&2 <<EOF
@@ -319,30 +324,32 @@ get_asset_url() {
     local _version="$1"
     local _platform="$2"
     if [ $_version = "latest" ]; then
-        local _url="latest"
+        # The GitHub "latest" release now uses cargo-dist, which carries no
+        # legacy-named assets, so resolve "latest" to the last legacy release.
+        local _url="tags/v$LATEST_LEGACY_VERSION"
     else
         local _url="tags/v$_version"
     fi
     get_download_url "$_url" "$_platform"
     if [ -z "$RETVAL" ]; then
-        say "Warning: No release for platform '$_platform' version '$_version' found, using latest."
-        get_download_url "latest" "$_platform"
+        say "Warning: No release for platform '$_platform' version '$_version' found, using latest legacy release v$LATEST_LEGACY_VERSION."
+        get_download_url "tags/v$LATEST_LEGACY_VERSION" "$_platform"
     fi
     if [ -z "$RETVAL" ]; then
         case "$_platform" in
             x86_64-linux-gnu*)
-                say "Warning: Latest release not available for platform '$_platform', falling back to 'x86_64-linux-gnu'."
+                say "Warning: Legacy release v$LATEST_LEGACY_VERSION not available for platform '$_platform', falling back to 'x86_64-linux-gnu'."
                 _fallback="x86_64-linux-gnu"
                 ;;
             arm64-linux-gnu*)
-                say "Warning: Latest release not available for platform '$_platform', falling back to 'arm64-linux-gnu'."
+                say "Warning: Legacy release v$LATEST_LEGACY_VERSION not available for platform '$_platform', falling back to 'arm64-linux-gnu'."
                 _fallback="arm64-linux-gnu"
                 ;;
              *)
-                err "Error: Latest release not available for platform '$_platform'!"
+                err "Error: Legacy release v$LATEST_LEGACY_VERSION not available for platform '$_platform'!"
                 ;;
         esac
-        get_download_url "latest" "$_fallback"
+        get_download_url "tags/v$LATEST_LEGACY_VERSION" "$_fallback"
     fi
     assert_nz "$RETVAL" assets
 }
