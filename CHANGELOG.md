@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ## 0.32.1 - 2026-07-07
 ### Added
 - Add version namespaces to Git version dependencies, allowing versioned forks to be tagged and resolved under their own prefix (e.g. `companyX-v1.2.0`). The prefix may be given via the `version_prefix` field or embedded in the version string (`version: "companyX-v1.2.0"`). Defaults to `v` for full backwards compatibility, and `version_prefix: ""` selects unprefixed tags; namespaces are strict and never mix -- a dependency required under two namespaces is reported like any other conflicting requirement, offering the usual interactive choice on a terminal -- and the resolved prefix is recorded in `Bender.lock`. The field is only meaningful on git version dependencies; elsewhere it is rejected rather than dropped silently.
+- `bender audit` now aligns its version-bump suggestions to the namespace a dependency is currently resolved under, falling back to the default `v` namespace when the current checkout is not a version, and names that namespace in its output when it is not the default.
 - Add `git_submodules` config field and `--git-submodules <true|false>` flag (env `BENDER_GIT_SUBMODULES`) to control cloning of dependency submodules; defaults to `true`, the flag overrides the configured value in either direction (https://github.com/pulp-platform/bender/pull/314).
 
 ### Fixed

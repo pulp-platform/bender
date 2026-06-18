@@ -263,6 +263,48 @@ fn embedded_and_field_prefix_conflict_fails() {
     );
 }
 
+#[test]
+fn audit_aligns_suggestions_to_namespace() {
+    let base = fresh_dir("audit_ns");
+    let foo_url = setup_foo(&base);
+    // Pin foo to `companyX-v1.0.0`. That namespace also has `companyX-v2.0.0`,
+    // while the default `v` namespace's highest is `v1.1.0`.
+    let app = setup_project(
+        &base,
+        "app",
+        &format!(
+            "package:\n  name: app\ndependencies:\n  foo: {{ git: \"{foo_url}\", version: \"companyX-v1.0.0\" }}\n"
+        ),
+    );
+
+    let out = bender_update(&app);
+    assert!(
+        out.status.success(),
+        "update failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let out = bender(&app, &["audit"]);
+    assert!(
+        out.status.success(),
+        "audit failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // The bump target is the highest version in the checked-out namespace...
+    assert!(stdout.contains("2.0.0"), "audit:\n{stdout}");
+    // ...not the highest version of the unrelated default `v` namespace.
+    assert!(
+        !stdout.contains("1.1.0"),
+        "audit leaked the default namespace:\n{stdout}"
+    );
+    // Bare version numbers alone would not say which namespace they belong to.
+    assert!(
+        stdout.contains("(namespace `companyX-v`)"),
+        "audit must name the namespace it is reporting on:\n{stdout}"
+    );
+}
+
 /// A `bar` repo depending on `foo` under the default `v` namespace, tagged `v0.1.0`.
 fn setup_bar(base: &Path, foo_url: &str) -> String {
     let repo = base.join("bar");
@@ -416,5 +458,34 @@ fn version_prefix_on_path_dependency_is_rejected() {
     assert!(
         stderr.contains("cannot specify `version_prefix` without a `version` requirement"),
         "{stderr}"
+    );
+}
+
+/// A default-namespace dependency reports exactly as it always has: the annotation would be
+/// noise on the `v` namespace, and `audit` output is covered by the golden CLI regression suite.
+#[test]
+fn audit_leaves_default_namespace_unannotated() {
+    let base = fresh_dir("audit_default_ns");
+    let foo_url = setup_foo(&base);
+    let app = setup_project(
+        &base,
+        "app",
+        &format!(
+            "package:\n  name: app\ndependencies:\n  foo: {{ git: \"{foo_url}\", version: \"1.0.0\" }}\n"
+        ),
+    );
+    assert!(bender_update(&app).status.success());
+
+    let out = bender(&app, &["audit"]);
+    assert!(
+        out.status.success(),
+        "audit failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("1.1.0"), "audit:\n{stdout}");
+    assert!(
+        !stdout.contains("namespace"),
+        "the default namespace must not be annotated:\n{stdout}"
     );
 }
