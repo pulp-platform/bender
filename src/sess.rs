@@ -1224,7 +1224,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             // Check if the revision is reachable from any upstream branch or
             // tag. If not, warn that the commit may have been removed by a
-            // force-push.
+            // force-push. Synthetic `bender-tmp-*` tags are excluded: they are
+            // created by `dependency_versions` (and may persist in databases
+            // populated by older bender versions from the old checkout flow),
+            // and they do not represent upstream tracking.
+            //
+            // TODO: drop this filter once `bender-tmp-*` tags are either no
+            // longer created (e.g. by replacing the `rev-list --all` use in
+            // `dependency_versions` with a hash-based reachability check) or
+            // swept after use; the filter is here to remain correct on
+            // databases that still contain such tags.
             let revision_owned = revision.to_string();
             if let Ok(ref_output) = git
                 .clone()
@@ -1240,7 +1249,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     None,
                 )
                 .await
-                && ref_output.trim().is_empty()
+                && !ref_output.lines().any(|line| !line.contains("bender-tmp-"))
             {
                 Warnings::RevisionNotOnUpstream(revision.to_string(), name.to_string()).emit();
             }
