@@ -115,7 +115,12 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
         "{} used version: {} at {}{}",
         sess.dependency(mydep).name,
         match sess.dependency(mydep).version {
-            Some(ref ver) => ver.to_string(),
+            // The default `v` namespace is left implicit, as it always has been; only a custom
+            // one needs spelling out.
+            Some(ref ver) => match sess.dependency(mydep).version_prefix.as_deref() {
+                Some(prefix) => format!("{}{}", prefix, ver),
+                None => ver.to_string(),
+            },
             None => String::new(),
         },
         sess.dependency(mydep).source,
@@ -142,12 +147,17 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
                 Dependency::GitVersion {
                     ref url,
                     ref version,
+                    ref version_prefix,
                     ..
                 } => {
                     format!(
-                        "git {} with version {}",
+                        "git {} with version {}{}",
                         fmt_path!(url),
-                        fmt_version!(version)
+                        fmt_version!(version),
+                        match version_prefix {
+                            Some(prefix) => format!(" (prefix `{}`)", prefix),
+                            None => String::new(),
+                        }
                     )
                 }
             },

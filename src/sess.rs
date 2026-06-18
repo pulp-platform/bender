@@ -191,6 +191,7 @@ impl<'ctx> Session<'ctx> {
                 source: src,
                 revision: None,
                 version: None,
+                version_prefix: None,
             }))
     }
 
@@ -217,6 +218,7 @@ impl<'ctx> Session<'ctx> {
                         .version
                         .as_ref()
                         .map(|s| semver::Version::parse(s).unwrap()),
+                    version_prefix: pkg.version_prefix.clone(),
                 }),
             );
             graph_names.insert(id, &pkg.dependencies);
@@ -2004,6 +2006,9 @@ pub struct DependencyEntry {
     pub revision: Option<String>,
     /// The picked version.
     pub version: Option<semver::Version>,
+    /// The version-tag prefix (namespace) the version was resolved under.
+    /// `None` is interpreted as the default `v` prefix.
+    pub version_prefix: Option<String>,
 }
 
 impl DependencyEntry {

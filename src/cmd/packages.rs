@@ -120,7 +120,14 @@ pub fn run(sess: &Session, args: &PackagesArgs) -> Result<()> {
                         "{}:\t{}\tat {}\t{}\n",
                         pkg_source.name,
                         match pkg_source.version {
-                            Some(ref v) => format!("v{}", v),
+                            Some(ref v) => format!(
+                                "{}{}",
+                                pkg_source
+                                    .version_prefix
+                                    .as_deref()
+                                    .unwrap_or(crate::config::DEFAULT_VERSION_PREFIX),
+                                v
+                            ),
                             None => "".to_string(),
                         },
                         pkg_source.source,
