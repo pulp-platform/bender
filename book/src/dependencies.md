@@ -38,7 +38,18 @@ dependencies:
   common_cells: { git: "...", version: "1.21.0", version_prefix: "companyX-v" }
 ```
 
-The prefix is the entire literal string preceding the semantic version, so you are free to choose any convention (`companyX-v`, `acme-`, …). A dependency without `version_prefix` keeps the default `v` prefix, so existing manifests and lockfiles are unaffected. The field only applies to Git version dependencies.
+You can equivalently embed the prefix directly in the version string:
+
+```yaml
+dependencies:
+  common_cells: { git: "...", version: "companyX-v1.21.0" }
+```
+
+The embedded form requires the version requirement to begin with a number (e.g. `companyX-v1.21.0`, `companyX-v1.*`). For operator-based ranges such as `>=1.21.0`, use the `version_prefix` field alongside a plain `version`. If both a field and an embedded prefix are given, they must agree.
+
+The prefix is the entire literal string preceding the semantic version, so you are free to choose any convention (`companyX-v`, `acme-`, …). Setting `version_prefix: ""` selects tags carrying no prefix at all (`1.2.0` rather than `v1.2.0`). A dependency without a prefix keeps the default `v`, so existing manifests and lockfiles are unaffected.
+
+Prefixes only apply to Git version dependencies. On a path or revision dependency the field has nothing to act on, so Bender rejects it rather than ignoring it silently — the same treatment `version` and `rev` get where they cannot apply. A dependency given only a `version` resolves through the default remote and is a Git version dependency, so `version_prefix` is accepted there too.
 
 Namespaces are **strict and never mix**:
 

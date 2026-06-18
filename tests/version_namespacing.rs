@@ -78,12 +78,16 @@ fn setup_project(base: &Path, name: &str, manifest: &str) -> PathBuf {
     dir
 }
 
-fn bender_update(root: &Path) -> Output {
+fn bender(root: &Path, args: &[&str]) -> Output {
     cargo::cargo_bin_cmd!()
-        .arg("update")
+        .args(args)
         .current_dir(root)
         .output()
         .expect("failed to run bender")
+}
+
+fn bender_update(root: &Path) -> Output {
+    bender(root, &["update"])
 }
 
 #[test]
@@ -196,6 +200,66 @@ fn conflicting_namespaces_fail() {
     assert!(
         stderr.contains("prefix `companyX-v`"),
         "the conflicting namespace must be visible in the requirements:\n{stderr}"
+    );
+}
+
+#[test]
+fn resolves_embedded_namespace() {
+    let base = fresh_dir("embedded_ns");
+    let foo_url = setup_foo(&base);
+    // The namespace is embedded directly in the version string instead of the
+    // separate `version_prefix` field; `companyX-v2` means `^2` in that namespace.
+    let app = setup_project(
+        &base,
+        "app",
+        &format!(
+            "package:\n  name: app\ndependencies:\n  foo: {{ git: \"{foo_url}\", version: \"companyX-v2\" }}\n"
+        ),
+    );
+
+    let out = bender_update(&app);
+    assert!(
+        out.status.success(),
+        "update failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let lock = fs::read_to_string(app.join("Bender.lock")).unwrap();
+    assert!(lock.contains("version: 2.0.0"), "lockfile:\n{lock}");
+    assert!(
+        !lock.contains("version: 1.1.0"),
+        "must not leak the default `v` namespace:\n{lock}"
+    );
+    assert!(
+        lock.contains("version_prefix: companyX-v"),
+        "embedded prefix must be persisted:\n{lock}"
+    );
+}
+
+#[test]
+fn embedded_and_field_prefix_conflict_fails() {
+    let base = fresh_dir("embedded_conflict");
+    let foo_url = setup_foo(&base);
+    // The embedded prefix (`companyX-v`) disagrees with the explicit field.
+    let app = setup_project(
+        &base,
+        "app",
+        &format!(
+            "package:\n  name: app\ndependencies:\n  \
+             foo: {{ git: \"{foo_url}\", version: \"companyX-v1.0.0\", version_prefix: \"acme-\" }}\n"
+        ),
+    );
+
+    let out = bender_update(&app);
+    assert!(
+        !out.status.success(),
+        "update unexpectedly succeeded:\n{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("Conflicting version prefixes"),
+        "expected a prefix-conflict error, got:\n{stderr}"
     );
 }
 
@@ -324,4 +388,33 @@ fn override_resolves_namespace_conflict() {
 
     let lock = fs::read_to_string(app.join("Bender.lock")).unwrap();
     assert!(lock.contains("version_prefix: companyX-v"), "{lock}");
+}
+
+/// `version_prefix` has nothing to act on outside a git version dependency, so it is rejected
+/// rather than dropped silently -- the same treatment `version` and `rev` get in a position
+/// where they cannot apply.
+#[test]
+fn version_prefix_on_path_dependency_is_rejected() {
+    let base = fresh_dir("prefix_on_path");
+    let leaf = setup_project(&base, "leaf", "package:\n  name: leaf\n");
+    let app = setup_project(
+        &base,
+        "app",
+        &format!(
+            "package:\n  name: app\ndependencies:\n  leaf: {{ path: \"{}\", version_prefix: \"companyX-v\" }}\n",
+            leaf.display()
+        ),
+    );
+
+    let out = bender(&app, &["packages"]);
+    assert!(
+        !out.status.success(),
+        "a misplaced version_prefix must not be accepted:\n{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("cannot specify `version_prefix` without a `version` requirement"),
+        "{stderr}"
+    );
 }
