@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Added
 - Add `git_submodules` config field and `--git-submodules <true|false>` flag (env `BENDER_GIT_SUBMODULES`) to control cloning of dependency submodules; defaults to `true`, the flag overrides the configured value in either direction (https://github.com/pulp-platform/bender/pull/314).
 
+### Fixed
+- Fix the legacy installer falling back to the GitHub "latest" release, which now uses the cargo-dist scheme without legacy-named assets; it now falls back to the last legacy release (v0.31.0) so installing an old version on an unlisted platform works again.
+
 ## 0.32.0 - 2026-06-05
 ### Breaking Changes
 - Download url script now no longer installs locally by default, but instead places in cargo's default location for binaries, which is typically in the user's PATH. The old behavior can be achieved by using `--local`.
