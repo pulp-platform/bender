@@ -730,16 +730,37 @@ impl Validate for PartialDependency {
             .into_iter()
             .map(|s| s.validate(vctx))
             .collect::<Result<Vec<_>>>()?;
-        let version = self
-            .version
-            .map(|v| {
-                semver::VersionReq::parse(&v)
-                    .into_diagnostic()
-                    .wrap_err_with(|| {
-                        format!("\"{}\" is not a valid semantic version requirement.", v)
-                    })
-            })
-            .transpose()?;
+        // Parse the version requirement, extracting any literal prefix embedded
+        // in the version string (e.g. `companyX-v1.2.*`).
+        let (version, embedded_prefix) = match self.version.as_deref() {
+            Some(v) => {
+                let (prefix, req) = split_version_req(v).ok_or_else(|| {
+                    err!("\"{}\" is not a valid semantic version requirement.", v)
+                })?;
+                (
+                    (Some(req)),
+                    (!prefix.is_empty()).then(|| prefix.to_string()),
+                )
+            }
+            None => (None, None),
+        };
+        // Reconcile an embedded prefix with an explicit `version_prefix` field;
+        // the two must agree if both are given. The default `v` prefix is
+        // represented as `None`.
+        let version_prefix = match (self.version_prefix, embedded_prefix) {
+            (Some(field), Some(embedded)) if field != embedded => {
+                bail!(
+                    "Conflicting version prefixes for `{}`: `version_prefix: {}` does not match \
+                     the prefix `{}` embedded in the version string.",
+                    vctx.package_name,
+                    field,
+                    embedded
+                );
+            }
+            (Some(field), _) => Some(field),
+            (None, embedded) => embedded,
+        }
+        .filter(|p| p != DEFAULT_VERSION_PREFIX);
         if !vctx.pre_output {
             self.extra.iter().for_each(|(k, _)| {
                 Warnings::IgnoreUnknownField {
@@ -750,7 +771,7 @@ impl Validate for PartialDependency {
             });
         }
 
-        match (self.git, self.path, self.rev, version, self.remote) {
+        let dep = match (self.git, self.path, self.rev, version, self.remote) {
             // Git dependencies with default remote, e.g.:
             // ```yaml
             // my_dep: "1.2.3"
@@ -763,7 +784,7 @@ impl Validate for PartialDependency {
                         target,
                         url: default_remote.url.replace("{}", git_name),
                         version,
-                        version_prefix: self.version_prefix,
+                        version_prefix: version_prefix.clone(),
                         pass_targets,
                     })
                 } else {
@@ -783,7 +804,7 @@ impl Validate for PartialDependency {
                         target,
                         url: remote.url.replace("{}", git_name),
                         version,
-                        version_prefix: self.version_prefix,
+                        version_prefix: version_prefix.clone(),
                         pass_targets,
                     })
                 } else {
@@ -801,7 +822,7 @@ impl Validate for PartialDependency {
                 target,
                 url: git,
                 version,
-                version_prefix: self.version_prefix,
+                version_prefix: version_prefix.clone(),
                 pass_targets,
             }),
             // Git dependencies with revisions, e.g.:
@@ -852,7 +873,18 @@ impl Validate for PartialDependency {
                 "Invalid configuration for dependency `{}`: {cfg:?}",
                 vctx.package_name
             )),
+        }?;
+        // A namespace only means something where versions are resolved from git tags, so reject
+        // it elsewhere rather than dropping it without a trace -- the same treatment `version`
+        // and `rev` get when they appear where they cannot apply. A `version`-only dependency
+        // resolves through the default remote and is a git version dependency, so it is fine.
+        if version_prefix.is_some() && !matches!(dep, Dependency::GitVersion { .. }) {
+            bail!(
+                "Dependency `{}` cannot specify `version_prefix` without a `version` requirement. Version namespaces only apply to git dependencies resolved by version.",
+                vctx.package_name
+            );
         }
+        Ok(dep)
     }
 }
 
@@ -2085,12 +2117,59 @@ pub fn split_version_tag(tag: &str) -> Option<(&str, semver::Version)> {
     None
 }
 
+/// Split a version *requirement* string into an optional embedded literal
+/// prefix and the semantic version requirement.
+///
+/// A bare requirement — including operators and wildcards such as `1.2.*`,
+/// `>=1.0.0` or `*` — yields an empty prefix. An embedded prefix is recognised
+/// only when the version part begins with a number, e.g. `companyX-v1.2.*`
+/// splits into (`companyX-v`, `1.2.*`). Prefixed ranges that start with an
+/// operator or wildcard are not supported in this embedded form; use the
+/// separate `version_prefix` field for those.
+///
+/// Returns `None` if the string is not a valid (optionally prefixed) version
+/// requirement.
+pub fn split_version_req(s: &str) -> Option<(&str, semver::VersionReq)> {
+    // A bare requirement has no prefix. This also covers operator- and
+    // wildcard-led requirements, which an embedded prefix cannot precede.
+    if let Ok(req) = semver::VersionReq::parse(s) {
+        return Some(("", req));
+    }
+    // Otherwise look for a literal prefix followed by a numeric requirement.
+    // The version part must begin with a digit that does not continue a
+    // longer run of digits, so we never split in the middle of a number.
+    let bytes = s.as_bytes();
+    for i in 1..bytes.len() {
+        if !bytes[i].is_ascii_digit() || bytes[i - 1].is_ascii_digit() {
+            continue;
+        }
+        // The prefix must be a plain namespace, not part of a requirement. If it
+        // contains requirement syntax we would silently swallow an operator
+        // (e.g. read `companyX-v>=1.0.0` as prefix `companyX-v>=`, req `^1.0.0`).
+        // Such operator-led requirements must use the `version_prefix` field.
+        if s[..i]
+            .bytes()
+            .any(|b| matches!(b, b'*' | b'^' | b'~' | b'<' | b'>' | b'=' | b',' | b' '))
+        {
+            break;
+        }
+        if let Ok(req) = semver::VersionReq::parse(&s[i..]) {
+            return Some((&s[..i], req));
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
-    use super::split_version_tag;
+    use super::{split_version_req, split_version_tag};
 
     fn split(tag: &str) -> Option<(String, String)> {
         split_version_tag(tag).map(|(p, v)| (p.to_string(), v.to_string()))
+    }
+
+    fn split_req(s: &str) -> Option<(String, String)> {
+        split_version_req(s).map(|(p, r)| (p.to_string(), r.to_string()))
     }
 
     #[test]
@@ -2138,5 +2217,41 @@ mod tests {
         // Not a full `major.minor.patch` semantic version.
         assert_eq!(split("v1.2"), None);
         assert_eq!(split(""), None);
+    }
+
+    #[test]
+    fn version_req_bare_has_no_prefix() {
+        // Plain requirements, operators and wildcards keep the default prefix.
+        assert_eq!(split_req("1.2.3"), Some(("".into(), "^1.2.3".into())));
+        assert_eq!(split_req("1.2.*"), Some(("".into(), "1.2.*".into())));
+        assert_eq!(split_req("*"), Some(("".into(), "*".into())));
+        assert_eq!(
+            split_req(">=1.0.0, <2.0.0"),
+            Some(("".into(), ">=1.0.0, <2.0.0".into()))
+        );
+    }
+
+    #[test]
+    fn version_req_embedded_prefix() {
+        assert_eq!(
+            split_req("companyX-v1.2.*"),
+            Some(("companyX-v".into(), "1.2.*".into()))
+        );
+        // An explicit leading `v` is just the default prefix.
+        assert_eq!(split_req("v1.2.3"), Some(("v".into(), "^1.2.3".into())));
+        // A digit inside the prefix must not cause a mid-token split, because
+        // `2-v1.0.0` is not itself a valid requirement.
+        assert_eq!(
+            split_req("company2-v1.0.0"),
+            Some(("company2-v".into(), "^1.0.0".into()))
+        );
+    }
+
+    #[test]
+    fn version_req_rejects_unsupported() {
+        // Operator/wildcard-led requirements cannot carry an embedded prefix.
+        assert_eq!(split_req("companyX-v*"), None);
+        assert_eq!(split_req("companyX-v>=1.0.0"), None);
+        assert_eq!(split_req("garbage"), None);
     }
 }
