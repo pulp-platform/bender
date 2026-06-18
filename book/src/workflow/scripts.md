@@ -53,6 +53,16 @@ The `script` command provides several flags to fine-tune the generated output:
 - **`-n/--no-deps`**: Exclude all dependencies. This generates a script containing only the files from the current package or the packages explicitly listed with `-p`.
 - **`-e/--exclude <PKG>`**: Exclude a specific package from the generated script.
 
+### Slang-based Filtering
+When Bender is built with the `slang` feature (part of the default feature set), the `script` command can use the [Slang](https://github.com/MikePopoloski/slang) parser (library bundled with bender) to trim the emitted file list and to control how it reacts to sources Slang cannot fully parse. These flags work with every format:
+
+- **`--top <MODULE>`**: Restrict the output to Verilog files reachable from the given top-level module(s). May be passed multiple times. VHDL and untyped files are always retained.
+- **`--trim-incdirs <auto|always|never>`**: Drop include directories Slang did not resolve an `include` through. `auto` (the default) trims only when `--top` is set, `always` trims unconditionally, and `never` keeps every declared directory.
+- **`--broken <error|keep|drop>`**: How to treat files Slang reports parse errors on that have no `pragma protect` envelope (i.e. likely genuine syntax errors). Defaults to `error`.
+- **`--encrypted <error|keep|drop>`**: How to treat IEEE-1735 encrypted files Slang cannot fully parse. Defaults to `keep`.
+
+For `--broken` and `--encrypted`, the policy `error` aborts the run, `keep` tolerates the file and includes it in the script, and `drop` tolerates it but excludes it from the output.
+
 ### RTL Assumption
 - **`--assume-rtl`**: Automatically adds the `rtl` target to any source group that does not have an explicit target specification. This is an optional shorthand for generating synthesis scripts without having to tag every RTL file.
 
