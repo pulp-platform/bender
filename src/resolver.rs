@@ -638,34 +638,6 @@ impl<'ctx> DependencyResolver<'ctx> {
             map
         };
 
-        // Namespaced versions must not be mixed. A dependency required with more
-        // than one distinct version prefix has no shared namespace, so there is
-        // no automatic resolution (no fallback to the default `v`). The user must
-        // pick one explicitly via an override, which collapses all requirements
-        // for the dependency to a single constraint.
-        for (name, cons) in &cons_map {
-            let prefixes: IndexSet<&str> = cons
-                .iter()
-                .filter_map(|(_, con, _)| match con {
-                    DependencyConstraint::Version { prefix, .. } => Some(prefix.as_str()),
-                    _ => None,
-                })
-                .collect();
-            if prefixes.len() > 1 {
-                bail!(
-                    "Dependency `{}` is required with conflicting version prefixes ({}). \
-                     Namespaced versions cannot be mixed; add an override for `{}` to select one.",
-                    name,
-                    prefixes
-                        .iter()
-                        .map(|p| format!("`{}`", p))
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    name,
-                );
-            }
-        }
-
         let _src_cons_map = cons_map
             .iter()
             .map(|(name, cons)| {

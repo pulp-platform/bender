@@ -2084,3 +2084,59 @@ pub fn split_version_tag(tag: &str) -> Option<(&str, semver::Version)> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::split_version_tag;
+
+    fn split(tag: &str) -> Option<(String, String)> {
+        split_version_tag(tag).map(|(p, v)| (p.to_string(), v.to_string()))
+    }
+
+    #[test]
+    fn splits_default_v_prefix() {
+        assert_eq!(split("v1.2.3"), Some(("v".into(), "1.2.3".into())));
+    }
+
+    #[test]
+    fn splits_custom_prefix() {
+        assert_eq!(
+            split("companyX-v1.2.3"),
+            Some(("companyX-v".into(), "1.2.3".into()))
+        );
+        assert_eq!(
+            split("release-1.0.0"),
+            Some(("release-".into(), "1.0.0".into()))
+        );
+    }
+
+    #[test]
+    fn prefix_may_contain_digits() {
+        // The split must not occur in the middle of `company2`.
+        assert_eq!(
+            split("company2-v1.0.0"),
+            Some(("company2-v".into(), "1.0.0".into()))
+        );
+    }
+
+    #[test]
+    fn empty_prefix_is_allowed() {
+        assert_eq!(split("1.2.3"), Some(("".into(), "1.2.3".into())));
+    }
+
+    #[test]
+    fn keeps_prerelease_and_build_metadata() {
+        assert_eq!(
+            split("v1.2.3-rc.1+build.5"),
+            Some(("v".into(), "1.2.3-rc.1+build.5".into()))
+        );
+    }
+
+    #[test]
+    fn rejects_non_versions() {
+        assert_eq!(split("nonsense"), None);
+        // Not a full `major.minor.patch` semantic version.
+        assert_eq!(split("v1.2"), None);
+        assert_eq!(split(""), None);
+    }
+}
