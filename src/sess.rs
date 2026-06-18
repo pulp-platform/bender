@@ -902,21 +902,19 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     (tags, branches)
                 };
 
-                // Extract the tags that look like semantic versions.
-                let mut versions: Vec<(semver::Version, &'ctx str)> = tags
+                // Extract the tags that look like (optionally prefixed) semantic
+                // versions, e.g. `v1.2.3` or `companyX-v1.2.3`.
+                let mut versions: Vec<GitTagVersion<'ctx>> = tags
                     .iter()
                     .filter_map(|(tag, &hash)| {
-                        if let Some(stripped) = tag.strip_prefix('v') {
-                            match semver::Version::parse(stripped) {
-                                Ok(v) => Some((v, hash)),
-                                Err(_) => None,
-                            }
-                        } else {
-                            None
-                        }
+                        config::split_version_tag(tag).map(|(prefix, version)| GitTagVersion {
+                            prefix,
+                            version,
+                            hash,
+                        })
                     })
                     .collect();
-                versions.sort_by(|a, b| b.cmp(a));
+                versions.sort_by(|a, b| b.version.cmp(&a.version));
 
                 // Merge tags and branches.
                 let refs: IndexMap<&str, &str> = branches.into_iter().chain(tags).collect();
@@ -2114,12 +2112,23 @@ pub enum DependencyVersions<'ctx> {
 #[derive(Clone, Debug)]
 pub struct RegistryVersions;
 
+/// A single version tag of a git dependency, e.g. `v1.2.3` or `companyX-v1.2.3`.
+#[derive(Clone, Debug)]
+pub struct GitTagVersion<'ctx> {
+    /// The literal prefix preceding the semantic version in the tag, e.g. `v`.
+    pub prefix: &'ctx str,
+    /// The semantic version parsed from the tag.
+    pub version: semver::Version,
+    /// The git revision hash this tag points to.
+    pub hash: &'ctx str,
+}
+
 /// All available versions a git dependency has.
 #[derive(Clone, Debug)]
 pub struct GitVersions<'ctx> {
-    /// The versions available for this dependency. This is basically a sorted
-    /// list of tags of the form `v<semver>`.
-    pub versions: Vec<(semver::Version, &'ctx str)>,
+    /// The versions available for this dependency. This is a list of tags of
+    /// the form `<prefix><semver>` (e.g. `v1.2.3`), sorted by version descending.
+    pub versions: Vec<GitTagVersion<'ctx>>,
     /// The named references available for this dependency. This is a mixture of
     /// branch names and tags, where the tags take precedence.
     pub refs: IndexMap<&'ctx str, &'ctx str>,

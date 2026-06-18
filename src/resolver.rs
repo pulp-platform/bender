@@ -218,8 +218,8 @@ impl<'ctx> DependencyResolver<'ctx> {
                         let version = gv
                             .versions
                             .iter()
-                            .filter(|&&(_, r)| r == rev)
-                            .map(|(v, _)| v)
+                            .filter(|tv| tv.hash == rev && tv.prefix == "v")
+                            .map(|tv| &tv.version)
                             .max()
                             .map(|v| v.to_string());
                         LockedPackage {
@@ -1042,12 +1042,14 @@ impl<'ctx> DependencyResolver<'ctx> {
                 let mut revs_tmp: IndexMap<_, _> = gv
                     .versions
                     .iter()
-                    .sorted()
-                    .filter_map(
-                        |&(ref v, h)| {
-                            if con.matches(v) { Some((v, h)) } else { None }
-                        },
-                    )
+                    .sorted_by(|a, b| a.version.cmp(&b.version))
+                    .filter_map(|tv| {
+                        if tv.prefix == "v" && con.matches(&tv.version) {
+                            Some((&tv.version, tv.hash))
+                        } else {
+                            None
+                        }
+                    })
                     .collect();
                 revs_tmp.reverse();
                 let revs: IndexSet<usize> = revs_tmp

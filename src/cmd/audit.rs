@@ -86,9 +86,12 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
         let current_revision = sess.dependency(*pkg).revision.clone();
         let current_revision_unwrapped = current_revision.as_deref().unwrap_or_default();
         let available_versions = match dep_versions.get(pkg).unwrap() {
-            DependencyVersions::Git(versions) => {
-                versions.versions.iter().map(|(v, _)| v.clone()).collect()
-            }
+            DependencyVersions::Git(versions) => versions
+                .versions
+                .iter()
+                .filter(|tv| tv.prefix == "v")
+                .map(|tv| tv.version.clone())
+                .collect(),
             _ => vec![],
         };
         let highest_version = available_versions.iter().max();

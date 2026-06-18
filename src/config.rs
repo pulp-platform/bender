@@ -2056,77 +2056,23 @@ pub(crate) fn env_path_from_string(path_str: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(env_string_from_string(path_str)?))
 }
 
-/// A semver version with a prefix.
-#[derive(Debug)]
-pub struct PrefixedVersion {
-    /// The prefix.
-    pub prefix: Option<String>,
-    /// The version.
-    pub version: semver::Version,
-}
-
-impl Serialize for PrefixedVersion {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match &self.prefix {
-            Some(prefix) => {
-                let s = format!("{}-v{}", prefix, self.version);
-                serializer.serialize_str(&s)
-            }
-            None => self.version.serialize(serializer),
+/// Split a git version tag into its literal prefix and semantic version.
+///
+/// The prefix is the entire literal string preceding the semantic version,
+/// e.g. `v` for `v1.2.3` or `companyX-v` for `companyX-v1.2.3`. The default,
+/// backwards-compatible prefix is `v`. Returns `None` if no suffix of the tag
+/// parses as a semantic version.
+pub fn split_version_tag(tag: &str) -> Option<(&str, semver::Version)> {
+    let bytes = tag.as_bytes();
+    for i in 0..bytes.len() {
+        // The semantic version starts at a digit that is not part of a longer
+        // run of digits (so we don't split in the middle of a number).
+        if !bytes[i].is_ascii_digit() || (i > 0 && bytes[i - 1].is_ascii_digit()) {
+            continue;
+        }
+        if let Ok(version) = semver::Version::parse(&tag[i..]) {
+            return Some((&tag[..i], version));
         }
     }
-}
-
-impl<'de> Deserialize<'de> for PrefixedVersion {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<PrefixedVersion, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        use serde::de;
-        use std::result::Result;
-        struct Visitor;
-
-        impl<'de> de::Visitor<'de> for Visitor {
-            type Value = PrefixedVersion;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a version string with optional prefix")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<PrefixedVersion, E>
-            where
-                E: de::Error,
-            {
-                if let Some(idx) = value.rfind("-v") {
-                    let prefix = &value[..idx];
-                    let version_str = &value[idx + 2..];
-                    let version = semver::Version::parse(version_str).map_err(E::custom)?;
-                    Ok(PrefixedVersion {
-                        prefix: Some(prefix.to_string()),
-                        version,
-                    })
-                } else {
-                    let version = semver::Version::parse(value).map_err(E::custom)?;
-                    Ok(PrefixedVersion {
-                        prefix: None,
-                        version,
-                    })
-                }
-            }
-        }
-
-        deserializer.deserialize_str(Visitor)
-    }
-}
-
-/// A semver version requirement with a prefix.
-#[derive(Debug)]
-pub struct PrefixedVersionReq {
-    /// The prefix.
-    pub prefix: Option<String>,
-    /// The version requirement.
-    pub version_req: semver::VersionReq,
+    None
 }
