@@ -2022,6 +2022,11 @@ pub struct LockedPackage {
     pub revision: Option<String>,
     /// The version of the dependency.
     pub version: Option<String>,
+    /// The version-tag prefix (namespace) the version was resolved under.
+    /// Omitted for the default `v` prefix to keep lockfiles backwards
+    /// compatible.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_prefix: Option<String>,
     /// The source of the dependency.
     #[serde(with = "serde_yaml_ng::with::singleton_map")]
     pub source: LockedSource,

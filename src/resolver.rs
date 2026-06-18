@@ -198,6 +198,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                         LockedPackage {
                             revision: None,
                             version: None,
+                            version_prefix: None,
                             source: LockedSource::Path(path),
                             dependencies: deps,
                         }
@@ -215,18 +216,36 @@ impl<'ctx> DependencyResolver<'ctx> {
                         };
                         let pick = dep.state.pick().unwrap();
                         let rev = gv.revs[pick.1];
-                        let version = gv
-                            .versions
-                            .iter()
-                            .filter(|tv| {
-                                tv.hash == rev && tv.prefix == config::DEFAULT_VERSION_PREFIX
-                            })
-                            .map(|tv| &tv.version)
-                            .max()
-                            .map(|v| v.to_string());
+                        // The resolved revision is authoritative: lock the tag that points at
+                        // it. Where a conflict is settled in favour of another namespace, the
+                        // picked revision need not lie in the namespace imposed first, so
+                        // reading the prefix back off the revision keeps the recorded version
+                        // and namespace consistent with what was actually checked out.
+                        let tag = match dep.version_prefix.as_deref() {
+                            Some(imposed) => gv
+                                .versions
+                                .iter()
+                                .filter(|tv| tv.hash == rev)
+                                // Where several namespaces tag one commit, the imposed one wins.
+                                .max_by_key(|tv| (tv.prefix == imposed, tv.version.clone())),
+                            // Revision-pinned: only a default-namespace tag becomes a version,
+                            // so pinning a commit that a fork happens to tag stays a revision.
+                            None => gv
+                                .versions
+                                .iter()
+                                .filter(|tv| {
+                                    tv.hash == rev && tv.prefix == config::DEFAULT_VERSION_PREFIX
+                                })
+                                .max_by_key(|tv| tv.version.clone()),
+                        };
                         LockedPackage {
                             revision: Some(String::from(rev)),
-                            version,
+                            version: tag.map(|tv| tv.version.to_string()),
+                            // Omit the default `v` prefix for backwards-compatible lockfiles.
+                            version_prefix: tag
+                                .map(|tv| tv.prefix)
+                                .filter(|p| *p != config::DEFAULT_VERSION_PREFIX)
+                                .map(String::from),
                             source: LockedSource::Git(url),
                             dependencies: deps,
                         }
@@ -392,7 +411,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                                         pre: parsed_version.pre,
                                     }],
                                 },
-                                version_prefix: None, // TODO
+                                version_prefix: locked_package.version_prefix.clone(),
                                 pass_targets: Vec::new(),
                             }
                         } else {
@@ -669,6 +688,14 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Impose the constraints on the dependencies.
         let mut table = mem::take(&mut self.table);
         for (name, cons) in cons_map {
+            // Record the resolved namespace prefix for lockfile writing. The
+            // guard above guarantees all version constraints share one prefix.
+            if let Some((_, DependencyConstraint::Version { prefix, .. }, _)) = cons
+                .iter()
+                .find(|(_, con, _)| matches!(con, DependencyConstraint::Version { .. }))
+            {
+                table.get_mut(name).unwrap().version_prefix = Some(prefix.clone());
+            }
             for (_, con, dsrc) in &cons {
                 log::debug!("impose `{}` at `{}` on `{}`", con, dsrc, name);
                 let table_item = table.get_mut(name).unwrap();
@@ -1316,6 +1343,9 @@ struct Dependency<'ctx> {
     sources: IndexMap<DependencyRef, DependencyReference<'ctx>>,
     /// The picked manifest for this dependency.
     manifest: Option<&'ctx config::Manifest>,
+    /// The resolved version-tag prefix (namespace), if version-constrained.
+    /// `None` is interpreted as the default `v` prefix.
+    version_prefix: Option<String>,
     /// The current resolution state.
     state: State,
 }
