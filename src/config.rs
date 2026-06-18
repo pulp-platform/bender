@@ -2056,6 +2056,9 @@ pub(crate) fn env_path_from_string(path_str: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(env_string_from_string(path_str)?))
 }
 
+/// The default, backwards-compatible version-tag prefix (`v`, as in `v1.2.3`).
+pub const DEFAULT_VERSION_PREFIX: &str = "v";
+
 /// Split a git version tag into its literal prefix and semantic version.
 ///
 /// The prefix is the entire literal string preceding the semantic version,

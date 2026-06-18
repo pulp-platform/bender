@@ -218,7 +218,9 @@ impl<'ctx> DependencyResolver<'ctx> {
                         let version = gv
                             .versions
                             .iter()
-                            .filter(|tv| tv.hash == rev && tv.prefix == "v")
+                            .filter(|tv| {
+                                tv.hash == rev && tv.prefix == config::DEFAULT_VERSION_PREFIX
+                            })
                             .map(|tv| &tv.version)
                             .max()
                             .map(|v| v.to_string());
@@ -440,13 +442,19 @@ impl<'ctx> DependencyResolver<'ctx> {
                     pass_targets: Vec::new(),
                 },
                 DependencySource::Git(u) => match &cnstr {
-                    DependencyConstraint::Version(v) => config::Dependency::GitVersion {
-                        target: TargetSpec::Wildcard,
-                        url: u,
-                        version: v.clone(),
-                        version_prefix: None,
-                        pass_targets: Vec::new(),
-                    },
+                    DependencyConstraint::Version { req: v, prefix } => {
+                        config::Dependency::GitVersion {
+                            target: TargetSpec::Wildcard,
+                            url: u,
+                            version: v.clone(),
+                            version_prefix: if prefix.as_str() == config::DEFAULT_VERSION_PREFIX {
+                                None
+                            } else {
+                                Some(prefix.clone())
+                            },
+                            pass_targets: Vec::new(),
+                        }
+                    }
                     DependencyConstraint::Revision(r) => config::Dependency::GitRevision {
                         target: TargetSpec::Wildcard,
                         url: u,
@@ -611,6 +619,34 @@ impl<'ctx> DependencyResolver<'ctx> {
             map
         };
 
+        // Namespaced versions must not be mixed. A dependency required with more
+        // than one distinct version prefix has no shared namespace, so there is
+        // no automatic resolution (no fallback to the default `v`). The user must
+        // pick one explicitly via an override, which collapses all requirements
+        // for the dependency to a single constraint.
+        for (name, cons) in &cons_map {
+            let prefixes: IndexSet<&str> = cons
+                .iter()
+                .filter_map(|(_, con, _)| match con {
+                    DependencyConstraint::Version { prefix, .. } => Some(prefix.as_str()),
+                    _ => None,
+                })
+                .collect();
+            if prefixes.len() > 1 {
+                bail!(
+                    "Dependency `{}` is required with conflicting version prefixes ({}). \
+                     Namespaced versions cannot be mixed; add an override for `{}` to select one.",
+                    name,
+                    prefixes
+                        .iter()
+                        .map(|p| format!("`{}`", p))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    name,
+                );
+            }
+        }
+
         let _src_cons_map = cons_map
             .iter()
             .map(|(name, cons)| {
@@ -741,10 +777,14 @@ impl<'ctx> DependencyResolver<'ctx> {
                     indices_list?
                 };
                 if indices_list.is_empty() && id == con_src {
-                    let additional_str = if let DependencyConstraint::Version(__) = con {
-                        " Ensure git tags are formatted as `vX.Y.Z`.".to_string()
-                    } else {
-                        "".to_string()
+                    let additional_str = match con {
+                        DependencyConstraint::Version { prefix, .. } if prefix.is_empty() => {
+                            " Ensure git tags are formatted as `X.Y.Z`, with no prefix.".to_string()
+                        }
+                        DependencyConstraint::Version { prefix, .. } => {
+                            format!(" Ensure git tags are formatted as `{}X.Y.Z`.", prefix)
+                        }
+                        _ => "".to_string(),
                     };
                     bail!(
                         "Dependency `{}` from `{}` cannot satisfy requirement `{}`.{}",
@@ -813,7 +853,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 fmt_pkg!(pkg_name),
                 fmt_version!(con),
                 match con {
-                    DependencyConstraint::Version(req) =>
+                    DependencyConstraint::Version { req, .. } =>
                         match (version_req_bottom_bound(req)?, version_req_top_bound(req)?,) {
                             (Some(bottom), Some(top)) =>
                                 format!(" ({} <= x < {})", fmt_version!(bottom), fmt_version!(top)),
@@ -847,7 +887,10 @@ impl<'ctx> DependencyResolver<'ctx> {
             .flat_map(|(_src, group)| {
                 let mut g: Vec<_> = group.collect();
                 g.sort_by(|a, b| match (a.0, b.0) {
-                    (DependencyConstraint::Version(va), DependencyConstraint::Version(vb)) => {
+                    (
+                        DependencyConstraint::Version { req: va, .. },
+                        DependencyConstraint::Version { req: vb, .. },
+                    ) => {
                         // Unbounded requirements have no top/bottom bound; sort them as the
                         // extreme version in the respective direction.
                         let top_bound = |req: &VersionReq| {
@@ -876,10 +919,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                     }
                     (DependencyConstraint::Path, _) => std::cmp::Ordering::Greater,
                     (_, DependencyConstraint::Path) => std::cmp::Ordering::Less,
-                    (DependencyConstraint::Version(_), DependencyConstraint::Revision(_)) => {
+                    (DependencyConstraint::Version { .. }, DependencyConstraint::Revision(_)) => {
                         std::cmp::Ordering::Greater
                     }
-                    (DependencyConstraint::Revision(_), DependencyConstraint::Version(_)) => {
+                    (DependencyConstraint::Revision(_), DependencyConstraint::Version { .. }) => {
                         std::cmp::Ordering::Less
                     }
                 });
@@ -1031,7 +1074,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         use self::DependencyVersions as DepVer;
         match (con, &src.versions) {
             (&DepCon::Path, &DepVer::Path) => Ok(IndexSet::from([0])),
-            (DepCon::Version(con), DepVer::Git(gv)) => {
+            (DepCon::Version { req: con, prefix }, DepVer::Git(gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
                 let hash_ids: IndexMap<&str, usize> = gv
                     .revs
@@ -1044,7 +1087,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                     .iter()
                     .sorted_by(|a, b| a.version.cmp(&b.version))
                     .filter_map(|tv| {
-                        if tv.prefix == "v" && con.matches(&tv.version) {
+                        if tv.prefix == prefix.as_str() && con.matches(&tv.version) {
                             Some((&tv.version, tv.hash))
                         } else {
                             None
@@ -1088,7 +1131,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 revs.sort();
                 Ok(revs)
             }
-            (DepCon::Version(_con), DepVer::Registry(_rv)) => Err(err!(
+            (DepCon::Version { .. }, DepVer::Registry(_rv)) => Err(err!(
                 "Constraints on registry dependency `{}` not implemented",
                 name
             )),

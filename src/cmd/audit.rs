@@ -89,7 +89,7 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
             DependencyVersions::Git(versions) => versions
                 .versions
                 .iter()
-                .filter(|tv| tv.prefix == "v")
+                .filter(|tv| tv.prefix == crate::config::DEFAULT_VERSION_PREFIX)
                 .map(|tv| tv.version.clone())
                 .collect(),
             _ => vec![],

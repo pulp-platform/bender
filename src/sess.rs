@@ -2176,7 +2176,14 @@ pub enum DependencyConstraint {
     /// constraint on it.
     Path,
     /// A version constraint. These may occur for registry or git dependencies.
-    Version(semver::VersionReq),
+    /// Only tags carrying the given `prefix` (default `v`) satisfy the
+    /// constraint, which keeps namespaced versions separate.
+    Version {
+        /// The version requirement.
+        req: semver::VersionReq,
+        /// The literal version-tag prefix (default `v`).
+        prefix: String,
+    },
     /// A revision constraint. These occur for git dependencies.
     Revision(String),
 }
@@ -2185,10 +2192,20 @@ impl<'a> From<&'a config::Dependency> for DependencyConstraint {
     fn from(cfg: &'a config::Dependency) -> DependencyConstraint {
         match *cfg {
             config::Dependency::Path { .. } => DependencyConstraint::Path,
-            config::Dependency::Version { ref version, .. }
-            | config::Dependency::GitVersion { ref version, .. } => {
-                DependencyConstraint::Version(version.clone())
-            }
+            config::Dependency::Version { ref version, .. } => DependencyConstraint::Version {
+                req: version.clone(),
+                prefix: config::DEFAULT_VERSION_PREFIX.to_string(),
+            },
+            config::Dependency::GitVersion {
+                ref version,
+                ref version_prefix,
+                ..
+            } => DependencyConstraint::Version {
+                req: version.clone(),
+                prefix: version_prefix
+                    .clone()
+                    .unwrap_or_else(|| config::DEFAULT_VERSION_PREFIX.to_string()),
+            },
             config::Dependency::GitRevision { ref rev, .. } => {
                 DependencyConstraint::Revision(rev.clone())
             }
@@ -2200,7 +2217,18 @@ impl fmt::Display for DependencyConstraint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             DependencyConstraint::Path => write!(f, "path"),
-            DependencyConstraint::Version(ref v) => write!(f, "{}", v),
+            DependencyConstraint::Version {
+                ref req,
+                ref prefix,
+            } => {
+                if prefix == config::DEFAULT_VERSION_PREFIX {
+                    write!(f, "{}", req)
+                } else if prefix.is_empty() {
+                    write!(f, "{} (unprefixed)", req)
+                } else {
+                    write!(f, "{} (prefix `{}`)", req, prefix)
+                }
+            }
             DependencyConstraint::Revision(ref r) => write!(f, "{}", r),
         }
     }
