@@ -53,6 +53,12 @@ pub struct Manifest {
     pub workspace: Workspace,
     /// Vendorized dependencies
     pub vendor_package: Vec<VendorPackage>,
+    /// Per-dependency submodule selection.
+    ///
+    /// `None` means clone all submodules recursively (the default). `Some`
+    /// restricts cloning to the listed submodules only (an empty list clones
+    /// none).
+    pub git_submodules: Option<Vec<Submodule>>,
 }
 
 impl PrefixPaths for Manifest {
@@ -455,6 +461,8 @@ pub struct PartialManifest {
     pub workspace: Option<PartialWorkspace>,
     /// External Import dependencies
     pub vendor_package: Option<Vec<PartialVendorPackage>>,
+    /// Per-dependency submodule selection.
+    pub git_submodules: Option<Vec<StringOrStruct<PartialSubmodule>>>,
     /// Unknown extra fields
     #[serde(flatten)]
     extra: HashMap<String, Value>,
@@ -604,6 +612,11 @@ impl Validate for PartialManifest {
                 .wrap_err("Unable to parse vendor_package.")?,
             None => Vec::new(),
         };
+        let git_submodules = self
+            .git_submodules
+            .map(|subs| subs.validate(vctx))
+            .transpose()
+            .wrap_err(format!("In git_submodules of package `{}`:", pkg.name))?;
         if !vctx.pre_output {
             self.extra.iter().for_each(|(k, _)| {
                 Warnings::IgnoreUnknownField {
@@ -643,6 +656,7 @@ impl Validate for PartialManifest {
             frozen,
             workspace,
             vendor_package,
+            git_submodules,
         })
     }
 }
@@ -892,6 +906,64 @@ impl Validate for PartialIncludeDir {
             });
         }
         Ok((self.target.unwrap_or(TargetSpec::Wildcard), dir))
+    }
+}
+
+/// A submodule of a dependency that should be cloned.
+#[derive(Clone, Debug, Serialize)]
+pub struct Submodule {
+    /// The path of the submodule within the dependency repository.
+    pub path: String,
+    /// Whether to also update the submodule's own submodules (`--recursive`).
+    pub recursive: bool,
+    /// Whether to fetch the submodule shallowly (`--depth 1`).
+    pub shallow: bool,
+}
+
+/// A partial submodule selection entry.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PartialSubmodule {
+    /// The path of the submodule within the dependency repository.
+    pub submodule: String,
+    /// Whether to also update the submodule's own submodules (default: true).
+    pub recursive: Option<bool>,
+    /// Whether to fetch the submodule shallowly (default: true).
+    pub shallow: Option<bool>,
+    /// Unknown extra fields
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+}
+
+impl FromStr for PartialSubmodule {
+    type Err = Void;
+    fn from_str(s: &str) -> std::result::Result<Self, Void> {
+        Ok(PartialSubmodule {
+            submodule: s.into(),
+            recursive: None,
+            shallow: None,
+            extra: HashMap::new(),
+        })
+    }
+}
+
+impl Validate for PartialSubmodule {
+    type Output = Submodule;
+    type Error = Error;
+    fn validate(self, vctx: &ValidationContext) -> Result<Submodule> {
+        if !vctx.pre_output {
+            self.extra.iter().for_each(|(k, _)| {
+                Warnings::IgnoreUnknownField {
+                    field: k.clone(),
+                    pkg: vctx.package_name.to_string(),
+                }
+                .emit();
+            });
+        }
+        Ok(Submodule {
+            path: self.submodule,
+            recursive: self.recursive.unwrap_or(true),
+            shallow: self.shallow.unwrap_or(true),
+        })
     }
 }
 

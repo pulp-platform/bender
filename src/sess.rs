@@ -1221,24 +1221,71 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
             if path.join(".gitmodules").exists() {
                 if self.sess.config.git_submodules {
-                    let pb = Some(ProgressHandler::new(
-                        self.sess.multiprogress.clone(),
-                        GitProgressOps::Submodule,
-                        name,
-                    ));
-                    local_git
-                        .clone()
-                        .spawn_with(
-                            move |c| {
-                                c.arg("submodule")
-                                    .arg("update")
-                                    .arg("--init")
-                                    .arg("--recursive")
-                                    .arg("--progress")
-                            },
-                            pb,
-                        )
-                        .await?;
+                    // Re-read the dependency's own manifest (now checked out on
+                    // disk) to see whether it restricts which of its submodules
+                    // should be cloned. Source/include-dir existence is ignored
+                    // here (via `validate_ignore_sources`) so that excluding a
+                    // submodule that holds such paths does not defeat the
+                    // selection; a missing or unparseable manifest falls back to
+                    // cloning all submodules recursively.
+                    let selection = std::fs::File::open(path.join("Bender.yml"))
+                        .ok()
+                        .and_then(|file| {
+                            serde_yaml_ng::from_reader::<_, PartialManifest>(file).ok()
+                        })
+                        .and_then(|partial| partial.validate_ignore_sources().ok())
+                        .and_then(|m| m.git_submodules);
+
+                    match selection {
+                        // No `git_submodules` field: clone all submodules recursively.
+                        None => {
+                            let pb = Some(ProgressHandler::new(
+                                self.sess.multiprogress.clone(),
+                                GitProgressOps::Submodule,
+                                name,
+                            ));
+                            local_git
+                                .clone()
+                                .spawn_with(
+                                    move |c| {
+                                        c.arg("submodule")
+                                            .arg("update")
+                                            .arg("--init")
+                                            .arg("--recursive")
+                                            .arg("--progress")
+                                    },
+                                    pb,
+                                )
+                                .await?;
+                        }
+                        // `git_submodules` present: clone only the listed
+                        // submodules (an empty list clones none).
+                        Some(subs) => {
+                            for sub in subs {
+                                let pb = Some(ProgressHandler::new(
+                                    self.sess.multiprogress.clone(),
+                                    GitProgressOps::Submodule,
+                                    name,
+                                ));
+                                local_git
+                                    .clone()
+                                    .spawn_with(
+                                        move |c| {
+                                            c.arg("submodule").arg("update").arg("--init");
+                                            if sub.recursive {
+                                                c.arg("--recursive");
+                                            }
+                                            if sub.shallow {
+                                                c.arg("--depth").arg("1");
+                                            }
+                                            c.arg("--progress").arg("--").arg(&sub.path)
+                                        },
+                                        pb,
+                                    )
+                                    .await?;
+                            }
+                        }
+                    }
                 } else {
                     // Submodules were disabled via the `--git-submodules` flag,
                     // so they are left unchecked out. Warn the user, listing the
