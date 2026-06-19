@@ -560,29 +560,22 @@ impl<'ctx> Session<'ctx> {
         db_name
     }
 
-    /// Path of the cross-process advisory lock file for a git dependency.
-    ///
-    /// This single file coordinates access to the bare database under
-    /// `git/db/` for this dependency. Writers (database initialization and
-    /// fetches) take it exclusively; readers (version resolution and checkouts)
-    /// take it shared, so concurrent invocations against a populated database
-    /// do not serialize.
-    pub fn dep_lock_path(&self, name: &str, url: &str) -> PathBuf {
+    /// Path of the cross-process advisory lock file guarding a dependency's
+    /// bare git database. The lock lives as a sibling of the database directory
+    /// itself, i.e. `.bender/git/db/<name>-<hash>.lock` next to the bare repo at
+    /// `.bender/git/db/<name>-<hash>/`.
+    pub fn db_lock_path(&self, name: &str, url: &str) -> PathBuf {
         let key = self.git_db_name(name, url);
         self.db_parent()
             .join("git")
-            .join("locks")
+            .join("db")
             .join(format!("{}.lock", key))
     }
 
     /// Path of the cross-process advisory lock file for a working-tree
     /// checkout.
     ///
-    /// Held exclusively across `checkout_git` so that two bender invocations
-    /// that resolve to the same checkout directory -- e.g. two runs against the
-    /// same project root -- cannot interleave their `remove_dir_all` / `git
-    /// clone` / `git checkout` operations and corrupt the working tree. The
-    /// lock file lives as a sibling of the checkout directory so it travels
+    /// The lock file lives as a sibling of the checkout directory so it travels
     /// with the project, independent of where the bare database is stored.
     pub fn checkout_lock_path(&self, checkout_path: &Path) -> PathBuf {
         let mut p = checkout_path.as_os_str().to_owned();
@@ -694,16 +687,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     /// Access the git database for a dependency, creating or updating it as
     /// needed.
     ///
-    /// Locking is fine-grained. The common case -- the database already exists
-    /// and is current -- only takes a shared lock, so concurrent read-only
-    /// callers run in parallel instead of serializing. Only when an
-    /// initialization or fetch is actually required is the lock escalated to
-    /// exclusive, and the database state is re-checked under it in case another
-    /// process performed the work while we were briefly unlocked. The lock is
-    /// released before returning; the returned handle is used for read-only
-    /// access. Callers that themselves mutate (e.g. a checkout holding a
-    /// long-lived shared lock and fetching on a fallback path) manage their own
-    /// locking around this call.
+    /// The common case (database present and current) takes only a shared lock,
+    /// escalating to exclusive just for an init or fetch and re-checking state
+    /// under it. The lock is released before returning the read-only handle.
     async fn git_database(
         &'io self,
         name: &str,
@@ -716,22 +702,22 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         //       Then use that table to return the future if it already exists.
         //       This ensures that the gitdb is setup only once, and makes the
         //       whole process faster for later calls.
-        let lock_path = self.sess.dep_lock_path(name, url);
+        let db_lock = FsLock::new(self.sess.db_lock_path(name, url));
 
         // Fast path: under a shared lock, check whether the database is already
         // present and up to date. If so, nothing has to be mutated and we can
         // return right away, letting concurrent readers run in parallel.
-        let shared = FsLock::acquire_shared(lock_path.clone()).await?;
+        let shared_guard = db_lock.acquire_shared().await?;
         let (git, action) = self.git_database_action(name, url, force_fetch)?;
         if let DbAction::Ready = action {
             return Ok(git);
         }
-        drop(shared);
+        drop(shared_guard);
 
         // A mutation (initialization or fetch) is required. Take the exclusive
         // lock and re-evaluate: another process may have completed the work
         // while we were briefly unlocked, in which case there is nothing to do.
-        let _exclusive = FsLock::acquire_exclusive(lock_path).await?;
+        let _exclusive_guard = db_lock.acquire_exclusive().await?;
         let (git, action) = self.git_database_action(name, url, force_fetch)?;
         match action {
             DbAction::Ready => Ok(git),
@@ -1018,10 +1004,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     /// This recovers a commit that was force-pushed off every branch and tag
     /// upstream (so it is not advertised and a normal fetch does not retrieve
     /// it) but remains reachable on the server and thus fetchable by hash. The
-    /// fetch mutates the database, so the exclusive lock is taken for it. The
-    /// fetch itself is best-effort -- not every server allows fetching an
-    /// unadvertised commit by hash -- so its result is ignored; the caller
-    /// verifies whether the commit became available.
+    /// fetch mutates the database, so the exclusive lock is taken for it.
     async fn fetch_revision_by_hash(
         &'io self,
         name: &str,
@@ -1031,7 +1014,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         // Make sure the database exists, then take the exclusive lock for the
         // by-hash fetch, which is the only mutation here.
         let git = self.git_database(name, url, Some(false), None).await?;
-        let _wlock = FsLock::acquire_exclusive(self.sess.dep_lock_path(name, url)).await?;
+        let _exclusive_guard = FsLock::new(self.sess.db_lock_path(name, url))
+            .acquire_exclusive()
+            .await?;
         let pb = Some(ProgressHandler::new(
             self.sess.multiprogress.clone(),
             GitProgressOps::Fetch,
@@ -1103,27 +1088,21 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         force: bool,
         update_list: &[String],
     ) -> Result<&'ctx Path> {
-        // Serialize concurrent bender invocations that resolve to the same
-        // checkout directory -- typically two runs against the same project
-        // root. Without this, the shared db lock taken below does not protect
-        // us: shared lockers don't block each other, so two simultaneous
-        // `checkout_git` calls could interleave `remove_dir_all`, `git clone`,
-        // and `git checkout` on the same working tree and corrupt it. The lock
-        // is per checkout path, so unrelated deps (and the same dep across
-        // different projects, which resolve to distinct paths) still run in
-        // parallel.
-        let _checkout_lock = FsLock::acquire_exclusive(self.sess.checkout_lock_path(path)).await?;
+        // Serialize invocations that resolve to the same checkout path, so they
+        // can't interleave `remove_dir_all`/`git clone`/`git checkout` on the
+        // same working tree. Per-path, so unrelated checkouts still run in
+        // parallel; the shared db lock below wouldn't serialize these.
+        let _checkout_guard = FsLock::new(self.sess.checkout_lock_path(path))
+            .acquire_exclusive()
+            .await?;
 
-        // Resolve (and, if necessary, initialize) the bare database before
-        // taking the lock we hold across the checkout. A checkout reads from the
-        // database (via `git clone --shared`) but never writes to it, so a
-        // shared lock is enough and lets concurrent invocations check out in
-        // parallel against a warm, pre-populated database. The only writer path
-        // is the fallback fetch below (when the locked revision is missing from
-        // the database), which briefly drops this lock and takes an exclusive
-        // one of its own.
+        // A checkout only reads the database (via `git clone --shared`), so a
+        // shared lock suffices and lets concurrent checkouts proceed in
+        // parallel. The fallback fetch below (locked revision missing) is the
+        // only writer; it briefly drops this lock for an exclusive one.
         let db = self.git_database(name, url, Some(false), None).await?;
-        let mut db_lock = Some(FsLock::acquire_shared(self.sess.dep_lock_path(name, url)).await?);
+        let db_lock = FsLock::new(self.sess.db_lock_path(name, url));
+        let mut db_guard = Some(db_lock.acquire_shared().await?);
 
         #[derive(Eq, PartialEq)]
         enum CheckoutState {
@@ -1195,13 +1174,11 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         // Perform the checkout if necessary.
         if clear != CheckoutState::Clean {
-            // Ensure the requested revision is present in the database. The
-            // database is normally already populated, so this is a read-only
-            // check under the shared lock. If the revision is missing (e.g. the
-            // cached database predates the locked commit), it must be fetched,
-            // which mutates the database: drop the shared lock, fetch via
-            // `git_database` (which escalates to an exclusive lock internally),
-            // then re-take the shared lock and continue.
+            // Ensure the revision is present -- normally a read-only check
+            // under the shared lock. If it's missing (cached database predates
+            // the locked commit), drop the shared lock, fetch via
+            // `git_database` (which takes its own exclusive lock), then re-take
+            // the shared lock.
             let mut git = db.clone();
             let revision_check = revision.to_string();
             let have_commit = git
@@ -1218,22 +1195,17 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 .is_ok();
             if !have_commit {
                 log::debug!("revision {} not in database, fetching.", revision);
-                drop(db_lock.take());
+                drop(db_guard.take());
                 git = self.git_database(name, url, Some(true), None).await?;
-                db_lock = Some(FsLock::acquire_shared(self.sess.dep_lock_path(name, url)).await?);
+                db_guard = Some(db_lock.acquire_shared().await?);
             }
-            // Check if the revision is reachable from any upstream branch or
-            // tag. If not, warn that the commit may have been removed by a
-            // force-push. Synthetic `bender-tmp-*` tags are excluded: they are
-            // created by `dependency_versions` (and may persist in databases
-            // populated by older bender versions from the old checkout flow),
-            // and they do not represent upstream tracking.
+            // Warn if the revision isn't reachable from any upstream branch or
+            // tag (e.g. removed by a force-push). Synthetic `bender-tmp-*` tags
+            // from `dependency_versions` are excluded: they don't represent
+            // upstream tracking but may linger in older databases.
             //
-            // TODO: drop this filter once `bender-tmp-*` tags are either no
-            // longer created (e.g. by replacing the `rev-list --all` use in
-            // `dependency_versions` with a hash-based reachability check) or
-            // swept after use; the filter is here to remain correct on
-            // databases that still contain such tags.
+            // TODO: drop this filter once `bender-tmp-*` tags are no longer
+            // created or are swept after use.
             let revision_owned = revision.to_string();
             if let Ok(ref_output) = git
                 .clone()
@@ -1257,13 +1229,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 // Clone the working tree from the database, borrowing its
                 // objects via `--shared` (alternates) so nothing is copied and
                 // the database is left untouched. `--no-checkout` keeps the
-                // worktree empty so the exact revision can be checked out next;
-                // no temporary tag in the database is needed. This step
-                // transfers no objects and writes no working-tree files, so it
-                // runs without its own progress handler: the user-facing
-                // progress and finish line come from the checkout below, and a
-                // separate handler here would report the dependency as "Checked
-                // out" twice.
+                // worktree empty so the exact revision can be checked out next.
                 git.clone()
                     .spawn_with(
                         move |c| {
@@ -1320,9 +1286,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     "checkout of {} failed, fetching the commit by hash and retrying.",
                     revision
                 );
-                drop(db_lock.take());
+                drop(db_guard.take());
                 self.fetch_revision_by_hash(name, url, revision).await?;
-                db_lock = Some(FsLock::acquire_shared(self.sess.dep_lock_path(name, url)).await?);
+                db_guard = Some(db_lock.acquire_shared().await?);
                 self.checkout_revision(&local_git, revision, name)
                     .await
                     .map_err(|cause| {
@@ -1388,7 +1354,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             }
         }
         // Hold the database lock until the checkout is fully materialized.
-        drop(db_lock);
+        drop(db_guard);
         Ok(path)
     }
 
