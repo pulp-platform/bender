@@ -95,7 +95,7 @@ Place a [`Bender.local`](../local.md) in a parent directory of your projects so 
 db_dir: /var/cache/bender_shared
 ```
 
-Every job on the runner now reuses the already-fetched Git data and serializes safely against concurrent jobs via per-dependency filesystem locks living next to the bare repos (`<db_dir>/git/locks/`).
+Every job on the runner now reuses the already-fetched Git data and serializes safely against concurrent jobs via per-dependency filesystem locks living next to the bare repos (`<db_dir>/git/db/`).
 
 If you'd rather not place a `Bender.local` on the runner at all, exporting `BENDER_DB_DIR=/var/cache/bender_shared` in the job environment has the same effect — any project that explicitly sets `db_dir` in its own configuration overrides the env var.
 
