@@ -102,7 +102,7 @@ async fn fetch_repo(
     fs::create_dir(&db_path)?;
 
     let db = GitDatabase::init_bare(&db_path)?;
-    db.add_remote(REMOTE_NAME, repo.url).await?;
+    db.add_remote(REMOTE_NAME, repo.url)?;
     db.fetch(REMOTE_NAME, fetch_progress).await?;
     let revs = db.list_revs()?;
     let checkout_rev = db.resolve(repo.target)?;

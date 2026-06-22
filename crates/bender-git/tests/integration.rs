@@ -101,9 +101,7 @@ impl TestContext {
         std::fs::create_dir(&db_path).unwrap();
 
         let db = GitDatabase::init_bare(&db_path).unwrap();
-        db.add_remote(ORIGIN, source.to_str().unwrap())
-            .await
-            .unwrap();
+        db.add_remote(ORIGIN, source.to_str().unwrap()).unwrap();
         db.fetch(ORIGIN, NoProgress).await.unwrap();
 
         Self {

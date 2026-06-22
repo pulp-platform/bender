@@ -58,7 +58,7 @@ impl GitDatabase {
     ///
     /// This persists the remote to the repository-local `config` file using
     /// `gix` only, including the default fetch refspec Git would install.
-    pub async fn add_remote(&self, name: &str, url: &str) -> Result<()> {
+    pub fn add_remote(&self, name: &str, url: &str) -> Result<()> {
         let repo = self.repo.to_thread_local();
         let refspec = format!("+refs/heads/*:refs/remotes/{name}/*");
         let mut remote = repo
@@ -71,9 +71,8 @@ impl GitDatabase {
             gix::config::Source::Local,
         )?;
         remote.save_as_to(name, &mut config)?;
-
-        let mut out = std::fs::File::create(&config_path)?;
-        Ok(config.write_to(&mut out)?)
+        config.write_to(&mut std::fs::File::create(&config_path)?)?;
+        Ok(())
     }
 
     /// Fetch all tags and branches from `remote`.

@@ -52,7 +52,7 @@
 //!
 //! // --- Database (bare repo) ---
 //! let db = GitDatabase::init_bare(Path::new("/cache/db/myrepo-abc123"))?;
-//! db.add_remote("origin", "https://github.com/example/repo").await?;
+//! db.add_remote("origin", "https://github.com/example/repo")?;
 //! db.fetch("origin", NoProgress).await?;
 //!
 //! // Version listing — fast, no subprocess, no throttle:
