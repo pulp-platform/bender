@@ -30,7 +30,7 @@ use crate::types::ObjectId;
 ///   All local reads and writes — fast and safe to run concurrently.
 #[derive(Clone)]
 pub struct GitDatabase {
-    repo: gix::ThreadSafeRepository,
+    repo: gix::Repository,
 }
 
 impl GitDatabase {
@@ -38,13 +38,13 @@ impl GitDatabase {
     ///
     /// Equivalent to `git init --bare`. The directory must already exist.
     pub fn init_bare(path: impl Into<PathBuf>) -> Result<Self> {
-        let repo = gix::init_bare(path.into())?.into_sync();
+        let repo = gix::init_bare(path.into())?;
         Ok(Self { repo })
     }
 
     /// Open an existing bare repository at `path`.
     pub fn open(path: impl Into<PathBuf>) -> Result<Self> {
-        let repo = gix::open(path)?.into_sync();
+        let repo = gix::open(path)?;
         Ok(Self { repo })
     }
 
@@ -59,13 +59,13 @@ impl GitDatabase {
     /// This persists the remote to the repository-local `config` file using
     /// `gix` only, including the default fetch refspec Git would install.
     pub fn add_remote(&self, name: &str, url: &str) -> Result<()> {
-        let repo = self.repo.to_thread_local();
         let refspec = format!("+refs/heads/*:refs/remotes/{name}/*");
-        let mut remote = repo
+        let mut remote = self
+            .repo
             .remote_at(url)?
             .with_refspecs(Some(refspec.as_str()), gix::remote::Direction::Fetch)?;
 
-        let config_path = repo.path().join("config");
+        let config_path = self.repo.path().join("config");
         let mut config = gix::config::File::from_path_no_includes(
             config_path.clone(),
             gix::config::Source::Local,
@@ -171,8 +171,8 @@ impl GitDatabase {
     /// only accepts named refs, not bare hashes).
     pub fn tag_commit(&self, tag_name: &str, commit: &ObjectId) -> Result<()> {
         use gix::refs::transaction::PreviousValue;
-        let repo = self.repo.to_thread_local();
-        repo.tag_reference(tag_name, *commit, PreviousValue::Any)?;
+        self.repo
+            .tag_reference(tag_name, *commit, PreviousValue::Any)?;
         Ok(())
     }
 
@@ -181,9 +181,8 @@ impl GitDatabase {
     /// Annotated tags are peeled to their target commit. Broken symrefs are
     /// silently skipped.
     pub fn list_tags(&self) -> Result<Vec<(String, ObjectId)>> {
-        let repo = self.repo.to_thread_local();
         let mut result = Vec::new();
-        for reference in repo.references()?.tags()? {
+        for reference in self.repo.references()?.tags()? {
             let mut reference = reference?;
             let name = reference.name().as_bstr().to_string();
             let Ok(id) = reference.peel_to_id() else {
@@ -200,9 +199,8 @@ impl GitDatabase {
     /// Short names have the `refs/remotes/origin/` prefix stripped. Broken
     /// symrefs are silently skipped.
     pub fn list_branches(&self) -> Result<Vec<(String, ObjectId)>> {
-        let repo = self.repo.to_thread_local();
         let mut branches = Vec::new();
-        for reference in repo.references()?.remote_branches()? {
+        for reference in self.repo.references()?.remote_branches()? {
             let mut reference = reference?;
             let Ok(id) = reference.peel_to_id() else {
                 continue;
@@ -222,15 +220,15 @@ impl GitDatabase {
     /// Equivalent to `git rev-list --all --date-order`.
     /// This is a pure local read and does not acquire the throttle semaphore.
     pub fn list_revs(&self) -> Result<Vec<ObjectId>> {
-        let repo = self.repo.to_thread_local();
-
-        let tips: Vec<gix::ObjectId> = repo
+        let tips: Vec<gix::ObjectId> = self
+            .repo
             .references()?
             .all()?
             .filter_map(|r| r.ok()?.peel_to_id().ok().map(|id| id.detach()))
             .collect();
 
-        repo.rev_walk(tips)
+        self.repo
+            .rev_walk(tips)
             .sorting(gix::revision::walk::Sorting::ByCommitTime(
                 Default::default(),
             ))
@@ -244,8 +242,8 @@ impl GitDatabase {
     /// Returns `None` if the path does not exist in the tree.
     /// This is a pure local read and does not acquire the throttle semaphore.
     pub fn read_file(&self, rev: &ObjectId, path: &Path) -> Result<Option<String>> {
-        let repo = self.repo.to_thread_local();
-        let commit = repo
+        let commit = self
+            .repo
             .find_commit(*rev)
             .map_err(|_| GitError::ObjectNotFound {
                 oid: rev.to_string(),
@@ -269,15 +267,14 @@ impl GitDatabase {
     ///
     /// This is a pure local read and does not acquire the throttle semaphore.
     pub fn resolve(&self, expr: &str) -> Result<ObjectId> {
-        let repo = self.repo.to_thread_local();
         let spec = format!("{}^{{commit}}", expr);
-        if let Ok(id) = repo.rev_parse_single(spec.as_str()) {
+        if let Ok(id) = self.repo.rev_parse_single(spec.as_str()) {
             return Ok(ObjectId::from(id.detach()));
         }
         // Fall back to remote-tracking ref — in a bare repo, `git fetch` stores
         // branches as refs/remotes/origin/<name> rather than refs/heads/<name>.
         let remote_spec = format!("refs/remotes/origin/{}^{{commit}}", expr);
-        let id = repo.rev_parse_single(remote_spec.as_str())?;
+        let id = self.repo.rev_parse_single(remote_spec.as_str())?;
         Ok(ObjectId::from(id.detach()))
     }
 
@@ -286,8 +283,9 @@ impl GitDatabase {
     /// This is a pure local read and does not acquire the throttle semaphore.
     ///
     /// Note: this re-opens the repository on each call rather than using the
-    /// cached `ThreadSafeRepository`. Remotes may be added after construction,
-    /// so the cached config snapshot would not include them.
+    /// cached `repo` handle. `add_remote` writes the remote straight to the
+    /// on-disk config, so the handle's config snapshot (taken at open time)
+    /// would not include remotes added after construction.
     pub fn remote_url(&self, remote: &str) -> Result<String> {
         let repo = gix::open(self.repo.path())?;
         let remote = repo.find_remote(remote)?;

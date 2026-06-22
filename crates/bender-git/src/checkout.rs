@@ -17,18 +17,18 @@ use crate::types::ObjectId;
 /// checkout to be moved or deleted independently of the database.
 #[derive(Clone)]
 pub struct GitCheckout {
-    repo: gix::ThreadSafeRepository,
+    repo: gix::Repository,
 }
 
 impl GitCheckout {
     /// Open an existing working tree at `path`.
     pub fn open(path: impl Into<PathBuf>) -> Result<Self> {
-        let repo = gix::open(path)?.into_sync();
+        let repo = gix::open(path)?;
         Ok(Self { repo })
     }
 
     fn runner(&self) -> Result<SubprocessRunner> {
-        let work_dir = self.repo.work_dir().expect("checkout should have work dir");
+        let work_dir = self.repo.workdir().expect("checkout should have work dir");
         SubprocessRunner::new(work_dir.to_path_buf())
     }
 
@@ -36,8 +36,7 @@ impl GitCheckout {
     ///
     /// This is a pure local read implemented via `gix`; no semaphore acquired.
     pub fn current_checkout(&self) -> Result<ObjectId> {
-        let repo = self.repo.to_thread_local();
-        let id = repo.head_id()?;
+        let id = self.repo.head_id()?;
         Ok(ObjectId::from(id.detach()))
     }
 
@@ -46,8 +45,7 @@ impl GitCheckout {
     ///
     /// This is a pure local read via `gix`; no semaphore acquired.
     pub fn remote_url(&self, remote: &str) -> Result<String> {
-        let repo = self.repo.to_thread_local();
-        let remote = repo.find_remote(remote)?;
+        let remote = self.repo.find_remote(remote)?;
         let url = remote
             .url(gix::remote::Direction::Fetch)
             .ok_or(GitError::RefNotFound {
@@ -86,8 +84,7 @@ impl GitCheckout {
     ///
     /// Submodule updates are not progress-tracked.
     pub async fn update_submodules(&self) -> Result<()> {
-        let repo = self.repo.to_thread_local();
-        if repo.submodules()?.is_none() {
+        if self.repo.submodules()?.is_none() {
             return Ok(());
         }
 
