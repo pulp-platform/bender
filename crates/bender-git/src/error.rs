@@ -71,6 +71,7 @@ gix_from!(
     gix::remote::save::AsError,
     gix::refspec::parse::Error,
     gix::config::file::init::from_paths::Error,
+    gix::config::file::set_raw_value::Error,
     gix::reference::edit::Error,
     gix::reference::head_id::Error,
     gix::reference::iter::init::Error,

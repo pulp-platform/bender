@@ -250,3 +250,48 @@ async fn test_remote_url() {
     let remote = ctx.db.remote_url(ORIGIN).unwrap();
     assert_eq!(remote.trim(), url);
 }
+
+#[tokio::test]
+// Verifies that `open_or_init` initialises the database once (installing the
+// remote and disabling auto-gc) and, on a second call against the same
+// directory, opens the existing repository rather than re-initialising it.
+async fn test_open_or_init_idempotent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let source = create_local_repo(tmp.path());
+    let url = source.to_str().unwrap();
+
+    let db_path = tmp.path().join("db");
+    std::fs::create_dir(&db_path).unwrap();
+
+    // First call initialises: remote installed and auto-gc disabled.
+    let db = GitDatabase::open_or_init(&db_path, ORIGIN, url).unwrap();
+    assert_eq!(db.remote_url(ORIGIN).unwrap().trim(), url);
+    assert_eq!(git_config_get(&db_path, "gc.auto"), "0");
+
+    db.fetch(ORIGIN, NoProgress).await.unwrap();
+
+    // Second call must reopen the same repo (a different URL is ignored because
+    // the database already exists), preserving the original remote.
+    let reopened =
+        GitDatabase::open_or_init(&db_path, ORIGIN, "https://example.invalid/x").unwrap();
+    assert_eq!(reopened.remote_url(ORIGIN).unwrap().trim(), url);
+    assert!(
+        reopened
+            .list_tags()
+            .unwrap()
+            .iter()
+            .any(|(n, _)| n == "v0.1.0"),
+        "reopened database should see fetched tags"
+    );
+}
+
+/// Read a single git config value from the repository at `repo_path`.
+fn git_config_get(repo_path: &Path, key: &str) -> String {
+    let output = std::process::Command::new("git")
+        .args(["config", "--get", key])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git config --get {key} failed");
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}

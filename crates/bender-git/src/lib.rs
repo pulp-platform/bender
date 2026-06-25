@@ -79,6 +79,7 @@ pub mod error;
 pub mod progress;
 pub mod types;
 
+mod lock;
 mod subprocess;
 
 pub use subprocess::{set_git_bin, set_git_throttle};

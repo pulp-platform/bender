@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::checkout::GitCheckout;
 use crate::error::{GitError, Result};
+use crate::lock::DatabaseLock;
 use crate::progress::{GitProgress, on_fetch_progress};
 use crate::subprocess::SubprocessRunner;
 use crate::types::ObjectId;
@@ -28,6 +29,19 @@ use crate::types::ObjectId;
 ///   `add_remote`, `tag_commit`, `list_refs`, `list_revs`, `cat_file`,
 ///   `list_files`, `resolve`, `remote_url`.
 ///   All local reads and writes — fast and safe to run concurrently.
+///
+/// ## Concurrency across invocations
+///
+/// A single database directory may be shared by several bender invocations
+/// (e.g. parallel CI jobs). Operations that mutate shared, non-content-addressed
+/// state — `open_or_init` (init + `add_remote`) and `fetch`/`fetch_ref` (ref and
+/// `packed-refs` updates) — hold an exclusive cross-process advisory lock for
+/// their duration (see [`crate::lock`]). This guarantees the database is
+/// initialised exactly once and serialises fetches so they neither corrupt refs
+/// nor do redundant network work. Pure reads and `clone_into` do not lock: the
+/// object store tolerates concurrent readers, and automatic gc — the only
+/// operation that could prune objects a `--shared` checkout still needs — is
+/// disabled at init time via [`open_or_init`](Self::open_or_init).
 #[derive(Clone)]
 pub struct GitDatabase {
     repo: gix::Repository,
@@ -48,8 +62,79 @@ impl GitDatabase {
         Ok(Self { repo })
     }
 
+    /// Open the database at `path`, creating and initialising it on first use.
+    ///
+    /// This is the recommended constructor when the same directory may be
+    /// accessed by multiple concurrent bender invocations (e.g. parallel CI
+    /// jobs sharing a cache). It holds an exclusive cross-process lock for its
+    /// duration so initialisation happens exactly once: a second invocation
+    /// either waits and then opens the finished database, or observes that it
+    /// is already initialised.
+    ///
+    /// On first creation it runs the equivalent of `git init --bare`, installs
+    /// `remote` pointing at `url`, and disables automatic gc (so a later
+    /// `git fetch` cannot trigger a gc that prunes objects a `--shared`
+    /// checkout still references). The directory must already exist.
+    pub fn open_or_init(path: impl Into<PathBuf>, remote: &str, url: &str) -> Result<Self> {
+        let path = path.into();
+        let _lock = DatabaseLock::acquire_blocking(&path)?;
+
+        // Already initialised by us or a concurrent invocation: just open it.
+        if let Ok(repo) = gix::open(&path) {
+            return Ok(Self { repo });
+        }
+
+        let db = Self {
+            repo: gix::init_bare(&path)?,
+        };
+        db.add_remote(remote, url)?;
+        db.disable_auto_gc()?;
+        Ok(db)
+    }
+
     fn runner(&self) -> Result<SubprocessRunner> {
         SubprocessRunner::new(self.repo.path().to_path_buf())
+    }
+
+    /// Atomically replace the repository-local `config` file with `config`.
+    ///
+    /// Writes to a sibling temp file and renames it over `config`, so a
+    /// concurrent reader (e.g. a `git fetch` subprocess) never observes a
+    /// truncated or half-written config. This mirrors how git itself edits
+    /// config via `config.lock` + rename.
+    fn write_config_atomic(config_path: &Path, config: &gix::config::File<'_>) -> Result<()> {
+        let mut tmp_name = config_path
+            .file_name()
+            .map(|n| n.to_os_string())
+            .unwrap_or_default();
+        tmp_name.push(".bender-new");
+        let tmp_path = config_path.with_file_name(tmp_name);
+
+        let mut tmp = std::fs::File::create(&tmp_path)?;
+        config.write_to(&mut tmp)?;
+        tmp.sync_all()?;
+        drop(tmp);
+
+        std::fs::rename(&tmp_path, config_path)?;
+        Ok(())
+    }
+
+    /// Disable git's automatic gc on this database.
+    ///
+    /// bender's checkouts are created with `--shared` and keep no objects of
+    /// their own; they reach into this database's object store. An auto-gc
+    /// triggered as a side effect of `git fetch` could prune objects a checkout
+    /// still references. gc is therefore disabled here and only ever run
+    /// explicitly (under the database lock).
+    fn disable_auto_gc(&self) -> Result<()> {
+        let config_path = self.repo.path().join("config");
+        let mut config = gix::config::File::from_path_no_includes(
+            config_path.clone(),
+            gix::config::Source::Local,
+        )?;
+        config.set_raw_value("gc.auto", "0")?;
+        Self::write_config_atomic(&config_path, &config)?;
+        Ok(())
     }
 
     /// Add a remote (e.g. `origin`).
@@ -57,7 +142,9 @@ impl GitDatabase {
     /// Equivalent to `git remote add <name> <url>`.
     ///
     /// This persists the remote to the repository-local `config` file using
-    /// `gix` only, including the default fetch refspec Git would install.
+    /// `gix` only, including the default fetch refspec Git would install. The
+    /// config is replaced atomically (write-temp-then-rename), so a concurrent
+    /// reader never sees a torn file.
     pub fn add_remote(&self, name: &str, url: &str) -> Result<()> {
         let refspec = format!("+refs/heads/*:refs/remotes/{name}/*");
         let mut remote = self
@@ -71,14 +158,20 @@ impl GitDatabase {
             gix::config::Source::Local,
         )?;
         remote.save_as_to(name, &mut config)?;
-        config.write_to(&mut std::fs::File::create(&config_path)?)?;
+        Self::write_config_atomic(&config_path, &config)?;
         Ok(())
     }
 
     /// Fetch all tags and branches from `remote`.
     ///
     /// Equivalent to `git fetch --tags --prune <remote> --progress`.
+    ///
+    /// Holds the exclusive database lock for its duration so that concurrent
+    /// invocations sharing this database do not collide on `packed-refs` (which
+    /// surfaces as spurious "cannot lock ref" failures) or do redundant network
+    /// work — a contending fetch waits, then finds the data already present.
     pub async fn fetch(&self, remote: &str, mut progress: impl GitProgress) -> Result<()> {
+        let _lock = DatabaseLock::acquire(self.repo.path()).await?;
         let label = self.repo.path().to_str().unwrap_or(remote);
         progress.started(label);
         let result = self
@@ -99,6 +192,7 @@ impl GitDatabase {
     /// (e.g. after a force-push), in which case the full OID must be fetched
     /// explicitly.
     pub async fn fetch_ref(&self, remote: &str, refspec: &str) -> Result<()> {
+        let _lock = DatabaseLock::acquire(self.repo.path()).await?;
         self.runner()?
             .run_discard(&["fetch", remote, refspec], &[("GIT_TERMINAL_PROMPT", "0")])
             .await
