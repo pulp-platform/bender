@@ -560,16 +560,27 @@ impl<'ctx> Session<'ctx> {
         db_name
     }
 
-    /// Path of the cross-process advisory lock file for a git dependency.
-    ///
-    /// The same file guards both the bare database under `git/db/` and the
-    /// working checkout under `git/checkouts/` for this dependency.
-    pub fn dep_lock_path(&self, name: &str, url: &str) -> PathBuf {
+    /// Path of the cross-process advisory lock file guarding a dependency's
+    /// bare git database. The lock lives as a sibling of the database directory
+    /// itself, i.e. `.bender/git/db/<name>-<hash>.lock` next to the bare repo at
+    /// `.bender/git/db/<name>-<hash>/`.
+    pub fn db_lock_path(&self, name: &str, url: &str) -> PathBuf {
         let key = self.git_db_name(name, url);
         self.db_parent()
             .join("git")
-            .join("locks")
+            .join("db")
             .join(format!("{}.lock", key))
+    }
+
+    /// Path of the cross-process advisory lock file for a working-tree
+    /// checkout.
+    ///
+    /// The lock file lives as a sibling of the checkout directory so it travels
+    /// with the project, independent of where the bare database is stored.
+    pub fn checkout_lock_path(&self, checkout_path: &Path) -> PathBuf {
+        let mut p = checkout_path.as_os_str().to_owned();
+        p.push(".lock");
+        PathBuf::from(p)
     }
 
     /// The directory under which bare git databases and lock files live.
@@ -594,6 +605,16 @@ pub struct SessionIo<'sess, 'ctx: 'sess> {
     /// The underlying session.
     pub sess: &'sess Session<'ctx>,
     git_versions: Mutex<IndexMap<PathBuf, GitVersions<'ctx>>>,
+}
+
+/// What accessing a dependency's git database requires.
+enum DbAction {
+    /// The database exists and is up to date; only read access is needed.
+    Ready,
+    /// The database does not exist yet and must be initialized and fetched.
+    Init,
+    /// The database exists but must be fetched to pick up upstream updates.
+    Fetch,
 }
 
 impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
@@ -663,12 +684,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         }
     }
 
-    /// Access the git database for a dependency.
+    /// Access the git database for a dependency, creating or updating it as
+    /// needed.
     ///
-    /// Acquires the per-dependency filesystem lock and delegates to
-    /// [`git_database_locked`]. Callers that already hold the lock for this
-    /// dependency should call [`git_database_locked`] directly to avoid
-    /// deadlocking.
+    /// The common case (database present and current) takes only a shared lock,
+    /// escalating to exclusive just for an init or fetch and re-checking state
+    /// under it. The lock is released before returning the read-only handle.
     async fn git_database(
         &'io self,
         name: &str,
@@ -676,33 +697,130 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         force_fetch: Option<bool>,
         fetch_ref: Option<&str>,
     ) -> Result<Git<'ctx>> {
-        let _lock = FsLock::acquire_exclusive(self.sess.dep_lock_path(name, url)).await?;
-        self.git_database_locked(name, url, force_fetch, fetch_ref)
-            .await
-    }
-
-    /// Access the git database for a dependency, assuming the per-dependency
-    /// filesystem lock is already held by the caller.
-    ///
-    /// If the database does not exist, it is created. If the database has not
-    /// been updated recently, the remote is fetched.
-    async fn git_database_locked(
-        &'io self,
-        name: &str,
-        url: &str,
-        force_fetch: Option<bool>,
-        fetch_ref: Option<&str>,
-    ) -> Result<Git<'ctx>> {
+        self.sess.stats.num_calls_git_database.increment();
         // TODO: Make the assembled future shared and keep it in a lookup table.
         //       Then use that table to return the future if it already exists.
         //       This ensures that the gitdb is setup only once, and makes the
         //       whole process faster for later calls.
-        self.sess.stats.num_calls_git_database.increment();
+        let db_lock = FsLock::new(self.sess.db_lock_path(name, url));
 
+        // Fast path: under a shared lock, check whether the database is already
+        // present and up to date. If so, nothing has to be mutated and we can
+        // return right away, letting concurrent readers run in parallel.
+        let shared_guard = db_lock.acquire_shared().await?;
+        let (git, action) = self.git_database_action(name, url, force_fetch)?;
+        if let DbAction::Ready = action {
+            return Ok(git);
+        }
+        drop(shared_guard);
+
+        // A mutation (initialization or fetch) is required. Take the exclusive
+        // lock and re-evaluate: another process may have completed the work
+        // while we were briefly unlocked, in which case there is nothing to do.
+        let _exclusive_guard = db_lock.acquire_exclusive().await?;
+        let (git, action) = self.git_database_action(name, url, force_fetch)?;
+        match action {
+            DbAction::Ready => Ok(git),
+            DbAction::Init => {
+                ensure!(
+                    !self.sess.local_only,
+                    help = "Re-run without `--local`, or provide a local path dependency.",
+                    "Cannot initialize git dependency while `--local` is enabled."
+                );
+                log::info!("initializing git database for {} from {}", name, url);
+                self.sess.stats.num_database_init.increment();
+                // The progress bar object for cloning. We only use it for the
+                // last fetch operation, which is the only network operation here.
+                let pb = Some(ProgressHandler::new(
+                    self.sess.multiprogress.clone(),
+                    GitProgressOps::Clone,
+                    name,
+                ));
+                git.clone()
+                    .spawn_with(|c| c.arg("init").arg("--bare"), None)
+                    .await?;
+                // Disable automatic garbage collection on the shared database.
+                // Checkouts created with `git clone --shared` borrow objects from
+                // this database via `objects/info/alternates`, so pruning here
+                // could corrupt live checkouts that reference those objects.
+                git.clone()
+                    .spawn_with(|c| c.arg("config").arg("gc.auto").arg("0"), None)
+                    .await?;
+                git.clone()
+                    .spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url), None)
+                    .await?;
+                git.clone()
+                    .fetch("origin", pb)
+                    .and_then(|_| async {
+                        if let Some(reference) = fetch_ref {
+                            git.clone().fetch_ref("origin", reference, None).await
+                        } else {
+                            Ok(())
+                        }
+                    })
+                    .await
+                    .map_err(move |cause| {
+                        Error::from(SessionErrors::GitDatabaseAccess(
+                            "initialize",
+                            url.contains("git@"),
+                            cause.into(),
+                        ))
+                    })
+                    .map(move |_| git)
+            }
+            DbAction::Fetch => {
+                log::info!("fetching updates for {} from {}", name, url);
+                self.sess.stats.num_database_fetch.increment();
+                // Disable automatic garbage collection on the shared database
+                // (see init path for rationale). Idempotent and re-applied here
+                // so databases initialized by older bender versions also gain
+                // the setting on their next fetch.
+                git.clone()
+                    .spawn_with(|c| c.arg("config").arg("gc.auto").arg("0"), None)
+                    .await?;
+                // The progress bar object for fetching.
+                let pb = Some(ProgressHandler::new(
+                    self.sess.multiprogress.clone(),
+                    GitProgressOps::Fetch,
+                    name,
+                ));
+                git.clone()
+                    .fetch("origin", pb)
+                    .and_then(|_| async {
+                        if let Some(reference) = fetch_ref {
+                            git.clone().fetch_ref("origin", reference, None).await
+                        } else {
+                            Ok(())
+                        }
+                    })
+                    .await
+                    .map_err(move |cause| {
+                        Error::from(SessionErrors::GitDatabaseAccess(
+                            "update",
+                            url.contains("git@"),
+                            cause.into(),
+                        ))
+                    })
+                    .map(move |_| git)
+            }
+        }
+    }
+
+    /// Locate the bare git database for a dependency and decide what, if
+    /// anything, has to be done to bring it up to date.
+    ///
+    /// This only inspects the database (creating its directory if missing); it
+    /// never mutates git objects, so it is safe to evaluate under a shared lock.
+    /// The fetch decision mirrors `force_fetch`: `Some(true)` always fetches,
+    /// `Some(false)` never fetches, and `None` fetches only if the manifest has
+    /// been modified since the last fetch.
+    fn git_database_action(
+        &'io self,
+        name: &str,
+        url: &str,
+        force_fetch: Option<bool>,
+    ) -> Result<(Git<'ctx>, DbAction)> {
         let db_name = self.sess.git_db_name(name, url);
-
-        // Determine the location of the git database and create it if its does
-        // not yet exist.
         let db_dir = self.sess.db_parent().join("git").join("db").join(db_name);
         let db_dir = self.sess.intern_path(db_dir);
         std::fs::create_dir_all(db_dir)
@@ -713,50 +831,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
             &self.sess.config.git,
             self.sess.git_throttle.clone(),
         );
-
-        // Either initialize the repository or update it if needed.
-        if !db_dir.join("config").exists() {
-            ensure!(
-                !self.sess.local_only,
-                help = "Re-run without `--local`, or provide a local path dependency.",
-                "Cannot initialize git dependency while `--local` is enabled."
-            );
-            // Initialize.
-            log::info!("initializing git database for {} from {}", name, url);
-            self.sess.stats.num_database_init.increment();
-            // The progress bar object for cloning. We only use it for the
-            // last fetch operation, which is the only network operation here.
-            let pb = Some(ProgressHandler::new(
-                self.sess.multiprogress.clone(),
-                GitProgressOps::Clone,
-                name,
-            ));
-            git.clone()
-                .spawn_with(|c| c.arg("init").arg("--bare"), None)
-                .await?;
-            git.clone()
-                .spawn_with(|c| c.arg("remote").arg("add").arg("origin").arg(url), None)
-                .await?;
-            git.clone()
-                .fetch("origin", pb)
-                .and_then(|_| async {
-                    if let Some(reference) = fetch_ref {
-                        git.clone().fetch_ref("origin", reference, None).await
-                    } else {
-                        Ok(())
-                    }
-                })
-                .await
-                .map_err(move |cause| {
-                    Error::from(SessionErrors::GitDatabaseAccess(
-                        "initialize",
-                        url.contains("git@"),
-                        cause.into(),
-                    ))
-                })
-                .map(move |_| git)
+        let action = if !db_dir.join("config").exists() {
+            DbAction::Init
         } else {
-            // Update if the manifest has been modified since the last fetch.
             let db_mtime = try_modification_time(db_dir.join("FETCH_HEAD"));
             let skip_fetch = match force_fetch {
                 Some(true) => false,
@@ -764,41 +841,12 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 None => self.sess.manifest_mtime < db_mtime,
             };
             if skip_fetch || self.sess.local_only {
-                log::info!(
-                    "skipping fetch of {:?} (skip_fetch={}, local_only={})",
-                    db_dir,
-                    skip_fetch,
-                    self.sess.local_only
-                );
-                return Ok(git);
+                DbAction::Ready
+            } else {
+                DbAction::Fetch
             }
-            log::info!("fetching updates for {} from {}", name, url);
-            self.sess.stats.num_database_fetch.increment();
-            // The progress bar object for fetching.
-            let pb = Some(ProgressHandler::new(
-                self.sess.multiprogress.clone(),
-                GitProgressOps::Fetch,
-                name,
-            ));
-            git.clone()
-                .fetch("origin", pb)
-                .and_then(|_| async {
-                    if let Some(reference) = fetch_ref {
-                        git.clone().fetch_ref("origin", reference, None).await
-                    } else {
-                        Ok(())
-                    }
-                })
-                .await
-                .map_err(move |cause| {
-                    Error::from(SessionErrors::GitDatabaseAccess(
-                        "update",
-                        url.contains("git@"),
-                        cause.into(),
-                    ))
-                })
-                .map(move |_| git)
-        }
+        };
+        Ok((git, action))
     }
 
     /// Determine the list of versions available for a git dependency.
@@ -951,6 +999,82 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         }
     }
 
+    /// Fetch a single commit by hash into the git database.
+    ///
+    /// This recovers a commit that was force-pushed off every branch and tag
+    /// upstream (so it is not advertised and a normal fetch does not retrieve
+    /// it) but remains reachable on the server and thus fetchable by hash. The
+    /// fetch mutates the database, so the exclusive lock is taken for it.
+    async fn fetch_revision_by_hash(
+        &'io self,
+        name: &str,
+        url: &str,
+        revision: &str,
+    ) -> Result<()> {
+        // Make sure the database exists, then take the exclusive lock for the
+        // by-hash fetch, which is the only mutation here.
+        let git = self.git_database(name, url, Some(false), None).await?;
+        let _exclusive_guard = FsLock::new(self.sess.db_lock_path(name, url))
+            .acquire_exclusive()
+            .await?;
+        let pb = Some(ProgressHandler::new(
+            self.sess.multiprogress.clone(),
+            GitProgressOps::Fetch,
+            name,
+        ));
+        let revision_owned = revision.to_string();
+        let _ = git
+            .clone()
+            .spawn_with(
+                move |c| {
+                    c.arg("fetch")
+                        .arg("origin")
+                        .arg(revision_owned)
+                        .arg("--progress")
+                },
+                pb,
+            )
+            .await;
+        Ok(())
+    }
+
+    /// Check out `revision` in the working copy managed by `local_git`.
+    ///
+    /// LFS smudge filters are disabled here; LFS content is pulled separately
+    /// after the checkout. Returns an error if the revision cannot be checked
+    /// out (e.g. its objects are not available in the database).
+    async fn checkout_revision(
+        &'io self,
+        local_git: &Git<'ctx>,
+        revision: &str,
+        name: &str,
+    ) -> Result<String> {
+        let pb = Some(ProgressHandler::new(
+            self.sess.multiprogress.clone(),
+            GitProgressOps::Checkout,
+            name,
+        ));
+        let revision_owned = revision.to_string();
+        local_git
+            .clone()
+            .spawn_with(
+                move |c| {
+                    c.arg("-c")
+                        .arg("filter.lfs.smudge=")
+                        .arg("-c")
+                        .arg("filter.lfs.process=")
+                        .arg("-c")
+                        .arg("filter.lfs.required=false")
+                        .arg("checkout")
+                        .arg(revision_owned)
+                        .arg("--force")
+                        .arg("--progress")
+                },
+                pb,
+            )
+            .await
+    }
+
     /// Ensure that a proper git checkout exists.
     ///
     /// If the directory is not a proper git repository, it is deleted and
@@ -964,10 +1088,21 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         force: bool,
         update_list: &[String],
     ) -> Result<&'ctx Path> {
-        // Serialize concurrent bender invocations operating on the same
-        // dependency. The lock covers both the bare database (touched via the
-        // `git_database_locked` calls below) and the working checkout.
-        let _lock = FsLock::acquire_exclusive(self.sess.dep_lock_path(name, url)).await?;
+        // Serialize invocations that resolve to the same checkout path, so they
+        // can't interleave `remove_dir_all`/`git clone`/`git checkout` on the
+        // same working tree. Per-path, so unrelated checkouts still run in
+        // parallel; the shared db lock below wouldn't serialize these.
+        let _checkout_guard = FsLock::new(self.sess.checkout_lock_path(path))
+            .acquire_exclusive()
+            .await?;
+
+        // A checkout only reads the database (via `git clone --shared`), so a
+        // shared lock suffices and lets concurrent checkouts proceed in
+        // parallel. The fallback fetch below (locked revision missing) is the
+        // only writer; it briefly drops this lock for an exclusive one.
+        let db = self.git_database(name, url, Some(false), None).await?;
+        let db_lock = FsLock::new(self.sess.db_lock_path(name, url));
+        let mut db_guard = Some(db_lock.acquire_shared().await?);
 
         #[derive(Eq, PartialEq)]
         enum CheckoutState {
@@ -984,15 +1119,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     log::debug!("currently `{}` (want `{}`)", current, revision);
                     if current == revision {
                         CheckoutState::Clean
-                    } else if let Ok(db) =
-                        self.git_database_locked(name, url, Some(false), None).await
-                    {
-                        if let Ok(remote) = local_git.clone().remote_url("origin").await {
-                            if remote == db.path.to_str().unwrap() {
-                                CheckoutState::ToCheckout
-                            } else {
-                                CheckoutState::ToClone
-                            }
+                    } else if let Ok(remote) = local_git.clone().remote_url("origin").await {
+                        if remote == db.path.to_str().unwrap() {
+                            CheckoutState::ToCheckout
                         } else {
                             CheckoutState::ToClone
                         }
@@ -1045,65 +1174,38 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         // Perform the checkout if necessary.
         if clear != CheckoutState::Clean {
-            // First generate a tag to be cloned in the database. This is
-            // necessary since `git clone` does not accept commits, but only
-            // branches or tags for shallow clones.
-            let tag_name_0 = format!("bender-tmp-{}", revision);
-            let tag_name_1 = tag_name_0.clone();
-            let tag_name_2 = tag_name_0.clone();
-            let git = self
-                .git_database_locked(name, url, Some(false), Some(revision))
-                .await?;
-            match git
+            // Ensure the revision is present -- normally a read-only check
+            // under the shared lock. If it's missing (cached database predates
+            // the locked commit), drop the shared lock, fetch via
+            // `git_database` (which takes its own exclusive lock), then re-take
+            // the shared lock.
+            let mut git = db.clone();
+            let revision_check = revision.to_string();
+            let have_commit = git
                 .clone()
                 .spawn_with(
                     move |c| {
-                        c.arg("tag")
-                            .arg(tag_name_0)
-                            .arg(revision)
-                            .arg("--force")
-                            .arg("--no-sign")
+                        c.arg("cat-file")
+                            .arg("-e")
+                            .arg(format!("{}^{{commit}}", revision_check))
                     },
                     None,
                 )
                 .await
-            {
-                Ok(r) => Ok(r),
-                Err(_cause) => {
-                    log::debug!("failed to tag commit {:?}, attempting fetch.", _cause);
-                    let pb = Some(ProgressHandler::new(
-                        self.sess.multiprogress.clone(),
-                        GitProgressOps::Checkout,
-                        name,
-                    ));
-                    // Attempt to fetch from remote and retry, as commits seem unavailable.
-                    git.clone()
-                        .spawn_with(move |c| c.arg("fetch").arg("--all").arg("--progress"), pb)
-                        .await?;
-                    git.clone()
-                        .spawn_with(
-                            move |c| {
-                                c.arg("tag")
-                                    .arg(tag_name_1)
-                                    .arg(revision)
-                                    .arg("--force")
-                                    .arg("--no-sign")
-                            },
-                            None,
-                        )
-                        .await
-                        .map_err(|cause| {
-                            Error::from(SessionErrors::LockedRevisionCheckout(
-                                revision.to_string(),
-                                name.to_string(),
-                                cause.into(),
-                            ))
-                        })
-                }
-            }?;
-            // Check if the revision is reachable from any upstream branch or
-            // tag (excluding synthetic bender-tmp-* tags). If not, warn that
-            // the commit may have been removed by a force-push.
+                .is_ok();
+            if !have_commit {
+                log::debug!("revision {} not in database, fetching.", revision);
+                drop(db_guard.take());
+                git = self.git_database(name, url, Some(true), None).await?;
+                db_guard = Some(db_lock.acquire_shared().await?);
+            }
+            // Warn if the revision isn't reachable from any upstream branch or
+            // tag (e.g. removed by a force-push). Synthetic `bender-tmp-*` tags
+            // from `dependency_versions` are excluded: they don't represent
+            // upstream tracking but may linger in older databases.
+            //
+            // TODO: drop this filter once `bender-tmp-*` tags are no longer
+            // created or are swept after use.
             let revision_owned = revision.to_string();
             if let Ok(ref_output) = git
                 .clone()
@@ -1119,18 +1221,15 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                     None,
                 )
                 .await
+                && !ref_output.lines().any(|line| !line.contains("bender-tmp-"))
             {
-                let is_tracked = ref_output.lines().any(|line| !line.contains("bender-tmp-"));
-                if !is_tracked {
-                    Warnings::RevisionNotOnUpstream(revision.to_string(), name.to_string()).emit();
-                }
+                Warnings::RevisionNotOnUpstream(revision.to_string(), name.to_string()).emit();
             }
             if clear == CheckoutState::ToClone {
-                let pb = Some(ProgressHandler::new(
-                    self.sess.multiprogress.clone(),
-                    GitProgressOps::Checkout,
-                    name,
-                ));
+                // Clone the working tree from the database, borrowing its
+                // objects via `--shared` (alternates) so nothing is copied and
+                // the database is left untouched. `--no-checkout` keeps the
+                // worktree empty so the exact revision can be checked out next.
                 git.clone()
                     .spawn_with(
                         move |c| {
@@ -1144,11 +1243,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .arg(git.path)
                                 .arg(path)
                                 .arg("--shared")
-                                .arg("--branch")
-                                .arg(tag_name_2)
-                                .arg("--progress")
+                                .arg("--no-checkout")
                         },
-                        pb,
+                        None,
                     )
                     .await?;
             } else if clear == CheckoutState::ToCheckout {
@@ -1170,29 +1267,37 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                         pb,
                     )
                     .await?;
-                let pb = Some(ProgressHandler::new(
-                    self.sess.multiprogress.clone(),
-                    GitProgressOps::Checkout,
-                    name,
-                ));
-                local_git
-                    .clone()
-                    .spawn_with(
-                        move |c| {
-                            c.arg("-c")
-                                .arg("filter.lfs.smudge=")
-                                .arg("-c")
-                                .arg("filter.lfs.process=")
-                                .arg("-c")
-                                .arg("filter.lfs.required=false")
-                                .arg("checkout")
-                                .arg(tag_name_2)
-                                .arg("--force")
-                                .arg("--progress")
-                        },
-                        pb,
-                    )
-                    .await?;
+            }
+
+            // Check out the exact revision in the working copy. The object is
+            // normally available from the database via the `--shared`
+            // alternates link. If the checkout fails the commit is missing from
+            // the database -- typically because it was force-pushed off every
+            // branch upstream, so a normal fetch of all branches and tags does
+            // not retrieve it. Such a commit can still be fetched directly by
+            // hash (as long as it remains reachable on the server), so fetch it
+            // into the database by hash and retry once before giving up.
+            if self
+                .checkout_revision(&local_git, revision, name)
+                .await
+                .is_err()
+            {
+                log::debug!(
+                    "checkout of {} failed, fetching the commit by hash and retrying.",
+                    revision
+                );
+                drop(db_guard.take());
+                self.fetch_revision_by_hash(name, url, revision).await?;
+                db_guard = Some(db_lock.acquire_shared().await?);
+                self.checkout_revision(&local_git, revision, name)
+                    .await
+                    .map_err(|cause| {
+                        Error::from(SessionErrors::LockedRevisionCheckout(
+                            revision.to_string(),
+                            name.to_string(),
+                            cause.into(),
+                        ))
+                    })?;
             }
             // Check if the repo uses LFS attributes
             if local_git.clone().uses_lfs_attributes().await? {
@@ -1248,6 +1353,8 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 }
             }
         }
+        // Hold the database lock until the checkout is fully materialized.
+        drop(db_guard);
         Ok(path)
     }
 
