@@ -39,7 +39,7 @@ blake2 = "0.10"
 typed-arena = "2"
 dirs = "6"
 pathdiff = "0.2"
-itertools = "0.14"
+itertools = "0.15"
 tabwriter = "1.2.1"
 indexmap = { version = "2", features = ["serde"] }
 tempfile = "3.5"
