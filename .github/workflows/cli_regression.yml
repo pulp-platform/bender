@@ -25,7 +25,7 @@ jobs:
             target: aarch64-apple-darwin
             golden_bin: target/regression-golden/bender
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
@@ -35,7 +35,7 @@ jobs:
         with:
           shared-key: cargo-${{ runner.os }}-stable
       - name: Restore CLI regression golden binary
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6.1.0
         with:
           path: target/regression-golden
           key: golden-bender-${{ matrix.target }}-${{ github.event.pull_request.base.sha || github.sha }}

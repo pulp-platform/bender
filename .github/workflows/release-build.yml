@@ -45,7 +45,7 @@ jobs:
             runner: windows-latest
             cache_golden_bin: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - name: Install Rust non-interactively if not already installed
@@ -74,7 +74,7 @@ jobs:
           Copy-Item target/release/bender.exe target/regression-golden/bender.exe
       - name: Cache CLI regression golden binary
         if: ${{ matrix.cache_golden_bin }}
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6.1.0
         with:
           path: target/regression-golden
           key: golden-bender-${{ matrix.target }}-${{ github.sha }}
