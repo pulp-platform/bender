@@ -45,6 +45,13 @@ fn main() {
         vec!["-std=c++20"]
     };
 
+    // Allow overriding FetchContent source directories via environment variables.
+    // This is used by Nix (and other sandboxed build systems) where network access
+    // is blocked and dependencies must be pre-fetched.
+    let slang_src_dir = std::env::var("SLANG_SRC_DIR").ok();
+    let fmt_src_dir = std::env::var("FMT_SRC_DIR").ok();
+    let mimalloc_src_dir = std::env::var("MIMALLOC_SRC_DIR").ok();
+
     // Apply cmake configuration for Slang library
     slang_lib
         .define("SLANG_INCLUDE_TESTS", "OFF")
@@ -56,6 +63,16 @@ fn main() {
         .define("CMAKE_DISABLE_FIND_PACKAGE_mimalloc", "ON")
         .define("CMAKE_DISABLE_FIND_PACKAGE_Boost", "ON")
         .profile(cmake_profile);
+
+    if let Some(ref dir) = slang_src_dir {
+        slang_lib.define("FETCHCONTENT_SOURCE_DIR_SLANG", dir);
+    }
+    if let Some(ref dir) = fmt_src_dir {
+        slang_lib.define("FETCHCONTENT_SOURCE_DIR_FMT", dir);
+    }
+    if let Some(ref dir) = mimalloc_src_dir {
+        slang_lib.define("FETCHCONTENT_SOURCE_DIR_MIMALLOC", dir);
+    }
 
     // Apply common defines and flags
     for (def, value) in common_cxx_defines.iter() {
@@ -70,10 +87,17 @@ fn main() {
     let dst = slang_lib.build();
     // With FetchContent, cmake builds slang in a _deps subdirectory rather than
     // installing it. Point directly at the FetchContent build/source directories.
+    // When source dirs are overridden, include paths come from those instead.
     let slang_lib_dir = dst.join("build/_deps/slang-build/lib");
-    let slang_include_dir = dst.join("build/_deps/slang-src/include");
+    let slang_include_dir = match slang_src_dir {
+        Some(dir) => std::path::PathBuf::from(dir).join("include"),
+        None => dst.join("build/_deps/slang-src/include"),
+    };
     let slang_generated_include_dir = dst.join("build/_deps/slang-build/source");
-    let fmt_include_dir = dst.join("build/_deps/fmt-src/include");
+    let fmt_include_dir = match fmt_src_dir {
+        Some(dir) => std::path::PathBuf::from(dir).join("include"),
+        None => dst.join("build/_deps/fmt-src/include"),
+    };
 
     // Generate cpp/compile_flags.txt for clangd IDE support
     if !in_publish {
@@ -138,6 +162,9 @@ fn main() {
     println!("cargo:rerun-if-changed=cpp/rewriter.cpp");
     println!("cargo:rerun-if-changed=cpp/print.cpp");
     println!("cargo:rerun-if-changed=cpp/analysis.cpp");
+    println!("cargo:rerun-if-env-changed=SLANG_SRC_DIR");
+    println!("cargo:rerun-if-env-changed=FMT_SRC_DIR");
+    println!("cargo:rerun-if-env-changed=MIMALLOC_SRC_DIR");
 }
 
 // Generates cpp/compile_flags.txt so that clangd gets the correct include paths
