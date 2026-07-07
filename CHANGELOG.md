@@ -5,11 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+## 0.32.1 - 2026-07-07
 ### Added
 - Add `git_submodules` config field and `--git-submodules <true|false>` flag (env `BENDER_GIT_SUBMODULES`) to control cloning of dependency submodules; defaults to `true`, the flag overrides the configured value in either direction (https://github.com/pulp-platform/bender/pull/314).
 
 ### Fixed
-- Fix the legacy installer falling back to the GitHub "latest" release, which now uses the cargo-dist scheme without legacy-named assets; it now falls back to the last legacy release (v0.31.0) so installing an old version on an unlisted platform works again.
+- script: Remove `.svh` files from verilog pattern list (https://github.com/pulp-platform/bender/pull/313).
+- script: keep untyped files in `flist` script output (https://github.com/pulp-platform/bender/pull/316).
+- Fix the legacy installer falling back to the GitHub "latest" release, which now uses the cargo-dist scheme without legacy-named assets; it now falls back to the last legacy release (v0.31.0) so installing an old version on an unlisted platform works again (https://github.com/pulp-platform/bender/pull/320).
+
+### Changed
+- database: speed up bender usage with locks by using shared locks with read-only unless required (checkout, fetch, update), adjust lock location (https://github.com/pulp-platform/bender/pull/315).
 
 ## 0.32.0 - 2026-06-05
 ### Breaking Changes
