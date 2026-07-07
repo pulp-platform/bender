@@ -131,7 +131,8 @@ The `bender script` command activates the following targets based on the chosen 
 
 Bender does not enforce these, but the following user-defined targets are widely used across PULP projects and are a good default for new packages:
 
-- **`test`** — testbench code and verification IP, kept out of synthesis flows.
+- **`test`** — reusable verification IP, kept out of synthesis flows.
+- **`tb`** — non-reusable testbench and testharness code, kept out of synthesis flows.
 - **`rtl`** — synthesizable RTL code.
 - **`gate`** — gate-level netlists, used in post-synthesis simulation and timing flows.
 
