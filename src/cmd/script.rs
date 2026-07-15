@@ -369,9 +369,15 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         .filter_packages(&packages, args.keep_excluded_incdirs)
         .unwrap_or_default();
 
-    // Flatten and validate the sources.
+    // Flatten the sources, then resolve `override_files` groups before anything else inspects
+    // the file set. Doing this here — rather than at template-emit time — means the replaced
+    // files never reach validation or the slang pass: only the overriding files have their
+    // existence checked, and slang analyzes and reduces the overriding files instead of the
+    // ones they shadow (previously it saw both, colliding as duplicate module definitions).
+    let (srcs, override_comments) = apply_file_overrides(srcs.flatten());
+
+    // Validate the sources.
     let srcs = srcs
-        .flatten()
         .into_iter()
         .map(|f| f.validate(&ValidationContext::default()))
         .collect::<Result<Vec<_>>>()?;
@@ -510,6 +516,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         srcs,
         &unparseable_paths,
         &resolved_headers,
+        &override_comments,
     )
 }
 
@@ -792,6 +799,68 @@ fn add_defines(defines: &mut IndexMap<String, Option<String>>, define_args: &[St
 
 static JSON: &str = "json";
 
+/// Apply `override_files` source groups to a flattened source list.
+///
+/// A group flagged `override_files` contributes no files of its own; instead each of its files
+/// replaces — by basename — the like-named file in the regular groups. Resolving this here,
+/// before validation and the slang pass, lets every later stage see the final file set: the
+/// shadowed originals are gone (so they need not exist on disk, and slang never parses both the
+/// original and its replacement as duplicate modules) and slang reachability/trimming operates
+/// on the overriding files.
+///
+/// All `override_files` groups are dropped from the returned list. The returned map is keyed by
+/// each overriding path and holds the annotation describing what it replaced, so
+/// `--source-annotations` can still surface the substitution downstream.
+fn apply_file_overrides<'ctx>(
+    srcs: Vec<SourceGroup<'ctx>>,
+) -> (Vec<SourceGroup<'ctx>>, IndexMap<PathBuf, String>) {
+    // Collect the overriding files, keyed by basename. On a basename clash the last group wins,
+    // matching the previous emit-time behavior.
+    let mut overrides: IndexMap<&'ctx str, (&'ctx Path, &'ctx str)> = IndexMap::new();
+    for src in &srcs {
+        if !src.override_files {
+            continue;
+        }
+        for file in &src.files {
+            if let SourceFile::File(p, _) = file
+                && let Some(name) = p.file_name().and_then(std::ffi::OsStr::to_str)
+            {
+                overrides.insert(name, (*p, src.package.unwrap_or("None")));
+            }
+        }
+    }
+
+    // Drop the override groups and rewrite matching files in the remaining groups to point at
+    // the overriding path, recording the annotation. The file's `SourceType` is preserved, so
+    // downstream categorization treats the replacement exactly like the file it shadowed.
+    let mut comments: IndexMap<PathBuf, String> = IndexMap::new();
+    let srcs = srcs
+        .into_iter()
+        .filter(|src| !src.override_files)
+        .map(|mut src| {
+            for file in &mut src.files {
+                if let SourceFile::File(p, _) = file {
+                    let old = *p;
+                    if let Some(name) = old.file_name().and_then(std::ffi::OsStr::to_str)
+                        && let Some((new_path, pkg)) = overrides.get(name).copied()
+                        && new_path != old
+                    {
+                        comments.insert(
+                            new_path.to_path_buf(),
+                            format!("OVERRIDDEN from {}: {}", pkg, old.to_string_lossy()),
+                        );
+                        *p = new_path;
+                    }
+                }
+            }
+            src
+        })
+        .collect();
+
+    (srcs, comments)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn emit_template(
     sess: &Session,
     mut tera_context: Context,
@@ -801,6 +870,7 @@ fn emit_template(
     srcs: Vec<SourceGroup>,
     unparseable_paths: &std::collections::HashSet<PathBuf>,
     resolved_headers: &[PathBuf],
+    override_comments: &IndexMap<PathBuf, String>,
 ) -> Result<()> {
     // Helper for annotating FileEntry.comment on files that survived filtering despite slang
     // failing to parse them; visible to users with `--source-annotations`.
@@ -810,6 +880,14 @@ fn emit_template(
         } else {
             None
         }
+    };
+    // The `--source-annotations` comment for a file: the override annotation if this path
+    // replaced another (see `apply_file_overrides`), otherwise an unparseable-file note.
+    let file_comment = |p: &Path| -> Option<String> {
+        override_comments
+            .get(p)
+            .cloned()
+            .or_else(|| unparseable_comment(p))
     };
     tera_context.insert("HEADER_AUTOGEN", HEADER_AUTOGEN);
     tera_context.insert("root", sess.root);
@@ -826,11 +904,10 @@ fn emit_template(
 
     let mut all_defines = IndexMap::new();
     let mut all_incdirs = IndexSet::new();
-    let mut all_files = IndexSet::new();
+    let mut all_files: IndexSet<&Path> = IndexSet::new();
     let mut all_verilog = vec![];
     let mut all_vhdl = vec![];
     let mut unknown_files = vec![];
-    let mut all_override_files: IndexSet<(&Path, &str)> = IndexSet::new();
     for src in &srcs {
         all_defines.extend(
             src.defines
@@ -838,19 +915,10 @@ fn emit_template(
                 .map(|(k, (_, v))| (k.to_string(), v.map(String::from))),
         );
         all_incdirs.extend(src.get_incdirs());
-
-        // If override_files is set, source files are not automatically included, only to replace files with matching basenames.
-        if src.override_files {
-            all_override_files.extend(src.files.iter().filter_map(|file| match file {
-                SourceFile::File(p, _) => Some((*p, src.package.unwrap_or("None"))),
-                SourceFile::Group(_) => None,
-            }));
-        } else {
-            all_files.extend(src.files.iter().filter_map(|file| match file {
-                SourceFile::File(p, _) => Some((*p, None::<String>)),
-                SourceFile::Group(_) => None,
-            }));
-        }
+        all_files.extend(src.files.iter().filter_map(|file| match file {
+            SourceFile::File(p, _) => Some(*p),
+            SourceFile::Group(_) => None,
+        }));
     }
 
     add_defines(&mut all_defines, &args.define);
@@ -878,40 +946,11 @@ fn emit_template(
     let all_headers: IndexSet<PathBuf> = resolved_headers.iter().cloned().collect();
     tera_context.insert("all_headers", &all_headers);
 
-    // replace files in all_files with override files
-    let override_map = all_override_files
-        .iter()
-        .map(|(f, pkg)| {
-            (
-                f.file_name()
-                    .and_then(std::ffi::OsStr::to_str)
-                    .unwrap_or(""),
-                (*f, pkg),
-            )
-        })
-        .collect::<IndexMap<_, _>>();
     let all_files = all_files
         .into_iter()
-        .map(|file| {
-            let basename = file
-                .0
-                .file_name()
-                .and_then(std::ffi::OsStr::to_str)
-                .unwrap_or("");
-            match override_map.get(&basename) {
-                Some((new_path, pkg)) => FileEntry {
-                    file: new_path.to_path_buf(),
-                    comment: Some(format!(
-                        "OVERRIDDEN from {}: {}",
-                        pkg,
-                        file.0.to_string_lossy()
-                    )),
-                },
-                None => FileEntry {
-                    file: file.0.to_path_buf(),
-                    comment: file.1.or_else(|| unparseable_comment(file.0)),
-                },
-            }
+        .map(|p| FileEntry {
+            file: p.to_path_buf(),
+            comment: file_comment(p),
         })
         .collect::<IndexSet<_>>();
 
@@ -921,9 +960,6 @@ fn emit_template(
 
     let mut split_srcs = vec![];
     for src in srcs {
-        if src.override_files {
-            continue;
-        }
         separate_files_in_group(
             src,
             // Categorize by file type. The extra `Some(..)` wrapper means untyped files
@@ -964,26 +1000,10 @@ fn emit_template(
                     files: files
                         .iter()
                         .map(|f| match f {
-                            SourceFile::File(p, _) => {
-                                let basename = p
-                                    .file_name()
-                                    .and_then(std::ffi::OsStr::to_str)
-                                    .unwrap_or("");
-                                match override_map.get(&basename) {
-                                    Some((new_path, pkg)) => FileEntry {
-                                        file: new_path.to_path_buf(),
-                                        comment: Some(format!(
-                                            "OVERRIDDEN from {}: {}",
-                                            pkg,
-                                            p.to_string_lossy()
-                                        )),
-                                    },
-                                    None => FileEntry {
-                                        file: p.to_path_buf(),
-                                        comment: unparseable_comment(p),
-                                    },
-                                }
-                            }
+                            SourceFile::File(p, _) => FileEntry {
+                                file: p.to_path_buf(),
+                                comment: file_comment(p),
+                            },
                             SourceFile::Group(_) => unreachable!(),
                         })
                         .collect(),

@@ -36,6 +36,11 @@ sources:
     files:
       - src/broken.sv
 
+  - target: override
+    override_files: true
+    files:
+      - override/leaf.sv
+
   - target: untyped
     files:
       - src/misc_rtl.sv
