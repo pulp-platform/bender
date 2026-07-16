@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 ### Changed
-- `bender clone`: rename `-p`/`--path` flag to `--working-dir` to match `bender snapshot`'s flag for the same concept.
+- `bender clone`: primary flag for the checkout directory is now `--working-dir`, matching `bender snapshot`'s flag for the same concept; `-p`/`--path` are kept as hidden aliases for backwards compatibility.
 
 ## 0.32.1 - 2026-07-07
 ### Added
