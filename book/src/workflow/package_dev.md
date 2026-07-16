@@ -11,7 +11,7 @@ Use the `clone` command to move a dependency from Bender's internal cache into a
 bender clone <PKG_NAME>
 ```
 
-By default, the package is checked out into a `working_dir` folder (you can change this with `-p/--path`). Bender automatically:
+By default, the package is checked out into a `working_dir` folder (you can change this with `--working-dir`). Bender automatically:
 1.  Performs a `git clone` of the dependency into that folder.
 2.  Adds a `path` override to your [`Bender.local`](../local.md) file.
 
