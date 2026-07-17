@@ -380,7 +380,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
     // unused include directories (per `--trim-incdirs`), with per-class policies for files
     // slang couldn't fully parse (`--broken`, `--encrypted`).
     #[cfg(feature = "slang")]
-    let (srcs, unparseable_paths) = {
+    let (srcs, unparseable_paths, resolved_headers) = {
         let trim_incdirs = match args.trim_incdirs {
             TrimIncdirs::Always => true,
             TrimIncdirs::Never => false,
@@ -400,7 +400,11 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             Some(ParsePolicy::Error) | Some(ParsePolicy::Drop)
         );
         if args.top.is_empty() && !trim_incdirs && !policies_need_slang {
-            (srcs, std::collections::HashSet::<PathBuf>::new())
+            (
+                srcs,
+                std::collections::HashSet::<PathBuf>::new(),
+                Vec::new(),
+            )
         } else {
             apply_slang_filters(
                 srcs,
@@ -413,6 +417,8 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
     };
     #[cfg(not(feature = "slang"))]
     let unparseable_paths = std::collections::HashSet::<PathBuf>::new();
+    #[cfg(not(feature = "slang"))]
+    let resolved_headers: Vec<PathBuf> = Vec::new();
 
     let mut tera_context = Context::new();
     let mut only_args = OnlyArgs {
@@ -503,6 +509,7 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         only_args,
         srcs,
         &unparseable_paths,
+        &resolved_headers,
     )
 }
 
@@ -556,6 +563,11 @@ where
 ///
 /// Returns the filtered groups plus the set of unparseable file paths that survived filtering,
 /// so the caller can annotate them in `source_annotations` output.
+///
+/// Also returns the fine-grained set of header files slang actually resolved via `` `include ``
+/// (transitively) while parsing the kept trees, so the caller can expose them to templates as
+/// `all_headers`. This is the same list used for `--trim-incdirs`, but kept in full (files, not
+/// just their directories).
 #[cfg(feature = "slang")]
 fn apply_slang_filters<'a>(
     srcs: Vec<SourceGroup<'a>>,
@@ -563,7 +575,11 @@ fn apply_slang_filters<'a>(
     trim_incdirs: bool,
     broken_policy: ParsePolicy,
     encrypted_policy: ParsePolicy,
-) -> Result<(Vec<SourceGroup<'a>>, std::collections::HashSet<PathBuf>)> {
+) -> Result<(
+    Vec<SourceGroup<'a>>,
+    std::collections::HashSet<PathBuf>,
+    Vec<PathBuf>,
+)> {
     use std::collections::HashSet;
 
     let mut session = SlangSession::new();
@@ -674,18 +690,19 @@ fn apply_slang_filters<'a>(
         HashSet::new()
     };
 
+    // The header files slang actually resolved via `include (transitively, deduped, canonical)
+    // while parsing the kept trees. Used both for strict include-dir trimming below and returned
+    // to the caller to expose as `all_headers`. Computed unconditionally: the cost is a cheap walk
+    // over already-parsed trees, and both consumers want it.
+    let resolved_includes: Vec<PathBuf> = session
+        .resolved_include_paths(&kept_trees)
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
+
     // Strict include-dir trimming: a directory survives only if slang actually resolved at least
     // one `include directive through it. Canonicalize both sides so symlinks / `.` / `..` don't
     // cause spurious mismatches.
-    let resolved_includes: Vec<PathBuf> = if trim_incdirs {
-        session
-            .resolved_include_paths(&kept_trees)
-            .into_iter()
-            .map(PathBuf::from)
-            .collect()
-    } else {
-        Vec::new()
-    };
     let dir_is_used = |dir: &Path| -> bool {
         let canon = canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
         resolved_includes.iter().any(|f| f.starts_with(&canon))
@@ -759,7 +776,7 @@ fn apply_slang_filters<'a>(
     class_summary("encrypted", &encrypted_paths, encrypted_policy);
     class_summary("broken", &broken_paths, broken_policy);
 
-    Ok((filtered, kept_unparseable))
+    Ok((filtered, kept_unparseable, resolved_includes))
 }
 
 static HEADER_AUTOGEN: &str = "This script was generated automatically by bender.";
@@ -783,6 +800,7 @@ fn emit_template(
     only: OnlyArgs,
     srcs: Vec<SourceGroup>,
     unparseable_paths: &std::collections::HashSet<PathBuf>,
+    resolved_headers: &[PathBuf],
 ) -> Result<()> {
     // Helper for annotating FileEntry.comment on files that survived filtering despite slang
     // failing to parse them; visible to users with `--source-annotations`.
@@ -851,6 +869,15 @@ fn emit_template(
         IndexSet::new()
     };
     tera_context.insert("all_incdirs", &all_incdirs);
+
+    // Fine-grained header files slang resolved via `include (transitively) for the kept trees.
+    // Empty unless the slang pass ran (i.e. `--top`/`--trim-incdirs`/a parse policy triggered it).
+    // Exposed so `template`/`template-json` can emit dependency lists (e.g. a Makefile `.d`) that
+    // track header edits precisely, without listing whole include dirs. Sorted+deduped; paths are
+    // absolute, consistent with `all_files`/`all_incdirs` (relativize via `root` in templates).
+    let mut all_headers: IndexSet<PathBuf> = resolved_headers.iter().cloned().collect();
+    all_headers.sort();
+    tera_context.insert("all_headers", &all_headers);
 
     // replace files in all_files with override files
     let override_map = all_override_files

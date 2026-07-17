@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+### Added
+- script: expose `all_headers` to templates — the fine-grained, transitive, deduplicated set of header files Slang resolved via `` `include `` for the kept trees. Populated whenever the Slang pass runs (`--top`/`--trim-incdirs`/`--broken`/`--encrypted`).
+
 ### Changed
 - `bender clone`: primary flag for the checkout directory is now `--working-dir`, matching `bender snapshot`'s flag for the same concept; `-p`/`--path` are kept as hidden aliases for backwards compatibility.
 
