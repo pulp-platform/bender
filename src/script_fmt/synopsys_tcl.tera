@@ -20,7 +20,7 @@ analyze -format {% if group.file_type == 'verilog' %}sv{% elif group.file_type =
 {%- endif -%}
 {%- for define in group.defines -%}
 {%- if loop.first %}-define { \
-        {% endif %}{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %} \
+        {% endif %}{{ define[0] }}{% if define[1] %}={{ define[1] }}{% endif %}{% if loop.last %} \
     } \
     {% else %} \
         {% endif %}{% endfor %}[list \
@@ -48,7 +48,7 @@ analyze -format sv \
 {% endfor -%}
     {%- for define in all_defines -%}
 {%- if loop.first %}-define { \
-        {% endif %}{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %} \
+        {% endif %}{{ define[0] }}{% if define[1] %}={{ define[1] }}{% endif %}{% if loop.last %} \
     } \
     {% else %} \
         {% endif %}{% endfor %}[list \

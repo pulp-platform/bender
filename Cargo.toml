@@ -46,7 +46,7 @@ tempfile = "3.5"
 glob = "0.3"
 walkdir = "2"
 subst = "0.3"
-tera = "1.19"
+tera = { version = "2.0", features = ["preserve_order"] }
 miette = "7.6.0"
 thiserror = "2.0.18"
 owo-colors = { version = "4.2.3", features = ["supports-colors"] }
