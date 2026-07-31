@@ -1165,3 +1165,93 @@ struct TplSrcStruct {
     files: IndexSet<FileEntry>,
     file_type: Option<SourceType>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every built-in template, embedded exactly as the binary ships it.
+    ///
+    /// `builtin_templates_cover_script_fmt_dir` keeps this in sync with `src/script_fmt`, so a
+    /// newly added template cannot escape validation by being left out of this list.
+    const BUILTIN_TEMPLATES: &[(&str, &str)] = &[
+        ("flist.tera", include_str!("../script_fmt/flist.tera")),
+        (
+            "flist-plus.tera",
+            include_str!("../script_fmt/flist-plus.tera"),
+        ),
+        ("vsim_tcl.tera", include_str!("../script_fmt/vsim_tcl.tera")),
+        ("vcs_sh.tera", include_str!("../script_fmt/vcs_sh.tera")),
+        (
+            "verilator_sh.tera",
+            include_str!("../script_fmt/verilator_sh.tera"),
+        ),
+        (
+            "synopsys_tcl.tera",
+            include_str!("../script_fmt/synopsys_tcl.tera"),
+        ),
+        (
+            "formality_tcl.tera",
+            include_str!("../script_fmt/formality_tcl.tera"),
+        ),
+        (
+            "riviera_tcl.tera",
+            include_str!("../script_fmt/riviera_tcl.tera"),
+        ),
+        (
+            "genus_tcl.tera",
+            include_str!("../script_fmt/genus_tcl.tera"),
+        ),
+        (
+            "vivado_tcl.tera",
+            include_str!("../script_fmt/vivado_tcl.tera"),
+        ),
+        (
+            "precision_tcl.tera",
+            include_str!("../script_fmt/precision_tcl.tera"),
+        ),
+    ];
+
+    /// Parse every built-in template the way `emit_template` does.
+    ///
+    /// Registering a template runs Tera's reference validation, so this catches unknown filters,
+    /// tests and components as well as outright syntax errors. Without it a broken template only
+    /// surfaces when somebody happens to run that one format — which is exactly how the Tera 1 to
+    /// Tera 2 upgrade managed to break all eleven of them at once.
+    #[test]
+    fn builtin_templates_parse() {
+        for (name, content) in BUILTIN_TEMPLATES {
+            let mut tera = Tera::default();
+            tera.autoescape_on(Vec::<&str>::new());
+            if let Err(e) = tera.add_raw_template(name, content) {
+                panic!("built-in template `{name}` failed to parse: {e}");
+            }
+        }
+    }
+
+    /// Guard against a template being added to `src/script_fmt` but not to `BUILTIN_TEMPLATES`.
+    #[test]
+    fn builtin_templates_cover_script_fmt_dir() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/script_fmt");
+        let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+            .expect("src/script_fmt must be readable")
+            .map(|entry| entry.expect("readable dir entry").file_name())
+            .filter_map(|name| name.to_str().map(str::to_string))
+            .filter(|name| name.ends_with(".tera"))
+            .collect();
+        on_disk.sort();
+
+        let mut listed: Vec<String> = BUILTIN_TEMPLATES
+            .iter()
+            .map(|(name, _)| (*name).to_string())
+            .collect();
+        listed.sort();
+
+        assert_eq!(
+            listed,
+            on_disk,
+            "BUILTIN_TEMPLATES is out of sync with {}",
+            dir.display()
+        );
+    }
+}
