@@ -198,6 +198,8 @@ class ReferenceRewriter : public SyntaxRewriter<ReferenceRewriter> {
         ScopedNameSyntax* newNode = deepClone(node, alloc);
         newNode->left = newLeft;
 
+        rewrite_scoped_names_inplace(*newNode->right);
+
         replace(node, *newNode);
         refRenamed++;
     }
