@@ -873,10 +873,9 @@ fn emit_template(
     // Fine-grained header files slang resolved via `include (transitively) for the kept trees.
     // Empty unless the slang pass ran (i.e. `--top`/`--trim-incdirs`/a parse policy triggered it).
     // Exposed so `template`/`template-json` can emit dependency lists (e.g. a Makefile `.d`) that
-    // track header edits precisely, without listing whole include dirs. Sorted+deduped; paths are
+    // track header edits precisely, without listing whole include dirs. Sorted and deduped; paths are
     // absolute, consistent with `all_files`/`all_incdirs` (relativize via `root` in templates).
-    let mut all_headers: IndexSet<PathBuf> = resolved_headers.iter().cloned().collect();
-    all_headers.sort();
+    let all_headers: IndexSet<PathBuf> = resolved_headers.iter().cloned().collect();
     tera_context.insert("all_headers", &all_headers);
 
     // replace files in all_files with override files
