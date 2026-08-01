@@ -147,6 +147,16 @@ mod tests {
     }
 
     #[test]
+    fn pickle_rename_renames_scoped_packed_dimensions() {
+        let renamed = run_pickle(&["--prefix", "p_", "--suffix", "_s", "--expand-macros"]);
+
+        // A packed dimension is parsed as part of the scoped type name it follows,
+        // so a scoped name inside it must be renamed along with the type itself.
+        assert!(renamed.contains("p_common_pkg_s::state_t [p_common_pkg_s::NumStates-1:0]"));
+        assert!(!renamed.contains("common_pkg::NumStates-1:0"));
+    }
+
+    #[test]
     fn pickle_rename_renames_scoped_instantiation_params() {
         let renamed = run_pickle(&[
             "--target",
