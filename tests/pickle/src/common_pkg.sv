@@ -1,5 +1,7 @@
 package common_pkg;
 
+    parameter int unsigned NumStates = 3;
+
     typedef enum logic [1:0] {
         Idle = 2'b00,
         Busy = 2'b01,
