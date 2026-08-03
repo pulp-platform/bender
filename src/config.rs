@@ -41,6 +41,11 @@ pub struct Manifest {
     pub package: Package,
     /// The dependencies.
     pub dependencies: IndexMap<String, Dependency>,
+    /// The dependencies only needed to work on this package itself.
+    ///
+    /// These are resolved only when this package is the root package. They are
+    /// never propagated to packages that depend on this one.
+    pub dev_dependencies: IndexMap<String, Dependency>,
     /// The source files.
     pub sources: Option<Sources>,
     /// The include directories exported to dependent packages.
@@ -55,10 +60,33 @@ pub struct Manifest {
     pub vendor_package: Vec<VendorPackage>,
 }
 
+impl Manifest {
+    /// The dependencies of this manifest as seen when it is the root package.
+    ///
+    /// This is the regular dependencies followed by the dev-dependencies. Code
+    /// that operates on a dependency's manifest must use `dependencies`
+    /// directly instead, since dev-dependencies are not propagated to
+    /// dependent packages.
+    pub fn root_dependencies(&self) -> impl Iterator<Item = (&String, &Dependency)> {
+        self.dependencies.iter().chain(self.dev_dependencies.iter())
+    }
+
+    /// Look up a dependency by name, as seen when this is the root package.
+    ///
+    /// Considers the dev-dependencies in addition to the regular dependencies.
+    /// See `root_dependencies`.
+    pub fn root_dependency(&self, name: &str) -> Option<&Dependency> {
+        self.dependencies
+            .get(name)
+            .or_else(|| self.dev_dependencies.get(name))
+    }
+}
+
 impl PrefixPaths for Manifest {
     fn prefix_paths(self, prefix: &Path) -> Result<Self> {
         Ok(Manifest {
             dependencies: self.dependencies.prefix_paths(prefix)?,
+            dev_dependencies: self.dev_dependencies.prefix_paths(prefix)?,
             sources: self
                 .sources
                 .map_or(Ok::<Option<Sources>, Error>(None), |src| {
@@ -443,6 +471,8 @@ pub struct PartialManifest {
     pub remotes: Option<IndexMap<String, StringOrStruct<RemoteConfig>>>,
     /// The dependencies.
     pub dependencies: Option<IndexMap<String, StringOrStruct<PartialDependency>>>,
+    /// The dependencies only needed to work on this package itself.
+    pub dev_dependencies: Option<IndexMap<String, StringOrStruct<PartialDependency>>>,
     /// The source files.
     pub sources: Option<SeqOrStruct<PartialSources, PartialSourceFile>>,
     /// The include directories exported to dependent packages.
@@ -478,6 +508,7 @@ impl PrefixPaths for PartialManifest {
         Ok(PartialManifest {
             remotes: self.remotes,
             dependencies: self.dependencies.prefix_paths(prefix)?,
+            dev_dependencies: self.dev_dependencies.prefix_paths(prefix)?,
             sources: self.sources.prefix_paths(prefix)?,
             export_include_dirs: match self.export_include_dirs {
                 Some(vec_inc) => Some(
@@ -549,31 +580,49 @@ impl Validate for PartialManifest {
             None
         };
 
-        let deps = match self.dependencies {
-            Some(d) => d
-                .into_iter()
-                .map(|(k, v)| {
-                    let dep_name = k.to_lowercase();
+        // `dependencies` and `dev_dependencies` are validated identically, only
+        // the wording of the error context differs.
+        let validate_deps = |deps: Option<IndexMap<String, StringOrStruct<PartialDependency>>>,
+                             kind: &str|
+         -> Result<IndexMap<String, Dependency>> {
+            match deps {
+                Some(d) => d
+                    .into_iter()
+                    .map(|(k, v)| {
+                        let dep_name = k.to_lowercase();
 
-                    // We need to construct a new context for the dependency validation
-                    // since we need the dependency name and the remote definitions
-                    // to validate a dependency.
-                    let dep_vctx = ValidationContext {
-                        package_name: &dep_name,
-                        pre_output: vctx.pre_output,
-                        remotes: remotes.as_ref(),
-                        default_remote,
-                    };
+                        // We need to construct a new context for the dependency validation
+                        // since we need the dependency name and the remote definitions
+                        // to validate a dependency.
+                        let dep_vctx = ValidationContext {
+                            package_name: &dep_name,
+                            pre_output: vctx.pre_output,
+                            remotes: remotes.as_ref(),
+                            default_remote,
+                        };
 
-                    let validated = v.validate(&dep_vctx).wrap_err_with(|| {
-                        format!("In dependency `{dep_name}` of package `{}`.", pkg.name)
-                    })?;
+                        let validated = v.validate(&dep_vctx).wrap_err_with(|| {
+                            format!("In {kind} `{dep_name}` of package `{}`.", pkg.name)
+                        })?;
 
-                    Ok((dep_name, validated))
-                })
-                .collect::<Result<IndexMap<_, _>>>()?,
-            None => IndexMap::new(),
+                        Ok((dep_name, validated))
+                    })
+                    .collect::<Result<IndexMap<_, _>>>(),
+                None => Ok(IndexMap::new()),
+            }
         };
+        let deps = validate_deps(self.dependencies, "dependency")?;
+        let dev_deps = validate_deps(self.dev_dependencies, "dev-dependency")?;
+        if let Some(name) = dev_deps.keys().find(|name| deps.contains_key(*name)) {
+            bail!(
+                help = "Remove it from one of the two sections. A dev-dependency is \
+                        not propagated to dependent packages, so listing it in both \
+                        is ambiguous.",
+                "`{}` is listed as both a dependency and a dev-dependency of package `{}`.",
+                name,
+                pkg.name
+            );
+        }
         let srcs = match self.sources {
             Some(s) => Some(
                 s.validate(vctx)
@@ -616,6 +665,7 @@ impl Validate for PartialManifest {
         Ok(Manifest {
             package: pkg,
             dependencies: deps,
+            dev_dependencies: dev_deps,
             sources: match srcs {
                 Some(SourceFile::Group(srcs)) => Some(*srcs),
                 Some(SourceFile::File(_))
@@ -2043,4 +2093,108 @@ fn env_string_from_string(path_str: &str) -> Result<String> {
 
 pub(crate) fn env_path_from_string(path_str: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(env_string_from_string(path_str)?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Parse and validate a manifest, ignoring whether the source files exist.
+    fn parse_manifest(yaml: &str) -> Result<Manifest> {
+        let partial: PartialManifest =
+            serde_yaml_ng::from_str(yaml).expect("Failed to parse manifest");
+        partial.validate_ignore_sources()
+    }
+
+    #[test]
+    fn dev_dependencies_are_kept_separate() {
+        let manifest = parse_manifest(
+            "package:\n  name: pkg\n\
+             dependencies:\n  lib: { path: ../lib }\n\
+             dev_dependencies:\n  vip: { path: ../vip }\n",
+        )
+        .unwrap();
+
+        assert_eq!(manifest.dependencies.keys().collect::<Vec<_>>(), ["lib"]);
+        assert_eq!(
+            manifest.dev_dependencies.keys().collect::<Vec<_>>(),
+            ["vip"]
+        );
+        // The root package sees both, in that order.
+        assert_eq!(
+            manifest
+                .root_dependencies()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            ["lib", "vip"]
+        );
+        assert!(manifest.root_dependency("vip").is_some());
+        assert!(manifest.root_dependency("nope").is_none());
+    }
+
+    #[test]
+    fn dev_dependencies_accept_the_same_fields() {
+        let manifest = parse_manifest(
+            "package:\n  name: pkg\n\
+             remotes:\n  pulp: \"https://github.com/pulp-platform\"\n\
+             dev_dependencies:\n\
+             \x20 vip: { version: \"0.2\", target: test, pass_targets: [\"debug\"] }\n",
+        )
+        .unwrap();
+
+        match &manifest.dev_dependencies["vip"] {
+            Dependency::GitVersion {
+                target,
+                pass_targets,
+                url,
+                ..
+            } => {
+                assert_eq!(target.to_string(), "test");
+                assert_eq!(pass_targets.len(), 1);
+                assert!(url.contains("pulp-platform"), "unexpected url {url}");
+            }
+            other => panic!("expected a git version dependency, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dev_dependencies_reject_kebab_case_spelling() {
+        // The manifest format is uniformly snake_case; the kebab-case spelling
+        // must fall through to the unknown-field path rather than silently
+        // becoming a second accepted name.
+        let manifest = parse_manifest(
+            "package:\n  name: pkg\n\
+             dev-dependencies:\n  vip: { path: ../vip }\n",
+        )
+        .unwrap();
+
+        assert!(manifest.dev_dependencies.is_empty());
+    }
+
+    #[test]
+    fn dependency_in_both_sections_is_rejected() {
+        let err = parse_manifest(
+            "package:\n  name: pkg\n\
+             dependencies:\n  lib: { path: ../lib }\n\
+             dev_dependencies:\n  lib: { path: ../lib }\n",
+        )
+        .unwrap_err();
+
+        assert!(
+            format!("{err:?}").contains("both a dependency and a dev-dependency"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn manifest_without_dev_dependencies_has_none() {
+        let manifest = parse_manifest(
+            "package:\n  name: pkg\n\
+             dependencies:\n  lib: { path: ../lib }\n",
+        )
+        .unwrap();
+
+        assert!(manifest.dev_dependencies.is_empty());
+        assert_eq!(manifest.root_dependencies().count(), 1);
+    }
 }

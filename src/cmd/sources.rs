@@ -163,8 +163,7 @@ pub fn get_passed_targets(
     if used_packages.contains(&sess.manifest.package.name) {
         required_packages.insert(sess.manifest.package.name.clone());
         sess.manifest
-            .dependencies
-            .iter()
+            .root_dependencies()
             .for_each(|(name, dep)| match dep {
                 Dependency::Version {
                     target: filter,

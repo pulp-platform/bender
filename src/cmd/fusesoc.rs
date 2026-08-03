@@ -69,7 +69,10 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
             .load_sources(
                 sources,
                 Some(name.as_str()),
-                sess.manifest.dependencies.keys().cloned().collect(),
+                sess.manifest
+                    .root_dependencies()
+                    .map(|(name, _)| name.clone())
+                    .collect(),
                 IndexMap::new(),
                 version_string.clone(),
             )
@@ -90,9 +93,8 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
 
     let fuse_depend_string = sess
         .manifest
-        .dependencies
-        .keys()
-        .map(|dep| {
+        .root_dependencies()
+        .map(|(dep, _)| {
             (
                 dep.to_string(),
                 format!(

@@ -256,7 +256,7 @@ impl<'ctx> Session<'ctx> {
             let mut ranks: IndexMap<DependencyRef, usize> =
                 graph.keys().map(|&id| (id, 0)).collect();
             let mut pending = IndexSet::new();
-            for name in self.manifest.dependencies.keys() {
+            for (name, _) in self.manifest.root_dependencies() {
                 if !(names.contains_key(name)) {
                     bail!(
                         help = "You may need to run `bender update`",
@@ -265,7 +265,11 @@ impl<'ctx> Session<'ctx> {
                     );
                 }
             }
-            pending.extend(self.manifest.dependencies.keys().map(|name| names[name]));
+            pending.extend(
+                self.manifest
+                    .root_dependencies()
+                    .map(|(name, _)| names[name]),
+            );
             let mut cyclic = false;
             while !pending.is_empty() {
                 let mut current_pending = IndexSet::new();
@@ -1756,12 +1760,22 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         let files = ranks
             .into_iter()
-            .chain(once(vec![Some(self.sess.manifest)]))
-            .map(|manifests| {
+            .map(|manifests| (manifests, false))
+            .chain(once((vec![Some(self.sess.manifest)], true)))
+            .map(|(manifests, is_root)| {
                 let files = manifests
                     .into_iter()
                     .flatten()
                     .map(|m| {
+                        // The dev-dependencies only belong to the root package;
+                        // they are not propagated to dependent packages.
+                        let dependencies: IndexSet<String> = if is_root {
+                            m.root_dependencies()
+                                .map(|(name, _)| name.clone())
+                                .collect()
+                        } else {
+                            m.dependencies.keys().cloned().collect()
+                        };
                         // Collect include dirs from export_include_dirs of package and direct dependencies
                         let mut export_include_dirs: IndexMap<String, Vec<(TargetSpec, &Path)>> =
                             IndexMap::new();
@@ -1772,15 +1786,13 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .map(|(trgt, path)| (trgt.clone(), path.as_path()))
                                 .collect(),
                         );
-                        if !m.dependencies.is_empty() {
-                            for i in m.dependencies.keys() {
-                                if !all_export_include_dirs.contains_key(i) {
-                                    Warnings::ExportDirNameIssue(i.clone()).emit();
-                                    export_include_dirs.insert(i.to_string(), Vec::new());
-                                } else {
-                                    export_include_dirs
-                                        .insert(i.to_string(), all_export_include_dirs[i].clone());
-                                }
+                        for i in &dependencies {
+                            if !all_export_include_dirs.contains_key(i) {
+                                Warnings::ExportDirNameIssue(i.clone()).emit();
+                                export_include_dirs.insert(i.to_string(), Vec::new());
+                            } else {
+                                export_include_dirs
+                                    .insert(i.to_string(), all_export_include_dirs[i].clone());
                             }
                         }
                         if let Some(s) = m.sources.as_ref() {
@@ -1788,7 +1800,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 .load_sources(
                                     s,
                                     Some(m.package.name.as_str()),
-                                    m.dependencies.keys().cloned().collect(),
+                                    dependencies,
                                     export_include_dirs,
                                     match self.sess.dependency_with_name(m.package.name.as_str()) {
                                         Ok(dep_id) => self.sess.dependency(dep_id).version.clone(),
@@ -1802,7 +1814,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                             // get_package_list can discover transitive deps.
                             SourceFile::Group(Box::new(SourceGroup {
                                 package: Some(m.package.name.as_str()),
-                                dependencies: m.dependencies.keys().cloned().collect(),
+                                dependencies,
                                 export_incdirs: export_include_dirs,
                                 version: match self
                                     .sess
