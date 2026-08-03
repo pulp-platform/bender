@@ -56,7 +56,7 @@ dev_dependencies:
 
 The two sections take exactly the same entries: Git, path and revision dependencies, `remote` shorthands, `target` filters and `pass_targets` all behave identically. The only difference is propagation. Listing the same package in both sections is an error.
 
-> **Note:** For compatibility with Cargo's spelling, `dev-dependencies` is accepted as an alias for `dev_dependencies`.
+> **Note:** The section is spelled `dev_dependencies`, matching the snake_case used throughout the manifest. Cargo's kebab-case `dev-dependencies` is *not* accepted; it is reported as an unknown field via warning `W03`.
 
 This is the mechanism to reach for when a package's testbench needs verification IP that its consumers should not inherit. A downstream project depending on such a package resolves only its `dependencies`; the `dev_dependencies` are ignored entirely and never appear in the downstream [`Bender.lock`](./lockfile.md).
 

@@ -472,7 +472,6 @@ pub struct PartialManifest {
     /// The dependencies.
     pub dependencies: Option<IndexMap<String, StringOrStruct<PartialDependency>>>,
     /// The dependencies only needed to work on this package itself.
-    #[serde(alias = "dev-dependencies")]
     pub dev_dependencies: Option<IndexMap<String, StringOrStruct<PartialDependency>>>,
     /// The source files.
     pub sources: Option<SeqOrStruct<PartialSources, PartialSourceFile>>,
@@ -2159,17 +2158,17 @@ mod tests {
     }
 
     #[test]
-    fn dev_dependencies_dashed_alias_is_accepted() {
+    fn dev_dependencies_reject_kebab_case_spelling() {
+        // The manifest format is uniformly snake_case; the kebab-case spelling
+        // must fall through to the unknown-field path rather than silently
+        // becoming a second accepted name.
         let manifest = parse_manifest(
             "package:\n  name: pkg\n\
              dev-dependencies:\n  vip: { path: ../vip }\n",
         )
         .unwrap();
 
-        assert_eq!(
-            manifest.dev_dependencies.keys().collect::<Vec<_>>(),
-            ["vip"]
-        );
+        assert!(manifest.dev_dependencies.is_empty());
     }
 
     #[test]
