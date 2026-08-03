@@ -434,18 +434,34 @@ pub enum Warnings {
     OverrideFilesIgnored(String),
 
     #[error(
-        "Git submodules are disabled, dependency {} has submodules that were not checked out:\n{}",
+        "Git submodules are disabled, dependency {} selects submodules that were not checked out:\n{}",
         fmt_pkg!(.0),
         .1.iter().map(|p| format!("  - {}", fmt_path!(p))).collect::<Vec<_>>().join("\n")
     )]
     #[diagnostic(
         code(W36),
         help(
-            "Re-run with `--git-submodules true` (or set `git_submodules: true` in the configuration), or run `git -C \"$(bender path {})\" submodule update --init --recursive` to fetch them manually.",
+            "Drop the `git_submodules: none` setting to clone the submodules {} selects, or use `all` to clone all of them.\nTo fetch them manually, run `git -C \"$(bender path {})\" submodule update --init -- <path>`.",
+            fmt_pkg!(.0),
             fmt_pkg!(.0)
         )
     )]
     SubmodulesDisabled(String, Vec<String>),
+
+    #[error(
+        "Dependency {} has submodules but does not declare which of them to clone, so none were checked out:\n{}",
+        fmt_pkg!(.0),
+        .1.iter().map(|p| format!("  - {}", fmt_path!(p))).collect::<Vec<_>>().join("\n")
+    )]
+    #[diagnostic(
+        code(W37),
+        help(
+            "Add a `git_submodules` list to the {} manifest to select the submodules it needs, or `git_submodules: []` if none are needed to silence this warning.\nTo fetch them anyway, re-run with `--git-submodules all` or run `git -C \"$(bender path {})\" submodule update --init --recursive`.",
+            fmt_pkg!(.0),
+            fmt_pkg!(.0)
+        )
+    )]
+    SubmodulesUnspecified(String, Vec<String>),
 }
 
 #[derive(Error, Diagnostic, Debug, Clone)]

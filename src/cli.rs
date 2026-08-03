@@ -25,7 +25,7 @@ use crate::Result;
 use crate::cmd;
 use crate::cmd::fusesoc::FusesocArgs;
 use crate::config::{
-    Config, Manifest, Merge, PartialConfig, PrefixPaths, Validate, ValidationContext,
+    Config, Manifest, Merge, PartialConfig, PrefixPaths, SubmoduleMode, Validate, ValidationContext,
 };
 use crate::diagnostic::{Diagnostics, Warnings};
 use crate::lockfile::*;
@@ -61,14 +61,15 @@ struct Cli {
     )]
     git_throttle: Option<usize>,
 
-    /// Clone the git submodules of dependencies [default: true]
+    /// Override which submodules are cloned for dependencies
     #[arg(
         long,
         global = true,
+        value_name = "MODE",
         help_heading = "Global Options",
         env = "BENDER_GIT_SUBMODULES"
     )]
-    git_submodules: Option<bool>,
+    git_submodules: Option<SubmoduleMode>,
 
     /// Suppresses specific warnings. Use `all` to suppress all warnings.
     #[arg(long, global = true, action = ArgAction::Append, help_heading = "Global Options", env = "BENDER_SUPPRESS_WARNINGS")]
@@ -210,10 +211,8 @@ pub fn main() -> Result<()> {
     let mut config = load_config(&root_dir, matches!(cli.command, Commands::Update(_)))?;
 
     // The `--git-submodules` CLI flag (or `BENDER_GIT_SUBMODULES`) takes
-    // precedence over the configuration files in both directions.
-    if let Some(v) = cli.git_submodules {
-        config.git_submodules = v;
-    }
+    // precedence over the configuration files.
+    config.git_submodules = cli.git_submodules.unwrap_or(config.git_submodules);
     log::debug!("{:#?}", config);
 
     // Determine git throttle. The precedence is: CLI argument, env variable, config file, default (4).

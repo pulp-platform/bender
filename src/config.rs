@@ -1679,6 +1679,21 @@ where
     }
 }
 
+/// Which submodules of a dependency are cloned.
+///
+/// The variant docs double as the `--git-submodules` help text.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum SubmoduleMode {
+    /// Clone all submodules of every dependency, recursively
+    All,
+    /// Clone no submodules at all
+    None,
+    /// Clone the submodules each dependency selects in its own manifest [default]
+    #[default]
+    Manifest,
+}
+
 /// A configuration.
 ///
 /// This struct encapsulates every setting of the tool that can be changed by
@@ -1702,8 +1717,9 @@ pub struct Config {
     pub git_throttle: Option<usize>,
     /// Enable git LFS support, requires git-lfs (default: true)
     pub git_lfs: bool,
-    /// Clone the git submodules of dependencies (default: true)
-    pub git_submodules: bool,
+    /// Which submodules of a dependency are cloned (default: the selection in
+    /// each dependency's own manifest)
+    pub git_submodules: SubmoduleMode,
 }
 
 /// A partial configuration.
@@ -1723,8 +1739,9 @@ pub struct PartialConfig {
     pub git_throttle: Option<usize>,
     /// Enable git LFS support, requires git-lfs (default: true)
     pub git_lfs: Option<bool>,
-    /// Clone the git submodules of dependencies (default: true)
-    pub git_submodules: Option<bool>,
+    /// Which submodules of a dependency are cloned (default: the selection in
+    /// each dependency's own manifest)
+    pub git_submodules: Option<SubmoduleMode>,
 }
 
 impl PartialConfig {
@@ -1774,11 +1791,10 @@ impl Merge for PartialConfig {
                 (Some(v1), Some(v2)) => Some(v1 | v2),
                 (None, None) => None,
             },
-            git_submodules: match (self.git_submodules, other.git_submodules) {
-                (Some(v), None) | (None, Some(v)) => Some(v),
-                (Some(v1), Some(v2)) => Some(v1 | v2),
-                (None, None) => None,
-            },
+            // Unlike `git_lfs`, this is not an "either side may enable it"
+            // switch but a mode selection, so the higher-precedence side wins
+            // outright.
+            git_submodules: self.git_submodules.or(other.git_submodules),
         }
     }
 }
@@ -1814,7 +1830,7 @@ impl Validate for PartialConfig {
             },
             git_throttle: self.git_throttle,
             git_lfs: self.git_lfs.unwrap_or(true),
-            git_submodules: self.git_submodules.unwrap_or(true),
+            git_submodules: self.git_submodules.unwrap_or_default(),
         })
     }
 }

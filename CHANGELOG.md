@@ -6,8 +6,20 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ## Unreleased
 
+### Breaking Changes
+- **Submodules of a dependency are no longer cloned by default.** A package now declares which of its submodules it needs with a `git_submodules` list in its own `Bender.yml`, and only those are cloned. Bender emits warning `W37` for each dependency that carries submodules without declaring any.
+  - As a package maintainer, add the submodules your sources actually need to your manifest, or `git_submodules: []` to state that none are needed and silence the warning.
+  - As a consumer of a package that has not declared its submodules yet, run with `--git-submodules all` (or set `git_submodules: all` in your configuration) to restore the previous behaviour of cloning every submodule recursively.
+- **`--git-submodules` and the `git_submodules` config field take a mode instead of a boolean.** The env variable `BENDER_GIT_SUBMODULES` takes the same values. Booleans are no longer accepted, so replace them:
+  - `git_submodules: true` -> `git_submodules: all`, cloning all submodules of every dependency recursively, ignoring the per-package lists.
+  - `git_submodules: false` -> `git_submodules: none`, cloning no submodules at all, ignoring the per-package lists.
+  - Not setting it at all is now `manifest`, cloning what each package selects in its manifest.
+
 ### Added
-- Add a per-dependency `git_submodules` list to the manifest (`Bender.yml`) that lets a package restrict which of its submodules are cloned (with optional per-entry `recursive` and `shallow` flags, both defaulting to `true`); when absent, all submodules are cloned recursively as before.
+- Add a per-dependency `git_submodules` list to the manifest (`Bender.yml`) that selects which of a package's submodules are cloned (with optional per-entry `recursive` and `shallow` flags, both defaulting to `true`).
+
+### Changed
+- Bender clones submodules shallowly by default (`--depth 1`), unless a package disables it explicitly by specifying `shallow: false` in its `git_submodules` list.
 
 ## 0.32.1 - 2026-07-07
 ### Added
