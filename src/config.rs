@@ -2095,3 +2095,107 @@ fn env_string_from_string(path_str: &str) -> Result<String> {
 pub(crate) fn env_path_from_string(path_str: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(env_string_from_string(path_str)?))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Parse and validate a manifest, ignoring whether the source files exist.
+    fn parse_manifest(yaml: &str) -> Result<Manifest> {
+        let partial: PartialManifest =
+            serde_yaml_ng::from_str(yaml).expect("Failed to parse manifest");
+        partial.validate_ignore_sources()
+    }
+
+    #[test]
+    fn dev_dependencies_are_kept_separate() {
+        let manifest = parse_manifest(
+            "package:\n  name: pkg\n\
+             dependencies:\n  lib: { path: ../lib }\n\
+             dev_dependencies:\n  vip: { path: ../vip }\n",
+        )
+        .unwrap();
+
+        assert_eq!(manifest.dependencies.keys().collect::<Vec<_>>(), ["lib"]);
+        assert_eq!(
+            manifest.dev_dependencies.keys().collect::<Vec<_>>(),
+            ["vip"]
+        );
+        // The root package sees both, in that order.
+        assert_eq!(
+            manifest
+                .root_dependencies()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            ["lib", "vip"]
+        );
+        assert!(manifest.root_dependency("vip").is_some());
+        assert!(manifest.root_dependency("nope").is_none());
+    }
+
+    #[test]
+    fn dev_dependencies_accept_the_same_fields() {
+        let manifest = parse_manifest(
+            "package:\n  name: pkg\n\
+             remotes:\n  pulp: \"https://github.com/pulp-platform\"\n\
+             dev_dependencies:\n\
+             \x20 vip: { version: \"0.2\", target: test, pass_targets: [\"debug\"] }\n",
+        )
+        .unwrap();
+
+        match &manifest.dev_dependencies["vip"] {
+            Dependency::GitVersion {
+                target,
+                pass_targets,
+                url,
+                ..
+            } => {
+                assert_eq!(target.to_string(), "test");
+                assert_eq!(pass_targets.len(), 1);
+                assert!(url.contains("pulp-platform"), "unexpected url {url}");
+            }
+            other => panic!("expected a git version dependency, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dev_dependencies_dashed_alias_is_accepted() {
+        let manifest = parse_manifest(
+            "package:\n  name: pkg\n\
+             dev-dependencies:\n  vip: { path: ../vip }\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            manifest.dev_dependencies.keys().collect::<Vec<_>>(),
+            ["vip"]
+        );
+    }
+
+    #[test]
+    fn dependency_in_both_sections_is_rejected() {
+        let err = parse_manifest(
+            "package:\n  name: pkg\n\
+             dependencies:\n  lib: { path: ../lib }\n\
+             dev_dependencies:\n  lib: { path: ../lib }\n",
+        )
+        .unwrap_err();
+
+        assert!(
+            format!("{err:?}").contains("both a dependency and a dev-dependency"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn manifest_without_dev_dependencies_has_none() {
+        let manifest = parse_manifest(
+            "package:\n  name: pkg\n\
+             dependencies:\n  lib: { path: ../lib }\n",
+        )
+        .unwrap();
+
+        assert!(manifest.dev_dependencies.is_empty());
+        assert_eq!(manifest.root_dependencies().count(), 1);
+    }
+}
