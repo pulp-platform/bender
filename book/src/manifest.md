@@ -49,6 +49,14 @@ dependencies:
     common_cells: { git: "https://github.com/pulp-platform/common_cells.git", version: "1.39" }
 ```
 
+Packages that are only needed to work on this package itself — testbench infrastructure, for example — belong in `dev_dependencies` instead. They are resolved only when this package is the root package, and are never propagated to packages that depend on it. See [Dev-Dependencies](./dependencies.md#dev-dependencies) for details.
+
+```yaml
+# Packages needed only when working on this package itself. Optional.
+dev_dependencies:
+    my_tb_utils: { git: "https://github.com/pulp-platform/my_tb_utils.git", version: "0.1" }
+```
+
 The sources section lists the HDL source files belonging to this package. It is optional for packages that only provide headers or are otherwise used without their own source files. More details on the format can be found [here](./sources.md).
 
 ```yaml

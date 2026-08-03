@@ -100,6 +100,8 @@ dependencies:
   common_verification: { version: "0.2", target: any(test, simulation) }
 ```
 
+A `target` here only filters the dependency out of source listings; the dependency is still resolved and inherited by packages depending on yours. To keep a dependency out of dependent packages entirely, declare it under [`dev_dependencies`](./dependencies.md#dev-dependencies) instead. The two compose, and target expressions are the intended way to select subsets of your dev-dependencies.
+
 ## Built-in Targets
 
 Bender automatically activates certain targets based on the subcommand and output format. These "default targets" ensure that tool-specific workarounds or flow-specific files are included correctly. You can disable this behavior with the `--no-default-target` flag.

@@ -167,11 +167,11 @@ pub fn get_parent_array(
     targets: bool,
 ) -> Result<IndexMap<String, Vec<String>>> {
     let mut map = IndexMap::<String, Vec<String>>::new();
-    if sess.manifest.dependencies.contains_key(dep) {
+    if let Some(root_dep) = sess.manifest.root_dependency(dep) {
         if targets {
             map.insert(
                 sess.manifest.package.name.clone(),
-                match sess.manifest.dependencies.get(dep).unwrap() {
+                match root_dep {
                     Dependency::Version {
                         target: targetspec,
                         pass_targets: tgts,
@@ -199,11 +199,8 @@ pub fn get_parent_array(
                 },
             );
         } else {
-            let dep_str = format!(
-                "{}",
-                DependencyConstraint::from(&sess.manifest.dependencies[dep])
-            );
-            let source = DependencySource::from(&sess.manifest.dependencies[dep]);
+            let dep_str = format!("{}", DependencyConstraint::from(root_dep));
+            let source = DependencySource::from(root_dep);
             let dep_source = format_dep_source(&source, sess.root);
             map.insert(
                 sess.manifest.package.name.clone(),

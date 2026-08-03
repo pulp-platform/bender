@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+### Added
+- Add a `dev_dependencies` manifest section (alias `dev-dependencies`) for dependencies that are only needed to work on the package itself. They are resolved when the package is the root package and are not propagated to packages depending on it. Entries accept the same fields as `dependencies`, including `target` and `pass_targets`; listing a package in both sections is an error. Older Bender versions ignore the section with warning `W03`, which is the correct behavior for a consumer.
 
 ## 0.32.1 - 2026-07-07
 ### Added

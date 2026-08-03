@@ -152,6 +152,16 @@ impl<'ctx> DependencyResolver<'ctx> {
             &io,
         )?;
 
+        // Load the dev-dependencies in the root manifest. These are only
+        // resolved for the root package; the dev-dependencies of the packages
+        // in the table are ignored.
+        self.register_dependencies_in_manifest(
+            &self.sess.manifest.dev_dependencies,
+            &self.sess.manifest.package.name,
+            &rt,
+            &io,
+        )?;
+
         let mut _iteration = 0;
         let mut any_changes = true;
         while any_changes {
@@ -573,12 +583,24 @@ impl<'ctx> DependencyResolver<'ctx> {
         // cons_map: dep_name->(parent_name, constraint, source)
         let cons_map = {
             let mut map = IndexMap::<&str, Vec<(&str, DependencyConstraint, DependencyRef)>>::new();
+            let root_pkg_name = self
+                .sess
+                .intern_string(self.sess.manifest.package.name.clone());
             let dep_iter = once(self.sess.manifest)
                 .chain(self.table.values().filter_map(|dep| dep.manifest))
                 .flat_map(|m| {
                     let pkg_name = self.sess.intern_string(m.package.name.clone());
                     m.dependencies.iter().map(move |(n, d)| (n, (pkg_name, d)))
                 })
+                // Only the root package's dev-dependencies constrain the
+                // resolution; those of the other packages are ignored.
+                .chain(
+                    self.sess
+                        .manifest
+                        .dev_dependencies
+                        .iter()
+                        .map(move |(n, d)| (n, (root_pkg_name, d))),
+                )
                 .map(|(name, (pkg_name, dep))| {
                     (name, (pkg_name, self.checked_out.get(name).unwrap_or(dep)))
                 })

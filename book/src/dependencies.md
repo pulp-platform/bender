@@ -42,6 +42,65 @@ dependencies:
   my_local_ip: { path: "../local_ips/my_ip" }
 ```
 
+## Dev-Dependencies
+
+Packages listed under `dev_dependencies` are only needed to work on the package itself. They are resolved when the package is the **root package** — the one Bender is invoked in — and are **not** propagated to packages that depend on it.
+
+```yaml
+dependencies:
+  common_cells: "1.39.0"
+
+dev_dependencies:
+  common_verification: { version: "0.2.5", target: test }
+```
+
+The two sections take exactly the same entries: Git, path and revision dependencies, `remote` shorthands, `target` filters and `pass_targets` all behave identically. The only difference is propagation. Listing the same package in both sections is an error.
+
+> **Note:** For compatibility with Cargo's spelling, `dev-dependencies` is accepted as an alias for `dev_dependencies`.
+
+This is the mechanism to reach for when a package's testbench needs verification IP that its consumers should not inherit. A downstream project depending on such a package resolves only its `dependencies`; the `dev_dependencies` are ignored entirely and never appear in the downstream [`Bender.lock`](./lockfile.md).
+
+### Choosing Between `target` and `dev_dependencies`
+
+The two features are orthogonal and solve different problems:
+
+| | Effect |
+|---|---|
+| `target` on a dependency | Filters the dependency out of source listings when the target is inactive. The dependency is still resolved and locked, for the root package *and* for everyone depending on it. |
+| `dev_dependencies` | Removes the dependency from the graph entirely for anyone depending on this package. Within the root package it behaves exactly like a regular dependency. |
+
+They compose: a dev-dependency may carry a `target`, in which case it is resolved for the root package but only contributes sources when that target is active. This is usually what you want, and it also removes the need for a grouping mechanism — [target expressions](./targets.md) already select subsets of your dev-dependencies:
+
+```yaml
+dev_dependencies:
+  my_vip:      { version: "0.2", target: test }
+  my_tb_utils: { path: "../tb_utils", target: tb }
+```
+
+```bash
+bender script vsim -t tb
+```
+
+### Keeping Dev-Only Sources Consistent
+
+Because Bender emits one flat file list for the whole graph, source groups of a dependency are visible to downstream projects even though its dev-dependencies are not. A package whose sources reference a dev-dependency must therefore keep those sources behind a target that downstream projects do not enable, or the generated file list will reference modules that are no longer in the graph.
+
+The [recommended target conventions](./targets.md#recommended-conventions) draw exactly this line:
+
+- Code under `target: test` is *reusable* verification IP that consumers are expected to enable. Anything it needs belongs in `dependencies`.
+- Code under `target: tb` is *non-reusable* testbench and testharness code that consumers never enable. Anything it needs belongs in `dev_dependencies`.
+
+```yaml
+dev_dependencies:
+  my_tb_utils: { path: "../tb_utils", target: tb }
+
+sources:
+  - src/core.sv
+  - target: tb
+    files:
+      - tb/tb_core.sv   # may use my_tb_utils; consumers never enable `tb`
+```
+
 ## Remotes
 
 To avoid repeating full Git URLs, you can define `remotes` in your manifest.
@@ -96,7 +155,7 @@ remotes:
 
 Dependencies can be conditionally included or configured using targets. For details on how to use target expressions or pass targets to dependencies, see the [Targets](./targets.md) documentation.
 
-> **Note:** A `target` on a dependency only filters that dependency out of *source listings and generated scripts*. It does **not** affect dependency resolution: every dependency declared in [`Bender.yml`](./manifest.md) is still resolved and recorded in [`Bender.lock`](./lockfile.md) regardless of which targets are active.
+> **Note:** A `target` on a dependency only filters that dependency out of *source listings and generated scripts*. It does **not** affect dependency resolution: every dependency declared in [`Bender.yml`](./manifest.md) is still resolved and recorded in [`Bender.lock`](./lockfile.md) regardless of which targets are active. To keep a dependency out of dependent packages, use [dev-dependencies](#dev-dependencies).
 
 ## Git LFS Support
 
