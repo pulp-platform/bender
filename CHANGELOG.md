@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ### Fixed
 - script: apply `override_files` before validation and the slang pass, so overriding files replace their targets in file-existence checks and in `--top`/`--trim-incdirs` reduction (previously slang saw both the original and the override as duplicate modules); the overridden-file annotation is preserved.
+- pickle: Rename scoped names nested inside a renamed scoped name, such as a packed dimension on a scoped type (`common_pkg::state_t [common_pkg::NumStates-1:0]`). The rewriter now applies renames as token edits rather than replacing whole syntax nodes, which also fixes the same class of missed rename in virtual interface types and package imports (https://github.com/pulp-platform/bender/pull/342).
 
 ## 0.32.1 - 2026-07-07
 ### Added
