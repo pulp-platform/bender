@@ -28,8 +28,8 @@ pub struct CloneArgs {
     pub name: String,
 
     /// Relative directory to clone PKG into
-    #[arg(short, long, default_value = "working_dir")]
-    pub path: String,
+    #[arg(long, short_alias = 'p', alias = "path", default_value = "working_dir")]
+    pub working_dir: String,
 }
 
 /// Execute the `clone` subcommand.
@@ -37,7 +37,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
     let dep = &args.name.to_lowercase();
     let depref = sess.dependency_with_name(dep)?;
 
-    let path_mod = &args.path; // TODO make this option for config in the Bender.yml file?
+    let path_mod = &args.working_dir; // TODO make this option for config in the Bender.yml file?
     // Check current config for matches
     if sess.config.overrides.contains_key(dep) {
         match &sess.config.overrides[dep] {
