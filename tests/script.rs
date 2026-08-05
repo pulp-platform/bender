@@ -435,4 +435,58 @@ mod tests {
             );
         }
     }
+
+    /// `all_headers` exposes the fine-grained set of headers slang actually resolved via `include
+    /// (see `resolved_include_paths`), so templates can build dependency lists that track header
+    /// edits. `top.sv` does `` `include "macros.svh" ``; `include_unused/unused_header.svh` is
+    /// never included. `macros.svh` only ever appears through `all_headers` (it is not a compiled
+    /// source), so a plain substring check is unambiguous.
+    #[test]
+    fn script_all_headers_lists_resolved_headers() {
+        let out = run_script(&["--target", "top", "--top", "top", "template-json"]);
+        assert!(
+            out.contains("\"all_headers\""),
+            "template-json must expose an all_headers key:\n{out}"
+        );
+        assert!(
+            out.contains("macros.svh"),
+            "all_headers should list the resolved header macros.svh:\n{out}"
+        );
+        assert!(
+            !out.contains("unused_header.svh"),
+            "all_headers must not list a header that was never `included:\n{out}"
+        );
+    }
+
+    /// Without a slang trigger (`--top`/`--trim-incdirs`/parse policy) the pass does not run, so
+    /// no includes are resolved and `all_headers` is empty.
+    #[test]
+    fn script_all_headers_empty_without_slang_pass() {
+        let out = run_script(&["--target", "top", "template-json"]);
+        assert!(
+            out.contains("\"all_headers\""),
+            "all_headers key must exist even when empty:\n{out}"
+        );
+        assert!(
+            !out.contains("macros.svh"),
+            "all_headers must be empty when the slang pass does not run:\n{out}"
+        );
+    }
+
+    /// `all_headers` does not require `--top`: any slang trigger populates it. `--trim-incdirs
+    /// always` runs the pass over all trees, so the resolved header is reported.
+    #[test]
+    fn script_all_headers_populated_without_top_when_slang_runs() {
+        let out = run_script(&[
+            "--target",
+            "top",
+            "--trim-incdirs",
+            "always",
+            "template-json",
+        ]);
+        assert!(
+            out.contains("macros.svh"),
+            "all_headers should be populated whenever the slang pass runs:\n{out}"
+        );
+    }
 }
