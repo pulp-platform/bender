@@ -11,6 +11,9 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 ### Changed
 - `bender clone`: primary flag for the checkout directory is now `--working-dir`, matching `bender snapshot`'s flag for the same concept; `-p`/`--path` are kept as hidden aliases for backwards compatibility.
 
+### Fixed
+- script: apply `override_files` before validation and the slang pass, so overriding files replace their targets in file-existence checks and in `--top`/`--trim-incdirs` reduction (previously slang saw both the original and the override as duplicate modules); the overridden-file annotation is preserved.
+
 ## 0.32.1 - 2026-07-07
 ### Added
 - Add `git_submodules` config field and `--git-submodules <true|false>` flag (env `BENDER_GIT_SUBMODULES`) to control cloning of dependency submodules; defaults to `true`, the flag overrides the configured value in either direction (https://github.com/pulp-platform/bender/pull/314).

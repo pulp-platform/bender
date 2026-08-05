@@ -489,4 +489,90 @@ mod tests {
             "all_headers should be populated whenever the slang pass runs:\n{out}"
         );
     }
+
+    /// The raw source-path lines of a flist-plus output (dropping `+incdir+` / `+define+`
+    /// directives and `//` annotation lines).
+    fn source_paths(output: &str) -> Vec<&str> {
+        output
+            .lines()
+            .map(str::trim)
+            .filter(|l| {
+                !l.is_empty()
+                    && !l.starts_with("+incdir+")
+                    && !l.starts_with("+define+")
+                    && !l.starts_with("//")
+            })
+            .collect()
+    }
+
+    /// An `override_files` group replaces the like-named file by basename. The overriding path
+    /// (`override/leaf.sv`) must appear in place of the original (`src/leaf.sv`), exactly once,
+    /// and `--source-annotations` must record the substitution.
+    #[test]
+    fn script_override_files_replaces_by_basename() {
+        let out = run_script(&[
+            "--target",
+            "top",
+            "--target",
+            "override",
+            "flist-plus",
+            "--source-annotations",
+        ]);
+
+        let leaf_paths: Vec<&str> = source_paths(&out)
+            .into_iter()
+            .filter(|p| basename(p) == "leaf.sv")
+            .collect();
+        assert_eq!(
+            leaf_paths.len(),
+            1,
+            "leaf.sv must appear exactly once (overriding, not duplicated):\n{out}"
+        );
+        assert!(
+            leaf_paths[0]
+                .replace('\\', "/")
+                .ends_with("override/leaf.sv"),
+            "the overriding path must be emitted, not the original: {:?}\n{out}",
+            leaf_paths[0]
+        );
+        assert!(
+            out.lines()
+                .any(|l| l.contains("OVERRIDDEN") && l.contains("leaf.sv")),
+            "expected an OVERRIDDEN annotation for leaf.sv:\n{out}"
+        );
+    }
+
+    /// Overrides are resolved before the slang pass, so slang analyzes the overriding file
+    /// (never both it and the original, which share `module leaf` and would otherwise collide as
+    /// a duplicate module). With `--top top`, leaf is reachable via top → core → leaf, so the
+    /// overriding file survives the reachability trim.
+    #[test]
+    fn script_override_files_applies_before_slang_top() {
+        let out = run_script(&[
+            "--target",
+            "top",
+            "--target",
+            "override",
+            "--top",
+            "top",
+            "flist-plus",
+        ]);
+
+        let leaf_paths: Vec<&str> = source_paths(&out)
+            .into_iter()
+            .filter(|p| basename(p) == "leaf.sv")
+            .collect();
+        assert_eq!(
+            leaf_paths.len(),
+            1,
+            "overriding leaf.sv must survive the --top trim exactly once:\n{out}"
+        );
+        assert!(
+            leaf_paths[0]
+                .replace('\\', "/")
+                .ends_with("override/leaf.sv"),
+            "the overriding path must be the one kept by slang: {:?}\n{out}",
+            leaf_paths[0]
+        );
+    }
 }
