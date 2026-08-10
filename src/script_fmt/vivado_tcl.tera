@@ -6,7 +6,7 @@ set ROOT "{{ root }}"
 {% if source_annotations %}# {{ group.metadata }}
 {% endif %}add_files -norecurse -fileset [current_fileset] [list \
     {% for file in group.files %}{% if source_annotations %}{% if file.comment %}# {{ file.comment }}
-    {% endif %}{% endif %}{{ file.file | replace(from=root, to='$ROOT') }} \
+    {% endif %}{% endif %}{{ file.file | replace(from=root, to='${ROOT}') }} \
 {% if not loop.last %}    {% endif %}{% endfor %}]
 {% endfor -%}
 {# Common compilation: all files in one block -#}
@@ -14,7 +14,7 @@ set ROOT "{{ root }}"
 {%- for file in all_files -%}
 {%- if loop.first %}add_files -norecurse -fileset [current_fileset] [list \
     {% endif %}{% if source_annotations %}{% if file.comment %}# {{ file.comment }}
-    {% endif %}{% endif %}{{ file.file | replace(from=root, to='$ROOT') }} \
+    {% endif %}{% endif %}{{ file.file | replace(from=root, to='${ROOT}') }} \
 {% if not loop.last %}    {% endif %}{% if loop.last %}]
 {% endif %}{% endfor %}{% endif -%}
 {# Set include directories and defines for each fileset -#}
@@ -22,7 +22,7 @@ set ROOT "{{ root }}"
 {%- for incdir in all_incdirs -%}
 {%- if loop.first %}
 set_property include_dirs [list \
-    {% endif %}{{incdir | replace(from=root, to='$ROOT') }}{%if loop.last %} \
+    {% endif %}{{incdir | replace(from=root, to='${ROOT}') }}{%if loop.last %} \
 ] [current_fileset{{ arg }}]
 {% else %} \
     {% endif %}{% endfor %}{% endfor -%}

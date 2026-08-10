@@ -5,7 +5,7 @@ set search_path_initial $search_path
 {% if compilation_mode == 'separate' %}{% for group in srcs %}{% if group.file_type == 'verilog' or group.file_type == 'vhdl' %}{% if source_annotations %}
 # {{ group.metadata }}{% endif %}
 set search_path $search_path_initial
-{% for incdir in group.incdirs %}lappend search_path "$ROOT{{ incdir | replace(from=root, to='') }}"
+{% for incdir in group.incdirs %}lappend search_path "${ROOT}{{ incdir | replace(from=root, to='') }}"
 {% endfor %}
 {% if abort_on_error %}if {[catch { {% endif %}{% if group.file_type == 'verilog' %}read_sverilog{% elif group.file_type == 'vhdl' %}read_vhdl{% endif %} -r \
     {% for define in group.defines %}{% if loop.first %}-define { \
@@ -14,19 +14,19 @@ set search_path $search_path_initial
     {% else %} \
         {% endif %}{% endfor %}[list \
     {% for file in group.files %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
-    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='${ROOT}') }}" \
     {% endfor %}]
 {% if abort_on_error %}}]} {return 1}{% endif %}
 {% else %}{% if source_annotations %}
 # {{ group.metadata }}{% endif %}
 # Skipping {{ group.files | length }} file(s) of unknown type (prefix with sv:/v:/vhd: to set one):
-{% for file in group.files %}#   {{ file.file | replace(from=root, to='$ROOT') }}
+{% for file in group.files %}#   {{ file.file | replace(from=root, to='${ROOT}') }}
 {% endfor %}{% endif %}{% endfor %}
 {# Common compilation: all files in one block -#}
 {% else -%}
 {# Verilog sources -#}
 {%- for file in all_verilog %}{% if loop.first %}set search_path $search_path_initial
-{% for incdir in all_incdirs %}lappend search_path "$ROOT{{ incdir | replace(from=root, to='') }}"
+{% for incdir in all_incdirs %}lappend search_path "${ROOT}{{ incdir | replace(from=root, to='') }}"
 {% endfor %}
 {% if abort_on_error %}if {[catch { {% endif %}read_sverilog -r \
     {% for define in all_defines %}{% if loop.first %}-define { \
@@ -35,7 +35,7 @@ set search_path $search_path_initial
     {% else %} \
         {% endif %}{% endfor %}[list \
     {% endif %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
-    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='${ROOT}') }}" \
     {% if loop.last %}]
 {% if abort_on_error %}}]} {return 1}{% endif %}
 {% endif %}{% endfor %}
@@ -43,7 +43,7 @@ set search_path $search_path_initial
 {% for file in all_vhdl %}{% if loop.first %}{% if abort_on_error %}if {[catch { {% endif %}read_vhdl -r \
     [list \
     {% endif %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
-    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='${ROOT}') }}" \
     {% if loop.last %}]
 {% if abort_on_error %}}]} {return 1}{% endif %}
 {% endif %}{% endfor %}
