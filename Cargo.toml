@@ -13,6 +13,7 @@ readme = "README.md"
 license = "Apache-2.0 OR MIT"
 edition = "2024"
 rust-version = "1.89.0"
+include = ["src/**/*", "LICENSE-*", "README.md", "CHANGELOG.md"]
 
 [workspace]
 members = ["crates/bender-slang"]
