@@ -365,7 +365,7 @@ impl<'ctx> DependencyResolver<'ctx> {
             .iter()
             .filter_map(|(name, locked_package)| {
                 let name = name.as_str();
-                log::debug!("registering {} from lockfile", &name);
+                log::debug!("registering {} from lockfile", name);
                 let dep = match &locked_package.source {
                     LockedSource::Path(p) => config::Dependency::Path {
                         target: TargetSpec::Wildcard,

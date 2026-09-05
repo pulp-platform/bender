@@ -383,7 +383,7 @@ pub fn init(
             &vendor_package
                 .exclude_from_upstream
                 .iter()
-                .map(|excl| format!("{}/{}", &dep_path.to_str().unwrap(), excl))
+                .map(|excl| format!("{}/{}", dep_path.to_str().unwrap(), excl))
                 .collect(),
         )?,
         false => {
@@ -519,7 +519,7 @@ pub fn diff(
             &vendor_package
                 .exclude_from_upstream
                 .iter()
-                .map(|excl| format!("{}/{}", &vendor_package.target_dir.to_str().unwrap(), excl))
+                .map(|excl| format!("{}/{}", vendor_package.target_dir.to_str().unwrap(), excl))
                 .collect(),
         )?,
         false => {
@@ -775,7 +775,7 @@ pub fn copy_recursively(
 ) -> Result<()> {
     std::fs::create_dir_all(&destination)
         .into_diagnostic()
-        .wrap_err_with(|| format!("Failed to create directory {:?}", &destination))?;
+        .wrap_err_with(|| format!("Failed to create directory {:?}", destination))?;
     for entry in std::fs::read_dir(source).into_diagnostic()? {
         let entry = entry.into_diagnostic()?;
 

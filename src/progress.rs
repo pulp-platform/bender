@@ -244,7 +244,7 @@ impl ProgressHandler {
                     .unwrap()
                     .insert_after(prev_bar, ProgressBar::new(100).with_style(style));
                 // Set the prefix and initial message
-                let sub_prefix = format!("{} {}", fmt_dim!("╰─"), &name);
+                let sub_prefix = format!("{} {}", fmt_dim!("╰─"), name);
                 sub_pb.set_prefix(sub_prefix);
                 sub_pb.set_message(format!("{}", fmt_dim!("Waiting...")));
 

@@ -132,7 +132,7 @@ pub fn run_single(sess: &Session, args: &FusesocArgs) -> Result<()> {
 
     fs::write(core_path, fuse_str)
         .into_diagnostic()
-        .wrap_err_with(|| format!("Unable to write corefile for {:?}.", &name))?;
+        .wrap_err_with(|| format!("Unable to write corefile for {:?}.", name))?;
 
     if fuse_depend_string.len() > 1 {
         Warnings::DependStringMaybeWrong.emit();
@@ -222,7 +222,7 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
                     let file_str = read_to_string(&present_core_files[pkg][i])
                         .into_diagnostic()
                         .wrap_err_with(|| {
-                            format!("Cannot open .core file {:?}.", &present_core_files[pkg][i])
+                            format!("Cannot open .core file {:?}.", present_core_files[pkg][i])
                         })?;
 
                     let fuse_core = parse_fuse_file(
@@ -275,7 +275,7 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
                 .wrap_err_with(|| {
                     format!(
                         "Cannot open .core file {:?}.",
-                        &present_core_files[pkg][index]
+                        present_core_files[pkg][index]
                     )
                 })?;
 
@@ -314,7 +314,7 @@ pub fn run(sess: &Session, args: &FusesocArgs) -> Result<()> {
 
         fs::write(&generate_files[pkg], fuse_str)
             .into_diagnostic()
-            .wrap_err_with(|| format!("Unable to write corefile for {:?}.", &pkg))?;
+            .wrap_err_with(|| format!("Unable to write corefile for {:?}.", pkg))?;
     }
 
     Ok(())
@@ -466,11 +466,11 @@ fn parse_fuse_file(file_str: &str, filename: &str) -> Result<FuseSoCCAPI2> {
         value
             .apply_merge()
             .into_diagnostic()
-            .wrap_err_with(|| format!("Unable to apply merge to file {:?}.", &filename))?;
+            .wrap_err_with(|| format!("Unable to apply merge to file {:?}.", filename))?;
         value
     })
     .into_diagnostic()
-    .wrap_err_with(|| format!("Unable to parse core file {:?}.", &filename))
+    .wrap_err_with(|| format!("Unable to parse core file {:?}.", filename))
 }
 
 fn get_fuse_depend_string(
