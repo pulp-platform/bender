@@ -1,7 +1,7 @@
 // Copyright (c) 2025 ETH Zurich
 // Tim Fischer <fischeti@iis.ee.ethz.ch>
 
-use std::marker::PhantomData;
+use std::{borrow::Cow, marker::PhantomData};
 
 use cxx::{SharedPtr, UniquePtr};
 use thiserror::Error;
@@ -63,20 +63,20 @@ mod ffi {
 
         fn parse_group(
             self: Pin<&mut SlangSession>,
-            files: &Vec<String>,
-            includes: &Vec<String>,
-            defines: &Vec<String>,
+            files: &[String],
+            includes: &[String],
+            defines: &[String],
         ) -> Result<()>;
 
         fn all_trees(session: &SlangSession) -> Vec<ParsedTree>;
 
-        fn reachable_trees(session: &SlangSession, tops: &Vec<String>) -> Result<Vec<ParsedTree>>;
+        fn reachable_trees(session: &SlangSession, tops: &[String]) -> Result<Vec<ParsedTree>>;
 
         fn resolved_include_paths_for(trees: &Vec<ParsedTree>) -> Vec<String>;
 
         fn new_syntax_tree_rewriter() -> UniquePtr<SyntaxTreeRewriter>;
         fn set_suffix(self: Pin<&mut SyntaxTreeRewriter>, suffix: &str);
-        fn set_excludes(self: Pin<&mut SyntaxTreeRewriter>, excludes: Vec<String>);
+        fn set_excludes(self: Pin<&mut SyntaxTreeRewriter>, excludes: &[String]);
         fn rewrite_declarations(
             self: Pin<&mut SyntaxTreeRewriter>,
             tree: SharedPtr<SyntaxTree>,
@@ -190,13 +190,11 @@ impl SlangSession {
         includes: &[String],
         defines: &[String],
     ) -> Result<()> {
-        let files_vec = files.to_vec();
-        let includes_vec = normalize_include_dirs(includes)?;
-        let defines_vec = defines.to_vec();
+        let includes = normalize_include_dirs(includes)?;
 
         self.inner
             .pin_mut()
-            .parse_group(&files_vec, &includes_vec, &defines_vec)
+            .parse_group(files, includes.as_ref(), defines)
             .map_err(|cause| SlangError::ParseGroup {
                 message: cause.to_string(),
             })
@@ -214,8 +212,7 @@ impl SlangSession {
     /// Returns the parsed trees reachable from the given top modules, each bundled with its
     /// per-file facts.
     pub fn reachable_trees(&self, tops: &[String]) -> Result<Vec<ParsedTree<'_>>> {
-        let tops = tops.to_vec();
-        let trees = ffi::reachable_trees(self.inner.as_ref().unwrap(), &tops).map_err(|cause| {
+        let trees = ffi::reachable_trees(self.inner.as_ref().unwrap(), tops).map_err(|cause| {
             SlangError::TrimByTop {
                 message: cause.to_string(),
             }
@@ -253,18 +250,16 @@ impl SyntaxTreeRewriter {
         }
     }
 
-    pub fn set_prefix(&mut self, prefix: impl Into<String>) {
-        let prefix = prefix.into();
-        self.inner.pin_mut().set_prefix(&prefix);
+    pub fn set_prefix(&mut self, prefix: &str) {
+        self.inner.pin_mut().set_prefix(prefix);
     }
 
-    pub fn set_suffix(&mut self, suffix: impl Into<String>) {
-        let suffix = suffix.into();
-        self.inner.pin_mut().set_suffix(&suffix);
+    pub fn set_suffix(&mut self, suffix: &str) {
+        self.inner.pin_mut().set_suffix(suffix);
     }
 
-    pub fn set_excludes(&mut self, excludes: Vec<String>) {
-        self.inner.pin_mut().set_excludes(excludes);
+    pub fn set_excludes(&mut self, excludes: impl AsRef<[String]>) {
+        self.inner.pin_mut().set_excludes(excludes.as_ref());
     }
 
     pub fn rewrite_declarations<'a>(&mut self, tree: &SyntaxTree<'a>) -> SyntaxTree<'a> {
@@ -300,7 +295,7 @@ impl Default for SyntaxTreeRewriter {
 }
 
 #[cfg(windows)]
-fn normalize_include_dirs(includes: &[String]) -> Result<Vec<String>> {
+fn normalize_include_dirs(includes: &[String]) -> Result<Cow<'_, [String]>> {
     let mut out = Vec::with_capacity(includes.len());
     for include in includes {
         let canonical = dunce::canonicalize(include).map_err(|cause| SlangError::ParseGroup {
@@ -311,10 +306,10 @@ fn normalize_include_dirs(includes: &[String]) -> Result<Vec<String>> {
         })?;
         out.push(canonical.to_string_lossy().into_owned());
     }
-    Ok(out)
+    Ok(Cow::Owned(out))
 }
 
 #[cfg(unix)]
-fn normalize_include_dirs(includes: &[String]) -> Result<Vec<String>> {
-    Ok(includes.to_vec())
+fn normalize_include_dirs(includes: &[String]) -> Result<Cow<'_, [String]>> {
+    Ok(Cow::Borrowed(includes))
 }

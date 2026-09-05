@@ -186,7 +186,7 @@ void SyntaxTreeRewriter::set_prefix(rust::Str value) { prefix = std::string(valu
 
 void SyntaxTreeRewriter::set_suffix(rust::Str value) { suffix = std::string(value.data(), value.size()); }
 
-void SyntaxTreeRewriter::set_excludes(const rust::Vec<rust::String> values) {
+void SyntaxTreeRewriter::set_excludes(rust::Slice<const rust::String> values) {
     excludes.clear();
     for (const auto& value : values) {
         excludes.insert(std::string(value));

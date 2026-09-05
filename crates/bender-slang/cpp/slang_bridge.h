@@ -43,10 +43,10 @@ class SlangContext {
   public:
     SlangContext();
 
-    void set_includes(const rust::Vec<rust::String>& includes);
-    void set_defines(const rust::Vec<rust::String>& defines);
+    void set_includes(rust::Slice<const rust::String> includes);
+    void set_defines(rust::Slice<const rust::String> defines);
 
-    std::vector<TreeEntry> parse_files(const rust::Vec<rust::String>& paths);
+    std::vector<TreeEntry> parse_files(rust::Slice<const rust::String> paths);
 
   private:
     slang::SourceManager sourceManager;
@@ -57,8 +57,8 @@ class SlangContext {
 
 class SlangSession {
   public:
-    void parse_group(const rust::Vec<rust::String>& files, const rust::Vec<rust::String>& includes,
-                     const rust::Vec<rust::String>& defines);
+    void parse_group(rust::Slice<const rust::String> files, rust::Slice<const rust::String> includes,
+                     rust::Slice<const rust::String> defines);
 
     const std::vector<TreeEntry>& entries() const { return treeEntries; }
 
@@ -71,7 +71,7 @@ class SyntaxTreeRewriter {
   public:
     void set_prefix(rust::Str prefix);
     void set_suffix(rust::Str suffix);
-    void set_excludes(const rust::Vec<rust::String> excludes);
+    void set_excludes(rust::Slice<const rust::String> excludes);
 
     std::shared_ptr<slang::syntax::SyntaxTree> rewrite_declarations(std::shared_ptr<slang::syntax::SyntaxTree> tree);
     std::shared_ptr<slang::syntax::SyntaxTree> rewrite_references(std::shared_ptr<slang::syntax::SyntaxTree> tree);
@@ -96,7 +96,7 @@ rust::String print_tree(std::shared_ptr<slang::syntax::SyntaxTree> tree, SlangPr
 rust::String dump_tree_json(std::shared_ptr<slang::syntax::SyntaxTree> tree);
 
 rust::Vec<ParsedTree> all_trees(const SlangSession& session);
-rust::Vec<ParsedTree> reachable_trees(const SlangSession& session, const rust::Vec<rust::String>& tops);
+rust::Vec<ParsedTree> reachable_trees(const SlangSession& session, rust::Slice<const rust::String> tops);
 rust::Vec<rust::String> resolved_include_paths_for(const rust::Vec<ParsedTree>& trees);
 std::uint64_t renamed_declarations(const SyntaxTreeRewriter& rewriter);
 std::uint64_t renamed_references(const SyntaxTreeRewriter& rewriter);
