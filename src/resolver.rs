@@ -811,11 +811,14 @@ impl<'ctx> DependencyResolver<'ctx> {
                 fmt_pkg!(pkg_name),
                 fmt_version!(con),
                 match con {
-                    DependencyConstraint::Version(req) => format!(
-                        " ({} <= x < {})",
-                        fmt_version!(version_req_bottom_bound(req)?.unwrap()),
-                        fmt_version!(version_req_top_bound(req)?.unwrap())
-                    ),
+                    DependencyConstraint::Version(req) =>
+                        match (version_req_bottom_bound(req)?, version_req_top_bound(req)?,) {
+                            (Some(bottom), Some(top)) =>
+                                format!(" ({} <= x < {})", fmt_version!(bottom), fmt_version!(top)),
+                            (Some(bottom), None) => format!(" ({} <= x)", fmt_version!(bottom)),
+                            (None, Some(top)) => format!(" (x < {})", fmt_version!(top)),
+                            (None, None) => " (any version)".to_string(),
+                        },
                     DependencyConstraint::Revision(_) => "".to_string(),
                     DependencyConstraint::Path => "".to_string(),
                 },
@@ -835,53 +838,52 @@ impl<'ctx> DependencyResolver<'ctx> {
         cons = cons.into_iter().unique().collect::<Vec<_>>();
         cons.sort_by(|a, b| a.1.cmp(b.1));
         // sort constraint for identical sources
-        cons =
-            cons.into_iter()
-                .chunk_by(|&(_, src)| src)
-                .into_iter()
-                .flat_map(|(_src, group)| {
-                    let mut g: Vec<_> = group.collect();
-                    g.sort_by(|a, b| match (a.0, b.0) {
-                        (DependencyConstraint::Version(va), DependencyConstraint::Version(vb)) => {
-                            if version_req_top_bound(vb).unwrap_or(Some(semver::Version::new(
-                                u64::MAX,
-                                u64::MAX,
-                                u64::MAX,
-                            ))) == version_req_top_bound(va)
-                                .unwrap_or(Some(semver::Version::new(u64::MAX, u64::MAX, u64::MAX)))
-                            {
-                                return version_req_bottom_bound(vb)
-                                    .unwrap_or(Some(semver::Version::new(0, 0, 0)))
-                                    .cmp(
-                                        &version_req_bottom_bound(va)
-                                            .unwrap_or(Some(semver::Version::new(0, 0, 0))),
-                                    );
-                            }
-                            version_req_top_bound(vb)
-                                .unwrap_or(Some(semver::Version::new(u64::MAX, u64::MAX, u64::MAX)))
-                                .cmp(&version_req_top_bound(va).unwrap_or(Some(
-                                    semver::Version::new(u64::MAX, u64::MAX, u64::MAX),
-                                )))
+        cons = cons
+            .into_iter()
+            .chunk_by(|&(_, src)| src)
+            .into_iter()
+            .flat_map(|(_src, group)| {
+                let mut g: Vec<_> = group.collect();
+                g.sort_by(|a, b| match (a.0, b.0) {
+                    (DependencyConstraint::Version(va), DependencyConstraint::Version(vb)) => {
+                        // Unbounded requirements have no top/bottom bound; sort them as the
+                        // extreme version in the respective direction.
+                        let top_bound = |req: &VersionReq| {
+                            version_req_top_bound(req)
+                                .ok()
+                                .flatten()
+                                .unwrap_or_else(|| Version::new(u64::MAX, u64::MAX, u64::MAX))
+                        };
+                        let bottom_bound = |req: &VersionReq| {
+                            version_req_bottom_bound(req)
+                                .ok()
+                                .flatten()
+                                .unwrap_or_else(|| Version::new(0, 0, 0))
+                        };
+                        if top_bound(vb) == top_bound(va) {
+                            bottom_bound(vb).cmp(&bottom_bound(va))
+                        } else {
+                            top_bound(vb).cmp(&top_bound(va))
                         }
-                        (
-                            DependencyConstraint::Revision(ra),
-                            DependencyConstraint::Revision(rb),
-                        ) => ra.cmp(rb),
-                        (DependencyConstraint::Path, DependencyConstraint::Path) => {
-                            std::cmp::Ordering::Equal
-                        }
-                        (DependencyConstraint::Path, _) => std::cmp::Ordering::Greater,
-                        (_, DependencyConstraint::Path) => std::cmp::Ordering::Less,
-                        (DependencyConstraint::Version(_), DependencyConstraint::Revision(_)) => {
-                            std::cmp::Ordering::Greater
-                        }
-                        (DependencyConstraint::Revision(_), DependencyConstraint::Version(_)) => {
-                            std::cmp::Ordering::Less
-                        }
-                    });
-                    g
-                })
-                .collect::<Vec<_>>();
+                    }
+                    (DependencyConstraint::Revision(ra), DependencyConstraint::Revision(rb)) => {
+                        ra.cmp(rb)
+                    }
+                    (DependencyConstraint::Path, DependencyConstraint::Path) => {
+                        std::cmp::Ordering::Equal
+                    }
+                    (DependencyConstraint::Path, _) => std::cmp::Ordering::Greater,
+                    (_, DependencyConstraint::Path) => std::cmp::Ordering::Less,
+                    (DependencyConstraint::Version(_), DependencyConstraint::Revision(_)) => {
+                        std::cmp::Ordering::Greater
+                    }
+                    (DependencyConstraint::Revision(_), DependencyConstraint::Version(_)) => {
+                        std::cmp::Ordering::Less
+                    }
+                });
+                g
+            })
+            .collect::<Vec<_>>();
         if let Some((cnstr, src, _, _)) = self.locked.get(name) {
             let _ = write!(
                 msg,
