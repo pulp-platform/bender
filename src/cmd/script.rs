@@ -3,6 +3,7 @@
 
 //! The `script` subcommand.
 
+use std::borrow::Cow;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -16,7 +17,7 @@ use clap::{ArgAction, Args, Subcommand, ValueEnum};
 use indexmap::{IndexMap, IndexSet};
 use miette::{Context as _, IntoDiagnostic as _};
 use serde::Serialize;
-use tera::{Context, Tera};
+use tera::Tera;
 use tokio::runtime::Runtime;
 
 use crate::Result;
@@ -426,18 +427,22 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
     #[cfg(not(feature = "slang"))]
     let resolved_headers: Vec<PathBuf> = Vec::new();
 
-    let mut tera_context = Context::new();
+    let mut tera_context = TemplateContext::new();
     let mut only_args = OnlyArgs {
         defines: false,
         includes: false,
         sources: false,
     };
 
-    // Generate the corresponding output.
-    let template_content = match &args.format {
+    // Generate the corresponding output. The name is what template errors are reported against,
+    // so custom templates are named after the file the user passed.
+    let (template_name, template_content): (&str, Cow<'_, str>) = match &args.format {
         ScriptFormat::Flist { relative_path } => {
             tera_context.insert("relativize_path", relative_path);
-            include_str!("../script_fmt/flist.tera")
+            (
+                "flist.tera",
+                include_str!("../script_fmt/flist.tera").into(),
+            )
         }
         ScriptFormat::FlistPlus {
             relative_path,
@@ -445,7 +450,10 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         } => {
             tera_context.insert("relativize_path", relative_path);
             only_args = only.clone();
-            include_str!("../script_fmt/flist-plus.tera")
+            (
+                "flist-plus.tera",
+                include_str!("../script_fmt/flist-plus.tera").into(),
+            )
         }
         ScriptFormat::Vsim {
             vlog_args,
@@ -453,7 +461,10 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         } => {
             tera_context.insert("vlog_args", vlog_args);
             tera_context.insert("vcom_args", vcom_args);
-            include_str!("../script_fmt/vsim_tcl.tera")
+            (
+                "vsim_tcl.tera",
+                include_str!("../script_fmt/vsim_tcl.tera").into(),
+            )
         }
         ScriptFormat::Vcs {
             vlogan_bin,
@@ -465,11 +476,17 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
             tera_context.insert("vhdlan_args", vhdlan_args);
             tera_context.insert("vlogan_bin", vlogan_bin);
             tera_context.insert("vhdlan_bin", vhdlan_bin);
-            include_str!("../script_fmt/vcs_sh.tera")
+            (
+                "vcs_sh.tera",
+                include_str!("../script_fmt/vcs_sh.tera").into(),
+            )
         }
         ScriptFormat::Verilator { vlt_args } => {
             tera_context.insert("vlt_args", vlt_args);
-            include_str!("../script_fmt/verilator_sh.tera")
+            (
+                "verilator_sh.tera",
+                include_str!("../script_fmt/verilator_sh.tera").into(),
+            )
         }
         ScriptFormat::Synopsys {
             verilog_args,
@@ -477,18 +494,30 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
         } => {
             tera_context.insert("verilog_args", verilog_args);
             tera_context.insert("vhdl_args", vhdl_args);
-            include_str!("../script_fmt/synopsys_tcl.tera")
+            (
+                "synopsys_tcl.tera",
+                include_str!("../script_fmt/synopsys_tcl.tera").into(),
+            )
         }
-        ScriptFormat::Formality => include_str!("../script_fmt/formality_tcl.tera"),
+        ScriptFormat::Formality => (
+            "formality_tcl.tera",
+            include_str!("../script_fmt/formality_tcl.tera").into(),
+        ),
         ScriptFormat::Riviera {
             vlog_args,
             vcom_args,
         } => {
             tera_context.insert("vlog_args", vlog_args);
             tera_context.insert("vcom_args", vcom_args);
-            include_str!("../script_fmt/riviera_tcl.tera")
+            (
+                "riviera_tcl.tera",
+                include_str!("../script_fmt/riviera_tcl.tera").into(),
+            )
         }
-        ScriptFormat::Genus => include_str!("../script_fmt/genus_tcl.tera"),
+        ScriptFormat::Genus => (
+            "genus_tcl.tera",
+            include_str!("../script_fmt/genus_tcl.tera").into(),
+        ),
         ScriptFormat::Vivado { no_simset, only } | ScriptFormat::VivadoSim { no_simset, only } => {
             only_args = only.clone();
             tera_context.insert("vivado_filesets", &{
@@ -498,19 +527,32 @@ pub fn run(sess: &Session, args: &ScriptArgs) -> Result<()> {
                     vec!["", " -simset"]
                 }
             });
-            include_str!("../script_fmt/vivado_tcl.tera")
+            (
+                "vivado_tcl.tera",
+                include_str!("../script_fmt/vivado_tcl.tera").into(),
+            )
         }
-        ScriptFormat::Precision => include_str!("../script_fmt/precision_tcl.tera"),
-        ScriptFormat::Template { template } => {
-            &std::fs::read_to_string(template).into_diagnostic()?
-        }
-        ScriptFormat::TemplateJson => JSON,
+        ScriptFormat::Precision => (
+            "precision_tcl.tera",
+            include_str!("../script_fmt/precision_tcl.tera").into(),
+        ),
+        ScriptFormat::Template { template } => (
+            template,
+            std::fs::read_to_string(template)
+                .into_diagnostic()
+                .wrap_err_with(|| format!("Failed to read template {template}."))?
+                .into(),
+        ),
+        ScriptFormat::TemplateJson => (JSON, JSON.into()),
     };
 
     emit_template(
         sess,
         tera_context,
-        template_content,
+        ScriptTemplate {
+            name: template_name,
+            content: &template_content,
+        },
         args,
         only_args,
         srcs,
@@ -799,6 +841,34 @@ fn add_defines(defines: &mut IndexMap<String, Option<String>>, define_args: &[St
 
 static JSON: &str = "json";
 
+/// The values handed to the script templates.
+///
+/// Kept as a JSON map rather than a `tera::Context` so that `--format template-json` can dump it
+/// verbatim; it is turned into a context right before rendering.
+#[derive(Default)]
+struct TemplateContext(serde_json::Map<String, serde_json::Value>);
+
+impl TemplateContext {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Serialize `val` and store it under `key`. Panics if `val` is not serializable, like
+    /// `tera::Context::insert` does.
+    fn insert<T: Serialize + ?Sized>(&mut self, key: &str, val: &T) {
+        self.0.insert(
+            key.to_string(),
+            serde_json::to_value(val).expect("template value must be serializable"),
+        );
+    }
+}
+
+/// The template to render: its body, plus the name that template errors are reported against.
+struct ScriptTemplate<'a> {
+    name: &'a str,
+    content: &'a str,
+}
+
 /// Apply `override_files` source groups to a flattened source list.
 ///
 /// A group flagged `override_files` contributes no files of its own; instead each of its files
@@ -863,8 +933,8 @@ fn apply_file_overrides<'ctx>(
 #[allow(clippy::too_many_arguments)]
 fn emit_template(
     sess: &Session,
-    mut tera_context: Context,
-    template: &str,
+    mut tera_context: TemplateContext,
+    template: ScriptTemplate<'_>,
     args: &ScriptArgs,
     only: OnlyArgs,
     srcs: Vec<SourceGroup>,
@@ -1040,23 +1110,40 @@ fn emit_template(
     };
     tera_context.insert("all_verilog", &all_verilog);
     tera_context.insert("all_vhdl", &all_vhdl);
-    if !unknown_files.is_empty() && template.contains("file_type") {
+    if !unknown_files.is_empty() && template.content.contains("file_type") {
         Warnings::UnknownFileType(unknown_files.iter().map(|x| x.file.clone()).collect()).emit();
     }
 
     tera_context.insert("source_annotations", &args.source_annotations);
     tera_context.insert("compilation_mode", &args.compilation_mode);
 
-    if template == "json" {
-        let _ = writeln!(std::io::stdout(), "{:#}", tera_context.into_json());
+    if template.content == JSON {
+        let _ = writeln!(
+            std::io::stdout(),
+            "{:#}",
+            serde_json::Value::Object(tera_context.0)
+        );
         return Ok(());
     }
+
+    let context = tera::Context::from_serialize(&tera_context.0)
+        .into_diagnostic()
+        .wrap_err("Failed to build template context.")?;
+
+    // Register the template under its own name rather than rendering it as a one-off, so that
+    // parse and render errors point at `<name>:<line>:<col>` instead of `__tera_one_off`.
+    let mut tera = Tera::default();
+    // Scripts are Tcl/shell/flist, never HTML, so autoescaping must stay off no matter what the
+    // user's template file happens to be called.
+    tera.autoescape_on(Vec::<&str>::new());
+    tera.add_raw_template(template.name, template.content)
+        .into_diagnostic()
+        .wrap_err("Failed to parse template.")?;
 
     let _ = write!(
         std::io::stdout(),
         "{}",
-        Tera::default()
-            .render_str(template, &tera_context)
+        tera.render(template.name, &context)
             .into_diagnostic()
             .wrap_err("Failed to render template.")?
     );
@@ -1077,4 +1164,94 @@ struct TplSrcStruct {
     incdirs: IndexSet<PathBuf>,
     files: IndexSet<FileEntry>,
     file_type: Option<SourceType>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every built-in template, embedded exactly as the binary ships it.
+    ///
+    /// `builtin_templates_cover_script_fmt_dir` keeps this in sync with `src/script_fmt`, so a
+    /// newly added template cannot escape validation by being left out of this list.
+    const BUILTIN_TEMPLATES: &[(&str, &str)] = &[
+        ("flist.tera", include_str!("../script_fmt/flist.tera")),
+        (
+            "flist-plus.tera",
+            include_str!("../script_fmt/flist-plus.tera"),
+        ),
+        ("vsim_tcl.tera", include_str!("../script_fmt/vsim_tcl.tera")),
+        ("vcs_sh.tera", include_str!("../script_fmt/vcs_sh.tera")),
+        (
+            "verilator_sh.tera",
+            include_str!("../script_fmt/verilator_sh.tera"),
+        ),
+        (
+            "synopsys_tcl.tera",
+            include_str!("../script_fmt/synopsys_tcl.tera"),
+        ),
+        (
+            "formality_tcl.tera",
+            include_str!("../script_fmt/formality_tcl.tera"),
+        ),
+        (
+            "riviera_tcl.tera",
+            include_str!("../script_fmt/riviera_tcl.tera"),
+        ),
+        (
+            "genus_tcl.tera",
+            include_str!("../script_fmt/genus_tcl.tera"),
+        ),
+        (
+            "vivado_tcl.tera",
+            include_str!("../script_fmt/vivado_tcl.tera"),
+        ),
+        (
+            "precision_tcl.tera",
+            include_str!("../script_fmt/precision_tcl.tera"),
+        ),
+    ];
+
+    /// Parse every built-in template the way `emit_template` does.
+    ///
+    /// Registering a template runs Tera's reference validation, so this catches unknown filters,
+    /// tests and components as well as outright syntax errors. Without it a broken template only
+    /// surfaces when somebody happens to run that one format — which is exactly how the Tera 1 to
+    /// Tera 2 upgrade managed to break all eleven of them at once.
+    #[test]
+    fn builtin_templates_parse() {
+        for (name, content) in BUILTIN_TEMPLATES {
+            let mut tera = Tera::default();
+            tera.autoescape_on(Vec::<&str>::new());
+            if let Err(e) = tera.add_raw_template(name, content) {
+                panic!("built-in template `{name}` failed to parse: {e}");
+            }
+        }
+    }
+
+    /// Guard against a template being added to `src/script_fmt` but not to `BUILTIN_TEMPLATES`.
+    #[test]
+    fn builtin_templates_cover_script_fmt_dir() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/script_fmt");
+        let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+            .expect("src/script_fmt must be readable")
+            .map(|entry| entry.expect("readable dir entry").file_name())
+            .filter_map(|name| name.to_str().map(str::to_string))
+            .filter(|name| name.ends_with(".tera"))
+            .collect();
+        on_disk.sort();
+
+        let mut listed: Vec<String> = BUILTIN_TEMPLATES
+            .iter()
+            .map(|(name, _)| (*name).to_string())
+            .collect();
+        listed.sort();
+
+        assert_eq!(
+            listed,
+            on_disk,
+            "BUILTIN_TEMPLATES is out of sync with {}",
+            dir.display()
+        );
+    }
 }

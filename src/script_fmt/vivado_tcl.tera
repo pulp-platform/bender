@@ -30,7 +30,7 @@ set_property include_dirs [list \
 {%- for define in all_defines -%}
 {%- if loop.first %}
 set_property verilog_define [list \
-    {% endif %}{{ define.0 }}{% if define.1 %}={{ define.1 }}{% endif %}{% if loop.last %} \
+    {% endif %}{{ define[0] }}{% if define[1] %}={{ define[1] }}{% endif %}{% if loop.last %} \
 ] [current_fileset{{ arg }}]
 {% else %} \
     {% endif %}{% endfor %}{% endfor %}

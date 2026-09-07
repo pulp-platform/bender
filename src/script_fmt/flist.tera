@@ -7,8 +7,8 @@
 // {{ file.comment }}
 {% endif %}{% endif -%}
 {%- if relativize_path -%}
-{%- if file.file is starting_with(root) -%}
-{{ file.file | replace(from=root, to='') | trim_start_matches(pat='/') }}
+{%- if file.file is starting_with(pat=root) -%}
+{{ file.file | replace(from=root, to='') | trim_start(pat='/') }}
 {% else -%}
 {{ file.file }}
 {% endif -%}

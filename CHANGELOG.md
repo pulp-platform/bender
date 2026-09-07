@@ -5,11 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+### Breaking Changes
+- script: Upgrade the templating engine from Tera 1 to Tera 2. Custom templates passed to `bender script template --template` may need updating. See the [Tera migration guide](https://github.com/Keats/tera/blob/master/MIGRATION.md) for the full list. The output of all built-in formats is unchanged.
+
 ### Added
 - script: expose `all_headers` to templates — the fine-grained, transitive, deduplicated set of header files Slang resolved via `` `include `` for the kept trees. Populated whenever the Slang pass runs (`--top`/`--trim-incdirs`/`--broken`/`--encrypted`).
 
 ### Changed
 - `bender clone`: primary flag for the checkout directory is now `--working-dir`, matching `bender snapshot`'s flag for the same concept; `-p`/`--path` are kept as hidden aliases for backwards compatibility.
+- script: Template errors now report the template name and source location (e.g. `my_format.tera:12:54`), and unknown filters or tests are reported before rendering starts.
 
 ### Fixed
 - script: apply `override_files` before validation and the slang pass, so overriding files replace their targets in file-existence checks and in `--top`/`--trim-incdirs` reduction (previously slang saw both the original and the override as duplicate modules); the overridden-file annotation is preserved.
