@@ -37,4 +37,4 @@ container = { image = "quay.io/pypa/musllinux_1_2_x86_64", host = "x86_64-unknow
 # Unblocks dependabot PRs that update Github Action versions,
 # since `release.yml` is not allowed to be modified by hand.
 [dist.github-action-commits]
-"actions/checkout" = "v7.0.1"
+"actions/checkout" = "v7"
