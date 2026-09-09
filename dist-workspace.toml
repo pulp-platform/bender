@@ -33,3 +33,8 @@ container = "quay.io/pypa/manylinux_2_28_aarch64"
 [dist.github-custom-runners.x86_64-unknown-linux-musl]
 runner = "ubuntu-22.04"
 container = { image = "quay.io/pypa/musllinux_1_2_x86_64", host = "x86_64-unknown-linux-musl" }
+
+# Unblocks dependabot PRs that update Github Action versions,
+# since `release.yml` is not allowed to be modified by hand.
+[dist.github-action-commits]
+"actions/checkout" = "v7.0.1"
