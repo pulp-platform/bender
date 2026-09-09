@@ -6,17 +6,17 @@ vlib work
 {% endif %}{% if abort_on_error %}if {[catch { {% endif %}{% if group.file_type == 'verilog' %}vlog -sv \
     {% for tmp_arg in vlog_args %}{{ tmp_arg }} \
     {% endfor %}{% for define in group.defines %}"+define+{{ define[0] }}{% if define[1] %}={{ define[1] }}{% endif %}" \
-    {% endfor %}{% for incdir in group.incdirs %}"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}" \
+    {% endfor %}{% for incdir in group.incdirs %}"+incdir+{{ incdir | replace(from=root, to='${ROOT}') }}" \
     {% endfor %}{% elif group.file_type == 'vhdl' %}vcom -2008 \
     {% for tmp_arg in vcom_args %}{{ tmp_arg }} \
     {% endfor %}{% endif %}{% for file in group.files %}{% if source_annotations %}{% if file.comment %}# {{ file.comment }}
-    {% endif %}{% endif %}"{{ file.file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
+    {% endif %}{% endif %}"{{ file.file | replace(from=root, to='${ROOT}') }}" {% if not loop.last %}\
     {% else %}\
 {% endif %}{% endfor %}{% if abort_on_error %}}]} {return 1}{% endif %}
 
 {% else %}{% if source_annotations %}# {{ group.metadata }}
 {% endif %}# Skipping {{ group.files | length }} file(s) of unknown type (prefix with sv:/v:/vhd: to set one):
-{% for file in group.files %}#   {{ file.file | replace(from=root, to='$ROOT') }}
+{% for file in group.files %}#   {{ file.file | replace(from=root, to='${ROOT}') }}
 {% endfor %}
 {% endif %}{% endfor -%}
 {# Common compilation: all files in one block -#}
@@ -25,9 +25,9 @@ vlib work
 {%- for file in all_verilog %}{% if loop.first %}{% if abort_on_error %}if {[catch { {% endif %}vlog -sv \
     {% for tmp_arg in vlog_args %}{{ tmp_arg }} \
     {% endfor %}{% for define in all_defines %}"+define+{{ define[0] }}{% if define[1] %}={{ define[1] }}{% endif %}" \
-    {% endfor %}{% for incdir in all_incdirs %}"+incdir+{{ incdir | replace(from=root, to='$ROOT') }}" \
+    {% endfor %}{% for incdir in all_incdirs %}"+incdir+{{ incdir | replace(from=root, to='${ROOT}') }}" \
     {% endfor %}{% endif %}{% if source_annotations %}{% if file.comment %}# {{ file.comment }}
-    {% endif %}{% endif %}"{{ file.file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
+    {% endif %}{% endif %}"{{ file.file | replace(from=root, to='${ROOT}') }}" {% if not loop.last %}\
     {% else %}\
 {% endif %}{% if loop.last %}{% if abort_on_error %}}]} {return 1}{% endif %}
 
@@ -36,7 +36,7 @@ vlib work
 {%- for file in all_vhdl %}{% if loop.first %}{% if abort_on_error %}if {[catch { {% endif %}vcom -2008 \
     {% for tmp_arg in vcom_args %}{{ tmp_arg }} \
     {% endfor %}{% endif %}{% if source_annotations %}{% if file.comment %}# {{ file.comment }}
-    {% endif %}{% endif %}"{{ file.file | replace(from=root, to='$ROOT') }}" {% if not loop.last %}\
+    {% endif %}{% endif %}"{{ file.file | replace(from=root, to='${ROOT}') }}" {% if not loop.last %}\
     {% else %}\
 {% endif %}{% if loop.last %}{% if abort_on_error %}}]} {return 1}{% endif %}
 

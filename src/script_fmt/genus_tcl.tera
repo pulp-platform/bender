@@ -9,7 +9,7 @@ set ROOT "{{ root }}"
 {% if compilation_mode == 'separate' %}{% for group in srcs %}{% if group.file_type == 'verilog' or group.file_type == 'vhdl' %}{% if source_annotations %}
 # {{ group.metadata }}{% endif %}
 set search_path $search_path_initial
-{% for incdir in group.incdirs %}lappend search_path "{{ incdir | replace(from=root, to='$ROOT') }}"
+{% for incdir in group.incdirs %}lappend search_path "{{ incdir | replace(from=root, to='${ROOT}') }}"
 {% endfor %}set_db init_hdl_search_path $search_path
 
 {% if group.file_type == 'verilog' %}read_hdl -language sv \
@@ -20,18 +20,18 @@ set search_path $search_path_initial
     {% else %} \
         {% endif %}{% endfor %}[list \
     {% for file in group.files %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
-    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='${ROOT}') }}" \
     {% endfor %}]
 {% else %}{% if source_annotations %}
 # {{ group.metadata }}{% endif %}
 # Skipping {{ group.files | length }} file(s) of unknown type (prefix with sv:/v:/vhd: to set one):
-{% for file in group.files %}#   {{ file.file | replace(from=root, to='$ROOT') }}
+{% for file in group.files %}#   {{ file.file | replace(from=root, to='${ROOT}') }}
 {% endfor %}{% endif %}{% endfor %}
 {# Common compilation: all files in one block -#}
 {% else -%}
 {# Verilog sources -#}
 {%- for file in all_verilog %}{% if loop.first %}set search_path $search_path_initial
-{% for incdir in all_incdirs %}lappend search_path "$ROOT{{ incdir | replace(from=root, to='') }}"
+{% for incdir in all_incdirs %}lappend search_path "${ROOT}{{ incdir | replace(from=root, to='') }}"
 {% endfor %}
 set_db init_hdl_search_path $search_path
 
@@ -42,7 +42,7 @@ set_db init_hdl_search_path $search_path
     {% else %} \
         {% endif %}{% endfor %}[list \
     {% endif %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
-    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='${ROOT}') }}" \
     {% if loop.last %}]
 {% if abort_on_error %}}]} {return 1}{% endif %}
 {% endif %}{% endfor %}
@@ -51,7 +51,7 @@ set_db init_hdl_search_path $search_path
 {% if abort_on_error %}if {[catch { {% endif %}read_hdl -language vhdl \
     [list \
     {% endif %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
-    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='$ROOT') }}" \
+    {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='${ROOT}') }}" \
     {% if loop.last %}]
 {% if abort_on_error %}}]} {return 1}{% endif %}
 {% endif %}{% endfor %}
