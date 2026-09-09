@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - script: Template errors now report the template name and source location (e.g. `my_format.tera:12:54`), and unknown filters or tests are reported before rendering starts.
 
 ### Fixed
+- script: stop emitting `-define` flags on VHDL compile commands in the `synopsys`, `formality` and `genus` templates (`--compilation-mode separate` only). VHDL has no preprocessor, and some tools error out on the extra option (https://github.com/pulp-platform/bender/issues/350).
 - script: apply `override_files` before validation and the slang pass, so overriding files replace their targets in file-existence checks and in `--top`/`--trim-incdirs` reduction (previously slang saw both the original and the override as duplicate modules); the overridden-file annotation is preserved.
 - pickle: Rename scoped names nested inside a renamed scoped name, such as a packed dimension on a scoped type (`common_pkg::state_t [common_pkg::NumStates-1:0]`). The rewriter now applies renames as token edits rather than replacing whole syntax nodes, which also fixes the same class of missed rename in virtual interface types and package imports (https://github.com/pulp-platform/bender/pull/342).
 

@@ -8,11 +8,11 @@ set search_path $search_path_initial
 {% for incdir in group.incdirs %}lappend search_path "${ROOT}{{ incdir | replace(from=root, to='') }}"
 {% endfor %}
 {% if abort_on_error %}if {[catch { {% endif %}{% if group.file_type == 'verilog' %}read_sverilog{% elif group.file_type == 'vhdl' %}read_vhdl{% endif %} -r \
-    {% for define in group.defines %}{% if loop.first %}-define { \
+    {# VHDL has no preprocessor: never pass defines to read_vhdl #}{% if group.file_type == 'verilog' %}{% for define in group.defines %}{% if loop.first %}-define { \
         {% endif %}{{ define[0] }}{% if define[1] %}={{ define[1] }}{% endif %}{% if loop.last %} \
     } \
     {% else %} \
-        {% endif %}{% endfor %}[list \
+        {% endif %}{% endfor %}{% endif %}[list \
     {% for file in group.files %}{% if source_annotations %}{% if file.comment %}{{ '    ' }}# {{ file.comment }}
     {% endif %}{% endif %}{{ '    ' }}"{{ file.file | replace(from=root, to='${ROOT}') }}" \
     {% endfor %}]
