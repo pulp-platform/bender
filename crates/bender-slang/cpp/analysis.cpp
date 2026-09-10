@@ -53,7 +53,7 @@ rust::Vec<ParsedTree> all_trees(const SlangSession& session) {
     return out;
 }
 
-rust::Vec<ParsedTree> reachable_trees(const SlangSession& session, const rust::Vec<rust::String>& tops) {
+rust::Vec<ParsedTree> reachable_trees(const SlangSession& session, rust::Slice<const rust::String> tops) {
     const auto& entries = session.entries();
 
     // One engine+client per distinct SourceManager. Each parse group creates its own

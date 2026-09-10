@@ -246,8 +246,8 @@ pub fn run(sess: &Session, args: PickleArgs) -> Result<()> {
     };
 
     let mut rewriter = SyntaxTreeRewriter::new();
-    rewriter.set_prefix(args.prefix.unwrap_or_default());
-    rewriter.set_suffix(args.suffix.unwrap_or_default());
+    rewriter.set_prefix(args.prefix.as_deref().unwrap_or_default());
+    rewriter.set_suffix(args.suffix.as_deref().unwrap_or_default());
     rewriter.set_excludes(args.exclude_rename);
 
     // Pass 1: build rename map across all trees.

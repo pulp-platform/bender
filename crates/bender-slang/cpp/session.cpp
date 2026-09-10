@@ -19,7 +19,7 @@ SlangContext::SlangContext() : diagEngine(sourceManager), diagClient(std::make_s
     diagEngine.addClient(diagClient);
 }
 
-void SlangContext::set_includes(const rust::Vec<rust::String>& incs) {
+void SlangContext::set_includes(rust::Slice<const rust::String> incs) {
     for (const auto& inc : incs) {
         std::string incStr(inc.data(), inc.size());
         if (auto ec = sourceManager.addUserDirectories(incStr); ec) {
@@ -28,7 +28,7 @@ void SlangContext::set_includes(const rust::Vec<rust::String>& incs) {
     }
 }
 
-void SlangContext::set_defines(const rust::Vec<rust::String>& defs) {
+void SlangContext::set_defines(rust::Slice<const rust::String> defs) {
     ppOptions.predefines.reserve(defs.size());
     for (const auto& def : defs) {
         ppOptions.predefines.emplace_back(def.data(), def.size());
@@ -39,7 +39,7 @@ void SlangContext::set_defines(const rust::Vec<rust::String>& defs) {
 // syntax tree with the per-file facts slang reported (path, parse success, encryption).
 // System-level errors (file unreadable, etc.) throw; per-file parse errors are surfaced
 // non-fatally via the TreeEntry::parsedOk flag so the caller can apply policy.
-std::vector<TreeEntry> SlangContext::parse_files(const rust::Vec<rust::String>& paths) {
+std::vector<TreeEntry> SlangContext::parse_files(rust::Slice<const rust::String> paths) {
     Bag options;
     options.set(ppOptions);
 
@@ -88,8 +88,8 @@ std::vector<TreeEntry> SlangContext::parse_files(const rust::Vec<rust::String>& 
 
 // Parses a group of files with the given include paths and preprocessor defines.
 // Stores the resulting syntax trees and contexts in the session for later retrieval and analysis.
-void SlangSession::parse_group(const rust::Vec<rust::String>& files, const rust::Vec<rust::String>& includes,
-                               const rust::Vec<rust::String>& defines) {
+void SlangSession::parse_group(rust::Slice<const rust::String> files, rust::Slice<const rust::String> includes,
+                               rust::Slice<const rust::String> defines) {
     // Create a new context for this group of files.
     auto ctx = std::make_unique<SlangContext>();
     ctx->set_includes(includes);
