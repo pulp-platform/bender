@@ -67,7 +67,7 @@ pub fn run(sess: &Session, args: &ParentsArgs) -> Result<()> {
             res.push_str(&format!(
                 "    {}\tfilters: {}\tpasses: {:?}\n",
                 k,
-                &v[0],
+                v[0],
                 &v[1..]
             ));
         }

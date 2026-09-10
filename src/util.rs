@@ -34,10 +34,8 @@ where
     I: Iterator<Item = T>,
     T: AsRef<str>,
 {
-    let mut buffer = match iter.next() {
-        Some(i) => String::from(i.as_ref()),
-        None => return None,
-    };
+    let mut buffer = iter.next()?.as_ref().to_string();
+
     let mut last = match iter.next() {
         Some(i) => i,
         None => return Some(buffer),
