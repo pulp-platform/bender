@@ -57,12 +57,12 @@ Enable or disable Git Large File Storage (LFS) support. Requires `git-lfs` to be
 - **Example:** `git_lfs: false`
 
 ### `git_submodules`
-Clone the git submodules of dependencies. Disabling this skips `git submodule update` during checkout, which can substantially speed up the initial dependency fetch when dependencies carry submodules (e.g. software or tooling) that are not needed for the hardware build. Disable it only when none of your dependencies reference sources that live inside a submodule.
+Selects which git submodules are cloned for dependencies. `manifest` (the default) clones the submodules that each dependency selects via the [`git_submodules`](./dependencies.md#selecting-submodules-per-dependency) list in its own manifest. The other two modes ignore those lists: `none` skips `git submodule update` during checkout entirely, which can substantially speed up the initial dependency fetch when dependencies carry submodules (e.g. software or tooling) that are not needed for the hardware build; `all` clones all submodules of every dependency recursively, which helps when a dependency has not declared a submodule that you need. Only set it to `none` when none of your dependencies reference sources that live inside a submodule.
 - **Config Key:** `git_submodules`
-- **CLI Flag:** `--git-submodules <true|false>` (overrides the configured value in either direction)
+- **CLI Flag:** `--git-submodules <all|none|manifest>` (takes precedence over the configured value)
 - **Env Var:** `BENDER_GIT_SUBMODULES`
-- **Default:** `true`
-- **Example:** `git_submodules: false`
+- **Default:** `manifest`
+- **Example:** `git_submodules: none`
 
 ### `overrides`
 Forces specific dependencies to use a particular version or local path. This is primarily used in [`Bender.local`](./local.md) for development.

@@ -109,16 +109,33 @@ Bender detects whether a dependency uses **Git Large File Storage (LFS)** via it
 
 ## Submodules
 
-If a dependency contains a `.gitmodules` file, Bender initializes and updates its Git submodules recursively after checkout by default.
+If a dependency contains a `.gitmodules` file, Bender only checks out the submodules that the dependency explicitly asks for in its own manifest. A dependency that does not list any submodules gets none of them checked out, and Bender emits warning `W37` listing the submodules it skipped.
 
-Cloning submodules is often the slowest part of fetching dependencies, and submodules frequently hold software or tooling that is irrelevant to the hardware build. You can therefore disable submodule cloning:
+Cloning submodules is often the slowest part of fetching dependencies, and submodules frequently hold software or tooling that is irrelevant to the hardware build. As a consumer of a dependency, you can override its selection in either direction, with `git_submodules` in your [configuration](./configuration.md#git_submodules) or with `--git-submodules <MODE>` (env `BENDER_GIT_SUBMODULES`) for a single invocation. The flag takes precedence over the configuration files.
 
-- Set `git_submodules: false` in your [configuration](./configuration.md#git_submodules) to skip submodules persistently for a project.
-- Pass `--git-submodules false` (or set `BENDER_GIT_SUBMODULES=false`) to skip them for a single invocation. The flag overrides the configured value in either direction.
+- **`manifest`** (the default): honor each dependency's own selection, as described below.
+- **`none`**: clone no submodules at all, ignoring what the dependencies select. Use this when none of your dependencies reference sources that live inside a submodule, or when the submodule remotes are not reachable from your machine. Bender emits warning `W36` for each dependency that *selects* submodules, listing the paths it skipped; a dependency that selects none is not reported, since nothing is missing from it that the default mode would have cloned.
+- **`all`**: clone all submodules of every dependency recursively, ignoring what the dependencies select. Use this when a dependency has not declared a submodule that you need — for instance because it does not use `git_submodules` yet.
 
-Only disable submodules when none of your dependencies reference sources that live inside a submodule.
+### Selecting submodules per dependency
 
-When submodules are disabled, Bender emits a warning for each dependency that carries submodules, listing the unchecked-out submodule paths and the `git submodule update --init --recursive` command to fetch them back into its checkout.
+A package maintainer declares which submodules the package actually needs with a `git_submodules` list in the package's own `Bender.yml`:
+
+```yaml
+git_submodules:
+  - sw/deps/printf            # string form: clone this submodule
+  - submodule: sw/deps/cva6-sdk  # map form
+    recursive: false          # skip the submodule's own submodules (default: true)
+    shallow: false            # fetch full history (default: true)
+  # pd/deps/ihp-130-pdk -> omitted, so it is not cloned
+```
+
+- **`git_submodules` present**: only the listed submodules are cloned.
+- **No `git_submodules` field** (the default): no submodules are cloned, and Bender warns (`W37`) with the list of submodules it skipped. Add the submodules you need to the manifest to silence the warning, or use `git_submodules: []` to state explicitly that none are needed.
+- **`recursive`** (default `true`): also update the submodule's own nested submodules. Set it to `false` to fetch only the top-level submodule.
+- **`shallow`** (default `true`): fetch the submodule with `--depth 1`. Set it to `false` to clone the full submodule history.
+
+Note that the list only takes effect for a package that is checked out *as a dependency*; the one in your own root manifest is not applied to your working copy. A `git_submodules` setting in the consumer's configuration or on the command line overrides the list, as described above.
 
 ## Version Resolution and the Lockfile
 

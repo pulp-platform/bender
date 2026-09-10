@@ -34,7 +34,7 @@ use tokio::sync::Semaphore;
 use typed_arena::Arena;
 
 use crate::cli::read_manifest;
-use crate::config::{self, Config, Manifest, PartialManifest};
+use crate::config::{self, Config, Manifest, PartialManifest, SubmoduleMode};
 use crate::diagnostic::{Diagnostics, Errors, Warnings};
 use crate::git::Git;
 use crate::lock::FsLock;
@@ -1325,31 +1325,87 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                 }
             }
             if path.join(".gitmodules").exists() {
-                if self.sess.config.git_submodules {
-                    let pb = Some(ProgressHandler::new(
-                        self.sess.multiprogress.clone(),
-                        GitProgressOps::Submodule,
-                        name,
-                    ));
-                    local_git
-                        .clone()
-                        .spawn_with(
-                            move |c| {
-                                c.arg("submodule")
-                                    .arg("update")
-                                    .arg("--init")
-                                    .arg("--recursive")
-                                    .arg("--progress")
-                            },
-                            pb,
-                        )
-                        .await?;
-                } else {
+                match self.sess.config.git_submodules {
+                    // Submodules were forced on via the `--git-submodules` flag,
+                    // which overrides the dependency's own selection and clones
+                    // all of them recursively.
+                    SubmoduleMode::All => {
+                        let pb = Some(ProgressHandler::new(
+                            self.sess.multiprogress.clone(),
+                            GitProgressOps::Submodule,
+                            name,
+                        ));
+                        local_git
+                            .clone()
+                            .spawn_with(
+                                move |c| {
+                                    c.arg("submodule")
+                                        .arg("update")
+                                        .arg("--init")
+                                        .arg("--recursive")
+                                        .arg("--progress")
+                                },
+                                pb,
+                            )
+                            .await?;
+                    }
                     // Submodules were disabled via the `--git-submodules` flag,
-                    // so they are left unchecked out. Warn the user, listing the
-                    // affected submodules and how to fetch them back.
-                    let submodules = local_git.clone().submodule_paths().await?;
-                    Warnings::SubmodulesDisabled(name.to_string(), submodules).emit();
+                    // so they are left unchecked out. Only warn about the
+                    // submodules the dependency actually selects: those are the
+                    // ones that are missing compared to the default mode, for a
+                    // dependency that selects none nothing is lost.
+                    SubmoduleMode::None => {
+                        let selected: Vec<String> = submodule_selection(path)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|sub| sub.path)
+                            .collect();
+                        if !selected.is_empty() {
+                            Warnings::SubmodulesDisabled(name.to_string(), selected).emit();
+                        }
+                    }
+                    // No override: consult the dependency's own manifest (now
+                    // checked out on disk) for which of its submodules should be
+                    // cloned.
+                    SubmoduleMode::Manifest => {
+                        match submodule_selection(path) {
+                            // No `git_submodules` field: the dependency does not
+                            // declare which submodules it needs, so none are
+                            // cloned. Warn, listing the affected submodules.
+                            None => {
+                                let submodules = local_git.clone().submodule_paths().await?;
+                                Warnings::SubmodulesUnspecified(name.to_string(), submodules)
+                                    .emit();
+                            }
+                            // `git_submodules` present: clone only the listed
+                            // submodules (an empty list clones none).
+                            Some(subs) => {
+                                for sub in subs {
+                                    let pb = Some(ProgressHandler::new(
+                                        self.sess.multiprogress.clone(),
+                                        GitProgressOps::Submodule,
+                                        name,
+                                    ));
+                                    local_git
+                                        .clone()
+                                        .spawn_with(
+                                            move |c| {
+                                                c.arg("submodule").arg("update").arg("--init");
+                                                if sub.recursive {
+                                                    c.arg("--recursive");
+                                                }
+                                                if sub.shallow {
+                                                    c.arg("--depth").arg("1");
+                                                }
+                                                c.arg("--progress").arg("--").arg(&sub.path)
+                                            },
+                                            pb,
+                                        )
+                                        .await?;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1935,6 +1991,21 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         *self.sess.plugins.lock().unwrap() = Some(allocd);
         Ok(allocd)
     }
+}
+
+/// Read the `git_submodules` selection from a checked-out dependency's own
+/// manifest.
+///
+/// Source/include-dir existence is ignored here (via `validate_ignore_sources`)
+/// so that excluding a submodule that holds such paths does not defeat the
+/// selection; a missing or unparseable manifest is treated like a manifest
+/// without a selection.
+fn submodule_selection(path: &Path) -> Option<Vec<config::Submodule>> {
+    std::fs::File::open(path.join("Bender.yml"))
+        .ok()
+        .and_then(|file| serde_yaml_ng::from_reader::<_, PartialManifest>(file).ok())
+        .and_then(|partial| partial.validate_ignore_sources().ok())
+        .and_then(|manifest| manifest.git_submodules)
 }
 
 /// An arena container where all incremental, temporary things are allocated.
