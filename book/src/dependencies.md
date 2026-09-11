@@ -54,6 +54,7 @@ Prefixes only apply to Git version dependencies. On a path or revision dependenc
 Namespaces are **strict and never mix**:
 
 - A dependency resolves *only* tags carrying its own prefix. There is no fallback to the default `v` namespace (or any other).
+- A dependency pinned to a custom namespace never sees releases in the default one. `bender audit --check-upstream` reports the highest default-namespace release when it carries a higher version number, so a fork that has fallen behind upstream stays visible.
 - If the same dependency is required with two different prefixes anywhere in the dependency tree, Bender never guesses. It reports the clash like any other conflicting requirement: on a terminal it asks you to pick one of the requirements, and without one (in CI, say) it fails. To settle it permanently, add an [`overrides`](./configuration.md) entry pinning the dependency to a single namespace — note that overrides live in `.bender.yml`, not in `Bender.yml`:
 
 ```yaml

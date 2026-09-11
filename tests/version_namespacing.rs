@@ -305,6 +305,35 @@ fn audit_aligns_suggestions_to_namespace() {
     );
 }
 
+/// A default-namespace dependency reports exactly as it always has: the annotation would be
+/// noise on the `v` namespace, and `audit` output is covered by the golden CLI regression suite.
+#[test]
+fn audit_leaves_default_namespace_unannotated() {
+    let base = fresh_dir("audit_default_ns");
+    let foo_url = setup_foo(&base);
+    let app = setup_project(
+        &base,
+        "app",
+        &format!(
+            "package:\n  name: app\ndependencies:\n  foo: {{ git: \"{foo_url}\", version: \"1.0.0\" }}\n"
+        ),
+    );
+    assert!(bender_update(&app).status.success());
+
+    let out = bender(&app, &["audit"]);
+    assert!(
+        out.status.success(),
+        "audit failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("1.1.0"), "audit:\n{stdout}");
+    assert!(
+        !stdout.contains("namespace"),
+        "the default namespace must not be annotated:\n{stdout}"
+    );
+}
+
 /// A `bar` repo depending on `foo` under the default `v` namespace, tagged `v0.1.0`.
 fn setup_bar(base: &Path, foo_url: &str) -> String {
     let repo = base.join("bar");
@@ -461,11 +490,49 @@ fn version_prefix_on_path_dependency_is_rejected() {
     );
 }
 
-/// A default-namespace dependency reports exactly as it always has: the annotation would be
-/// noise on the `v` namespace, and `audit` output is covered by the golden CLI regression suite.
+/// `--check-upstream` surfaces a release in the default `v` namespace that carries a higher
+/// version than the pinned fork, which strict namespacing otherwise hides entirely.
+///
+/// `foo` is pinned to `companyX-v1.0.0`; the default namespace has `v1.1.0`.
 #[test]
-fn audit_leaves_default_namespace_unannotated() {
-    let base = fresh_dir("audit_default_ns");
+fn audit_check_upstream_reports_newer_default_release() {
+    let base = fresh_dir("audit_upstream");
+    let foo_url = setup_foo(&base);
+    let app = setup_project(
+        &base,
+        "app",
+        &format!(
+            "package:\n  name: app\ndependencies:\n  foo: {{ git: \"{foo_url}\", version: \"=1.0.0\", version_prefix: \"companyX-v\" }}\n"
+        ),
+    );
+    assert!(bender_update(&app).status.success());
+
+    // Off by default: the extra line must not appear unasked.
+    let plain = String::from_utf8_lossy(&bender(&app, &["audit"]).stdout).into_owned();
+    assert!(
+        !plain.contains("Upstream"),
+        "upstream line must be opt-in:\n{plain}"
+    );
+
+    let out = bender(&app, &["audit", "--check-upstream"]);
+    assert!(
+        out.status.success(),
+        "audit failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("Upstream"), "audit:\n{stdout}");
+    assert!(
+        stdout.contains("1.1.0 in the default `v` namespace"),
+        "audit must name the upstream version and namespace:\n{stdout}"
+    );
+}
+
+/// A dependency already in the default namespace has no separate upstream to compare against, so
+/// the flag is a no-op for it.
+#[test]
+fn audit_check_upstream_noop_in_default_namespace() {
+    let base = fresh_dir("audit_upstream_default");
     let foo_url = setup_foo(&base);
     let app = setup_project(
         &base,
@@ -476,16 +543,11 @@ fn audit_leaves_default_namespace_unannotated() {
     );
     assert!(bender_update(&app).status.success());
 
-    let out = bender(&app, &["audit"]);
-    assert!(
-        out.status.success(),
-        "audit failed:\n{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    let out = bender(&app, &["audit", "--check-upstream"]);
+    assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("1.1.0"), "audit:\n{stdout}");
     assert!(
-        !stdout.contains("namespace"),
-        "the default namespace must not be annotated:\n{stdout}"
+        !stdout.contains("Upstream"),
+        "nothing to report for a default-namespace dependency:\n{stdout}"
     );
 }

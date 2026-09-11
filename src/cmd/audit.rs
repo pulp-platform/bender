@@ -30,6 +30,11 @@ pub struct AuditArgs {
     /// Ignore URL conflicts when auditing.
     #[arg(long)]
     pub ignore_url_conflict: bool,
+
+    /// For dependencies pinned to a custom version namespace, also report the highest release in
+    /// the default `v` namespace when it carries a higher version number.
+    #[arg(long)]
+    pub check_upstream: bool,
 }
 
 /// Execute the `audit` subcommand.
@@ -113,6 +118,25 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
             _ => vec![],
         };
         let highest_version = available_versions.iter().max();
+
+        // `--check-upstream`: a dependency pinned to a fork's namespace never sees releases in
+        // the default one, by design. Surface the highest of those so a fork that has fallen
+        // behind is visible, without letting it influence the suggestion itself.
+        let upstream_version =
+            if args.check_upstream && current_prefix != crate::config::DEFAULT_VERSION_PREFIX {
+                match dep_versions.get(pkg).unwrap() {
+                    DependencyVersions::Git(versions) => versions
+                        .versions
+                        .iter()
+                        .filter(|tv| tv.prefix == crate::config::DEFAULT_VERSION_PREFIX)
+                        .map(|tv| &tv.version)
+                        .max()
+                        .filter(|upstream| Some(*upstream) > current_version.as_ref()),
+                    _ => None,
+                }
+            } else {
+                None
+            };
 
         let mut conflicting = false;
         let mut version_req_exists = false;
@@ -206,6 +230,15 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
             audit_str.push_str(&format!(
                 "     can \x1B[33;1mUpdate\x1B[m:\t{} -> {}{}\n",
                 current_version_unwrapped, highest_version, namespace_note
+            ));
+        }
+
+        // Reported after the package's own status, since it is context rather than a suggestion:
+        // the two namespaces are separate release lines and bender will not cross between them.
+        if let Some(upstream_version) = upstream_version {
+            audit_str.push_str(&format!(
+                "\t has \x1B[36;1mUpstream\x1B[m:\t{} in the default `v` namespace\n",
+                upstream_version
             ));
         }
     }
