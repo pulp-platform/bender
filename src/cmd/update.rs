@@ -165,6 +165,13 @@ pub fn run_plain<'ctx>(
         };
     let update_map: BTreeMap<String, (Option<LockedPackage>, Option<LockedPackage>)> =
         update_map.into_iter().chain(removed_map).collect();
+    // A custom namespace is spelled out so a move between namespaces is visible rather than
+    // looking like a plain version bump. The default `v` stays implicit, as before.
+    let describe = |pkg: &LockedPackage| match (&pkg.version, pkg.version_prefix.as_deref()) {
+        (Some(version), Some(prefix)) => format!("{}{}", prefix, version),
+        (Some(version), None) => version.clone(),
+        (None, _) => pkg.revision.clone().unwrap_or_else(|| "path".to_string()),
+    };
     let mut update_str = String::from("");
     for (name, (existing_dep, new_dep)) in &update_map {
         update_str.push_str(&format!(
@@ -173,23 +180,11 @@ pub fn run_plain<'ctx>(
             fmt_pkg!(name)
         ));
         if let Some(existing_dep) = existing_dep {
-            update_str.push_str(
-                existing_dep
-                    .version
-                    .as_deref()
-                    .or(existing_dep.revision.as_deref())
-                    .unwrap_or("path"),
-            );
+            update_str.push_str(&describe(existing_dep));
         }
         update_str.push_str("\t-> ");
         if let Some(new_dep) = new_dep {
-            update_str.push_str(
-                new_dep
-                    .version
-                    .as_deref()
-                    .or(new_dep.revision.as_deref())
-                    .unwrap_or("path"),
-            );
+            update_str.push_str(&describe(new_dep));
         }
         update_str.push('\n');
     }

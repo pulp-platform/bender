@@ -26,7 +26,42 @@ dependencies:
   axi: { version: ">=0.23.0, <0.26.0" }
 ```
 
-> **Note:** Bender only recognizes Git tags that follow the `vX.Y.Z` format (e.g., `v1.2.1`).
+> **Note:** By default, Bender only recognizes Git tags that follow the `vX.Y.Z` format (e.g., `v1.2.1`). See [Version Namespaces](#version-namespaces) if you need a different prefix.
+
+#### Version Namespaces
+
+The leading `v` in a version tag is simply the default *prefix*. If you maintain your own versioned fork of an open-source IP — for example to ship internally patched releases — you can tag those releases under your own namespace and depend on them with `version_prefix`:
+
+```yaml
+dependencies:
+  # Resolves only tags of the form `companyX-v<semver>`, e.g. `companyX-v1.2.0`.
+  common_cells: { git: "...", version: "1.21.0", version_prefix: "companyX-v" }
+```
+
+You can equivalently embed the prefix directly in the version string:
+
+```yaml
+dependencies:
+  common_cells: { git: "...", version: "companyX-v1.21.0" }
+```
+
+The embedded form requires the version requirement to begin with a number (e.g. `companyX-v1.21.0`, `companyX-v1.*`). For operator-based ranges such as `>=1.21.0`, use the `version_prefix` field alongside a plain `version`. If both a field and an embedded prefix are given, they must agree.
+
+The prefix is the entire literal string preceding the semantic version, so you are free to choose any convention (`companyX-v`, `acme-`, …). Setting `version_prefix: ""` selects tags carrying no prefix at all (`1.2.0` rather than `v1.2.0`). A dependency without a prefix keeps the default `v`, so existing manifests and lockfiles are unaffected.
+
+Prefixes only apply to Git version dependencies. On a path or revision dependency the field has nothing to act on, so Bender rejects it rather than ignoring it silently — the same treatment `version` and `rev` get where they cannot apply. A dependency given only a `version` resolves through the default remote and is a Git version dependency, so `version_prefix` is accepted there too.
+
+Namespaces are **strict and never mix**:
+
+- A dependency resolves *only* tags carrying its own prefix. There is no fallback to the default `v` namespace (or any other).
+- A dependency pinned to a custom namespace never sees releases in the default one. `bender audit --check-upstream` reports the highest default-namespace release when it carries a higher version number, so a fork that has fallen behind upstream stays visible.
+- If the same dependency is required with two different prefixes anywhere in the dependency tree, Bender never guesses. It reports the clash like any other conflicting requirement: on a terminal it asks you to pick one of the requirements, and without one (in CI, say) it fails. To settle it permanently, add an [`overrides`](./configuration.md) entry pinning the dependency to a single namespace — note that overrides live in `.bender.yml`, not in `Bender.yml`:
+
+```yaml
+# .bender.yml
+overrides:
+  common_cells: { git: "...", version: "1.21.0", version_prefix: "companyX-v" }
+```
 
 #### Revision-based
 Use this for specific commits, branches, or tags that don't follow SemVer.

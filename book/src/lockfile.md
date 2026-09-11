@@ -35,6 +35,7 @@ packages:
 
 - **revision:** The full 40-character Git commit hash.
 - **version:** The SemVer version that was resolved.
+- **version_prefix:** The version [namespace](./dependencies.md#version-namespaces) the version was resolved under. Omitted for the default `v` prefix.
 - **source:** Where to download the package from.
 - **dependencies:** A list of other packages that this specific package depends on, ensuring the entire tree is captured.
 

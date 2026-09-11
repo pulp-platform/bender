@@ -198,6 +198,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                         LockedPackage {
                             revision: None,
                             version: None,
+                            version_prefix: None,
                             source: LockedSource::Path(path),
                             dependencies: deps,
                         }
@@ -215,16 +216,36 @@ impl<'ctx> DependencyResolver<'ctx> {
                         };
                         let pick = dep.state.pick().unwrap();
                         let rev = gv.revs[pick.1];
-                        let version = gv
-                            .versions
-                            .iter()
-                            .filter(|&&(_, r)| r == rev)
-                            .map(|(v, _)| v)
-                            .max()
-                            .map(|v| v.to_string());
+                        // The resolved revision is authoritative: lock the tag that points at
+                        // it. Where a conflict is settled in favour of another namespace, the
+                        // picked revision need not lie in the namespace imposed first, so
+                        // reading the prefix back off the revision keeps the recorded version
+                        // and namespace consistent with what was actually checked out.
+                        let tag = match dep.version_prefix.as_deref() {
+                            Some(imposed) => gv
+                                .versions
+                                .iter()
+                                .filter(|tv| tv.hash == rev)
+                                // Where several namespaces tag one commit, the imposed one wins.
+                                .max_by_key(|tv| (tv.prefix == imposed, tv.version.clone())),
+                            // Revision-pinned: only a default-namespace tag becomes a version,
+                            // so pinning a commit that a fork happens to tag stays a revision.
+                            None => gv
+                                .versions
+                                .iter()
+                                .filter(|tv| {
+                                    tv.hash == rev && tv.prefix == config::DEFAULT_VERSION_PREFIX
+                                })
+                                .max_by_key(|tv| tv.version.clone()),
+                        };
                         LockedPackage {
                             revision: Some(String::from(rev)),
-                            version,
+                            version: tag.map(|tv| tv.version.to_string()),
+                            // Omit the default `v` prefix for backwards-compatible lockfiles.
+                            version_prefix: tag
+                                .map(|tv| tv.prefix)
+                                .filter(|p| *p != config::DEFAULT_VERSION_PREFIX)
+                                .map(String::from),
                             source: LockedSource::Git(url),
                             dependencies: deps,
                         }
@@ -390,6 +411,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                                         pre: parsed_version.pre,
                                     }],
                                 },
+                                version_prefix: locked_package.version_prefix.clone(),
                                 pass_targets: Vec::new(),
                             }
                         } else {
@@ -439,12 +461,19 @@ impl<'ctx> DependencyResolver<'ctx> {
                     pass_targets: Vec::new(),
                 },
                 DependencySource::Git(u) => match &cnstr {
-                    DependencyConstraint::Version(v) => config::Dependency::GitVersion {
-                        target: TargetSpec::Wildcard,
-                        url: u,
-                        version: v.clone(),
-                        pass_targets: Vec::new(),
-                    },
+                    DependencyConstraint::Version { req: v, prefix } => {
+                        config::Dependency::GitVersion {
+                            target: TargetSpec::Wildcard,
+                            url: u,
+                            version: v.clone(),
+                            version_prefix: if prefix.as_str() == config::DEFAULT_VERSION_PREFIX {
+                                None
+                            } else {
+                                Some(prefix.clone())
+                            },
+                            pass_targets: Vec::new(),
+                        }
+                    }
                     DependencyConstraint::Revision(r) => config::Dependency::GitRevision {
                         target: TargetSpec::Wildcard,
                         url: u,
@@ -631,6 +660,14 @@ impl<'ctx> DependencyResolver<'ctx> {
         // Impose the constraints on the dependencies.
         let mut table = mem::take(&mut self.table);
         for (name, cons) in cons_map {
+            // Record the resolved namespace prefix for lockfile writing. The
+            // guard above guarantees all version constraints share one prefix.
+            if let Some((_, DependencyConstraint::Version { prefix, .. }, _)) = cons
+                .iter()
+                .find(|(_, con, _)| matches!(con, DependencyConstraint::Version { .. }))
+            {
+                table.get_mut(name).unwrap().version_prefix = Some(prefix.clone());
+            }
             for (_, con, dsrc) in &cons {
                 log::debug!("impose `{}` at `{}` on `{}`", con, dsrc, name);
                 let table_item = table.get_mut(name).unwrap();
@@ -739,10 +776,14 @@ impl<'ctx> DependencyResolver<'ctx> {
                     indices_list?
                 };
                 if indices_list.is_empty() && id == con_src {
-                    let additional_str = if let DependencyConstraint::Version(__) = con {
-                        " Ensure git tags are formatted as `vX.Y.Z`.".to_string()
-                    } else {
-                        "".to_string()
+                    let additional_str = match con {
+                        DependencyConstraint::Version { prefix, .. } if prefix.is_empty() => {
+                            " Ensure git tags are formatted as `X.Y.Z`, with no prefix.".to_string()
+                        }
+                        DependencyConstraint::Version { prefix, .. } => {
+                            format!(" Ensure git tags are formatted as `{}X.Y.Z`.", prefix)
+                        }
+                        _ => "".to_string(),
                     };
                     bail!(
                         "Dependency `{}` from `{}` cannot satisfy requirement `{}`.{}",
@@ -811,7 +852,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 fmt_pkg!(pkg_name),
                 fmt_version!(con),
                 match con {
-                    DependencyConstraint::Version(req) =>
+                    DependencyConstraint::Version { req, .. } =>
                         match (version_req_bottom_bound(req)?, version_req_top_bound(req)?,) {
                             (Some(bottom), Some(top)) =>
                                 format!(" ({} <= x < {})", fmt_version!(bottom), fmt_version!(top)),
@@ -845,7 +886,10 @@ impl<'ctx> DependencyResolver<'ctx> {
             .flat_map(|(_src, group)| {
                 let mut g: Vec<_> = group.collect();
                 g.sort_by(|a, b| match (a.0, b.0) {
-                    (DependencyConstraint::Version(va), DependencyConstraint::Version(vb)) => {
+                    (
+                        DependencyConstraint::Version { req: va, .. },
+                        DependencyConstraint::Version { req: vb, .. },
+                    ) => {
                         // Unbounded requirements have no top/bottom bound; sort them as the
                         // extreme version in the respective direction.
                         let top_bound = |req: &VersionReq| {
@@ -874,10 +918,10 @@ impl<'ctx> DependencyResolver<'ctx> {
                     }
                     (DependencyConstraint::Path, _) => std::cmp::Ordering::Greater,
                     (_, DependencyConstraint::Path) => std::cmp::Ordering::Less,
-                    (DependencyConstraint::Version(_), DependencyConstraint::Revision(_)) => {
+                    (DependencyConstraint::Version { .. }, DependencyConstraint::Revision(_)) => {
                         std::cmp::Ordering::Greater
                     }
-                    (DependencyConstraint::Revision(_), DependencyConstraint::Version(_)) => {
+                    (DependencyConstraint::Revision(_), DependencyConstraint::Version { .. }) => {
                         std::cmp::Ordering::Less
                     }
                 });
@@ -1029,7 +1073,7 @@ impl<'ctx> DependencyResolver<'ctx> {
         use self::DependencyVersions as DepVer;
         match (con, &src.versions) {
             (&DepCon::Path, &DepVer::Path) => Ok(IndexSet::from([0])),
-            (DepCon::Version(con), DepVer::Git(gv)) => {
+            (DepCon::Version { req: con, prefix }, DepVer::Git(gv)) => {
                 // TODO: Move this outside somewhere. Very inefficient!
                 let hash_ids: IndexMap<&str, usize> = gv
                     .revs
@@ -1040,12 +1084,14 @@ impl<'ctx> DependencyResolver<'ctx> {
                 let mut revs_tmp: IndexMap<_, _> = gv
                     .versions
                     .iter()
-                    .sorted()
-                    .filter_map(
-                        |&(ref v, h)| {
-                            if con.matches(v) { Some((v, h)) } else { None }
-                        },
-                    )
+                    .sorted_by(|a, b| a.version.cmp(&b.version))
+                    .filter_map(|tv| {
+                        if tv.prefix == prefix.as_str() && con.matches(&tv.version) {
+                            Some((&tv.version, tv.hash))
+                        } else {
+                            None
+                        }
+                    })
                     .collect();
                 revs_tmp.reverse();
                 let revs: IndexSet<usize> = revs_tmp
@@ -1084,7 +1130,7 @@ impl<'ctx> DependencyResolver<'ctx> {
                 revs.sort();
                 Ok(revs)
             }
-            (DepCon::Version(_con), DepVer::Registry(_rv)) => Err(err!(
+            (DepCon::Version { .. }, DepVer::Registry(_rv)) => Err(err!(
                 "Constraints on registry dependency `{}` not implemented",
                 name
             )),
@@ -1269,6 +1315,9 @@ struct Dependency<'ctx> {
     sources: IndexMap<DependencyRef, DependencyReference<'ctx>>,
     /// The picked manifest for this dependency.
     manifest: Option<&'ctx config::Manifest>,
+    /// The resolved version-tag prefix (namespace), if version-constrained.
+    /// `None` is interpreted as the default `v` prefix.
+    version_prefix: Option<String>,
     /// The current resolution state.
     state: State,
 }

@@ -9,13 +9,12 @@ use std::io::Write;
 use clap::Args;
 use futures::future::join_all;
 use miette::IntoDiagnostic as _;
-use semver::VersionReq;
 use tabwriter::TabWriter;
 use tokio::runtime::Runtime;
 
 use crate::Result;
-use crate::cmd::parents::get_parent_array;
-use crate::sess::{DependencyVersions, Session, SessionIo};
+use crate::cmd::parents::get_parent_requirements;
+use crate::sess::{DependencyConstraint, DependencyVersions, Session, SessionIo};
 
 /// Get information about version conflicts and possible updates.
 #[derive(Args, Debug)]
@@ -31,6 +30,11 @@ pub struct AuditArgs {
     /// Ignore URL conflicts when auditing.
     #[arg(long)]
     pub ignore_url_conflict: bool,
+
+    /// For dependencies pinned to a custom version namespace, also report the highest release in
+    /// the default `v` namespace when it carries a higher version number.
+    #[arg(long)]
+    pub check_upstream: bool,
 }
 
 /// Execute the `audit` subcommand.
@@ -77,7 +81,7 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
 
     for pkg in pkgs {
         let pkg_name = sess.dependency_name(*pkg);
-        let parent_array = get_parent_array(sess, &rt, &io, pkg_name, false)?;
+        let parents = get_parent_requirements(sess, &rt, &io, pkg_name)?;
         let current_version = sess.dependency(*pkg).version.clone();
         let current_version_unwrapped = current_version
             .as_ref()
@@ -85,35 +89,77 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
             .unwrap_or_default();
         let current_revision = sess.dependency(*pkg).revision.clone();
         let current_revision_unwrapped = current_revision.as_deref().unwrap_or_default();
+        // Align update suggestions with the namespace the dependency is
+        // currently resolved under. When the current checkout is not a version
+        // (e.g. a path or revision), fall back to the default `v` namespace.
+        let current_prefix = if current_version.is_some() {
+            sess.dependency(*pkg)
+                .version_prefix
+                .as_deref()
+                .unwrap_or(crate::config::DEFAULT_VERSION_PREFIX)
+        } else {
+            crate::config::DEFAULT_VERSION_PREFIX
+        };
+        // Every version on this package's lines comes from `current_prefix`, so name the
+        // namespace once rather than prefixing each number. Left off for the default `v`, which
+        // keeps existing output unchanged.
+        let namespace_note = match current_prefix {
+            crate::config::DEFAULT_VERSION_PREFIX => String::new(),
+            "" => "  (unprefixed namespace)".to_string(),
+            prefix => format!("  (namespace `{}`)", prefix),
+        };
         let available_versions = match dep_versions.get(pkg).unwrap() {
-            DependencyVersions::Git(versions) => {
-                versions.versions.iter().map(|(v, _)| v.clone()).collect()
-            }
+            DependencyVersions::Git(versions) => versions
+                .versions
+                .iter()
+                .filter(|tv| tv.prefix == current_prefix)
+                .map(|tv| tv.version.clone())
+                .collect(),
             _ => vec![],
         };
         let highest_version = available_versions.iter().max();
 
+        // `--check-upstream`: a dependency pinned to a fork's namespace never sees releases in
+        // the default one, by design. Surface the highest of those so a fork that has fallen
+        // behind is visible, without letting it influence the suggestion itself.
+        let upstream_version =
+            if args.check_upstream && current_prefix != crate::config::DEFAULT_VERSION_PREFIX {
+                match dep_versions.get(pkg).unwrap() {
+                    DependencyVersions::Git(versions) => versions
+                        .versions
+                        .iter()
+                        .filter(|tv| tv.prefix == crate::config::DEFAULT_VERSION_PREFIX)
+                        .map(|tv| &tv.version)
+                        .max()
+                        .filter(|upstream| Some(*upstream) > current_version.as_ref()),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
         let mut conflicting = false;
         let mut version_req_exists = false;
         let mut compatible_versions = available_versions.clone();
-        let (default_version, url) = parent_array
+        let (default_constraint, url) = parents
             .values()
             .next()
-            .map(|v| (v[0].clone(), v[1].clone()))
-            .unwrap_or_else(|| ("".to_string(), "".to_string()));
-        for parent in parent_array.values() {
-            match VersionReq::parse(&parent[0]) {
-                Ok(parent_version) => {
-                    compatible_versions.retain(|v| parent_version.matches(v));
+            .map(|p| (Some(p.constraint.clone()), p.source.clone()))
+            .unwrap_or((None, String::new()));
+        for parent in parents.values() {
+            // The namespace is already fixed by resolution, so only the requirement matters here.
+            match &parent.constraint {
+                DependencyConstraint::Version { req, .. } => {
+                    compatible_versions.retain(|v| req.matches(v));
                     version_req_exists = true;
                 }
-                Err(_) => {
-                    if parent[0] != default_version {
+                other => {
+                    if Some(other) != default_constraint.as_ref() {
                         conflicting = true;
                     }
                 }
             }
-            if parent[1] != url && !args.ignore_url_conflict {
+            if parent.source != url && !args.ignore_url_conflict {
                 conflicting = true;
             }
         }
@@ -143,8 +189,8 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
             ));
             if let Some(highest_version) = highest_version {
                 audit_str.push_str(&format!(
-                    "\t\x1B[31;1m\x1B[m\thighest version: {}\n",
-                    highest_version
+                    "\t\x1B[31;1m\x1B[m\thighest version: {}{}\n",
+                    highest_version, namespace_note
                 ));
             }
         }
@@ -157,8 +203,8 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
             && !args.only_update
         {
             audit_str.push_str(&format!(
-                "  is \x1B[32;1mUp-to-date\x1B[m:\t@ {}\n",
-                current_version_unwrapped
+                "  is \x1B[32;1mUp-to-date\x1B[m:\t@ {}{}\n",
+                current_version_unwrapped, namespace_note
             ));
         }
 
@@ -169,8 +215,8 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
             && *max_compatible > *current_version
         {
             audit_str.push_str(&format!(
-                "can \x1B[32;1mAuto-update\x1B[m:\t{} -> {}\n",
-                current_version_unwrapped, max_compatible
+                "can \x1B[32;1mAuto-update\x1B[m:\t{} -> {}{}\n",
+                current_version_unwrapped, max_compatible, namespace_note
             ));
         }
 
@@ -182,8 +228,17 @@ pub fn run(sess: &Session, args: &AuditArgs) -> Result<()> {
             && (max_compatible.is_none() || *max_compatible.unwrap() < *highest_version)
         {
             audit_str.push_str(&format!(
-                "     can \x1B[33;1mUpdate\x1B[m:\t{} -> {}\n",
-                current_version_unwrapped, highest_version
+                "     can \x1B[33;1mUpdate\x1B[m:\t{} -> {}{}\n",
+                current_version_unwrapped, highest_version, namespace_note
+            ));
+        }
+
+        // Reported after the package's own status, since it is context rather than a suggestion:
+        // the two namespaces are separate release lines and bender will not cross between them.
+        if let Some(upstream_version) = upstream_version {
+            audit_str.push_str(&format!(
+                "\t has \x1B[36;1mUpstream\x1B[m:\t{} in the default `v` namespace\n",
+                upstream_version
             ));
         }
     }
