@@ -1,6 +1,6 @@
 [package]
 name = "bender-slang"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Internal bender crate: Rust bindings for the Slang SystemVerilog parser"
 license = "Apache-2.0"
@@ -19,10 +19,10 @@ include = [
 
 [dependencies]
 cxx = "1.0.194"
-thiserror = "2.0.12"
+thiserror = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-dunce = "1.0.4"
+dunce = { workspace = true }
 
 [build-dependencies]
 cmake = "0.1.57"
