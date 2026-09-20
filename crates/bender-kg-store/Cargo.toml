@@ -1,0 +1,21 @@
+[package]
+name = "bender-kg-store"
+version = "0.1.0"
+edition = "2024"
+description = "Internal bender crate: Grafeo-backed knowledge graph + vector store"
+license = "Apache-2.0"
+authors = ["Alessandro Ottaviano <aottaviano@tenstorrent.com>"]
+
+[dependencies]
+bender-kg-models = { workspace = true }
+grafeo = { workspace = true }
+grafeo-common = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.5"
+
+[package.metadata.dist]
+dist = false

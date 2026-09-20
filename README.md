@@ -56,6 +56,21 @@ Bender packages are built around three files:
 
 In a typical workflow, you edit `Bender.yml`, run `bender update` to resolve dependencies, use `bender checkout` to download the revisions pinned in `Bender.lock`, and generate tool inputs with `bender script`.
 
+### `kg` — Build and query the design knowledge graph
+
+`bender kg` builds and queries a knowledge graph of the design's module hierarchy (declarations, ports, parameters, imports, instantiation edges). It is available when Bender is built with Slang support (`cargo install bender --all-features`).
+
+- **`bender kg build`** — extract the design and populate the knowledge graph.
+- **`bender kg query <OP>`** — query the graph (search, hierarchy, ports, traces, similarity).
+- **`bender kg mcp-server`** — expose the same operations over stdio MCP.
+
+```sh
+bender kg build
+bender kg query search-modules "AXI crossbar"
+bender kg query trace-signal smu clk_smu_i --recursive --depth 3
+bender kg mcp-server
+```
+
 ## Documentation
 
 The full documentation lives at **[pulp-platform.github.io/bender/](https://pulp-platform.github.io/bender/)**.

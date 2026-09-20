@@ -1,0 +1,25 @@
+[package]
+name = "bender-kg-similarity"
+version = "0.1.0"
+edition = "2024"
+description = "Internal bender crate: text -> vector embedding for the knowledge graph"
+license = "Apache-2.0"
+authors = ["Alessandro Ottaviano <aottaviano@tenstorrent.com>"]
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+
+# Real local embeddings via model2vec-rs (pure Rust, no ONNX, no glibc dep).
+model2vec-rs = { version = "0.1", optional = true }
+
+[features]
+# Default-on real embeddings via model2vec-rs.
+# Disable with --no-default-features to keep only the deterministic
+# HashEmbedder fallback (no model download, no extra deps).
+default = ["model2vec"]
+model2vec = ["dep:model2vec-rs"]
+
+[package.metadata.dist]
+dist = false

@@ -16,6 +16,8 @@ pub enum SlangError {
     ParseGroup { message: String },
     #[error("Failed to trim files by top modules: {message}")]
     TrimByTop { message: String },
+    #[error("Failed to walk design: {message}")]
+    Walk { message: String },
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -33,6 +35,106 @@ mod ffi {
         include_directives: bool,
         include_comments: bool,
         squash_newlines: bool,
+    }
+
+    /// A simple ordered key/value pair shared with C++.
+    #[derive(Clone)]
+    struct KgKeyValue {
+        key: String,
+        value: String,
+    }
+
+    /// Knowledge-graph parameter record.
+    #[derive(Clone)]
+    struct KgParam {
+        name: String,
+        kind: String,
+        default_value: String,
+        is_type_param: bool,
+    }
+
+    /// Knowledge-graph port record.
+    #[derive(Clone)]
+    struct KgPort {
+        name: String,
+        direction: String,
+        type_str: String,
+        width_expr: String,
+        bit_width: i64,
+        is_type_param: bool,
+    }
+
+    /// Knowledge-graph instantiation record.
+    #[derive(Clone)]
+    struct KgInstance {
+        module_name: String,
+        instance_name: String,
+        param_bindings: Vec<KgKeyValue>,
+        port_bindings: Vec<KgKeyValue>,
+        line_start: i64,
+        line_end: i64,
+    }
+
+    /// Knowledge-graph package import record.
+    #[derive(Clone)]
+    struct KgImport {
+        package_name: String,
+        is_wildcard: bool,
+        specific_symbols: Vec<String>,
+    }
+
+    /// Knowledge-graph module record.
+    #[derive(Clone)]
+    struct KgModule {
+        name: String,
+        file_path: String,
+        is_package: bool,
+        is_interface: bool,
+        line_start: i64,
+        line_end: i64,
+        param_block_start: i64,
+        param_block_end: i64,
+        port_block_start: i64,
+        port_block_end: i64,
+        parameters: Vec<KgParam>,
+        ports: Vec<KgPort>,
+        instantiations: Vec<KgInstance>,
+        imports: Vec<KgImport>,
+    }
+
+    /// Result of `walk_design`.
+    #[derive(Clone)]
+    struct KgWalkResult {
+        modules: Vec<KgModule>,
+        warnings: Vec<String>,
+    }
+
+    /// Resolved bit width for a single port.
+    #[derive(Clone)]
+    struct KgPortWidth {
+        name: String,
+        total: i64,
+        fields: Vec<KgKeyValue>,
+        element_count: i64,
+        element_total: i64,
+        element_fields: Vec<KgKeyValue>,
+    }
+
+    /// Per-instance context produced by the elaborated walk.
+    #[derive(Clone)]
+    struct KgInstanceContext {
+        parent_module: String,
+        instance_name: String,
+        child_module: String,
+        param_bindings: Vec<KgKeyValue>,
+        port_widths: Vec<KgPortWidth>,
+    }
+
+    /// Result of `walk_elaborated`.
+    #[derive(Clone)]
+    struct KgElabResult {
+        contexts: Vec<KgInstanceContext>,
+        warnings: Vec<String>,
     }
 
     /// A parsed syntax tree bundled with the per-file facts slang reported while parsing it.
@@ -61,6 +163,9 @@ mod ffi {
 
         fn new_slang_session() -> UniquePtr<SlangSession>;
 
+        fn set_single_unit(self: Pin<&mut SlangSession>, enable: bool);
+        fn set_lenient(self: Pin<&mut SlangSession>, enable: bool);
+
         fn parse_group(
             self: Pin<&mut SlangSession>,
             files: &[String],
@@ -71,6 +176,9 @@ mod ffi {
         fn all_trees(session: &SlangSession) -> Vec<ParsedTree>;
 
         fn reachable_trees(session: &SlangSession, tops: &[String]) -> Result<Vec<ParsedTree>>;
+
+        fn retain_trees(self: Pin<&mut SlangSession>, indices: &[u32]);
+        fn tree_count(session: &SlangSession) -> usize;
 
         fn resolved_include_paths_for(trees: &Vec<ParsedTree>) -> Vec<String>;
 
@@ -92,13 +200,26 @@ mod ffi {
         fn print_tree(tree: SharedPtr<SyntaxTree>, options: SlangPrintOpts) -> String;
 
         fn dump_tree_json(tree: SharedPtr<SyntaxTree>) -> String;
+
+        fn walk_design(session: &SlangSession) -> Result<KgWalkResult>;
+        fn walk_elaborated(session: &SlangSession, tops: &[String]) -> Result<KgElabResult>;
     }
 }
+
+pub use ffi::{
+    KgElabResult, KgImport, KgInstance, KgInstanceContext, KgKeyValue, KgModule, KgParam, KgPort,
+    KgPortWidth, KgWalkResult,
+};
 
 /// Public owner for all parsed trees and parse contexts.
 pub struct SlangSession {
     inner: UniquePtr<ffi::SlangSession>,
 }
+
+// SAFETY: the C++ `SlangSession` owns its state through `std::vector` /
+// `std::shared_ptr` and is not aliased across threads internally. The
+// unique-pointer wrapper is moved onto a worker thread for `walk_elaborated`.
+unsafe impl Send for SlangSession {}
 
 /// Borrowed syntax-tree handle tied to the owning session lifetime.
 pub struct SyntaxTree<'a> {
@@ -198,6 +319,55 @@ impl SlangSession {
             .map_err(|cause| SlangError::ParseGroup {
                 message: cause.to_string(),
             })
+    }
+
+    /// Toggle cross-group macro propagation. Call before any `parse_group`.
+    pub fn set_single_unit(&mut self, enable: bool) {
+        self.inner.pin_mut().set_single_unit(enable);
+    }
+
+    /// Toggle lenient (best-effort) parsing for single-unit groups.
+    pub fn set_lenient(&mut self, enable: bool) {
+        self.inner.pin_mut().set_lenient(enable);
+    }
+
+    /// Returns the total number of parsed syntax trees in the session.
+    pub fn tree_count(&self) -> usize {
+        ffi::tree_count(self.inner.as_ref().unwrap())
+    }
+
+    /// Indices of syntax trees reachable from the given top modules.
+    pub fn reachable_indices(&self, tops: &[String]) -> Result<Vec<usize>> {
+        let kept = self.reachable_trees(tops)?;
+        let kept_paths: std::collections::HashSet<&str> =
+            kept.iter().map(|t| t.path.as_str()).collect();
+        Ok(self
+            .all_trees()
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, t)| kept_paths.contains(t.path.as_str()).then_some(i))
+            .collect())
+    }
+
+    /// Prune the session's parsed trees to the given indices.
+    pub fn retain_trees(&mut self, indices: &[u32]) {
+        self.inner.pin_mut().retain_trees(indices);
+    }
+
+    /// Walks every parsed syntax tree and emits structured kg records.
+    pub fn walk_design(&self) -> Result<KgWalkResult> {
+        ffi::walk_design(self.inner.as_ref().unwrap()).map_err(|cause| SlangError::Walk {
+            message: cause.to_string(),
+        })
+    }
+
+    /// Force elaboration from the given top modules and emit per-instance context.
+    pub fn walk_elaborated(&self, tops: &[String]) -> Result<KgElabResult> {
+        ffi::walk_elaborated(self.inner.as_ref().unwrap(), tops).map_err(|cause| {
+            SlangError::Walk {
+                message: cause.to_string(),
+            }
+        })
     }
 
     /// Returns every parsed tree in the session, each bundled with its per-file facts (path,

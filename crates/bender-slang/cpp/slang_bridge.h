@@ -8,6 +8,7 @@
 #include "slang/diagnostics/DiagnosticEngine.h"
 #include "slang/diagnostics/TextDiagnosticClient.h"
 #include "slang/parsing/Preprocessor.h"
+#include "slang/syntax/AllSyntax.h"
 #include "slang/syntax/SyntaxTree.h"
 #include "slang/text/SourceManager.h"
 
@@ -21,6 +22,15 @@
 
 struct SlangPrintOpts;
 struct ParsedTree;
+struct KgKeyValue;
+struct KgParam;
+struct KgPort;
+struct KgInstance;
+struct KgImport;
+struct KgModule;
+struct KgWalkResult;
+struct KgInstanceContext;
+struct KgElabResult;
 
 // Internal per-tree record kept by the session. Plain C++ (no cxx types) so the session can own
 // it without depending on the generated header; the bridge functions convert it to `ParsedTree`
@@ -48,6 +58,13 @@ class SlangContext {
 
     std::vector<TreeEntry> parse_files(rust::Slice<const rust::String> paths);
 
+    // Per-file parse that threads inherited `\`define`s into later files/groups
+    // (vcs / `vlog -mfcu` single-unit mode). When `dropErrors` is true, files
+    // that fail to parse are omitted instead of being kept as partial trees.
+    std::vector<TreeEntry> parse_files_single_unit(rust::Slice<const rust::String> paths,
+                                                   slang::syntax::SyntaxTree::MacroList inherited,
+                                                   bool dropErrors);
+
   private:
     slang::SourceManager sourceManager;
     slang::parsing::PreprocessorOptions ppOptions;
@@ -60,11 +77,21 @@ class SlangSession {
     void parse_group(rust::Slice<const rust::String> files, rust::Slice<const rust::String> includes,
                      rust::Slice<const rust::String> defines);
 
+    void set_single_unit(bool enable) { singleUnit = enable; }
+    void set_lenient(bool enable) { lenient = enable; }
+
     const std::vector<TreeEntry>& entries() const { return treeEntries; }
+
+    // Keep only the trees at the given indices (in-place). Used by `bender kg`
+    // to prune to the reachable set before `walk_design` / `walk_elaborated`.
+    void retain_trees(rust::Slice<const std::uint32_t> indices);
 
   private:
     std::vector<std::unique_ptr<SlangContext>> contexts;
     std::vector<TreeEntry> treeEntries;
+    std::vector<const slang::syntax::DefineDirectiveSyntax*> accumulatedMacros;
+    bool singleUnit = false;
+    bool lenient = false;
 };
 
 class SyntaxTreeRewriter {
@@ -98,7 +125,11 @@ rust::String dump_tree_json(std::shared_ptr<slang::syntax::SyntaxTree> tree);
 rust::Vec<ParsedTree> all_trees(const SlangSession& session);
 rust::Vec<ParsedTree> reachable_trees(const SlangSession& session, rust::Slice<const rust::String> tops);
 rust::Vec<rust::String> resolved_include_paths_for(const rust::Vec<ParsedTree>& trees);
+std::size_t tree_count(const SlangSession& session);
 std::uint64_t renamed_declarations(const SyntaxTreeRewriter& rewriter);
 std::uint64_t renamed_references(const SyntaxTreeRewriter& rewriter);
+
+KgWalkResult walk_design(const SlangSession& session);
+KgElabResult walk_elaborated(const SlangSession& session, rust::Slice<const rust::String> tops);
 
 #endif // BENDER_SLANG_BRIDGE_H
