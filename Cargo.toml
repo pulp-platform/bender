@@ -27,6 +27,7 @@ bender-slang = { version = "0.2.0", path = "crates/bender-slang", optional = tru
 
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
+yaml-edit = { version = "0.3", default-features = false }
 serde_json = "1"
 
 futures = "0.3"

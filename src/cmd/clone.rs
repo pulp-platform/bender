@@ -18,6 +18,7 @@ use crate::config;
 use crate::config::{Locked, LockedSource};
 use crate::diagnostic::Warnings;
 use crate::infoln;
+use crate::local::{LocalOverride, update_local_overrides};
 use crate::sess::{DependencyRef, DependencySource, Session, SessionIo};
 use crate::{fmt_path, fmt_pkg, stageln};
 
@@ -178,46 +179,11 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
     }
 
     // Rewrite Bender.local file to keep changes
-    let local_path = path.join("Bender.local");
-    let dep_str = format!(
-        "  {}: {{ path: \"{}/{0}\" }} # Temporary override by Bender using `bender clone` command\n",
-        dep, path_mod
-    );
-    if local_path.exists() {
-        let local_file_str = std::fs::read_to_string(&local_path)
-            .into_diagnostic()
-            .wrap_err_with(|| format!("Reading Bender.local failed at {:?}.", local_path))?;
-        let mut new_str = String::new();
-        if local_file_str.contains("overrides:") {
-            let split = local_file_str.split('\n');
-            for i in split {
-                if i.contains(dep) {
-                    new_str.push('#');
-                }
-                new_str.push_str(i);
-                new_str.push('\n');
-                if i.contains("overrides:") {
-                    new_str.push_str(&dep_str);
-                }
-            }
-            if local_file_str.ends_with('\n') {
-                // Ensure trailing newline is not duplicated
-                new_str.pop();
-            }
-        } else {
-            new_str.push_str("overrides:\n");
-            new_str.push_str(&dep_str);
-            new_str.push_str(&local_file_str);
-        }
-        std::fs::write(local_path.clone(), new_str)
-            .into_diagnostic()
-            .wrap_err("Writing new Bender.local failed ")?;
-    } else {
-        std::fs::write(local_path.clone(), format!("overrides:\n{}", dep_str))
-            .into_diagnostic()
-            .wrap_err("Writing new Bender.local failed ")?;
-    };
-
+    let dep_path = format!("{}/{}", path_mod, dep);
+    update_local_overrides(
+        &path.join("Bender.local"),
+        &[(dep.as_str(), LocalOverride::Path(&dep_path))],
+    )?;
     eprintln!("{} dependency added to Bender.local", dep);
 
     // Update Bender.lock to enforce usage
