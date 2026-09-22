@@ -22,7 +22,6 @@ use std::fs::canonicalize;
 #[cfg(windows)]
 use dunce::canonicalize;
 
-use async_recursion::async_recursion;
 use futures::TryFutureExt;
 use futures::future::join_all;
 use indexmap::{IndexMap, IndexSet};
@@ -1359,7 +1358,6 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
     }
 
     /// Checkout only git dependency's path sub-dependency Bender.yml files
-    #[async_recursion(?Send)]
     async fn sub_dependency_fixing(
         &'io self,
         dep_iter_mut: &mut IndexMap<String, config::Dependency>,
@@ -1440,14 +1438,14 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                 dep.0, used_git_rev
                             )
                         })?;
-                        self.sub_dependency_fixing(
+                        Box::pin(self.sub_dependency_fixing(
                             &mut full.dependencies,
                             full.package.name.clone(),
                             &sub_dep_path,
                             dep_base_path,
                             db.clone(),
                             used_git_rev,
-                        )
+                        ))
                         .await?;
 
                         Ok(())
