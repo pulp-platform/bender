@@ -248,6 +248,11 @@ pub fn try_modification_time<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
     md.modified().ok()
 }
 
+/// Format the first 8 bytes of a hash as 16 lowercase hex characters.
+pub fn hash_prefix(bytes: &[u8]) -> String {
+    bytes[..8].iter().map(|b| format!("{:02x}", b)).collect()
+}
+
 /// Extract excluded top bound from a version requirement.
 pub fn version_req_top_bound(req: &VersionReq) -> Result<Option<Version>> {
     let mut top_bound = Version::new(u64::MAX, u64::MAX, u64::MAX);
