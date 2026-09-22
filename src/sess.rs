@@ -41,7 +41,7 @@ use crate::lock::FsLock;
 use crate::progress::{GitProgressOps, ProgressHandler};
 use crate::src::{SourceFile, SourceGroup, SourceType};
 use crate::target::TargetSpec;
-use crate::util::try_modification_time;
+use crate::util::{hash_prefix, try_modification_time};
 use crate::{Error, Result};
 use crate::{bail, ensure, err};
 
@@ -532,7 +532,7 @@ impl<'ctx> Session<'ctx> {
                 }
             }
             hasher.update(format!("{:?}", self.manifest.package.name).as_bytes());
-            &format!("{:016x}", hasher.finalize())[..16]
+            hash_prefix(&hasher.finalize())
         };
         let checkout_name = format!("{}-{}", dep_name, hash);
 
@@ -555,7 +555,7 @@ impl<'ctx> Session<'ctx> {
         // Determine the name of the database as the given name and the first
         // 8 bytes (16 hex characters) of the URL's BLAKE2 hash.
         use blake2::{Blake2b512, Digest};
-        let hash = &format!("{:016x}", Blake2b512::digest(url.as_bytes()))[..16];
+        let hash = hash_prefix(&Blake2b512::digest(url.as_bytes()));
         let db_name = format!("{}-{}", name, hash);
         db_name
     }
