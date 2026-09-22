@@ -18,6 +18,7 @@ use crate::cmd::clone::get_path_subdeps;
 use crate::config::{Dependency, Locked, LockedSource};
 use crate::diagnostic::Warnings;
 use crate::infoln;
+use crate::local::{LocalOverride, update_local_overrides};
 use crate::sess::{DependencySource, Session, SessionIo};
 use crate::{fmt_path, fmt_pkg, stageln};
 
@@ -107,40 +108,12 @@ pub fn run(sess: &Session, args: &SnapshotArgs) -> Result<()> {
     // Update the Bender.local to keep changes
     let local_path = sess.root.join("Bender.local");
     if local_path.exists() && !snapshot_list.is_empty() {
-        let local_file_str = std::fs::read_to_string(&local_path)
-            .into_diagnostic()
-            .wrap_err("Reading Bender.local failed")?;
-        let mut new_str = String::new();
-        if local_file_str.contains("overrides:") {
-            let split = local_file_str.split('\n');
-            let test = split.clone().next_back().unwrap().is_empty();
-            for i in split {
-                for (name, _, _) in &snapshot_list {
-                    if i.contains(name) {
-                        new_str.push('#');
-                    }
-                }
-                new_str.push_str(i);
-                new_str.push('\n');
-                if i.contains("overrides:") {
-                    for (name, url, hash) in &snapshot_list {
-                        let dep_str = format!(
-                            "  {}: {{ git: \"{}\", rev: \"{}\" }} # Temporary override by Bender using `bender snapshot` command\n",
-                            name, url, hash
-                        );
-                        new_str.push_str(&dep_str);
-                    }
-                }
-            }
-            if test {
-                // Ensure trailing newline is not duplicated
-                new_str.pop();
-            }
-            std::fs::write(local_path.clone(), new_str)
-                .into_diagnostic()
-                .wrap_err("Writing new Bender.local failed")?;
-            infoln!("Bender.local updated with snapshots.");
-        }
+        let overrides: Vec<_> = snapshot_list
+            .iter()
+            .map(|(name, url, rev)| (name.as_str(), LocalOverride::Git { url, rev }))
+            .collect();
+        update_local_overrides(&local_path, &overrides)?;
+        infoln!("Bender.local updated with snapshots.");
     }
 
     let rt = Runtime::new().into_diagnostic()?;
