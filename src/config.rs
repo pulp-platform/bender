@@ -1674,28 +1674,30 @@ impl PrefixPaths for PartialConfig {
     }
 }
 
+/// Merge two maps, keeping the entry of `high` where both contain a key.
+fn merge_maps<V>(
+    high: Option<IndexMap<String, V>>,
+    low: Option<IndexMap<String, V>>,
+) -> Option<IndexMap<String, V>> {
+    match (high, low) {
+        (Some(mut high), Some(low)) => {
+            for (key, value) in low {
+                high.entry(key).or_insert(value);
+            }
+            Some(high)
+        }
+        (high, low) => high.or(low),
+    }
+}
+
 impl Merge for PartialConfig {
     fn merge(self, other: PartialConfig) -> PartialConfig {
         PartialConfig {
             database: self.database.or(other.database),
             db_dir: self.db_dir.or(other.db_dir),
             git: self.git.or(other.git),
-            overrides: match (self.overrides, other.overrides) {
-                (Some(o), None) | (None, Some(o)) => Some(o),
-                (Some(mut o1), Some(o2)) => {
-                    o1.extend(o2);
-                    Some(o1)
-                }
-                (None, None) => None,
-            },
-            plugins: match (self.plugins, other.plugins) {
-                (Some(o), None) | (None, Some(o)) => Some(o),
-                (Some(mut o1), Some(o2)) => {
-                    o1.extend(o2);
-                    Some(o1)
-                }
-                (None, None) => None,
-            },
+            overrides: merge_maps(self.overrides, other.overrides),
+            plugins: merge_maps(self.plugins, other.plugins),
             git_throttle: self.git_throttle.or(other.git_throttle),
             git_lfs: match (self.git_lfs, other.git_lfs) {
                 (Some(v), None) | (None, Some(v)) => Some(v),
@@ -2043,4 +2045,36 @@ fn env_string_from_string(path_str: &str) -> Result<String> {
 
 pub(crate) fn env_path_from_string(path_str: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(env_string_from_string(path_str)?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_with(name: &str, version: &str) -> PartialConfig {
+        let dep = PartialDependency {
+            version: Some(version.into()),
+            ..Default::default()
+        };
+        PartialConfig {
+            overrides: Some(IndexMap::from([(name.to_string(), dep)])),
+            plugins: Some(IndexMap::from([(
+                name.to_string(),
+                PartialDependency::default(),
+            )])),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn merge_keeps_higher_precedence_entries() {
+        let high = config_with("foo", "1.0.0");
+        let low = config_with("foo", "2.0.0").merge(config_with("bar", "3.0.0"));
+        let merged = high.merge(low);
+
+        let overrides = merged.overrides.unwrap();
+        assert_eq!(overrides["foo"].version.as_deref(), Some("1.0.0"));
+        assert_eq!(overrides["bar"].version.as_deref(), Some("3.0.0"));
+        assert_eq!(merged.plugins.unwrap().len(), 2);
+    }
 }
