@@ -469,18 +469,9 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
     };
 
     // Validate the configuration.
-    let mut out = out
-        .merge(default_cfg)
+    out.merge(default_cfg)
         .validate(&ValidationContext::default())
-        .wrap_err("Invalid configuration:")?;
-
-    out.overrides = out
-        .overrides
-        .into_iter()
-        .map(|(k, v)| (k.to_lowercase(), v))
-        .collect();
-
-    Ok(out)
+        .wrap_err("Invalid configuration:")
 }
 
 /// Read a configuration from a file.
@@ -490,9 +481,17 @@ fn read_config(path: &Path, warn_config_loaded: bool) -> Result<PartialConfig> {
     let file = File::open(path)
         .into_diagnostic()
         .wrap_err_with(|| format!("Cannot open config {:?}.", path))?;
-    let partial: PartialConfig = serde_yaml_ng::from_reader(file)
+    let mut partial: PartialConfig = serde_yaml_ng::from_reader(file)
         .into_diagnostic()
         .wrap_err_with(|| format!("Syntax error in config {:?}.", path))?;
+    // Package names are case-insensitive. Normalize them before merging so
+    // that precedence between configuration files is respected.
+    partial.overrides = partial.overrides.map(|overrides| {
+        overrides
+            .into_iter()
+            .map(|(name, dep)| (name.to_lowercase(), dep))
+            .collect()
+    });
     if warn_config_loaded {
         Warnings::UsingConfigForOverride {
             path: path.to_path_buf(),
