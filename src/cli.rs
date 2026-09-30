@@ -389,54 +389,37 @@ pub fn remove_symlink_dir(path: &Path) -> Result<()> {
 ///
 /// Traverses the directory hierarchy upwards until a `Bender.yml` file is found.
 fn find_package_root(from: &Path) -> Result<PathBuf> {
-    #[cfg(unix)]
-    use std::os::unix::fs::MetadataExt;
-
     // Canonicalize the path. This will resolve any intermediate links.
-    let mut path = canonicalize(from)
+    let path = canonicalize(from)
         .into_diagnostic()
         .wrap_err_with(|| format!("Failed to canonicalize path {:?}.", from))?;
     log::debug!("canonicalized to {:?}", path);
 
-    // Look up the device at the current path. This information will then be
-    // used to stop at filesystem boundaries.
-    #[cfg(unix)]
-    let limit_rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
-    #[cfg(unix)]
-    log::debug!("limit rdev = {:?}", limit_rdev);
-
-    // Step upwards through the path hierarchy.
-    for _ in 0..100 {
-        log::debug!("looking in {:?}", path);
-
-        // Check if we can find a package manifest here.
-        if path.join("Bender.yml").exists() {
-            return Ok(path);
-        }
-
-        // Abort if we have reached the filesystem root.
-        if !path.pop() {
-            bail!(
-                "No manifest (`Bender.yml` file) found. Stopped searching at filesystem root {:?}.",
-                path
-            );
-        }
-
-        // Abort if we have crossed the filesystem boundary.
-        #[cfg(unix)]
-        {
-            let rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
-            log::debug!("rdev = {:?}", rdev);
-            if rdev != limit_rdev {
-                bail!(
-                    "No manifest (`Bender.yml` file) found. Stopped searching at filesystem boundary {:?}.",
-                    path
-                );
-            }
-        }
+    match ancestors_on_same_fs(&path).find(|dir| dir.join("Bender.yml").is_file()) {
+        Some(dir) => Ok(dir.to_path_buf()),
+        None => bail!(
+            "No manifest (`Bender.yml` file) found in {:?} or any parent directory on the same filesystem.",
+            path
+        ),
     }
+}
 
-    bail!("No manifest (`Bender.yml` file) found. Reached maximum number of search steps.")
+/// Device ID of a path, used to stop upward searches at filesystem boundaries.
+#[cfg(unix)]
+fn device(path: &Path) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    metadata(path).map(|m| m.dev()).ok()
+}
+
+#[cfg(not(unix))]
+fn device(_: &Path) -> Option<u64> {
+    None
+}
+
+/// All ancestors of `path` (inclusive) that live on the same filesystem.
+fn ancestors_on_same_fs(path: &Path) -> impl Iterator<Item = &Path> {
+    let dev = device(path);
+    path.ancestors().take_while(move |dir| device(dir) == dev)
 }
 
 /// Read a package manifest from a file.
@@ -458,66 +441,19 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
 }
 
 /// Load a configuration by traversing a directory hierarchy upwards.
+///
+/// Configurations are merged in order of decreasing precedence: `Bender.local`
+/// and `.bender.yml` in `from` and each of its parents on the same filesystem,
+/// then the user configuration, then the global configuration.
 fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
-    #[cfg(unix)]
-    use std::os::unix::fs::MetadataExt;
+    let candidates = ancestors_on_same_fs(from)
+        .flat_map(|dir| [dir.join("Bender.local"), dir.join(".bender.yml")])
+        .chain(dirs::home_dir().map(|home| home.join(".config").join("bender.yml")))
+        .chain([PathBuf::from("/etc/bender.yml")]);
 
     let mut out = PartialConfig::new();
-
-    // Canonicalize the path. This will resolve any intermediate links.
-    let mut path = canonicalize(from)
-        .into_diagnostic()
-        .wrap_err_with(|| format!("Failed to canonicalize path {:?}.", from))?;
-    log::debug!("canonicalized to {:?}", path);
-
-    // Look up the device at the current path. This information will then be
-    // used to stop at filesystem boundaries.
-    #[cfg(unix)]
-    let limit_rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
-    #[cfg(unix)]
-    log::debug!("limit rdev = {:?}", limit_rdev);
-
-    // Step upwards through the path hierarchy.
-    for _ in 0..100 {
-        // Load the optional local configuration.
-        if let Some(cfg) = maybe_load_config(&path.join("Bender.local"), warn_config_loaded)? {
-            out = out.merge(cfg);
-        }
-
-        log::debug!("looking in {:?}", path);
-
-        if let Some(cfg) = maybe_load_config(&path.join(".bender.yml"), warn_config_loaded)? {
-            out = out.merge(cfg);
-        }
-
-        // Abort if we have reached the filesystem root.
-        if !path.pop() {
-            break;
-        }
-
-        // Abort if we have crossed the filesystem boundary.
-        #[cfg(unix)]
-        {
-            let rdev: Option<_> = metadata(&path).map(|m| m.dev()).ok();
-            log::debug!("rdev = {:?}", rdev);
-            if rdev != limit_rdev {
-                break;
-            }
-        }
-    }
-
-    // Load the user configuration.
-    if let Some(mut home) = dirs::home_dir() {
-        home.push(".config");
-        home.push("bender.yml");
-        if let Some(cfg) = maybe_load_config(&home, warn_config_loaded)? {
-            out = out.merge(cfg);
-        }
-    }
-
-    // Load the global configuration.
-    if let Some(cfg) = maybe_load_config(Path::new("/etc/bender.yml"), warn_config_loaded)? {
-        out = out.merge(cfg);
+    for path in candidates.filter(|path| path.is_file()) {
+        out = out.merge(read_config(&path, warn_config_loaded)?);
     }
 
     // Assemble and merge the default configuration. Env-var-supplied `db_dir`
@@ -529,16 +465,12 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
             .ok()
             .filter(|s| !s.is_empty()),
         git: Some("git".into()),
-        overrides: None,
-        plugins: None,
-        git_throttle: None,
-        git_lfs: None,
-        git_submodules: None,
+        ..Default::default()
     };
-    out = out.merge(default_cfg);
 
     // Validate the configuration.
     let mut out = out
+        .merge(default_cfg)
         .validate(&ValidationContext::default())
         .wrap_err("Invalid configuration:")?;
 
@@ -551,13 +483,10 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
     Ok(out)
 }
 
-/// Load a configuration file if it exists.
-fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<PartialConfig>> {
+/// Read a configuration from a file.
+fn read_config(path: &Path, warn_config_loaded: bool) -> Result<PartialConfig> {
     use std::fs::File;
-    log::debug!("maybe loading config {:?}", path);
-    if !path.exists() {
-        return Ok(None);
-    }
+    log::debug!("reading config {:?}", path);
     let file = File::open(path)
         .into_diagnostic()
         .wrap_err_with(|| format!("Cannot open config {:?}.", path))?;
@@ -570,7 +499,7 @@ fn maybe_load_config(path: &Path, warn_config_loaded: bool) -> Result<Option<Par
         }
         .emit();
     }
-    Ok(Some(partial.prefix_paths(path.parent().unwrap())?))
+    partial.prefix_paths(path.parent().unwrap())
 }
 
 /// Execute a plugin.
