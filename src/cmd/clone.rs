@@ -279,13 +279,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
 
             // Check if there is something at the destination path that needs to be
             // removed.
-            if link_path.exists() {
-                let meta = link_path
-                    .symlink_metadata()
-                    .into_diagnostic()
-                    .wrap_err_with(|| {
-                        format!("Failed to read metadata of path {:?}.", link_path)
-                    })?;
+            if let Ok(meta) = link_path.symlink_metadata() {
                 if !meta.file_type().is_symlink() {
                     Warnings::SkippingPackageLink(pkg_name.clone(), link_path.to_path_buf()).emit();
                     continue;
@@ -299,7 +293,7 @@ pub fn run(sess: &Session, path: &Path, args: &CloneArgs) -> Result<()> {
             }
 
             // Create the symlink if there is nothing at the destination.
-            if !link_path.exists() {
+            if link_path.symlink_metadata().is_err() {
                 if let Some(parent) = link_path.parent() {
                     std::fs::create_dir_all(parent)
                         .into_diagnostic()
