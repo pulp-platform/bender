@@ -284,11 +284,7 @@ pub fn main() -> Result<()> {
 
             // Check if there is something at the destination path that needs to be
             // removed.
-            if path.exists() {
-                let meta = path
-                    .symlink_metadata()
-                    .into_diagnostic()
-                    .wrap_err_with(|| format!("Failed to read metadata of path {:?}.", path))?;
+            if let Ok(meta) = path.symlink_metadata() {
                 if !meta.file_type().is_symlink() {
                     Warnings::SkippingPackageLink(pkg_name.clone(), path.clone()).emit();
                     continue;
@@ -302,7 +298,7 @@ pub fn main() -> Result<()> {
             }
 
             // Create the symlink if there is nothing at the destination.
-            if !path.exists() {
+            if path.symlink_metadata().is_err() {
                 if let Some(parent) = path.parent() {
                     std::fs::create_dir_all(parent)
                         .into_diagnostic()
