@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 - script: Upgrade the templating engine from Tera 1 to Tera 2. Custom templates passed to `bender script template --template` may need updating. See the [Tera migration guide](https://github.com/Keats/tera/blob/master/MIGRATION.md) for the full list. The output of all built-in formats is unchanged.
 
 ### Added
+- Add `checkout_store` config field to share git checkouts across projects, one per dependency URL and locked revision.
 - script: expose `all_headers` to templates — the fine-grained, transitive, deduplicated set of header files Slang resolved via `` `include `` for the kept trees. Populated whenever the Slang pass runs (`--top`/`--trim-incdirs`/`--broken`/`--encrypted`).
 
 ### Changed

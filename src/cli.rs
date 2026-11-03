@@ -528,6 +528,7 @@ fn load_config(from: &Path, warn_config_loaded: bool) -> Result<Config> {
         db_dir: std::env::var("BENDER_DB_DIR")
             .ok()
             .filter(|s| !s.is_empty()),
+        checkout_store: None,
         git: Some("git".into()),
         overrides: None,
         plugins: None,

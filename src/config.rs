@@ -1620,6 +1620,9 @@ pub struct Config {
     /// these two specific paths; checkouts and everything else still derive
     /// from `database`.
     pub db_dir: Option<PathBuf>,
+    /// Optional directory of git checkouts shared across projects, one per
+    /// dependency URL and revision.
+    pub checkout_store: Option<PathBuf>,
     /// The git command or path to the binary.
     pub git: String,
     /// The dependency overrides.
@@ -1641,6 +1644,8 @@ pub struct PartialConfig {
     pub database: Option<String>,
     /// Optional override for the bare-repo and lock directory.
     pub db_dir: Option<String>,
+    /// Optional directory of shared git checkouts.
+    pub checkout_store: Option<String>,
     /// The git command or path to the binary.
     pub git: Option<String>,
     /// The dependency overrides.
@@ -1667,6 +1672,7 @@ impl PrefixPaths for PartialConfig {
         Ok(PartialConfig {
             database: self.database.prefix_paths(prefix)?,
             db_dir: self.db_dir.prefix_paths(prefix)?,
+            checkout_store: self.checkout_store.prefix_paths(prefix)?,
             overrides: self.overrides.prefix_paths(prefix)?,
             plugins: self.plugins.prefix_paths(prefix)?,
             ..self
@@ -1679,6 +1685,7 @@ impl Merge for PartialConfig {
         PartialConfig {
             database: self.database.or(other.database),
             db_dir: self.db_dir.or(other.db_dir),
+            checkout_store: self.checkout_store.or(other.checkout_store),
             git: self.git.or(other.git),
             overrides: match (self.overrides, other.overrides) {
                 (Some(o), None) | (None, Some(o)) => Some(o),
@@ -1724,6 +1731,10 @@ impl Validate for PartialConfig {
                 Some(d) => Some(env_path_from_string(&d)?),
                 None => None,
             },
+            checkout_store: self
+                .checkout_store
+                .map(|d| env_path_from_string(&d))
+                .transpose()?,
             git: match self.git {
                 Some(git) => git,
                 None => bail!("Git command or path to binary not configured"),
