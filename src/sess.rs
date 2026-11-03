@@ -503,6 +503,16 @@ impl<'ctx> Session<'ctx> {
     pub fn get_package_path(&self, dep_id: DependencyRef) -> PathBuf {
         let dep = self.dependency(dep_id);
 
+        // With a checkout store, a git dependency's checkout is keyed by its
+        // URL and locked revision, so every project on that revision shares it.
+        if let (Some(store), DependencySource::Git(url), Some(rev), None) = (
+            &self.config.checkout_store,
+            &dep.source,
+            &dep.revision,
+            &self.manifest.workspace.checkout_dir,
+        ) {
+            return store.join(self.git_db_name(&dep.name, url)).join(rev);
+        }
         self.get_depsource_path(&dep.name, &dep.source)
     }
 
@@ -586,12 +596,14 @@ impl<'ctx> Session<'ctx> {
     /// The directory under which bare git databases and lock files live.
     ///
     /// Uses `db_dir` if configured (the recommended way to share bare repos
-    /// across projects without relocating checkouts), otherwise falls back to
-    /// `database`.
+    /// across projects without relocating checkouts), otherwise
+    /// `checkout_store`, whose checkouts borrow objects from these repos, and
+    /// falls back to `database`.
     pub fn db_parent(&self) -> &Path {
         self.config
             .db_dir
             .as_deref()
+            .or(self.config.checkout_store.as_deref())
             .unwrap_or(&self.config.database)
     }
 }

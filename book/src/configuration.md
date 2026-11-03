@@ -36,6 +36,12 @@ Optional override for the directory that holds the bare git repositories and the
 
 > **Note:** Bender versions before 0.32 silently ignore this field and fall back to their per-project default, so it is safe to ship in a shared configuration that mixed bender versions may read.
 
+### `checkout_store`
+Optional directory of git checkouts shared across projects. Each git dependency is checked out once per URL and locked revision, at `<checkout_store>/<name>-<hash>/<revision>/`, and every project locked to that revision uses that checkout instead of its own. Unless `db_dir` is set, the bare repositories the checkouts borrow their objects from live under `<checkout_store>/git/db/`. Treat the checkouts as read-only; use `bender clone` to modify a dependency. Projects with a [`workspace.checkout_dir`](./manifest.md) keep their own checkouts.
+- **Config Key:** `checkout_store`
+- **Default:** unset (checkouts follow `database`).
+- **Example:** `checkout_store: /var/cache/bender_checkouts`
+
 ### `git`
 The command or path used to invoke Git.
 - **Config Key:** `git`
