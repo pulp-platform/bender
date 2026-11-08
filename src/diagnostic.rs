@@ -446,6 +446,18 @@ pub enum Warnings {
         )
     )]
     SubmodulesDisabled(String, Vec<String>),
+
+    #[error("Package {} re-exports include directories of {}, which is not one of its dependencies.", fmt_pkg!(pkg), fmt_pkg!(dep))]
+    #[diagnostic(code(W37))]
+    ExportDirUnknownDep { pkg: String, dep: String },
+
+    #[error("Package {} re-exports include directory {} of {}, which does not match any of its `export_include_dirs`.", fmt_pkg!(pkg), fmt_path!(dir.display()), fmt_pkg!(dep))]
+    #[diagnostic(code(W38))]
+    ExportDirNotFound {
+        pkg: String,
+        dep: String,
+        dir: PathBuf,
+    },
 }
 
 #[derive(Error, Diagnostic, Debug, Clone)]
@@ -469,6 +481,24 @@ pub enum Errors {
     #[error("Path {} for dependency {} does not exist.", fmt_path!(path.display()), fmt_pkg!(pkg))]
     #[diagnostic(code(E32))]
     DepPathMissing { pkg: String, path: PathBuf },
+
+    #[error("Package {} re-exports include directories of {}, which is not one of its dependencies.", fmt_pkg!(pkg), fmt_pkg!(dep))]
+    #[diagnostic(
+        code(E33),
+        help("Add {} to the `dependencies` of {}, or remove the entry from `export_include_dirs`.", fmt_pkg!(dep), fmt_pkg!(pkg))
+    )]
+    ExportDirUnknownDep { pkg: String, dep: String },
+
+    #[error("Package {} re-exports include directory {} of {}, which does not match any of its `export_include_dirs`.", fmt_pkg!(pkg), fmt_path!(dir.display()), fmt_pkg!(dep))]
+    #[diagnostic(
+        code(E34),
+        help("The `dir` must be listed in the `export_include_dirs` of {} (relative to its root).", fmt_pkg!(dep))
+    )]
+    ExportDirNotFound {
+        pkg: String,
+        dep: String,
+        dir: PathBuf,
+    },
 }
 
 impl Errors {
@@ -478,6 +508,10 @@ impl Errors {
             Errors::IgnoredPath { cause } => Warnings::IgnoredPath { cause },
             Errors::FileMissing { path } => Warnings::FileMissing { path },
             Errors::DepPathMissing { pkg, path } => Warnings::DepPathMissing { pkg, path },
+            Errors::ExportDirUnknownDep { pkg, dep } => Warnings::ExportDirUnknownDep { pkg, dep },
+            Errors::ExportDirNotFound { pkg, dep, dir } => {
+                Warnings::ExportDirNotFound { pkg, dep, dir }
+            }
         }
     }
 
