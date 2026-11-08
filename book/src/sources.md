@@ -113,6 +113,28 @@ export_include_dirs:
 
 Any package that depends on `my_utils` will automatically have the `include` directory added to its include search path.
 
+Only the packages that directly depend on `my_utils` receive its include directories. A package can pass the include directories of its dependencies on by listing the dependency with `dep`:
+
+```yaml
+package:
+  name: my_bus
+
+dependencies:
+  common_cells: { git: "https://github.com/pulp-platform/common_cells.git", version: 1.39.0 }
+  reqrsp_interface: { git: "https://github.com/pulp-platform/reqrsp_interface.git", version: 0.4.0 }
+
+export_include_dirs:
+  - include/normal/dir
+  - dep: common_cells
+    dir: include             # must match an existing export_include_dir of common_cells
+  - dep: reqrsp_interface    # without `dir`, all export_include_dirs of the dependency are passed on
+```
+
+- `dep` must name a direct dependency of the package.
+- `dir` is given relative to the root of that dependency and must exactly match one of its `export_include_dirs` (a leading `./` and trailing `/` are ignored); otherwise Bender reports an error. Absolute paths and `..` never match.
+- Re-exports are resolved transitively: if `common_cells` itself re-exports directories of one of its dependencies, these are passed on as well.
+- An optional `target` restricts a re-export, just like for plain entries. Targets of the re-exported directories in the dependency are preserved.
+
 > **Best Practice:** To avoid naming collisions, place your headers in a sub-folder named after your package.
 >
 > **The Problem:** If two packages (`axi` and `apb`) both export a header named `typedefs.svh`, a file including `` `include "typedefs.svh" `` will be ambiguous, and the compiler will pick whichever directory it finds first in the include path.
