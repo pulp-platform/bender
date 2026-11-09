@@ -1723,31 +1723,78 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
 
         use std::iter::once;
 
-        // Create IndexMap of the export_include_dirs for each package
+        // Create IndexMap of the export_include_dirs for each package, including
+        // the directories re-exported from dependencies. Ranks are ordered such
+        // that dependencies come before their dependents, so the exports of a
+        // dependency are final by the time they are re-exported.
         let mut all_export_include_dirs: IndexMap<String, Vec<(TargetSpec, &Path)>> =
             IndexMap::new();
-        let tmp_export_include_dirs: Vec<IndexMap<String, _>> = ranks
-            .clone()
-            .into_iter()
-            .chain(once(vec![Some(self.sess.manifest)]))
-            .map(|manifests| {
+        let pkgs = self.sess.packages();
+        let manifests_with_roots = ranks
+            .iter()
+            .zip(pkgs.iter())
+            .flat_map(|(manifests, deps)| {
                 manifests
-                    .into_iter()
-                    .flatten()
-                    .map(|m| {
+                    .iter()
+                    .zip(deps.iter())
+                    .filter_map(|(m, &dep_id)| m.map(|m| (m, self.sess.get_package_path(dep_id))))
+            })
+            .chain(once((self.sess.manifest, self.sess.root.to_path_buf())))
+            .collect::<Vec<_>>();
+        for (m, _) in &manifests_with_roots {
+            let mut dirs: Vec<(TargetSpec, &Path)> = m
+                .export_include_dirs
+                .iter()
+                .map(|(trgt, path)| (trgt.clone(), path.as_path()))
+                .collect();
+            for re in &m.reexport_include_dirs {
+                let Some(dep_dirs) = all_export_include_dirs.get(&re.dep) else {
+                    Warnings::ExportDirNameIssue(re.dep.clone()).emit();
+                    continue;
+                };
+                // `dir` must exactly match an export dir of the dependency,
+                // relative to the dependency root.
+                let wanted = re.dir.as_deref().map(normalize_rel_path);
+                let dep_root = manifests_with_roots
+                    .iter()
+                    .find(|(dm, _)| dm.package.name == re.dep)
+                    .map(|(_, root)| root.as_path());
+                let selected: Vec<_> = dep_dirs
+                    .iter()
+                    .filter(|(_, path)| match &wanted {
+                        None => true,
+                        Some(wanted) => {
+                            wanted.is_some()
+                                && dep_root
+                                    .and_then(|root| path.strip_prefix(root).ok())
+                                    .and_then(normalize_rel_path)
+                                    == *wanted
+                        }
+                    })
+                    .map(|(trgt, path)| {
                         (
-                            m.package.name.clone(),
-                            m.export_include_dirs
-                                .iter()
-                                .map(|(trgt, path)| (trgt.clone(), path.as_path()))
-                                .collect(),
+                            TargetSpec::All([re.target.clone(), trgt.clone()].into()).reduce(),
+                            *path,
                         )
                     })
-                    .collect()
-            })
-            .collect();
-        for element in tmp_export_include_dirs {
-            all_export_include_dirs.extend(element);
+                    .collect();
+                match &re.dir {
+                    Some(dir) if selected.is_empty() => Errors::ExportDirNotFound {
+                        pkg: m.package.name.clone(),
+                        dep: re.dep.clone(),
+                        dir: dir.clone(),
+                    }
+                    .downgrade_if_suppressed()?,
+                    _ => {
+                        for d in selected {
+                            if !dirs.contains(&d) {
+                                dirs.push(d);
+                            }
+                        }
+                    }
+                }
+            }
+            all_export_include_dirs.insert(m.package.name.clone(), dirs);
         }
         log::debug!(
             "export_include_dirs for each package: {:?}",
@@ -1778,8 +1825,16 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
                                     Warnings::ExportDirNameIssue(i.clone()).emit();
                                     export_include_dirs.insert(i.to_string(), Vec::new());
                                 } else {
-                                    export_include_dirs
-                                        .insert(i.to_string(), all_export_include_dirs[i].clone());
+                                    // Skip directories already listed for another package,
+                                    // e.g. when several dependencies re-export the same one.
+                                    let dirs = all_export_include_dirs[i]
+                                        .iter()
+                                        .filter(|d| {
+                                            !export_include_dirs.values().flatten().any(|e| e == *d)
+                                        })
+                                        .cloned()
+                                        .collect();
+                                    export_include_dirs.insert(i.to_string(), dirs);
                                 }
                             }
                         }
@@ -2262,4 +2317,17 @@ pub struct Plugin {
     pub package: DependencyRef,
     /// What binary implements the plugin.
     pub path: PathBuf,
+}
+
+/// Normalize a relative path by dropping `.` components and trailing slashes.
+///
+/// Returns `None` for paths that are absolute or contain `..`.
+fn normalize_rel_path(path: &Path) -> Option<PathBuf> {
+    path.components()
+        .filter(|c| !matches!(c, std::path::Component::CurDir))
+        .map(|c| match c {
+            std::path::Component::Normal(n) => Some(n),
+            _ => None,
+        })
+        .collect()
 }

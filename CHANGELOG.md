@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 
 ### Added
 - script: expose `all_headers` to templates — the fine-grained, transitive, deduplicated set of header files Slang resolved via `` `include `` for the kept trees. Populated whenever the Slang pass runs (`--top`/`--trim-incdirs`/`--broken`/`--encrypted`).
+- manifest: allow packages to re-export the `export_include_dirs` of their direct dependencies with `- dep: <name>` and an optional `dir: <path>`, so that include directories can be passed on transitively (https://github.com/pulp-platform/bender/issues/340).
 
 ### Changed
 - `bender clone`: primary flag for the checkout directory is now `--working-dir`, matching `bender snapshot`'s flag for the same concept; `-p`/`--path` are kept as hidden aliases for backwards compatibility.

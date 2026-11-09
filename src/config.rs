@@ -45,6 +45,8 @@ pub struct Manifest {
     pub sources: Option<Sources>,
     /// The include directories exported to dependent packages.
     pub export_include_dirs: Vec<(TargetSpec, PathBuf)>,
+    /// The include directories of dependencies re-exported to dependent packages.
+    pub reexport_include_dirs: Vec<ReexportIncludeDir>,
     /// The plugin binaries.
     pub plugins: IndexMap<String, PathBuf>,
     /// Whether the dependencies of the manifest are frozen.
@@ -78,6 +80,21 @@ impl PrefixPaths for Manifest {
             ..self
         })
     }
+}
+
+/// A re-exported include directory of a dependency.
+///
+/// Makes the exported include directories of a direct dependency available to
+/// the packages depending on this one.
+#[derive(Clone, Debug)]
+pub struct ReexportIncludeDir {
+    /// The name of the dependency whose include directories are re-exported.
+    pub dep: String,
+    /// The directory of the dependency to re-export, as listed in its
+    /// `export_include_dirs`. If `None`, all of its directories are re-exported.
+    pub dir: Option<PathBuf>,
+    /// The target spec for which the re-export applies.
+    pub target: TargetSpec,
 }
 
 /// A package definition.
@@ -446,7 +463,7 @@ pub struct PartialManifest {
     /// The source files.
     pub sources: Option<SeqOrStruct<PartialSources, PartialSourceFile>>,
     /// The include directories exported to dependent packages.
-    pub export_include_dirs: Option<Vec<StringOrStruct<PartialIncludeDir>>>,
+    pub export_include_dirs: Option<Vec<StringOrStruct<PartialExportIncludeDir>>>,
     /// The plugin binaries.
     pub plugins: Option<IndexMap<String, String>>,
     /// Whether the dependencies of the manifest are frozen.
@@ -581,11 +598,29 @@ impl Validate for PartialManifest {
             ),
             None => None,
         };
-        let exp_inc_dirs = self
+        let mut exp_inc_dirs = Vec::new();
+        let mut reexp_inc_dirs = Vec::new();
+        for entry in self
             .export_include_dirs
             .unwrap_or_default()
             .validate(vctx)
-            .wrap_err(format!("In export_include_dirs of package `{}`:", pkg.name))?;
+            .wrap_err(format!("In export_include_dirs of package `{}`:", pkg.name))?
+        {
+            match entry {
+                ExportIncludeDir::Local(trgt, path) => exp_inc_dirs.push((trgt, path)),
+                ExportIncludeDir::Dep(reexport) => {
+                    if deps.contains_key(&reexport.dep) {
+                        reexp_inc_dirs.push(reexport);
+                    } else {
+                        Errors::ExportDirUnknownDep {
+                            pkg: pkg.name.clone(),
+                            dep: reexport.dep,
+                        }
+                        .downgrade_if_suppressed()?;
+                    }
+                }
+            }
+        }
         let plugins = match self.plugins {
             Some(s) => s
                 .iter()
@@ -639,6 +674,7 @@ impl Validate for PartialManifest {
                     Ok((trgt, path))
                 })
                 .collect::<Result<Vec<_>>>()?,
+            reexport_include_dirs: reexp_inc_dirs,
             plugins,
             frozen,
             workspace,
@@ -892,6 +928,87 @@ impl Validate for PartialIncludeDir {
             });
         }
         Ok((self.target.unwrap_or(TargetSpec::Wildcard), dir))
+    }
+}
+
+/// A partial entry of `export_include_dirs`.
+///
+/// Either a directory of this package (`dir`), or the include directories of a
+/// dependency (`dep`, optionally restricted to a single `dir` of that dependency).
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PartialExportIncludeDir {
+    /// The target spec for which the include dir applies
+    pub target: Option<TargetSpec>,
+    /// The include directory path
+    pub dir: Option<String>,
+    /// The dependency whose include directories are re-exported
+    pub dep: Option<String>,
+    /// Unknown extra fields
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+}
+
+impl FromStr for PartialExportIncludeDir {
+    type Err = Void;
+    fn from_str(s: &str) -> std::result::Result<Self, Void> {
+        Ok(PartialExportIncludeDir {
+            target: None,
+            dir: Some(s.into()),
+            dep: None,
+            extra: HashMap::new(),
+        })
+    }
+}
+
+impl PrefixPaths for PartialExportIncludeDir {
+    fn prefix_paths(self, prefix: &Path) -> Result<Self> {
+        // The `dir` of a re-export refers to the dependency, not to this package.
+        if self.dep.is_some() {
+            return Ok(self);
+        }
+        Ok(PartialExportIncludeDir {
+            dir: self.dir.prefix_paths(prefix)?,
+            ..self
+        })
+    }
+}
+
+/// An entry of `export_include_dirs`.
+pub enum ExportIncludeDir {
+    /// An include directory of this package.
+    Local(TargetSpec, PathBuf),
+    /// Include directories of a dependency.
+    Dep(ReexportIncludeDir),
+}
+
+impl Validate for PartialExportIncludeDir {
+    type Output = ExportIncludeDir;
+    type Error = Error;
+    fn validate(self, vctx: &ValidationContext) -> Result<ExportIncludeDir> {
+        if !vctx.pre_output {
+            self.extra.iter().for_each(|(k, _)| {
+                Warnings::IgnoreUnknownField {
+                    field: k.clone(),
+                    pkg: vctx.package_name.to_string(),
+                }
+                .emit();
+            });
+        }
+        let target = self.target.unwrap_or(TargetSpec::Wildcard);
+        match (self.dep, self.dir) {
+            (None, Some(dir)) => Ok(ExportIncludeDir::Local(target, env_path_from_string(&dir)?)),
+            (Some(_), Some(dir)) if dir.trim().is_empty() => Err(err!(
+                "The `dir` of a re-exported dependency must not be empty."
+            )),
+            (Some(dep), dir) => Ok(ExportIncludeDir::Dep(ReexportIncludeDir {
+                dep: dep.to_lowercase(),
+                dir: dir.map(PathBuf::from),
+                target,
+            })),
+            (None, None) => Err(err!(
+                "An export_include_dirs entry needs a `dir` or a `dep`."
+            )),
+        }
     }
 }
 

@@ -67,6 +67,16 @@ export_include_dirs:
   - include
 ```
 
+Entries can also re-export the include directories of a direct dependency, so that packages depending on this one see them as well. With only `dep`, all `export_include_dirs` of that dependency are passed on; with `dir`, only the one that exactly matches an entry of the dependency's `export_include_dirs`. See [Exported Include Directories](sources.md#exported-include-directories).
+
+```yaml
+export_include_dirs:
+  - include
+  - dep: common_cells
+    dir: include
+  - dep: reqrsp_interface
+```
+
 Setting `frozen` to `true` prevents Bender from updating dependencies beyond what is recorded in the lockfile. This is useful for chip packages in tape-out mode where dependency changes would require disastrous amounts of re-verification.
 
 ```yaml
